@@ -324,6 +324,7 @@ impl ManagedConnect<'_> {
             connection: None,
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
         };
         let ensured = ensure_flow(client, &mut TerminalPrompt, ctx, request, false).await;
         if ensured.env.code != Code::AccessReady {

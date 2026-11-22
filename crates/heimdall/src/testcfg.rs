@@ -60,6 +60,14 @@
 //! | `HEIMDALL_TEST_SESSION_LOCK` | Absolute path of the state file testkit's `FakeSessionLockSource` reads. |
 //! | `HEIMDALL_TEST_SCRIPT_PAUSE_DIR` | Absolute directory in which an enrollment script pauses. |
 //!
+//! **⟨M06⟩ the runner's sshd policy check** (ADR-0006 §18.7 "Also ruled", 2026-11-21).
+//! One variable, debug builds only, read by `service run` ([`isolate_projection`]); a
+//! release build refuses it like the others ([`requested`] covers [`M06_ENV`]):
+//!
+//! | Variable | Meaning |
+//! |---|---|
+//! | `HEIMDALL_TEST_RUNNER_SSHD_CONFIG` | Absolute path of a fixture `sshd_config`, used only as the `sshd -T` check's `-f` path: a runner runtime under `HEIMDALL_TEST_SSH_HOME` (required with it) then checks its effective sshd policy for that scratch home, instead of running no check. |
+//!
 //! The fake adapter's credential reference carries a synthetic
 //! `HEIMDALL_CANARY_*` value built at runtime; it must never reach an envelope,
 //! event or log line (the e2e suite scans every byte the binary prints).
@@ -281,6 +289,16 @@ pub const WSL_ENV: [&str; 6] = [
     WSL_HELPER_ENV,
     WSL_DIRECT_ENV,
 ];
+
+/// ⟨M06 W3; ADR-0006 §18.7 "Also ruled"⟩ Absolute path of a fixture `sshd_config`: a runner
+/// runtime started under a scratch [`SSH_HOME_ENV`] then runs its effective sshd policy
+/// check (`sshd -T -f <this file>`, nothing listens) for that scratch home, instead of no
+/// check. The value is used only as the check's configuration path. Debug builds only.
+pub const RUNNER_SSHD_CONFIG_ENV: &str = "HEIMDALL_TEST_RUNNER_SSHD_CONFIG";
+
+/// ⟨M06⟩ Every variable the M06 test configuration adds. [`requested_by`] covers it, so a
+/// release build refuses them like every other test variable.
+pub const M06_ENV: [&str; 1] = [RUNNER_SSHD_CONFIG_ENV];
 
 /// ⟨M04 W2⟩ The WSL host [`WSL_DIRECT_ENV`] describes, or `None` when it is unset. Debug only.
 ///
@@ -601,6 +619,7 @@ pub fn requested_by(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> bool {
         .iter()
         .chain(M03_ENV.iter())
         .chain(WSL_ENV.iter())
+        .chain(M06_ENV.iter())
         .any(|name| env(name).is_some())
 }
 
@@ -1189,7 +1208,8 @@ mod enabled {
     ///
     /// # Errors
     ///
-    /// A relative `HEIMDALL_TEST_SSH_HOME` (a usage error of the test harness).
+    /// A relative `HEIMDALL_TEST_SSH_HOME` (a usage error of the test harness); a
+    /// `HEIMDALL_TEST_RUNNER_SSHD_CONFIG` that is relative or set without it.
     pub fn isolate_projection(
         options: &mut ServiceOptions,
         paths: &Paths,
@@ -1200,7 +1220,45 @@ mod enabled {
             return Ok(());
         }
         options.projection = projection_wiring(paths, env)?;
+        if let Some(sshd) = runner_sshd(paths, env)? {
+            options.runner.sshd = Some(sshd);
+        }
         Ok(())
+    }
+
+    /// ⟨M06 W3⟩ The runner's sshd policy check under [`RUNNER_SSHD_CONFIG_ENV`]
+    /// (`heimdall_runtime::paired::RunnerSshd`): the system `sshd -T` over the fixture
+    /// configuration, for the scratch `HEIMDALL_TEST_SSH_HOME` as the account home (never
+    /// the account's own) and a fixture POSIX login shell. The variable's value is only the
+    /// check's `-f` path. `None` when it is unset.
+    ///
+    /// # Errors
+    ///
+    /// A relative value; the variable without `HEIMDALL_TEST_SSH_HOME`; an account name
+    /// that cannot be resolved.
+    fn runner_sshd(
+        paths: &Paths,
+        env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    ) -> Result<Option<heimdall_runtime::paired::RunnerSshd>, String> {
+        use super::{RUNNER_SSHD_CONFIG_ENV, SSH_HOME_ENV};
+        let Some(config) = env(RUNNER_SSHD_CONFIG_ENV) else {
+            return Ok(None);
+        };
+        let config = absolute(RUNNER_SSHD_CONFIG_ENV, config)?;
+        let home = env(SSH_HOME_ENV)
+            .ok_or_else(|| format!("{RUNNER_SSHD_CONFIG_ENV} needs {SSH_HOME_ENV}"))?;
+        let home = absolute(SSH_HOME_ENV, home)?;
+        let user = heimdall_localenv::sys::account_name()
+            .map_err(|_| format!("{RUNNER_SSHD_CONFIG_ENV}: the account name is unavailable"))?;
+        Ok(Some(heimdall_runtime::paired::RunnerSshd {
+            sshd: PathBuf::from(heimdall_remote::sshd_policy::DEFAULT_SSHD),
+            config: Some(config),
+            user,
+            home,
+            login_shell: Some("/bin/sh".to_owned()),
+            scratch_parent: paths.state_dir.clone(),
+            timeout: heimdall_remote::sshd_policy::DEFAULT_TIMEOUT,
+        }))
     }
 
     /// The projection wiring of a test runtime (see [`isolate_projection`]): a
@@ -1362,6 +1420,49 @@ mod enabled {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        /// ⟨M06 W3; ADR-0006 §18.7 "Also ruled"⟩ `HEIMDALL_TEST_RUNNER_SSHD_CONFIG`: an
+        /// absolute path, only beside a scratch SSH home, and only the check's `-f` path
+        /// (the check's home is the scratch home). A release build refuses it as it does
+        /// every test variable.
+        #[test]
+        #[allow(clippy::unwrap_used)]
+        fn the_runner_sshd_config_variable_is_absolute_and_needs_a_scratch_home() {
+            use super::super::{RUNNER_SSHD_CONFIG_ENV, SSH_HOME_ENV};
+            let dir = tempfile::tempdir().unwrap();
+            let paths = Paths::under(&dir.path().join("heimdall"));
+            let scratch = dir.path().join("account");
+            let config = dir.path().join("sshd_config");
+            let env = |home: bool, value: &std::path::Path| {
+                let (scratch, value) = (scratch.clone(), value.to_path_buf());
+                move |n: &str| match n {
+                    RUNNER_SSHD_CONFIG_ENV => Some(value.clone().into_os_string()),
+                    SSH_HOME_ENV if home => Some(scratch.clone().into_os_string()),
+                    _ => None,
+                }
+            };
+            let only = env(false, &config);
+            assert!(super::super::requested_by(&only));
+            assert!(super::super::refusal(false, super::super::requested_by(&only)).is_some());
+            let mut options = ServiceOptions::production().unwrap();
+            assert!(options.runner.sshd.is_none());
+            let err = isolate_projection(&mut options, &paths, &only).unwrap_err();
+            assert!(err.contains(SSH_HOME_ENV), "{err}");
+            let relative = env(true, std::path::Path::new("sshd_config"));
+            let err = isolate_projection(&mut options, &paths, &relative).unwrap_err();
+            assert!(err.contains("absolute"), "{err}");
+            assert!(options.runner.sshd.is_none());
+            isolate_projection(&mut options, &paths, &env(true, &config)).unwrap();
+            let sshd = options.runner.sshd.unwrap();
+            assert_eq!(sshd.config.as_deref(), Some(config.as_path()));
+            assert_eq!(sshd.home, scratch);
+            assert_eq!(sshd.scratch_parent, paths.state_dir);
+            // Without the variable a test runtime has no check.
+            let mut options = ServiceOptions::production().unwrap();
+            let home_only = |n: &str| (n == SSH_HOME_ENV).then(|| scratch.clone().into());
+            isolate_projection(&mut options, &paths, &home_only).unwrap();
+            assert!(options.runner.sshd.is_none());
+        }
 
         /// ⟨M02⟩ W4 integration: a runtime started under the test configuration
         /// never wires the account's real SSH configuration. With a scratch SSH home

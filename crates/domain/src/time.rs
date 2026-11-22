@@ -57,6 +57,13 @@ pub trait Clock: Send + Sync {
     /// Continuous time since an arbitrary origin of the **current boot**; counts
     /// sleep and suspend; never decreases within a boot.
     fn continuous(&self) -> Duration;
+    /// The continuous clock, or `None` when the platform source is unavailable right now
+    /// (⟨M06 W3, ruling 2⟩: a caller that must not read an unavailable clock as "no time
+    /// elapsed" refuses on `None`). [`Self::continuous`] may answer a clamped earlier value
+    /// instead; clocks that cannot fail keep this default.
+    fn try_continuous(&self) -> Option<Duration> {
+        Some(self.continuous())
+    }
     /// Identifier of the current boot.
     fn boot_id(&self) -> BootId;
 

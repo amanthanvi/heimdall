@@ -139,6 +139,31 @@
           "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 8): a background activation was activated,\nblocked or not covered (payload [`crate::trust::ActivationEventPayload`]). Not\nemitted by joint wave 0.",
           "type": "string",
           "const": "activation"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6 (ADR-0012 §9 item 8): `environment.connectivity_changed` (payload\n[`crate::remote::EnvironmentEventPayload`]). Declared, not emitted by wave 0.",
+          "type": "string",
+          "const": "environment"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: `client.enrolled`, `client.revoked` (payload\n[`crate::remote::ClientEventPayload`]). Declared, not emitted by wave 0.",
+          "type": "string",
+          "const": "client"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: `device.retired` (payload [`crate::remote::DeviceEventPayload`]).\nDeclared, not emitted by wave 0.",
+          "type": "string",
+          "const": "device"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: `remote_effect.pending`, `remote_effect.acknowledged` (payload\n[`crate::remote::RemoteEffectEventPayload`]). Declared, not emitted by wave 0.",
+          "type": "string",
+          "const": "remote_effect"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: `route.health` for every attempt, `route.failed_over` its subtype\n(payload [`crate::route::RouteHealthPayload`]). Declared, not emitted by wave 0.",
+          "type": "string",
+          "const": "route"
         }
       ]
     },

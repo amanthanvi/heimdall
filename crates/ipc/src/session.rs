@@ -63,6 +63,20 @@
 //! dropped, never buffered without bound. The backlog itself is bounded by the
 //! dispatcher (store retention and paging), not by this module.
 //!
+//! **Paired sessions** (⟨M06 W2⟩ ADR-0012 §3.6–§3.11; ADR-0006 §18.5 readings 1, 5, 17).
+//! The offer is the dispatcher's ([`Dispatcher::offered_capabilities`]: a runner adds
+//! `remote-control/1`). A hello naming a `remote_client` passes the precheck (protocol,
+//! schema, an offer with `remote-control/1`, else `SCHEMA_UNSUPPORTED`), then the
+//! dispatcher resolves the client in the runner's role table and binds the connection to
+//! it for the session's lifetime ([`Dispatcher::bind_paired`]; a refusal is the hello's
+//! `Reject`); capabilities alone never establish an identity. Negotiation is then
+//! [`negotiate_session`]: the role's set, or, for a client pending at the hello, only
+//! [`PENDING_CAPABILITIES`]. A paired session is non-interactive whatever its hello said,
+//! so `Attend` and attended-only requests are refused here. Its live events pass the
+//! dispatcher's per-subscription visibility ([`Dispatcher::live_visibility`]), and when
+//! the dispatcher's [`Dispatcher::session_end`] resolves (a revoked client) every
+//! subscription receives the terminal event, then `Goodbye`, and the connection closes.
+//!
 //! **Oversized events** (ADR-0006 §8, §13.4 N03). An event whose frame exceeds the
 //! control frame limit is never delivered: `send_event` reports
 //! [`Delivery::Replaced`], the subscription's cursor stays at the last event
@@ -79,7 +93,9 @@ use std::time::Duration;
 
 use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt, StreamExt};
-use heimdall_contract::envelope::{EffectStatus, Envelope, ErrorData, ErrorDetail, NextAction};
+use heimdall_contract::envelope::{
+    EffectStatus, Envelope, ErrorData, ErrorDetail, NextAction, reason,
+};
 use heimdall_contract::event::{Cursor, Event, EventFilter, EventType, MAX_CURSOR_LEN, Snapshot};
 use heimdall_contract::ids::{EnvironmentId, EventId};
 use heimdall_contract::ipc::{
@@ -87,7 +103,8 @@ use heimdall_contract::ipc::{
     MAX_CONTROL_FRAME_BYTES, MAX_HELLO_FRAME_BYTES, MAX_SUBSCRIPTIONS_PER_CONNECTION, PeerInfo,
     PrincipalInfo, ServerHello, ServerMessage, capability,
 };
-use heimdall_contract::request::{InteractionMode, Request};
+use heimdall_contract::remote::Role;
+use heimdall_contract::request::{InteractionMode, ObserveRequest, Request};
 use heimdall_contract::{Code, PROTOCOL_VERSION, SchemaVersion};
 use tokio::sync::broadcast;
 use tokio_util::bytes::{Buf, Bytes, BytesMut};
@@ -139,51 +156,187 @@ pub fn server_capabilities() -> BTreeSet<String> {
 /// The negotiated set is the server offer ∩ the client's `capabilities`; every
 /// `required` capability must be in it (ADR-0006 §2.3 rev2, review F10), else
 /// `SCHEMA_UNSUPPORTED`. Rejection messages never quote client-supplied strings.
+///
+/// This is the local same-user session: the owner (ADR-0006 §2.1), whose role is not
+/// reported, so the server hello is byte-identical to revision 5's
+/// ([`negotiate_for_role`] with no role).
 pub fn negotiate(
     hello: &ClientHello,
     principal: PrincipalInfo,
     environment: EnvironmentId,
     server: PeerInfo,
 ) -> Result<ServerHello, Box<Envelope<ErrorData>>> {
-    let reject = |code: Code, message: &str| {
-        Box::new(Envelope::failed(
-            None,
-            ErrorDetail {
-                code: code.clone(),
-                effect_status: EffectStatus::None,
-                retryable: false,
-                resource: None,
-                next: NextAction::for_code(code),
-                message: message.to_owned(),
-                reason: None,
-                entries: Vec::new(),
-            },
-        ))
-    };
+    negotiate_for_role(hello, principal, None, environment, server)
+}
 
+/// ⟨rev6⟩ Negotiate a hello for a caller in `role` (ADR-0012 §6.2, §9 item 4; ADR-0006
+/// §18): `required ⊆ offer ∩ server ∩ role`.
+///
+/// * A protocol or schema-major mismatch, a `required` capability outside `offer ∩
+///   server`, and a hello naming a `remote_client` to a runtime that does not offer
+///   `remote-control/1` are `SCHEMA_UNSUPPORTED`.
+/// * A `required` capability the role lacks is `CAPABILITY_UNAVAILABLE` with reason
+///   `role_insufficient`.
+/// * Optional capabilities are in effect only inside the intersection with the role's
+///   set ([`capability::for_role`]).
+///
+/// `role: None` is the local same-user caller: the owner, not reported in the server hello.
+/// `Some` is reported (`ServerHello.role`). A role never comes from the hello itself.
+///
+/// The server offer is this build's ([`server_capabilities`]); a runner's session, whose
+/// offer adds `remote-control/1`, negotiates with [`negotiate_session`].
+pub fn negotiate_for_role(
+    hello: &ClientHello,
+    principal: PrincipalInfo,
+    role: Option<Role>,
+    environment: EnvironmentId,
+    server: PeerInfo,
+) -> Result<ServerHello, Box<Envelope<ErrorData>>> {
+    let paired = role.map(|role| PairedBinding {
+        role,
+        pending: false,
+    });
+    negotiate_session(
+        hello,
+        principal,
+        &server_capabilities(),
+        paired,
+        environment,
+        server,
+    )
+}
+
+/// ⟨M06 W2⟩ The capabilities a **pending** client's session may negotiate, whatever its
+/// role (ADR-0012 §3.9 item 3; M06-W0-R06, ADR-0006 §18.5 reading 5): only the capability
+/// that carries the activation probe and `join`. A limited role's ordinary negotiation never
+/// includes it, so this does not open `join`'s capability to every limited session.
+pub const PENDING_CAPABILITIES: [&str; 1] = [capability::REMOTE_CONTROL_V1];
+
+/// ⟨M06 W2⟩ A paired client's binding for one session (ADR-0012 §3.6, §3.7), as the runner
+/// resolved it from its role table ([`Dispatcher::bind_paired`]); never read from the hello.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PairedBinding {
+    /// The client's role, from the role table.
+    pub role: Role,
+    /// Whether the client was pending at the hello: the session then negotiates the
+    /// pending-only set ([`PENDING_CAPABILITIES`]) and, for its whole lifetime, is served
+    /// only the activation probe and `join`.
+    pub pending: bool,
+}
+
+/// The precheck every hello passes before its paired client is resolved: the protocol, the
+/// schema major, and a paired client only to a runtime that offers `remote-control/1`.
+fn hello_precheck(
+    hello: &ClientHello,
+    offered: &BTreeSet<String>,
+) -> Result<(), Box<Envelope<ErrorData>>> {
     if hello.protocol != PROTOCOL_VERSION {
-        return Err(reject(
+        return Err(hello_reject(
             Code::SchemaUnsupported,
             "unsupported IPC protocol version",
+            None,
         ));
     }
     if !hello.schema_version.is_supported() {
-        return Err(reject(
+        return Err(hello_reject(
             Code::SchemaUnsupported,
             "unsupported schema major version",
+            None,
         ));
     }
-    let offered = server_capabilities();
+    // ⟨rev6⟩ A paired client is declared only by a runner's bridge, to a runtime that
+    // serves paired clients (ADR-0012 §3.6). Any other runtime refuses the hello.
+    if hello.remote_client.is_some() && !offered.contains(capability::REMOTE_CONTROL_V1) {
+        return Err(hello_reject(
+            Code::SchemaUnsupported,
+            "this runtime does not accept a paired client",
+            None,
+        ));
+    }
+    Ok(())
+}
+
+fn hello_reject(code: Code, message: &str, reason: Option<&str>) -> Box<Envelope<ErrorData>> {
+    Box::new(Envelope::failed(
+        None,
+        ErrorDetail {
+            code: code.clone(),
+            effect_status: EffectStatus::None,
+            retryable: false,
+            resource: None,
+            next: NextAction::for_code(code),
+            message: message.to_owned(),
+            reason: reason.map(str::to_owned),
+            entries: Vec::new(),
+        },
+    ))
+}
+
+/// ⟨M06 W2⟩ Negotiate a hello against an explicit server offer (`offered`: the runtime's
+/// [`Dispatcher::offered_capabilities`]) for an explicit caller: `paired: None` is the
+/// local same-user owner, `Some` a paired client the runner resolved
+/// ([`Dispatcher::bind_paired`]). The rules are [`negotiate_for_role`]'s; a pending client's
+/// role set is [`PENDING_CAPABILITIES`], and a `required` capability outside it is
+/// `CAPABILITY_UNAVAILABLE` with reason `invitation_pending` (ADR-0012 §3.9 item 3).
+/// A hello naming a `remote_client` with no binding is refused (`SCHEMA_UNSUPPORTED`):
+/// a client is never accepted unresolved.
+pub fn negotiate_session(
+    hello: &ClientHello,
+    principal: PrincipalInfo,
+    offered: &BTreeSet<String>,
+    paired: Option<PairedBinding>,
+    environment: EnvironmentId,
+    server: PeerInfo,
+) -> Result<ServerHello, Box<Envelope<ErrorData>>> {
+    hello_precheck(hello, offered)?;
+    if hello.remote_client.is_some() && paired.is_none() {
+        return Err(hello_reject(
+            Code::SchemaUnsupported,
+            "this runtime does not accept a paired client",
+            None,
+        ));
+    }
     let capabilities: BTreeSet<String> =
         offered.intersection(&hello.capabilities).cloned().collect();
     if !hello.required.is_subset(&capabilities) {
-        let message = if hello.required.is_subset(&offered) {
+        let message = if hello.required.is_subset(offered) {
             "a required capability is missing from the client's own capabilities"
         } else {
             "a required capability is not available"
         };
-        return Err(reject(Code::SchemaUnsupported, message));
+        return Err(hello_reject(Code::SchemaUnsupported, message, None));
     }
+    let pending = paired.is_some_and(|p| p.pending);
+    let allowed: BTreeSet<&str> = if pending {
+        PENDING_CAPABILITIES.iter().copied().collect()
+    } else {
+        capability::for_role(paired.map_or(Role::Owner, |p| p.role))
+            .iter()
+            .copied()
+            .collect()
+    };
+    if !hello.required.iter().all(|c| allowed.contains(c.as_str())) {
+        let (message, why) = if pending {
+            (
+                "the client's invitation is pending: only the activation probe and join are available",
+                reason::INVITATION_PENDING,
+            )
+        } else {
+            (
+                "a required capability is not available to this role",
+                reason::ROLE_INSUFFICIENT,
+            )
+        };
+        return Err(hello_reject(
+            Code::CapabilityUnavailable,
+            message,
+            Some(why),
+        ));
+    }
+    let capabilities = capabilities
+        .into_iter()
+        .filter(|c| allowed.contains(c.as_str()))
+        .collect();
     Ok(ServerHello {
         protocol: PROTOCOL_VERSION,
         schema_version: SchemaVersion::current(),
@@ -191,6 +344,9 @@ pub fn negotiate(
         capabilities,
         principal,
         environment_id: environment,
+        role: paired.map(|p| p.role),
+        // ⟨rev6.2⟩ The resolved paired client, reported back (None for the local owner).
+        remote_client: paired.and(hello.remote_client.clone()),
     })
 }
 
@@ -221,6 +377,28 @@ pub struct LiveEvent {
     /// The event; its `cursor` is replaced at delivery.
     pub event: Event,
 }
+
+/// ⟨M06-W0-R03⟩ Whether one subscription's reader may see a live event (the same shape as
+/// `heimdall_app::events::LiveVisibility`): supplied per subscription by
+/// [`Dispatcher::live_visibility`].
+pub type LiveVisibility = Arc<dyn Fn(&Event) -> bool + Send + Sync>;
+
+/// ⟨M06 W2⟩ Why a session must end now ([`Dispatcher::session_end`]): a revoked client's
+/// sessions and subscriptions close at once (ADR-0012 §3.7, §3.11).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionEnd {
+    /// The terminal event every live subscription receives before the goodbye (the
+    /// `client.revoked` event); its `cursor` is replaced by each subscription's last
+    /// delivered position.
+    pub event: Event,
+    /// The goodbye's code.
+    pub code: Code,
+    /// The goodbye's message (fixed text, never request content).
+    pub message: String,
+}
+
+/// ⟨M06 W2⟩ Resolves when the session must end ([`Dispatcher::session_end`]).
+pub type SessionEndFuture = Pin<Box<dyn Future<Output = SessionEnd> + Send>>;
 
 /// What a subscription starts with (ADR-0006 §8; review F08). Same shape as
 /// `heimdall_app::events::SubscriptionStart`; the runtime adapts one to the other.
@@ -415,6 +593,22 @@ fn response(seq: u64, code: Code, message: &str) -> ServerMessage {
     }
 }
 
+/// ⟨rev 6.3; ADR-0006 §18.7 items 9 and 15⟩ The answer to a paired session's attended-only
+/// frame: `INTERACTION_REQUIRED` with reason `local_owner_required`, effect `none`.
+fn local_owner_required(seq: u64) -> ServerMessage {
+    let mut env = error_envelope(
+        Code::InteractionRequired,
+        EffectStatus::None,
+        "this request is decided by the owner at the runner, never by a paired session",
+    );
+    env.data.error.reason =
+        Some(heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED.to_owned());
+    ServerMessage::Response {
+        in_reply_to: seq,
+        envelope: to_value_envelope(env),
+    }
+}
+
 fn goodbye(code: Code, message: &str) -> ServerMessage {
     ServerMessage::Goodbye {
         code,
@@ -483,6 +677,19 @@ fn resync_event_with(
     }
 }
 
+/// ⟨M06-W0-R10⟩ Whether a filter selects an event type whose producing capability the
+/// session did not negotiate (`EventType::required_capability`): refused
+/// `SCHEMA_UNSUPPORTED` at subscribe and `observe`, never an accepted subscription that
+/// silently filters everything out.
+fn selects_unnegotiated(filter: &EventFilter, negotiated: &BTreeSet<String>) -> bool {
+    filter
+        .required_capabilities()
+        .any(|c| !negotiated.contains(c))
+}
+
+const UNNEGOTIATED_SELECTOR: &str =
+    "an event type in the filter needs a capability the session did not negotiate";
+
 fn filter_matches(filter: &EventFilter, event: &Event) -> bool {
     if let Some(op) = &filter.operation_id
         && event.operation_id.as_ref() != Some(op)
@@ -512,6 +719,7 @@ enum Done {
         filter: EventFilter,
         from: Option<Cursor>,
         result: Result<SubscriptionStart, Box<Envelope<ErrorData>>>,
+        visible: Option<LiveVisibility>,
     },
 }
 
@@ -547,6 +755,8 @@ struct SubState {
     /// Live events at or below this sequence were covered by the snapshot/backlog.
     boundary_seq: u64,
     cursor_for: Arc<dyn Fn(u64) -> Cursor + Send + Sync>,
+    /// ⟨M06-W0-R03⟩ The reader's live-event visibility (`None`: every event).
+    visible: Option<LiveVisibility>,
     stop: CancellationToken,
 }
 
@@ -687,8 +897,32 @@ where
                 return Err(e);
             }
         };
-        let negotiated = match negotiate(&hello, principal.clone(), environment.clone(), server) {
-            Ok(server_hello) => {
+        // ⟨M06 W2⟩ The runtime's offer, and the paired client a runner's bridge declared:
+        // resolved by the dispatcher (the runner's role table) after the precheck, never
+        // taken from the hello or its capabilities (ADR-0006 §18.5 reading 1). The binding
+        // holds for the session's whole lifetime (ADR-0012 §3.6).
+        let mut dispatcher = dispatcher;
+        let offered = dispatcher.offered_capabilities();
+        // A session that negotiates with a `remote_client` is bound to it (else refused).
+        let paired_session = hello.remote_client.is_some();
+        let paired = match &hello.remote_client {
+            None => Ok(None),
+            Some(_) => hello_precheck(&hello, &offered)
+                .and_then(|()| dispatcher.bind_paired(&hello).map(Some)),
+        };
+        let negotiation = paired.and_then(|paired| {
+            negotiate_session(
+                &hello,
+                principal.clone(),
+                &offered,
+                paired,
+                environment.clone(),
+                server,
+            )
+            .map(|h| (h, paired))
+        });
+        let (negotiated, paired) = match negotiation {
+            Ok((server_hello, paired)) => {
                 let negotiated = server_hello.capabilities.clone();
                 write_frame(
                     &mut wire,
@@ -696,7 +930,7 @@ where
                     MAX_HELLO_FRAME_BYTES,
                 )
                 .await?;
-                negotiated
+                (negotiated, paired)
             }
             Err(reject) => {
                 let _ = write_frame(
@@ -711,12 +945,25 @@ where
         wire.codec_mut().max = MAX_CONTROL_FRAME_BYTES;
 
         // ---- request / subscription loop ---------------------------------
+        // ⟨M06 W2⟩ A paired session is never attended (ADR-0012 §3.10 item 1): whatever its
+        // hello declared, it is non-interactive, so `Attend` is refused and an attended-only
+        // request never reaches the dispatcher.
         let mut session = SessionInfo {
             principal,
-            interaction: hello.interaction,
+            interaction: if paired.is_some() {
+                InteractionMode::NonInteractive
+            } else {
+                hello.interaction
+            },
             attended: false,
         };
         let dispatcher = &dispatcher;
+        // ⟨M06 W2⟩ When the dispatcher says this session must end (a revoked client,
+        // ADR-0012 §3.7, §3.11): every subscription gets the terminal event, then the
+        // goodbye, and the connection closes.
+        let mut session_end: Pin<Box<dyn Future<Output = SessionEnd> + Send>> = dispatcher
+            .session_end()
+            .unwrap_or_else(|| Box::pin(std::future::pending()));
         let mut inflight: FuturesUnordered<Pending<'_>> = FuturesUnordered::new();
         let mut pending_subscribes = 0usize;
         let mut subs: HashMap<u64, SubState> = HashMap::new();
@@ -735,6 +982,9 @@ where
                     )
                     .await;
                     break Ok(());
+                }
+                end = &mut session_end => {
+                    break end_session(&mut wire, &environment, &subs, end).await;
                 }
                 Some(done) = inflight.next(), if !inflight.is_empty() => {
                     match done {
@@ -760,12 +1010,12 @@ where
                                 break Err(e);
                             }
                         }
-                        Done::Subscribed { seq, filter, from, result: Ok(start) } => {
+                        Done::Subscribed { seq, filter, from, result: Ok(start), visible } => {
                             pending_subscribes -= 1;
                             let id = next_sub_id;
                             next_sub_id += 1;
                             let stop = shutdown.child_token();
-                            match start_subscription(&mut wire, &environment, seq, id, filter, from, start, stop).await {
+                            match start_subscription(&mut wire, &environment, seq, id, filter, from, start, visible, stop).await {
                                 Ok(Some((state, live))) => {
                                     sub_polls.push(next_from(id, live, state.stop.clone()));
                                     subs.insert(id, state);
@@ -787,7 +1037,8 @@ where
                         Ok(live) => {
                             let mut event = live.event.clone();
                             event.cursor = (state.cursor_for)(live.seq);
-                            if filter_matches(&state.filter, &event) {
+                            let visible = state.visible.as_ref().is_none_or(|v| v(&event));
+                            if visible && filter_matches(&state.filter, &event) {
                                 // The cursor advances only once the frame is out.
                                 let before = state.last_cursor.clone();
                                 let advance_to = Some(event.cursor.clone());
@@ -873,6 +1124,17 @@ where
                                 // ADR-0006 §2.4, §13.6 item 8: a request outside the
                                 // negotiated capabilities is never dispatched.
                                 Some(response(seq, Code::SchemaUnsupported, "this request needs a capability the session did not negotiate"))
+                            } else if let Request::Observe(ObserveRequest::Events { filter, .. }) = &request
+                                && selects_unnegotiated(filter, &negotiated)
+                            {
+                                // ⟨M06-W0-R10⟩ Never dispatched either.
+                                Some(response(seq, Code::SchemaUnsupported, UNNEGOTIATED_SELECTOR))
+                            } else if paired_session && request.requires_attended_session() {
+                                // ⟨rev 6.3; ADR-0006 §18.7 items 9 and 15⟩ A paired session's
+                                // attended-only form (`decide`, `confirm_time`, issuer unlock)
+                                // has no remote path: never dispatched, and it names its reason
+                                // so a wrapper does not ask the user and retry.
+                                Some(local_owner_required(seq))
                             } else if request.requires_attended_session() && !session.attended {
                                 // Defence in depth: never dispatched (ADR-0006 §2.3).
                                 Some(response(seq, Code::InteractionRequired, "this request requires an attended interactive session"))
@@ -889,7 +1151,11 @@ where
                             }
                         }
                         ClientMessage::Attend { seq } => {
-                            if session.interaction == InteractionMode::Interactive {
+                            if paired_session {
+                                // ⟨rev 6.3; ADR-0006 §18.7 item 15⟩ Never attended, whatever
+                                // its hello declared: the same reason.
+                                Some(local_owner_required(seq))
+                            } else if session.interaction == InteractionMode::Interactive {
                                 session.attended = true;
                                 Some(ServerMessage::Response {
                                     in_reply_to: seq,
@@ -902,6 +1168,9 @@ where
                         ClientMessage::Subscribe { seq, filter, from_cursor } => {
                             if from_cursor.as_ref().is_some_and(|c| c.0.len() > MAX_CURSOR_LEN) {
                                 Some(response(seq, Code::UsageError, "cursor exceeds the maximum length"))
+                            } else if selects_unnegotiated(&filter, &negotiated) {
+                                // ⟨M06-W0-R10⟩
+                                Some(response(seq, Code::SchemaUnsupported, UNNEGOTIATED_SELECTOR))
                             } else if subs.len() + pending_subscribes >= limits.max_subscriptions {
                                 Some(response(seq, Code::Backpressure, "too many subscriptions on this connection"))
                             } else if inflight.len() >= limits.max_inflight {
@@ -911,7 +1180,8 @@ where
                                 let session = session.clone();
                                 inflight.push(Box::pin(async move {
                                     let result = dispatcher.subscribe(&session, filter.clone(), from_cursor.clone()).await;
-                                    Done::Subscribed { seq, filter, from: from_cursor, result }
+                                    let visible = dispatcher.live_visibility(&session);
+                                    Done::Subscribed { seq, filter, from: from_cursor, result, visible }
                                 }));
                                 None
                             }
@@ -975,6 +1245,7 @@ async fn start_subscription<S>(
     filter: EventFilter,
     from: Option<Cursor>,
     start: SubscriptionStart,
+    visible: Option<LiveVisibility>,
     stop: CancellationToken,
 ) -> Result<Option<(SubState, broadcast::Receiver<Arc<LiveEvent>>)>, FrameError>
 where
@@ -1022,10 +1293,43 @@ where
             last_cursor: cursor,
             boundary_seq,
             cursor_for,
+            visible,
             stop,
         },
         live,
     )))
+}
+
+/// ⟨M06 W2⟩ End the session ([`SessionEnd`]): the terminal event to every live
+/// subscription, at its last delivered position, then the goodbye. Every subscription ends.
+async fn end_session<S>(
+    wire: &mut Wire<S>,
+    environment: &EnvironmentId,
+    subs: &HashMap<u64, SubState>,
+    end: SessionEnd,
+) -> Result<(), FrameError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let mut ids: Vec<u64> = subs.keys().copied().collect();
+    ids.sort_unstable();
+    for id in ids {
+        let Some(state) = subs.get(&id) else { continue };
+        let mut event = end.event.clone();
+        event.cursor = state.last_cursor.clone();
+        let msg = ServerMessage::Event {
+            subscription: id,
+            event,
+        };
+        send_event(wire, msg, environment, &state.last_cursor).await?;
+    }
+    let _ = write_frame(
+        wire,
+        &goodbye(end.code, &end.message),
+        MAX_CONTROL_FRAME_BYTES,
+    )
+    .await;
+    Ok(())
 }
 
 fn goodbye_unknown() -> ServerMessage {
@@ -1119,6 +1423,56 @@ pub trait Dispatcher: Send + Sync {
         filter: EventFilter,
         from: Option<Cursor>,
     ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>>;
+
+    /// ⟨M06-W0-R03⟩ The reader-scoped visibility of live events for a subscription of
+    /// `session`, asked once when the subscription starts (the backlog and snapshot are
+    /// already scoped by [`Self::subscribe`]). `None` delivers every live event, which is
+    /// correct only for a session whose caller is the local owner (ADR-0006 §18.2 item
+    /// 17): a dispatcher that serves any other caller (a paired client, M06 W2) must
+    /// return the caller's visibility (`heimdall_app::events::EventPublisher::
+    /// live_visibility`). Default: `None`.
+    fn live_visibility(&self, session: &SessionInfo) -> Option<LiveVisibility> {
+        let _ = session;
+        None
+    }
+
+    /// ⟨M06 W2⟩ The capabilities this dispatcher's runtime offers in the hello. Default:
+    /// this build's ([`server_capabilities`]), which has no `remote-control/1`, so a hello
+    /// naming a paired client is refused (`SCHEMA_UNSUPPORTED`). A runner runtime adds
+    /// `remote-control/1` (ADR-0012 §6.3).
+    fn offered_capabilities(&self) -> BTreeSet<String> {
+        server_capabilities()
+    }
+
+    /// ⟨M06 W2⟩ Resolve the paired client a hello names (`hello.remote_client`, which only a
+    /// runner's bridge originates; ADR-0012 §3.6; ADR-0006 §18.5 reading 1), once, at the
+    /// hello, before negotiation, and bind this connection's
+    /// dispatcher to it for the session's whole lifetime. Called only for a hello that
+    /// passed the precheck (protocol, schema, and an offer with `remote-control/1`). The
+    /// role comes from the runner's role table, never from the hello. An error envelope is
+    /// sent as the hello's `Reject`. Default: refused (`SCHEMA_UNSUPPORTED`), so a
+    /// dispatcher that does not resolve clients never serves one.
+    ///
+    /// # Errors
+    ///
+    /// The refusal envelope (an unknown, revoked or unresolvable client).
+    fn bind_paired(
+        &mut self,
+        hello: &ClientHello,
+    ) -> Result<PairedBinding, Box<Envelope<ErrorData>>> {
+        let _ = hello;
+        Err(hello_reject(
+            Code::SchemaUnsupported,
+            "this runtime does not accept a paired client",
+            None,
+        ))
+    }
+
+    /// ⟨M06 W2⟩ A future that resolves when this session must end ([`SessionEnd`]: a
+    /// revoked client), asked once after the hello. Default: `None` (never).
+    fn session_end(&self) -> Option<SessionEndFuture> {
+        None
+    }
 
     /// Called once per dispatched request, **after** its response frame was
     /// written to the peer (or the write failed), with the request's kind and the
@@ -1247,8 +1601,16 @@ where
             capabilities,
             required: required.clone(),
             interaction,
+            remote_client: None,
         });
         write_frame(&mut wire, &hello, MAX_HELLO_FRAME_BYTES).await?;
+        Self::finish_handshake(wire, &required).await
+    }
+
+    async fn finish_handshake(
+        mut wire: Wire<S>,
+        required: &BTreeSet<String>,
+    ) -> Result<Self, crate::frame::FrameError> {
         let reply = tokio::time::timeout(Duration::from_millis(HELLO_TIMEOUT_MS), wire.next())
             .await
             .map_err(|_| {
@@ -1285,6 +1647,24 @@ where
             }
             _ => Err(invalid("unexpected first server frame")),
         }
+    }
+
+    /// ⟨M06 W2⟩ [`Self::handshake`] with an explicit hello, sent as given (the bridge's
+    /// local hello names its paired client; tests drive a runner's paired sessions with it).
+    /// The `required` capabilities must be in the server hello.
+    pub async fn handshake_hello(
+        stream: S,
+        hello: ClientHello,
+    ) -> Result<Self, crate::frame::FrameError> {
+        let required = hello.required.clone();
+        let mut wire = Framed::new(stream, BoundedFrameCodec::new(MAX_HELLO_FRAME_BYTES));
+        write_frame(
+            &mut wire,
+            &ClientMessage::Hello(hello),
+            MAX_HELLO_FRAME_BYTES,
+        )
+        .await?;
+        Self::finish_handshake(wire, &required).await
     }
 
     /// Negotiated server hello.
@@ -1464,6 +1844,7 @@ mod tests {
             capabilities: server_capabilities(),
             required: required.iter().map(|s| (*s).to_owned()).collect(),
             interaction: InteractionMode::NonInteractive,
+            remote_client: None,
         }
     }
 
@@ -1538,6 +1919,216 @@ mod tests {
             negotiate(&empty, p, env(), srv()).unwrap_err().code,
             Code::SchemaUnsupported
         );
+    }
+
+    /// ⟨rev6⟩ ADR-0006 §18 (ADR-0012 §6.3, §9 item 4): the four revision-6 capabilities
+    /// are declared and **not offered**: a hello that requires one is `SCHEMA_UNSUPPORTED`,
+    /// and one that merely offers them negotiates without them.
+    #[test]
+    fn the_revision_6_capabilities_are_declared_not_offered() {
+        let offered = server_capabilities();
+        let p = PrincipalInfo::OsUserUnix { uid: 501 };
+        for c in capability::REVISION_6_DECLARED {
+            assert!(!offered.contains(c), "{c} offered");
+            let err = negotiate(&hello(PROTOCOL_VERSION, "1", &[c]), p.clone(), env(), srv())
+                .unwrap_err();
+            assert_eq!(err.code, Code::SchemaUnsupported, "{c}");
+            assert_eq!(err.data.error.reason, None, "{c}");
+        }
+        let mut h = hello(PROTOCOL_VERSION, "1", &[]);
+        h.capabilities
+            .extend(capability::REVISION_6_DECLARED.map(str::to_owned));
+        let ok = negotiate(&h, p, env(), srv()).unwrap();
+        assert!(
+            ok.capabilities.is_disjoint(
+                &capability::REVISION_6_DECLARED
+                    .map(str::to_owned)
+                    .into_iter()
+                    .collect()
+            )
+        );
+    }
+
+    /// ⟨rev6⟩ `required ⊆ offer ∩ server ∩ role` with both refusal codes (ADR-0012 §6.2):
+    /// outside the server's offer is `SCHEMA_UNSUPPORTED` whatever the role; inside it but
+    /// outside the role's set is `CAPABILITY_UNAVAILABLE` / `role_insufficient`; optional
+    /// capabilities the role lacks are dropped from the negotiated set. The local caller
+    /// (no role) is the owner, negotiates everything offered and is not reported; an
+    /// explicit role is reported.
+    #[test]
+    fn negotiation_intersects_the_role_with_both_refusal_codes() {
+        let p = PrincipalInfo::OsUserUnix { uid: 501 };
+        let all = hello(PROTOCOL_VERSION, "1", &[]);
+        let local = negotiate(&all, p.clone(), env(), srv()).unwrap();
+        assert_eq!(local.capabilities, server_capabilities());
+        assert_eq!(local.role, None);
+        let text = serde_json::to_string(&ServerMessage::Hello(local.clone())).unwrap();
+        assert!(
+            !text.contains("\"role\""),
+            "the local hello is unchanged: {text}"
+        );
+        let owner = negotiate_for_role(&all, p.clone(), Some(Role::Owner), env(), srv()).unwrap();
+        assert_eq!(owner.capabilities, local.capabilities);
+        assert_eq!(owner.role, Some(Role::Owner));
+
+        // Server lacks it: SCHEMA_UNSUPPORTED, for every role.
+        for role in [None, Some(Role::Owner), Some(Role::Viewer)] {
+            let h = hello(PROTOCOL_VERSION, "1", &[capability::RUNNER_V1]);
+            let err = negotiate_for_role(&h, p.clone(), role, env(), srv()).unwrap_err();
+            assert_eq!(err.code, Code::SchemaUnsupported, "{role:?}");
+        }
+        // Server offers it, the role lacks it: role_insufficient.
+        for (role, required) in [
+            (Role::Viewer, capability::OWNER_POLICY_V1),
+            (Role::Viewer, capability::MANAGED_CREDENTIALS_V1),
+            (Role::Requester, capability::SERVICE_CONTROL_V1),
+            (Role::Requester, capability::ISSUER_V1),
+        ] {
+            let h = hello(PROTOCOL_VERSION, "1", &[required]);
+            let err = negotiate_for_role(&h, p.clone(), Some(role), env(), srv()).unwrap_err();
+            assert_eq!(err.code, Code::CapabilityUnavailable, "{role:?} {required}");
+            assert_eq!(
+                err.data.error.reason.as_deref(),
+                Some(reason::ROLE_INSUFFICIENT),
+                "{role:?} {required}"
+            );
+            assert_eq!(err.data.error.effect_status, EffectStatus::None);
+        }
+        // Optional capabilities outside the role are dropped.
+        let viewer = negotiate_for_role(&all, p.clone(), Some(Role::Viewer), env(), srv()).unwrap();
+        let want: BTreeSet<String> = capability::VIEWER.map(str::to_owned).into_iter().collect();
+        assert_eq!(viewer.capabilities, want);
+        let requester = negotiate_for_role(
+            &hello(PROTOCOL_VERSION, "1", &[capability::MANAGED_CREDENTIALS_V1]),
+            p,
+            Some(Role::Requester),
+            env(),
+            srv(),
+        )
+        .unwrap();
+        assert!(!requester.capabilities.contains(capability::OWNER_POLICY_V1));
+        assert_eq!(requester.role, Some(Role::Requester));
+    }
+
+    /// ⟨M06 W2; M06-W0-R06⟩ A runner's offer (`remote-control/1` added): a pending client of
+    /// any role negotiates only `remote-control/1` (the probe and `join`), and requiring
+    /// anything else is `CAPABILITY_UNAVAILABLE` / `invitation_pending`; the same client once
+    /// active negotiates its role's set, which for a limited role has no `remote-control/1`
+    /// (requiring it is `role_insufficient`). A hello naming a client with no binding is
+    /// refused even by a runner, and the default dispatcher binds nobody.
+    #[test]
+    fn a_pending_session_negotiates_only_the_pending_path() {
+        let p = PrincipalInfo::OsUserUnix { uid: 501 };
+        let mut offered = server_capabilities();
+        offered.insert(capability::REMOTE_CONTROL_V1.to_owned());
+        let mut h = hello(PROTOCOL_VERSION, "1", &[capability::REMOTE_CONTROL_V1]);
+        h.capabilities = offered.clone();
+        h.remote_client = Some(heimdall_contract::ids::ClientId::from_random_bytes([4; 16]));
+        let pending = |role| {
+            Some(PairedBinding {
+                role,
+                pending: true,
+            })
+        };
+        let active = |role| {
+            Some(PairedBinding {
+                role,
+                pending: false,
+            })
+        };
+        let want: BTreeSet<String> = PENDING_CAPABILITIES
+            .map(str::to_owned)
+            .into_iter()
+            .collect();
+        for role in [Role::Viewer, Role::Requester, Role::Owner] {
+            let ok =
+                negotiate_session(&h, p.clone(), &offered, pending(role), env(), srv()).unwrap();
+            assert_eq!(ok.capabilities, want, "{role:?}");
+            assert_eq!(ok.role, Some(role));
+            let mut more = h.clone();
+            more.required.insert(capability::OPERATIONS_V1.to_owned());
+            let err = negotiate_session(&more, p.clone(), &offered, pending(role), env(), srv())
+                .unwrap_err();
+            assert_eq!(err.code, Code::CapabilityUnavailable, "{role:?}");
+            assert_eq!(
+                err.data.error.reason.as_deref(),
+                Some(reason::INVITATION_PENDING)
+            );
+        }
+        for role in [Role::Viewer, Role::Requester] {
+            let err =
+                negotiate_session(&h, p.clone(), &offered, active(role), env(), srv()).unwrap_err();
+            assert_eq!(
+                err.data.error.reason.as_deref(),
+                Some(reason::ROLE_INSUFFICIENT),
+                "{role:?}"
+            );
+            let mut optional = h.clone();
+            optional.required.clear();
+            let ok = negotiate_session(&optional, p.clone(), &offered, active(role), env(), srv())
+                .unwrap();
+            assert!(!ok.capabilities.contains(capability::REMOTE_CONTROL_V1));
+        }
+        let owner =
+            negotiate_session(&h, p.clone(), &offered, active(Role::Owner), env(), srv()).unwrap();
+        assert!(owner.capabilities.contains(capability::REMOTE_CONTROL_V1));
+        // No binding: refused, even with the runner's offer.
+        let err = negotiate_session(&h, p, &offered, None, env(), srv()).unwrap_err();
+        assert_eq!(err.code, Code::SchemaUnsupported);
+        // The default dispatcher binds nobody.
+        struct Nobody;
+        #[async_trait::async_trait]
+        impl Dispatcher for Nobody {
+            async fn dispatch(&self, _: &SessionInfo, _: Request) -> Envelope<serde_json::Value> {
+                Envelope::ok(serde_json::Value::Null)
+            }
+            async fn subscribe(
+                &self,
+                _: &SessionInfo,
+                _: EventFilter,
+                _: Option<Cursor>,
+            ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>> {
+                Err(Box::new(error_envelope(
+                    Code::NotFound,
+                    EffectStatus::None,
+                    "none",
+                )))
+            }
+        }
+        let mut d = Nobody;
+        assert_eq!(d.bind_paired(&h).unwrap_err().code, Code::SchemaUnsupported);
+        assert!(
+            !d.offered_capabilities()
+                .contains(capability::REMOTE_CONTROL_V1)
+        );
+        assert!(d.session_end().is_none());
+    }
+
+    /// ⟨rev6⟩ m06-plan U0: `remote_client` is refused outside a runner runtime. A hello
+    /// that names a paired client gets `SCHEMA_UNSUPPORTED` from a runtime that does not
+    /// offer `remote-control/1`, which in wave 0 is every runtime, whatever else the hello
+    /// says and whatever role the caller has; the same hello without it negotiates.
+    #[test]
+    fn a_hello_naming_a_remote_client_is_refused_without_remote_control() {
+        let p = PrincipalInfo::OsUserUnix { uid: 501 };
+        let mut h = hello(PROTOCOL_VERSION, "1", &[]);
+        h.capabilities
+            .insert(capability::REMOTE_CONTROL_V1.to_owned());
+        h.remote_client = Some(heimdall_contract::ids::ClientId::from_random_bytes([3; 16]));
+        for role in [None, Some(Role::Owner), Some(Role::Viewer)] {
+            let err = negotiate_for_role(&h, p.clone(), role, env(), srv()).unwrap_err();
+            assert_eq!(err.code, Code::SchemaUnsupported, "{role:?}");
+            assert_eq!(err.data.error.effect_status, EffectStatus::None);
+            assert!(
+                !err.data.error.message.contains("cl_"),
+                "no client text echoed"
+            );
+        }
+        h.remote_client = None;
+        assert!(negotiate(&h, p, env(), srv()).is_ok());
+        // The hello field is omitted when absent: the wire form is unchanged.
+        let text = serde_json::to_string(&ClientMessage::Hello(h)).unwrap();
+        assert!(!text.contains("remote_client"), "{text}");
     }
 
     #[test]

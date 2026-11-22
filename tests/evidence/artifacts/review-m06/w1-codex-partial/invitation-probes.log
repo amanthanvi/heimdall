@@ -1,0 +1,11 @@
+   Compiling heimdall-remote v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/remote)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.24s
+     Running ../../tests/model/remote_roles.rs (target/debug/deps/model_remote_roles-1baf03586b952af5)
+
+running 3 tests
+test reviewer_concurrent_join_commits_once ... ok
+test reviewer_join_uses_time_sample_captured_before_blocking_io ... ok
+test reviewer_reconcile_can_write_active_line_after_revocation ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.03s
+

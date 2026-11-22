@@ -363,6 +363,7 @@ async fn control_bytes_on_the_signing_endpoint_get_failure_and_no_json_parse() {
         capabilities: heimdall_ipc::session::server_capabilities(),
         required: Default::default(),
         interaction: heimdall_contract::request::InteractionMode::NonInteractive,
+        remote_client: None,
     });
     let control_frame =
         heimdall_ipc::frame::encode_frame(&hello, heimdall_contract::ipc::MAX_CONTROL_FRAME_BYTES)

@@ -20,6 +20,10 @@
 
 pub mod cert;
 pub mod endpoints;
+// ⟨M06 U56⟩ K_iroh custody (ADR-0012 §2.4).
+pub mod iroh;
+// ⟨M06 U2⟩ K_mgmt, the controller's management key (ADR-0012 §3.4).
+pub mod mgmt;
 pub mod purpose;
 pub mod session_bind;
 pub mod signer;

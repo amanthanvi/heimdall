@@ -113,6 +113,7 @@ fn owner() -> CallerContext {
     CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::Owner,
+        remote_client: None,
     }
 }
 
@@ -386,6 +387,7 @@ fn ensure_req(request_id: &str, pairs: &[(&str, &str)]) -> EnsureRequest {
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     }
 }
 

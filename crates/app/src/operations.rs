@@ -288,9 +288,15 @@ mod trust_m05;
 pub mod wsl_m04;
 // ⟨M04⟩ U1: the login entry's setup item and its `inspect capabilities` field.
 mod login_entry_m04;
+// ⟨M06⟩ Wave 0 (ADR-0006 §18): the fail-closed landing of the revision-6 request forms.
+mod remote_m06;
+// ⟨M06 W3 grant-path⟩ A runner's grant waits for its issuer (ADR-0012 §4 item 2).
+mod runner_m06;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
 pub use login_entry_m04::login_resource_id;
+pub use remote_m06::revision_6_refusal;
+pub use runner_m06::RunnerGrants;
 // ⟨M05⟩ U6: the handover the runtime's slot cleanup commits (ADR-0011 §5.2).
 pub use slots_m05::{SlotHandover, slot_files_removed_or_hand_over_in};
 pub use uninstall_fence_m03::{
@@ -4407,6 +4413,9 @@ struct WorkSpec {
     /// ⟨M05⟩ U4: the resolution an `ensure` with `context` was admitted with (its
     /// capability restriction and route; `context_m05`). `None` for every other request.
     m05: Option<Box<context_m05::Resolution>>,
+    /// ⟨M06 W4⟩ The issuing CA a forwarded `ensure` names per pair
+    /// (`EnsureRequest::pair_issuers`); empty for every other request.
+    pair_issuers: BTreeMap<AccessPair, heimdall_contract::ids::CaFingerprint>,
 }
 
 impl WorkSpec {
@@ -4428,6 +4437,11 @@ impl WorkSpec {
                 parent_binding: None,
                 context: PolicyContext::Personal,
                 m05: None,
+                pair_issuers: r
+                    .pair_issuers
+                    .iter()
+                    .map(|i| (i.pair.clone(), i.ca_fingerprint.clone()))
+                    .collect(),
             }),
             Request::Delegate(r) => Some(Self {
                 kind: OperationKind::Delegate,
@@ -4442,6 +4456,7 @@ impl WorkSpec {
                 parent_binding: Some(r.parent_binding_id.clone()),
                 context: PolicyContext::Personal,
                 m05: None,
+                pair_issuers: BTreeMap::new(),
             }),
             _ => None,
         }
@@ -4461,6 +4476,10 @@ struct ResolveInput {
     /// ⟨M03⟩ ADR-0008 §17.17 item 4: the R3 session-lock floor in force
     /// (`Operations::session_lock_floor`), recorded in a new grant's origin.
     lock_floor: heimdall_contract::managed::LockBehavior,
+    /// ⟨M06 W4⟩ On a remote runner: the grants its controller has issued for now
+    /// (`runner_m06::RunnerGrants::issued_grants`), which an `ensure` may attach to. Empty
+    /// on every other installation.
+    runner_issued: Vec<GrantId>,
 }
 
 /// Outcome of resolution for a work request.
@@ -4616,7 +4635,25 @@ fn resolve_in(
     // ⟨M02⟩ U0b row 7: the catalog's mechanism decides the adapter; with no catalog
     // identity for the pairs, the M01 selection. ⟨M03⟩ U0b row 9 (O): per pair, the
     // stored preference first (`pair_mechanism_m03`); without one, exactly M02's rule.
-    let resolved_pairs = match pair_mechanism_m03::resolve_pairs(tx, &pairs)? {
+    let named = pair_mechanism_m03::NamedIssuers {
+        cas: inp.spec.pair_issuers.clone(),
+        controller: inp.caller.remote_client.clone(),
+        local_owner: inp.caller.has_global_access(),
+        // ⟨M06 W4⟩ The attach rule's mechanism: a live issued grant covers these pairs for
+        // this caller (the deadline is held against it once resolved, `attach_in`).
+        attach: inp.spec.kind == OperationKind::Ensure
+            && inp.spec.pair_issuers.is_empty()
+            && runner_m06::covering_grant(
+                tx,
+                &inp.runner_issued,
+                &inp.caller,
+                &profile.id,
+                &pairs,
+                None,
+            )?
+            .is_some(),
+    };
+    let resolved_pairs = match pair_mechanism_m03::resolve_pairs_named(tx, &pairs, &named)? {
         Ok(r) => r,
         // ⟨M05⟩ U4 (ADR-0011 §5.3): a `mixed_mechanisms` refusal names its groups.
         Err(e) => refuse!(context_m05::with_mechanism_groups(
@@ -5590,6 +5627,9 @@ fn ensure_data(
         // unchanged.
         context: None,
         uncovered: Vec::new(),
+        // ⟨M06⟩ Revision 6.2: a runner binding's per-component residuals
+        // (`crate::readiness::attach_runner_readiness`); absent for every local binding.
+        residuals: None,
     }
 }
 
@@ -5812,9 +5852,9 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
         // ⟨M05⟩ Revision 5: none is created in joint wave 0; were one stored, its
         // recorded content is shown verbatim.
         | DecisionKind::TrustWorkspace { .. }
-        | DecisionKind::ReconcileWorkspace { .. } => {
-            serde_json::to_value(&d.kind).unwrap_or_default()
-        }
+        | DecisionKind::ReconcileWorkspace { .. }
+        // ⟨M06 W2⟩ A runner-local widening record: the exact request it runs, verbatim.
+        | DecisionKind::RemoteWidening(_) => serde_json::to_value(&d.kind).unwrap_or_default(),
     };
     serde_json::json!({
         "decision_id": d.id,
@@ -6714,6 +6754,10 @@ impl Operations {
             adapters: self.adapter_infos(),
             grant_id: crate::ids::new_grant_id()?,
             lock_floor: self.session_lock_floor(),
+            runner_issued: self
+                .runner_grants()
+                .map(|r| r.issued_grants())
+                .unwrap_or_default(),
         };
         let decision_id = crate::ids::new_decision_id()?;
         // ⟨M03 wave 4, §17.21 item 1⟩ The binding ID of a `managed_certificate`
@@ -6816,7 +6860,7 @@ impl Operations {
                         // ⟨M05⟩ Ruling I-1 (U3, `stop_m05`): an `ensure` whose work ID
                         // holds an active grant with every pin equal attaches to it as a
                         // separate reference, in this transaction.
-                        stop_m05::reuse_in(
+                        let reused = stop_m05::reuse_in(
                             tx,
                             &inp.environment,
                             &inp.adapters,
@@ -6825,6 +6869,20 @@ impl Operations {
                             &inp.spec.work_id,
                             now,
                         )?;
+                        // ⟨M06 W4⟩ On a runner, the attach rule (`runner_m06`): a
+                        // further binding on a live grant the controller issued.
+                        if !reused {
+                            runner_m06::attach_in(
+                                tx,
+                                &inp.environment,
+                                &inp.adapters,
+                                &op,
+                                inp.spec.kind,
+                                &inp.spec.work_id,
+                                &inp.runner_issued,
+                                now,
+                            )?;
+                        }
                         Ok((Ok(Flow::Continue), none()))
                     }
                     Ok(Resolution::Approval(approval)) => {
@@ -7647,6 +7705,14 @@ impl Operations {
                 )
                 .await;
         };
+        // ⟨M06 W3 grant-path; ADR-0012 §4 item 2⟩ On a remote runner a managed grant waits
+        // for its issuer: admitted and `preparing`, with no new attempt recorded, until the
+        // controller's host has installed its certificates (`runner_m06`). The operation
+        // stays `running`; `Operations::runner_grant_issued` drives it on. (An earlier
+        // attempt was reconciled above first, as on any installation.)
+        if self.awaits_issuer(&identity.mechanism, &grant_id) {
+            return Ok(Flow::Stop);
+        }
         // 3. Fresh attempt (code review A03). Wait for an adapter slot first, then
         // authorize the attempt in one transaction: time assessed by the gate,
         // current authority, deadline, cutoff and continuous admission validated
@@ -8584,6 +8650,9 @@ impl Operations {
         } else {
             None
         };
+        // ⟨M06 W4; ADR-0012 §4.5⟩ A further binding on a runner's managed grant depends
+        // on the controller's issuer, as the grant's first binding does.
+        let runner_follower = attached && managed && self.runner_grants().is_some();
         let gate = self.inner.timegate.in_txn();
         let retention = self.retention();
         let parent_binding = st
@@ -8643,6 +8712,9 @@ impl Operations {
                     None => Facts::conservative(&g, tx.grant_prepared_facts(&gid)?.as_ref(), now),
                 }
                 .with_eligibility(tx, &g, now)?;
+                if runner_follower {
+                    facts.refresh_dependency = RefreshDependency::Controller;
+                }
                 // ⟨W4-C02⟩ A managed follower reports, and is held to its minimum by, its
                 // own claim at this commit's time.
                 if let Some(scope) = &follower_scope {
@@ -9172,6 +9244,15 @@ impl Operations {
                 }
             }
         }
+        // ⟨M06 W3 grant-path⟩ On a remote runner, a running operation whose managed grant
+        // waits for its issuer names that grant (the forwarding controller records it).
+        if st.op.state == OperationState::Running
+            && let Some(resolved) = &st.intent.resolved
+            && let (Some(grant), Some(adapter)) = (&resolved.grant, &resolved.adapter)
+            && self.awaits_issuer(&adapter.mechanism, grant)
+        {
+            return Err(Self::awaiting_issuer(id, grant));
+        }
         let mut done = render_settled::<EnsureData>(&st.op)?;
         self.withhold_claims_outside_own_environment(&mut done.data);
         Ok(Completed {
@@ -9653,6 +9734,9 @@ impl Operations {
                         }
                         for (g, ended) in listed {
                             let refs = tx.grant_references(&g.id)?;
+                            // ⟨M06-W0-R03⟩ The grant list is an environment-level view the
+                            // owner role permits (a paired owner targets its narrowing with
+                            // it); the bindings under it stay client-scoped (`may_act_on`).
                             let mut visible = ctx.is_owner();
                             for r in refs {
                                 // A delegated child's reference on its parent is not a
@@ -10069,6 +10153,7 @@ impl Operations {
                 // ⟨M05⟩ A preview without a workspace context is personal.
                 context: PolicyContext::Personal,
                 m05: None,
+                pair_issuers: BTreeMap::new(),
             },
             caller: caller.context.clone(),
             operation: OperationId::from_random_bytes([0; 16]),
@@ -10078,6 +10163,7 @@ impl Operations {
             adapters: self.adapter_infos(),
             grant_id: GrantId::from_random_bytes([0; 16]),
             lock_floor: self.session_lock_floor(),
+            runner_issued: Vec::new(),
         };
         self.write(move |tx, _| {
             Ok(match resolve_in(tx, &inp)? {
@@ -10126,6 +10212,15 @@ impl Operations {
                     .with_effect(EffectStatus::None),
             );
         }
+        // ⟨M06 W4⟩ A request that names its pairs' issuing CAs is a controller's forwarded
+        // `ensure`: it names a profile and its pairs, never a working directory.
+        if !req.pair_issuers.is_empty() && (req.context.is_some() || req.scope.is_empty()) {
+            return Err(OpError::new(
+                Code::UsageError,
+                "a request naming issuing CAs names its pairs and no working directory",
+            )
+            .with_effect(EffectStatus::None));
+        }
         // ⟨M05⟩ U4: `ensure` with `context` (ADR-0011 §3.2; `context_m05`).
         if req.context.is_some() {
             return self.ensure_in_context(caller, req).await;
@@ -10163,7 +10258,7 @@ impl Operations {
         self.wsl_start_for_ensure(&environment).await?;
         // ⟨M03⟩ U0b row 9 (O): `connection: graceful` and a pair resolving to
         // `managed_certificate` (wave 0) are refused before any record is written.
-        let precheck = self.ensure_precheck(&req).await?;
+        let precheck = self.ensure_precheck(&caller.context, &req).await?;
         let hash = compute_hash(
             OperationKind::Ensure,
             &HashInput {
@@ -10434,6 +10529,7 @@ impl Operations {
         let env = self.inner.config.environment.clone();
         let retention = self.retention();
         let adapters = self.adapter_infos();
+        let on_runner = self.runner_grants().is_some();
         let none = Ended::default;
         let (r, ended) = self
             .write(move |tx, emit| {
@@ -10626,8 +10722,14 @@ impl Operations {
                 let bound = bound_of(tx, &g, Some(&b.profile))?;
                 // ⟨M02⟩ U0b rows 4 and 5: the grant's stored history, then fresh
                 // eligibility, in this settling transaction.
-                let facts = Facts::conservative(&g, tx.grant_prepared_facts(&g.id)?.as_ref(), now)
-                    .with_eligibility(tx, &g, now)?;
+                let mut facts =
+                    Facts::conservative(&g, tx.grant_prepared_facts(&g.id)?.as_ref(), now)
+                        .with_eligibility(tx, &g, now)?;
+                // ⟨M06 W4; ADR-0012 §4.5⟩ A runner's managed binding depends on the
+                // controller's issuer.
+                if on_runner && b.mechanism == MANAGED_CERTIFICATE {
+                    facts.refresh_dependency = RefreshDependency::Controller;
+                }
                 let mut data = ensure_data(&b, &g, &facts, bound);
                 // ⟨M05⟩ U6: a managed launch that joined a shared slot is labelled
                 // `ordinary_aliases: shared_environment_default` (ADR-0011 §5.2).
@@ -10837,15 +10939,16 @@ impl Operations {
                                 } else {
                                     page.head_seq.max(seq)
                                 };
-                                let events: Vec<_> = page
-                                    .events
-                                    .into_iter()
-                                    .map(|s| {
+                                // ⟨M06-W0-R03⟩ Only what this reader may see; the cursor
+                                // still moves past the rest.
+                                let mut events = Vec::with_capacity(page.events.len());
+                                for s in page.events {
+                                    if crate::events::event_visible_in(tx, &s.event, &ctx)? {
                                         let mut e = s.event;
                                         e.cursor = p2.cursor_at(&ctx, s.seq);
-                                        e
-                                    })
-                                    .collect();
+                                        events.push(e);
+                                    }
+                                }
                                 Ok(Ok(serde_json::json!({
                                     "events": events,
                                     "cursor": p2.cursor_at(&ctx, next_seq),
@@ -11213,7 +11316,8 @@ impl Operations {
         )
         .map_err(|_| OpError::new(Code::UsageError, "the request cannot be canonicalized"))?;
         // Owner role, or a caller holding a binding on the grant; anyone else sees
-        // `NOT_FOUND`.
+        // `NOT_FOUND`. ⟨M06-W0-R03⟩ Revoking a grant is one of the named cross-caller
+        // narrowing powers (ADR-0012 §7.2, §8): any owner, local or paired.
         let ctx = caller.context.clone();
         let gid = revoked_grant.clone();
         let visible = self
@@ -11221,13 +11325,13 @@ impl Operations {
                 if tx.grant(&gid)?.is_none() {
                     return Ok(false);
                 }
-                if ctx.is_owner() {
+                if ctx.may_narrow_across_callers() {
                     return Ok(true);
                 }
                 for r in tx.grant_references(&gid)? {
                     if tx
                         .binding(&r.binding)?
-                        .is_some_and(|b| b.grant == gid && b.owner.principal == ctx.principal)
+                        .is_some_and(|b| b.grant == gid && b.owner.same_caller(&ctx))
                     {
                         return Ok(true);
                     }
@@ -12124,6 +12228,12 @@ impl Operations {
                     DecisionKind::ConfirmTime { .. } => {
                         return Ok(Err(stale(&DecisionRefusal::NotPending(d.state))));
                     }
+                    // ⟨M06 W2⟩ Decided only through the runner runtime's runner-local path
+                    // (`remote_m06::remote_widening_not_here`); nothing written here.
+                    DecisionKind::RemoteWidening(_) => {
+                        return Ok(Err(remote_m06::remote_widening_not_here()
+                            .with_resource("decision", Some(did.to_string()))));
+                    }
                     // ⟨M02⟩ U0b row 1, phase 2: the waiting operation must be
                     // `awaiting_approval`, and the record must describe its stored
                     // local intent exactly (kind, plan digest or identity and
@@ -12416,7 +12526,9 @@ impl Operations {
                         }
                     }
                     (
-                        DecisionKind::WidenPolicy { .. } | DecisionKind::ConfirmTime { .. },
+                        DecisionKind::WidenPolicy { .. }
+                        | DecisionKind::ConfirmTime { .. }
+                        | DecisionKind::RemoteWidening(_),
                         _,
                     ) => {}
                     // ⟨M04⟩ U5: approval inserts the managed row and the environment's
@@ -14873,6 +14985,7 @@ mod tests {
                     caller: CallerContext {
                         principal: heimdall_domain::principal::PrincipalRef::UnixUser { uid: 1 },
                         role: heimdall_domain::principal::ClientRole::Owner,
+                        remote_client: None,
                     },
                     kind: OperationKind::Ensure,
                     request_id: heimdall_contract::ids::RequestId::parse("r1319-u").unwrap(),
@@ -15255,6 +15368,7 @@ mod tests {
             owner: CallerContext {
                 principal: heimdall_domain::principal::PrincipalRef::UnixUser { uid: 1 },
                 role: heimdall_domain::principal::ClientRole::Owner,
+                remote_client: None,
             },
             profile: heimdall_contract::ids::ProfileId::parse("dev").unwrap(),
             profile_revision: 1,

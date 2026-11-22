@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{DestinationId, EnvironmentId};
+use crate::ids::{AccountName, DestinationId, EnvironmentId};
 
 /// Maximum length of an environment label or a WSL account name, in bytes.
 pub const MAX_ENVIRONMENT_LABEL_BYTES: usize = 64;
@@ -148,6 +148,9 @@ pub enum EnvironmentKindView {
     WslDistribution,
     /// A local container environment.
     Container,
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §4.1, §9 item 5): a Heimdall runtime on a headless Linux
+    /// host under the runner account, managed over the management channel.
+    RemoteRunner,
 }
 
 /// An environment's state (m04-plan §5 item 4).
@@ -222,6 +225,14 @@ pub enum RealizationView {
         /// Where it is mounted inside the container (`/run/heimdall`).
         in_container_path: String,
     },
+    /// ⟨M06⟩ Revision 6: a remote runner, reached through a catalog destination's approved
+    /// routes as its runner account (ADR-0012 §3.3, §5).
+    RemoteRunner {
+        /// The catalog destination of the runner host.
+        destination: DestinationId,
+        /// The runner account.
+        account: AccountName,
+    },
 }
 
 /// One environment in `inspect environments` (m04-plan §5 item 4: every environment, not
@@ -239,6 +250,51 @@ pub struct EnvironmentView {
     pub state: EnvironmentState,
     /// Realization.
     pub realization: RealizationView,
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §7.1, §9 item 5): a remote runner's connectivity. Every
+    /// revision-6 field is omitted when absent, so every M04 view is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connectivity: Option<crate::remote::Connectivity>,
+    /// ⟨M06⟩ When the runner was last reached.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_seen_at: Option<crate::Timestamp>,
+    /// ⟨M06⟩ The runner runtime's lifetime (ADR-0012 §4.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner_lifetime: Option<crate::remote::RunnerLifetime>,
+    /// ⟨M06⟩ Narrowing steps reported but not yet applied on the runner (ADR-0012 §7.1).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remote_pending: Vec<crate::remote::RemotePending>,
+    /// ⟨M06⟩ The runner's pinned host key (ADR-0012 §3.3, §7.5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_host_key: Option<crate::ids::KeyFingerprint>,
+    /// ⟨M06⟩ Whether limited roles may enroll (ADR-0012 §3.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub management_policy: Option<crate::remote::ManagementPolicy>,
+}
+
+impl EnvironmentView {
+    /// A view with no revision-6 field (a local environment: native, WSL or container).
+    #[must_use]
+    pub fn new(
+        environment_id: EnvironmentId,
+        kind: EnvironmentKindView,
+        label: Option<String>,
+        state: EnvironmentState,
+        realization: RealizationView,
+    ) -> Self {
+        Self {
+            environment_id,
+            kind,
+            label,
+            state,
+            realization,
+            connectivity: None,
+            last_seen_at: None,
+            runner_lifetime: None,
+            remote_pending: Vec::new(),
+            pinned_host_key: None,
+            management_policy: None,
+        }
+    }
 }
 
 /// `inspect environments` data.

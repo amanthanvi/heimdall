@@ -1,0 +1,33 @@
+[package]
+name = "heimdall-transport-iroh"
+description = "Heimdall Iroh transport (M06; ADR-0012 §1-§2): the /pigeons/0 connect and serve legs, the effective exposure policy and the admission authority seam. The default build has no iroh and fails closed."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Production edges (m06-plan U0): contract only (tools/validation/crate_graph.py refuses any
+# other workspace edge). The default build has no iroh at all.
+[dependencies]
+heimdall-contract = { workspace = true }
+# The loopback target connect (bound to 127.0.0.1 or ::1 before connect), the admission
+# signals and their acknowledgements, and the bounded lifecycles (M06 U6a).
+tokio = { workspace = true }
+# K_iroh's secret bytes are wiped on drop (ADR-0012 §2.4; the M03 SecretKey precedent).
+zeroize = { workspace = true }
+# Feature `iroh` only (ADR-0012 §1 item 1; dependencies.md): exact pin, TLS through ring,
+# no default features (no relay server, no portmapper, no n0 presets by default).
+iroh = { workspace = true, optional = true }
+# netdev is declared only so `netdev/hm-no-route-probe` can reach the copy iroh's netwatch
+# uses through feature unification. The `[patch.crates-io]` in the root manifest points it at
+# the vendored, patched source (third_party/netdev-0.47.0; ADR-0012 §1 item 3, ruling Q8).
+netdev = { workspace = true, optional = true }
+
+[features]
+default = []
+# Embeds iroh and applies the netdev patch (the default-route probe is removed).
+iroh = ["dep:iroh", "dep:netdev", "netdev/hm-no-route-probe"]

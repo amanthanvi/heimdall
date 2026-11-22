@@ -25,6 +25,10 @@
 //! * `rev5`: ADR-0006 revision 5 deltas (joint wave 0 of M04 and M05): the M04 and M05
 //!   reason goldens, the new examples against their schemas, the two declared
 //!   capabilities, and every pre-revision-5 request example unchanged.
+//! * `rev6`: ADR-0006 revision 6 deltas (M06 wave 0): the M06 reason golden, one request
+//!   of every revision-6 form with its kind, admission and capability, the four declared
+//!   capabilities and the role sets, every earlier request example unchanged, and the
+//!   additive hello, view, event, route and residual documents.
 //!
 //! Property tests run 256 cases with a fixed default seed so a failure reproduces;
 //! set `PROPTEST_RNG_SEED=<u64>` to explore other seeds. Failing cases persist to
@@ -42,6 +46,8 @@ mod m02;
 mod m03;
 // ⟨rev5⟩ ADR-0006 revision 5 (joint wave 0 of M04 and M05).
 mod rev5;
+// ⟨rev6⟩ ADR-0006 revision 6 (M06 wave 0).
+mod rev6;
 mod schema_export;
 
 use std::path::PathBuf;

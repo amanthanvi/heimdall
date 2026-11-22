@@ -1,0 +1,33 @@
+   Compiling heimdall-remote v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/remote)
+warning: unused variable: `elapsed_passed`
+   --> crates/remote/src/invitations.rs:127:9
+    |
+127 |     let elapsed_passed = same_boot.is_some_and(|b| {
+    |         ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_elapsed_passed`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `heimdall-remote` (lib) generated 1 warning (run `cargo fix --lib -p heimdall-remote` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.99s
+     Running ../../tests/model/remote_roles.rs (target/debug/deps/model_remote_roles-1baf03586b952af5)
+
+running 1 test
+test focused_fault_wall_clock_rollback_between_authentication_and_join ... FAILED
+
+failures:
+
+---- focused_fault_wall_clock_rollback_between_authentication_and_join stdout ----
+
+thread 'focused_fault_wall_clock_rollback_between_authentication_and_join' (91079394) panicked at crates/remote/../../tests/model/remote_roles.rs:607:5:
+assertion `left == right` failed
+  left: Ok(Joined { join: JoinRecord { environment: EnvironmentId("env_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"), invitation: InvitationId("inv_78f659041a19f9e47880b5d0d396a304"), client: ClientId("cl_988b97b7af0b71fe0be35edeace62e83"), role: Owner, generation: 0, joined_at: 2026-11-20T09:46:00Z }, replayed: false, line_written: true })
+ right: Err(InvitationExpired)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    focused_fault_wall_clock_rollback_between_authentication_and_join
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p heimdall-remote --test model_remote_roles`

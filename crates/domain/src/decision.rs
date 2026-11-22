@@ -223,6 +223,49 @@ pub enum DecisionKind {
         /// Why the observation is ambiguous.
         why: crate::workspace::AmbiguityReason,
     },
+    /// ⟨M06⟩ W2 (ADR-0012 §3.10; ADR-0006 §3.1 reused): a paired client's widening request,
+    /// held for a confirmation **local to the runner**. Created by the runner runtime, never
+    /// by a client; only an attended session local to the runner completes it (a paired
+    /// session is never attended), and approval runs exactly the recorded request once.
+    /// The record is bound to the caller-namespaced key `(client, request_kind,
+    /// request_id)` and the exact request; its terminal result is kept beside it
+    /// (`remote_widening`, migration 0010) so a replay returns it (T-RA3).
+    RemoteWidening(Box<RemoteWidening>),
+}
+
+/// ⟨M06⟩ W2: what a [`DecisionKind::RemoteWidening`] record is bound to (ADR-0012 §3.10).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteWidening {
+    /// The paired client that submitted the request (from the bridge's argv, resolved by
+    /// the role table; never a request field).
+    pub client: heimdall_contract::ids::ClientId,
+    /// The request kind (`remote_environment.invite`, `route.add`, …).
+    pub request_kind: String,
+    /// The request's ID (the third part of the key).
+    pub request_id: heimdall_contract::ids::RequestId,
+    /// The exact request, verbatim: approval runs this and nothing wider.
+    pub request: heimdall_contract::request::Request,
+    /// ⟨M06-W0-R07⟩ For an invite: the exact key and role the approval enrolls,
+    /// recomputed by the runner before the record existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invite: Option<RemoteInviteBinding>,
+    /// ⟨M06 W2, U56-Q6⟩ For an exposure widening (a transport form): the exact exposure
+    /// delta the request applies, computed by the runner when the record was created and
+    /// shown with it (the store's `ExposureDelta` document). Approval executes only while
+    /// the delta the request would apply is still exactly this one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exposure: Option<serde_json::Value>,
+}
+
+/// ⟨M06-W0-R07⟩ The key and role a runner-local invite decision enrolls.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteInviteBinding {
+    /// The role the invited client will hold.
+    pub role: heimdall_contract::remote::Role,
+    /// The receiving key, canonical OpenSSH public text (no comment).
+    pub public_key: String,
+    /// Its fingerprint, recomputed by the runner and equal to the confirmed one.
+    pub key_fingerprint: heimdall_contract::ids::KeyFingerprint,
 }
 
 impl DecisionKind {

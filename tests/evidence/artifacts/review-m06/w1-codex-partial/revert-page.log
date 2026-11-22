@@ -1,0 +1,202 @@
+   Compiling heimdall-domain v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/domain)
+   Compiling heimdall-project v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/project)
+   Compiling heimdall-store v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/store)
+   Compiling heimdall-registry v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/registry)
+   Compiling heimdall-sshconf v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/sshconf)
+   Compiling heimdall-app v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/app)
+   Compiling heimdall-credential v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/credential)
+   Compiling heimdall-issuer v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/issuer)
+   Compiling heimdall-testkit v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/testkit)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.37s
+     Running ../../tests/integration/paired_scope_m06.rs (target/debug/deps/integration_paired_scope_m06-3a589c0e2ae79219)
+
+running 1 test
+test a_paired_owner_is_scoped_to_its_own_client_on_every_path ... FAILED
+
+failures:
+
+---- a_paired_owner_is_scoped_to_its_own_client_on_every_path stdout ----
+
+thread 'a_paired_owner_is_scoped_to_its_own_client_on_every_path' (91071466) panicked at crates/app/../../tests/integration/paired_scope_m06.rs:386:5:
+[
+    Event {
+        schema_version: SchemaVersion(
+            "1",
+        ),
+        event_id: EventId(
+            "evt_2d71ad76933bc1cf081a9804a796c96a",
+        ),
+        event_type: OperationStateChanged,
+        environment_id: EnvironmentId(
+            "env_07070707070707070707070707070707",
+        ),
+        operation_id: Some(
+            OperationId(
+                "op_d983af09f5dbc800eed9182b13ea2515",
+            ),
+        ),
+        resource: Some(
+            ResourceRef {
+                kind: "operation",
+                id: Some(
+                    "op_d983af09f5dbc800eed9182b13ea2515",
+                ),
+            },
+        ),
+        timestamp: 2026-10-02T09:00:00Z,
+        cursor: Cursor(
+            "AWM4sugJ3LY1ACRlbnZfMDcwNzA3MDcwNzA3MDcwNzA3MDcwNzA3MDcwNzA3MDcAAAAAAAAAAg",
+        ),
+        payload: Object {
+            "code": Null,
+            "effect_status": String("none"),
+            "kind": String("ensure"),
+            "state": String("queued"),
+        },
+    },
+    Event {
+        schema_version: SchemaVersion(
+            "1",
+        ),
+        event_id: EventId(
+            "evt_89f9c2e9102153913260982a72e1f4bb",
+        ),
+        event_type: OperationStateChanged,
+        environment_id: EnvironmentId(
+            "env_07070707070707070707070707070707",
+        ),
+        operation_id: Some(
+            OperationId(
+                "op_d983af09f5dbc800eed9182b13ea2515",
+            ),
+        ),
+        resource: Some(
+            ResourceRef {
+                kind: "operation",
+                id: Some(
+                    "op_d983af09f5dbc800eed9182b13ea2515",
+                ),
+            },
+        ),
+        timestamp: 2026-10-02T09:00:00Z,
+        cursor: Cursor(
+            "AWM4sugJ3LY1ACRlbnZfMDcwNzA3MDcwNzA3MDcwNzA3MDcwNzA3MDcwNzA3MDcAAAAAAAAAAw",
+        ),
+        payload: Object {
+            "code": Null,
+            "effect_status": String("none"),
+            "kind": String("ensure"),
+            "state": String("running"),
+        },
+    },
+    Event {
+        schema_version: SchemaVersion(
+            "1",
+        ),
+        event_id: EventId(
+            "evt_ef7dc5e5a91dafb41bb43f432cdeb9c4",
+        ),
+        event_type: GrantStateChanged,
+        environment_id: EnvironmentId(
+            "env_07070707070707070707070707070707",
+        ),
+        operation_id: Some(
+            OperationId(
+                "op_d983af09f5dbc800eed9182b13ea2515",
+            ),
+        ),
+        resource: Some(
+            ResourceRef {
+                kind: "grant",
+                id: Some(
+                    "grant_37f4d46211c11d5ad455259a42e4101d",
+                ),
+            },
+        ),
+        timestamp: 2026-10-02T09:00:00Z,
+        cursor: Cursor(
+            "AWM4sugJ3LY1ACRlbnZfMDcwNzA3MDcwNzA3MDcwNzA3MDcwNzA3MDcwNzA3MDcAAAAAAAAABA",
+        ),
+        payload: Object {
+            "grant_id": String("grant_37f4d46211c11d5ad455259a42e4101d"),
+            "state": String("preparing"),
+        },
+    },
+    Event {
+        schema_version: SchemaVersion(
+            "1",
+        ),
+        event_id: EventId(
+            "evt_f4664a754fe36f050d5a2679269c3a7c",
+        ),
+        event_type: GrantStateChanged,
+        environment_id: EnvironmentId(
+            "env_07070707070707070707070707070707",
+        ),
+        operation_id: Some(
+            OperationId(
+                "op_d983af09f5dbc800eed9182b13ea2515",
+            ),
+        ),
+        resource: Some(
+            ResourceRef {
+                kind: "grant",
+                id: Some(
+                    "grant_37f4d46211c11d5ad455259a42e4101d",
+                ),
+            },
+        ),
+        timestamp: 2026-10-02T09:00:00Z,
+        cursor: Cursor(
+            "AWM4sugJ3LY1ACRlbnZfMDcwNzA3MDcwNzA3MDcwNzA3MDcwNzA3MDcwNzA3MDcAAAAAAAAABQ",
+        ),
+        payload: Object {
+            "grant_id": String("grant_37f4d46211c11d5ad455259a42e4101d"),
+            "state": String("active"),
+        },
+    },
+    Event {
+        schema_version: SchemaVersion(
+            "1",
+        ),
+        event_id: EventId(
+            "evt_7b320a735e9103a32ecc6387f03431c0",
+        ),
+        event_type: OperationStateChanged,
+        environment_id: EnvironmentId(
+            "env_07070707070707070707070707070707",
+        ),
+        operation_id: Some(
+            OperationId(
+                "op_d983af09f5dbc800eed9182b13ea2515",
+            ),
+        ),
+        resource: Some(
+            ResourceRef {
+                kind: "operation",
+                id: Some(
+                    "op_d983af09f5dbc800eed9182b13ea2515",
+                ),
+            },
+        ),
+        timestamp: 2026-10-02T09:00:00Z,
+        cursor: Cursor(
+            "AWM4sugJ3LY1ACRlbnZfMDcwNzA3MDcwNzA3MDcwNzA3MDcwNzA3MDcwNzA3MDcAAAAAAAAABg",
+        ),
+        payload: Object {
+            "code": String("ACCESS_READY"),
+            "effect_status": String("applied"),
+            "kind": String("ensure"),
+            "state": String("succeeded"),
+        },
+    },
+]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_paired_owner_is_scoped_to_its_own_client_on_every_path
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p heimdall-app --test integration_paired_scope_m06`

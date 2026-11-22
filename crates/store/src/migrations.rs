@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 8;
+pub const SCHEMA_VERSION: u32 = 12;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -70,6 +70,31 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 8,
         name: "trusted_work",
         sql: include_str!("../migrations/0008_trusted_work.sql"),
+    },
+    // ⟨M06⟩ Wave 0 (ADR-0012 §9 item 11; ADR-0006 §18): tables only, no store API yet.
+    Migration {
+        version: 9,
+        name: "remote",
+        sql: include_str!("../migrations/0009_remote.sql"),
+    },
+    // ⟨M06⟩ Wave 2 (ADR-0012 §3.10): the runner-local widening records' side table.
+    Migration {
+        version: 10,
+        name: "remote_widening",
+        sql: include_str!("../migrations/0010_remote_widening.sql"),
+    },
+    // ⟨M06⟩ Wave 3 (ADR-0006 §18.7 item 1): paired clients' Iroh endpoint IDs and the
+    // invitation's `iroh_admission`.
+    Migration {
+        version: 11,
+        name: "remote_client_endpoints",
+        sql: include_str!("../migrations/0011_remote_client_endpoints.sql"),
+    },
+    // ⟨M06⟩ Wave 4 (ADR-0006 §18.8 item 4): the controller's lift acknowledgements.
+    Migration {
+        version: 12,
+        name: "remote_lift_acks",
+        sql: include_str!("../migrations/0012_remote_lift_acks.sql"),
     },
 ];
 
@@ -206,6 +231,277 @@ mod tests {
             )
             .unwrap();
         assert_eq!(b_exists, 0, "half-applied step must not survive");
+    }
+
+    /// ⟨M06⟩ ADR-0006 §18 (ADR-0012 §9 item 11): `0009_remote` applies on a database at
+    /// the previous version (8) and adds exactly its tables, leaving every earlier table
+    /// as it was; a failure inside the step leaves the database at 8 with none of them
+    /// (the step runs as one transaction, as [`failing_step_rolls_back_whole_step_and_version`]
+    /// proves for any step). Forward-only: no down step exists.
+    #[test]
+    fn remote_step_applies_on_the_previous_version_and_rolls_back_whole() {
+        const REMOTE: [&str; 11] = [
+            "destination_routes",
+            "remote_authority_generation",
+            "remote_clients",
+            "remote_effect_acks",
+            "remote_effect_outbox",
+            "remote_environment_pins",
+            "remote_grant_issuers",
+            "remote_invitations",
+            "remote_policy_revisions",
+            "route_consents",
+            "transport_keys",
+        ];
+        let tables = |c: &Connection| -> Vec<String> {
+            let mut stmt = c
+                .prepare(
+                    "SELECT name FROM sqlite_schema WHERE type = 'table'
+                     AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+                )
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        let previous = &MIGRATIONS[..8];
+        assert_eq!(MIGRATIONS[8].version, 9);
+        assert_eq!(MIGRATIONS[8].name, "remote");
+        let mut c = Connection::open_in_memory().unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, previous).unwrap(), 8);
+        let before = tables(&c);
+        assert!(REMOTE.iter().all(|t| !before.iter().any(|b| b == t)));
+        c.execute_batch("INSERT INTO meta (key, value) VALUES ('m06-w0-probe', 'kept')")
+            .unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, &MIGRATIONS[..9]).unwrap(), 9);
+        let after = tables(&c);
+        let added: Vec<&String> = after.iter().filter(|t| !before.contains(t)).collect();
+        assert_eq!(added, REMOTE.iter().collect::<Vec<_>>());
+        let kept: String = c
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'm06-w0-probe'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, "kept");
+        // The step is one transaction: broken after its first statement, nothing of it
+        // survives and the version stays 8.
+        let broken = [
+            previous.to_vec(),
+            vec![Migration {
+                version: 9,
+                name: "remote_broken",
+                sql: concat!(
+                    include_str!("../migrations/0009_remote.sql"),
+                    "\nTHIS IS NOT SQL;"
+                ),
+            }],
+        ]
+        .concat();
+        let mut c = Connection::open_in_memory().unwrap();
+        assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
+        assert_eq!(user_version(&c).unwrap(), 8);
+        assert_eq!(tables(&c), before);
+    }
+
+    /// ⟨M06⟩ Wave 2 (ADR-0012 §3.10): `0010_remote_widening` applies on a database at
+    /// version 9 and adds exactly its table, keeping every row; a failure inside the step
+    /// leaves version 9 and no `remote_widening`.
+    #[test]
+    fn remote_widening_step_applies_on_version_9_and_rolls_back_whole() {
+        let tables = |c: &Connection| -> Vec<String> {
+            let mut stmt = c
+                .prepare(
+                    "SELECT name FROM sqlite_schema WHERE type = 'table'
+                     AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+                )
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        let previous = &MIGRATIONS[..9];
+        assert_eq!(MIGRATIONS[9].version, 10);
+        assert_eq!(MIGRATIONS[9].name, "remote_widening");
+        let mut c = Connection::open_in_memory().unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, previous).unwrap(), 9);
+        let before = tables(&c);
+        c.execute_batch("INSERT INTO meta (key, value) VALUES ('m06-w2-probe', 'kept')")
+            .unwrap();
+        assert_eq!(
+            apply_steps(&mut c, &NoFaults, &MIGRATIONS[..10]).unwrap(),
+            10
+        );
+        let after = tables(&c);
+        let added: Vec<&String> = after.iter().filter(|t| !before.contains(t)).collect();
+        assert_eq!(added, vec!["remote_widening"]);
+        let kept: String = c
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'm06-w2-probe'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, "kept");
+        let broken = [
+            previous.to_vec(),
+            vec![Migration {
+                version: 10,
+                name: "remote_widening_broken",
+                sql: concat!(
+                    include_str!("../migrations/0010_remote_widening.sql"),
+                    "\nTHIS IS NOT SQL;"
+                ),
+            }],
+        ]
+        .concat();
+        let mut c = Connection::open_in_memory().unwrap();
+        assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
+        assert_eq!(user_version(&c).unwrap(), 9);
+        assert_eq!(tables(&c), before);
+    }
+
+    /// ⟨M06⟩ Wave 3 (ADR-0006 §18.7 item 1): `0011_remote_client_endpoints` applies on a
+    /// database at version 10, adds exactly its table and the invitation column (existing
+    /// invitations admit no Iroh), keeping every row; a failure inside the step leaves
+    /// version 10, no table and no column.
+    #[test]
+    fn remote_client_endpoints_step_applies_on_version_10_and_rolls_back_whole() {
+        let tables = |c: &Connection| -> Vec<String> {
+            let mut stmt = c
+                .prepare(
+                    "SELECT name FROM sqlite_schema WHERE type = 'table'
+                     AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+                )
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        let columns = |c: &Connection| -> Vec<String> {
+            let mut stmt = c
+                .prepare("SELECT name FROM pragma_table_info('remote_invitations') ORDER BY cid")
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        let previous = &MIGRATIONS[..10];
+        assert_eq!(MIGRATIONS[10].version, 11);
+        assert_eq!(MIGRATIONS[10].name, "remote_client_endpoints");
+        let mut c = Connection::open_in_memory().unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, previous).unwrap(), 10);
+        let before = tables(&c);
+        let before_columns = columns(&c);
+        c.execute_batch(
+            "INSERT INTO remote_invitations (invitation_id, client_id, role, key_fingerprint,
+                 generation, created_wall, created_boot_id, created_elapsed_ms, expires_wall,
+                 elapsed_bound_ms, state, record_json)
+             VALUES ('inv_probe', 'cl_probe', 'owner', 'SHA256:x', 0, 't', 'b', 0, 't', 0,
+                 'pending', '{}')",
+        )
+        .unwrap();
+        assert_eq!(
+            apply_steps(&mut c, &NoFaults, &MIGRATIONS[..11]).unwrap(),
+            11
+        );
+        let added: Vec<String> = tables(&c)
+            .into_iter()
+            .filter(|t| !before.contains(t))
+            .collect();
+        assert_eq!(added, vec!["remote_client_endpoints".to_owned()]);
+        let new_columns: Vec<String> = columns(&c)
+            .into_iter()
+            .filter(|col| !before_columns.contains(col))
+            .collect();
+        assert_eq!(new_columns, vec!["iroh_admission".to_owned()]);
+        let admission: i64 = c
+            .query_row(
+                "SELECT iroh_admission FROM remote_invitations WHERE invitation_id = 'inv_probe'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(admission, 0, "an existing invitation admits no Iroh");
+        let broken = [
+            previous.to_vec(),
+            vec![Migration {
+                version: 11,
+                name: "remote_client_endpoints_broken",
+                sql: concat!(
+                    include_str!("../migrations/0011_remote_client_endpoints.sql"),
+                    "\nTHIS IS NOT SQL;"
+                ),
+            }],
+        ]
+        .concat();
+        let mut c = Connection::open_in_memory().unwrap();
+        assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
+        assert_eq!(user_version(&c).unwrap(), 10);
+        assert_eq!(tables(&c), before);
+        assert_eq!(columns(&c), before_columns);
+    }
+
+    /// ⟨M06⟩ Wave 4 (ADR-0006 §18.8 item 4): `0012_remote_lift_acks` applies on a database
+    /// at version 11, adds exactly its table, keeping every row; a failure inside the step
+    /// leaves version 11 and no table.
+    #[test]
+    fn remote_lift_acks_step_applies_on_version_11_and_rolls_back_whole() {
+        let tables = |c: &Connection| -> Vec<String> {
+            let mut stmt = c
+                .prepare(
+                    "SELECT name FROM sqlite_schema WHERE type = 'table'
+                     AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+                )
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        let previous = &MIGRATIONS[..11];
+        assert_eq!(MIGRATIONS[11].version, 12);
+        assert_eq!(MIGRATIONS[11].name, "remote_lift_acks");
+        let mut c = Connection::open_in_memory().unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, previous).unwrap(), 11);
+        let before = tables(&c);
+        c.execute_batch("INSERT INTO meta (key, value) VALUES ('m06-w4-probe', 'kept')")
+            .unwrap();
+        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 12);
+        let added: Vec<String> = tables(&c)
+            .into_iter()
+            .filter(|t| !before.contains(t))
+            .collect();
+        assert_eq!(added, vec!["remote_lift_acks".to_owned()]);
+        let kept: String = c
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'm06-w4-probe'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, "kept");
+        let broken = [
+            previous.to_vec(),
+            vec![Migration {
+                version: 12,
+                name: "remote_lift_acks_broken",
+                sql: concat!(
+                    include_str!("../migrations/0012_remote_lift_acks.sql"),
+                    "\nTHIS IS NOT SQL;"
+                ),
+            }],
+        ]
+        .concat();
+        let mut c = Connection::open_in_memory().unwrap();
+        assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
+        assert_eq!(user_version(&c).unwrap(), 11);
+        assert_eq!(tables(&c), before);
     }
 
     #[test]

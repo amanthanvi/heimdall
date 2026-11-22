@@ -290,6 +290,37 @@ any other.
 It re-issues only after a K_env is lost (signer restart) or for a delegated child. Shorter renewed
 certificates are not used in V1 (§8).
 
+**⟨Amendment, 2026-11-21; orchestrator ruling on the M06 W3 `driver` unit's Q1 (ADR-0012 §4.2, §7.4, §8.3)⟩ Remote reservations.**
+The issuer admits a reservation of kind `remote`, for a grant that lives on a paired runner and so is not in this
+controller's store, only when all of these hold:
+1. **The environment:** the entry names a paired runner environment this controller holds a record for, and this
+   controller is an active, unrevoked client there with a role that ADR-0012's role table allows to issue (owner in
+   today's table). The check reads the table; it does not hard-code the role.
+2. **The barrier** is open for that runner in this session: the authority report has been read and the outbox drained.
+3. **The key binding:** the runner's prepare answer, received over the K_mgmt-authenticated session to the pinned
+   runner host key, binds the K_env public key to the grant, its generation and, when present, its policy.
+4. **The CA:** the grant is pinned to this controller's CA (ADR-0012 §8.3).
+5. **The key ID** names the runner's environment.
+6. **The certificate's content comes from the controller's own records.** Principals, extensions, critical options
+   and validity come from this controller's record of the grant it delivered to that runner, intersected with the
+   runner's prepare answer. The runner's answer can only narrow, never supply content: a compromised runner cannot
+   get the owner's CA to sign principals or options the owner never delivered.
+7. **The validity bound:** `valid_before` is the minimum of the grant's expiry, the effective cutoff and the runner's
+   reported latest possible credential expiry.
+
+8. ⟨ruling of 2026-11-21 on the grant path⟩ **The controller-held record has exactly two sources:**
+   - **(a)** an `ensure` this controller itself forwarded to that runner, recording the profile, destination pairs,
+     principals and deadline it asked for;
+   - **(b)** a standing policy held on this controller that names that runner environment, created by the owner on
+     the controller under the normal local widening rules.
+   A runner-originated pending grant whose scope neither covers is never adopted automatically: it stays pending,
+   and readiness reports `controller_dependency`. A prepare answer naming a pair outside the record is refused whole.
+9. **Exactly one active CA.** Remote issuance pauses during a CA rotation.
+10. **Renewal** is a new issue, started inside the refresh window, before the old certificate expires.
+
+Everything else in this section (reserve, publish, the counted history) is unchanged.
+
+
 ### 3.6 Signer rules
 
 Per signature request, the signer checks:

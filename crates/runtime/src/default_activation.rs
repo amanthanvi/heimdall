@@ -62,10 +62,7 @@ pub fn owner_context(owner: &ExpectedOwner) -> CallerContext {
         ExpectedOwner::Uid(uid) => PrincipalRef::UnixUser { uid: *uid },
         ExpectedOwner::Sid(sid) => PrincipalRef::WindowsUser { sid: sid.clone() },
     };
-    CallerContext {
-        principal,
-        role: ClientRole::Owner,
-    }
+    CallerContext::local(principal, ClientRole::Owner)
 }
 
 /// At most one event per policy, kind and reason per interval.

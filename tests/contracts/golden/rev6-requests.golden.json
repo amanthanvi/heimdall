@@ -1,0 +1,505 @@
+{
+ "source": "ADR-0006 revision 6 (M06 wave 0; section 18): one request of every form ADR-0012 section 9 item 6 names (env add, invite, join, activation probe (revision 6.1), revoke-client, remove, update and status; device retire; route add, remove and prefer; transport enable and disable; roost adopt; the runner-internal prepare_remote_grant, install_certificate, TimeChallenge/TimeResponse, deliver_effect with each typed target of ADR-0012 section 7.2, authority_report and ResolveRouteBinding), with the operation kind, the admission and the capability each names (transcribed from section 18.1, never from the code). There is no RemoteDecide and no serve-child lease or suspend message. Synthetic values only: documentation addresses (192.0.2.0/24), a placeholder certificate and fingerprint. Revision 6.3 (M06 wave 3; section 18.7) adds remote_environment rotate_endpoint and runner_policy_recheck, transport rotate, and the runner_local forms (trust_issuer, designate_time_source, distrust_issuer, clear_time_source, enroll_owner, policy_recheck), all in `requests`; `no_capability_requests` holds the controller_record forms (put_environment, remove_environment and, at revision 6.4 (M06 wave 4; section 18.8 item 4), resume_issuance), which need no capability beyond operations/1 and are asserted separately; the revision-6.3 rows' kind, admission and capability are read from Request::kind, Request::admission and Request::required_capability.",
+ "requests": [
+  {
+   "what": "env add",
+   "json": {
+    "op": "remote_environment",
+    "action": "add",
+    "destination": "lab-runner",
+    "account": "runner",
+    "label": "lab"
+   },
+   "kind": "remote_environment.add",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env invite",
+   "json": {
+    "op": "remote_environment",
+    "action": "invite",
+    "environment": "env_0123456789abcdef0123456789abcdef",
+    "role": "requester",
+    "key_fingerprint": "SHA256:uXq3mT1n0rWbG5cVxZ2yA7kL9pQeJ4sHdF8oN6iRtC0",
+    "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA heimdall-mgmt:cl_example",
+    "request_id": "req-m06-0001"
+   },
+   "kind": "remote_environment.invite",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env join",
+   "json": {
+    "op": "remote_environment",
+    "action": "join",
+    "environment": "env_0123456789abcdef0123456789abcdef",
+    "invitation": "inv_b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+    "role": "requester",
+    "generation": 4
+   },
+   "kind": "remote_environment.join",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env activation probe",
+   "json": {
+    "op": "remote_environment",
+    "action": "activation_probe",
+    "environment": "env_0123456789abcdef0123456789abcdef",
+    "nonce": "nonce-m06-0001"
+   },
+   "kind": "remote_environment.activation_probe",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env rotate-endpoint (revision 6.3)",
+   "json": {
+    "op": "remote_environment",
+    "action": "rotate_endpoint",
+    "environment": "env_0123456789abcdef0123456789abcdef",
+    "endpoint": "58ff2b14ee18ef79cb690dd8ce9a9e8e8d8ce8fde772c88070ceaa99c6447058"
+   },
+   "kind": "remote_environment.rotate_endpoint",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env runner policy recheck (revision 6.3)",
+   "json": {
+    "op": "remote_environment",
+    "action": "runner_policy_recheck",
+    "environment": "env_0123456789abcdef0123456789abcdef",
+    "probe": {
+     "pty_refused": true,
+     "forward_refused": true,
+     "agent_forward_refused": true,
+     "setenv_canary_delivered": true
+    }
+   },
+   "kind": "remote_environment.runner_policy_recheck",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env revoke-client",
+   "json": {
+    "op": "remote_environment",
+    "action": "revoke_client",
+    "environment": "env_0123456789abcdef0123456789abcdef",
+    "client": "cl_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+   },
+   "kind": "remote_environment.revoke_client",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env remove",
+   "json": {
+    "op": "remote_environment",
+    "action": "remove",
+    "environment": "env_0123456789abcdef0123456789abcdef"
+   },
+   "kind": "remote_environment.remove",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env update",
+   "json": {
+    "op": "remote_environment",
+    "action": "update",
+    "environment": "env_0123456789abcdef0123456789abcdef"
+   },
+   "kind": "remote_environment.update",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env status",
+   "json": {
+    "op": "remote_environment",
+    "action": "status"
+   },
+   "kind": "remote_environment.status",
+   "admission": "read_only",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "device retire",
+   "json": {
+    "op": "device",
+    "action": "retire"
+   },
+   "kind": "device.retire",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "route add (direct)",
+   "json": {
+    "op": "route",
+    "action": "add",
+    "destination": "lab-runner",
+    "route": {
+     "kind": "direct",
+     "host": "192.0.2.10",
+     "port": 2222
+    },
+    "request_id": "req-m06-0002"
+   },
+   "kind": "route.add",
+   "admission": "synchronous",
+   "capability": "routes/1"
+  },
+  {
+   "what": "route add (iroh, custom relays)",
+   "json": {
+    "op": "route",
+    "action": "add",
+    "destination": "lab-runner",
+    "route": {
+     "kind": "iroh",
+     "endpoint": "58ff2b14ee18ef79cb690dd8ce9a9e8e8d8ce8fde772c88070ceaa99c6447058"
+    },
+    "exposure": {
+     "bind": {
+      "kind": "none"
+     },
+     "infrastructure": {
+      "kind": "custom",
+      "relays": [
+       "https://192.0.2.20:8443/"
+      ]
+     }
+    },
+    "request_id": "req-m06-0003"
+   },
+   "kind": "route.add",
+   "admission": "synchronous",
+   "capability": "routes/1"
+  },
+  {
+   "what": "route remove",
+   "json": {
+    "op": "route",
+    "action": "remove",
+    "destination": "lab-runner",
+    "route": "route_c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+   },
+   "kind": "route.remove",
+   "admission": "synchronous",
+   "capability": "routes/1"
+  },
+  {
+   "what": "route prefer",
+   "json": {
+    "op": "route",
+    "action": "prefer",
+    "destination": "lab-runner",
+    "route": "route_c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+    "request_id": "req-m06-0004"
+   },
+   "kind": "route.prefer",
+   "admission": "synchronous",
+   "capability": "routes/1"
+  },
+  {
+   "what": "ResolveRouteBinding",
+   "json": {
+    "op": "route",
+    "action": "resolve_binding",
+    "destination": "lab-runner",
+    "account": "deploy",
+    "endpoint": "/run/user/1000/heimdall/binding_00112233445566778899aabbccddeeff/agent.sock"
+   },
+   "kind": "route.resolve_binding",
+   "admission": "read_only",
+   "capability": "routes/1"
+  },
+  {
+   "what": "transport enable",
+   "json": {
+    "op": "transport",
+    "action": "enable",
+    "serve": true,
+    "request_id": "req-m06-0005"
+   },
+   "kind": "transport.enable",
+   "admission": "synchronous",
+   "capability": "transport-iroh/1"
+  },
+  {
+   "what": "transport disable",
+   "json": {
+    "op": "transport",
+    "action": "disable"
+   },
+   "kind": "transport.disable",
+   "admission": "synchronous",
+   "capability": "transport-iroh/1"
+  },
+  {
+   "what": "roost adopt",
+   "json": {
+    "op": "transport",
+    "action": "adopt_roost",
+    "destination": "lab-runner",
+    "endpoint": "58ff2b14ee18ef79cb690dd8ce9a9e8e8d8ce8fde772c88070ceaa99c6447058",
+    "request_id": "req-m06-0006"
+   },
+   "kind": "transport.adopt_roost",
+   "admission": "synchronous",
+   "capability": "transport-iroh/1"
+  },
+  {
+   "what": "transport rotate (revision 6.3)",
+   "json": {
+    "op": "transport",
+    "action": "rotate"
+   },
+   "kind": "transport.rotate",
+   "admission": "synchronous",
+   "capability": "transport-iroh/1"
+  },
+  {
+   "what": "prepare_remote_grant",
+   "json": {
+    "op": "runner",
+    "action": "prepare_remote_grant",
+    "grant": "grant_00112233445566778899aabbccddeeff",
+    "grant_generation": 2
+   },
+   "kind": "runner.prepare_remote_grant",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "install_certificate",
+   "json": {
+    "op": "runner",
+    "action": "install_certificate",
+    "grant": "grant_00112233445566778899aabbccddeeff",
+    "grant_generation": 2,
+    "certificate": "ssh-ed25519-cert-v01@openssh.com AAAAIHNzaC1lZDI1NTE5LWNlcnQtdjAxQG9wZW5zc2guY29t fixture-not-a-real-certificate"
+   },
+   "kind": "runner.install_certificate",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "TimeChallenge",
+   "json": {
+    "op": "runner",
+    "action": "time_challenge"
+   },
+   "kind": "runner.time_challenge",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "TimeResponse",
+   "json": {
+    "op": "runner",
+    "action": "time_response",
+    "nonce": "n-0001",
+    "controller_time": "2026-11-20T12:00:00Z"
+   },
+   "kind": "runner.time_response",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "deliver_effect grant_revoke",
+   "json": {
+    "op": "runner",
+    "action": "deliver_effect",
+    "effect": "eff_d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+    "target": {
+     "kind": "grant_revoke",
+     "grant": "grant_00112233445566778899aabbccddeeff",
+     "grant_generation": 2
+    }
+   },
+   "kind": "runner.deliver_effect",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "deliver_effect policy_pause",
+   "json": {
+    "op": "runner",
+    "action": "deliver_effect",
+    "effect": "eff_d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+    "target": {
+     "kind": "policy_pause",
+     "policy": "personal-default",
+     "revision": 7
+    }
+   },
+   "kind": "runner.deliver_effect",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "deliver_effect policy_cutoff",
+   "json": {
+    "op": "runner",
+    "action": "deliver_effect",
+    "effect": "eff_d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+    "target": {
+     "kind": "policy_cutoff",
+     "scope": {
+      "kind": "profile",
+      "profile": "lab"
+     },
+     "at": "2026-11-21T18:00:00Z",
+     "revision": 8
+    }
+   },
+   "kind": "runner.deliver_effect",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "authority_report",
+   "json": {
+    "op": "runner",
+    "action": "authority_report"
+   },
+   "kind": "runner.authority_report",
+   "admission": "read_only",
+   "capability": "runner/1"
+  },
+  {
+   "what": "runner_local trust_issuer (revision 6.3)",
+   "json": {
+    "op": "runner_local",
+    "action": "trust_issuer",
+    "controller": "cl_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    "ca_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "request_id": "req-m06-0007"
+   },
+   "kind": "runner_local.trust_issuer",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "runner_local designate_time_source (revision 6.3)",
+   "json": {
+    "op": "runner_local",
+    "action": "designate_time_source",
+    "client": "cl_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    "request_id": "req-m06-0008"
+   },
+   "kind": "runner_local.designate_time_source",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "runner_local distrust_issuer (revision 6.3)",
+   "json": {
+    "op": "runner_local",
+    "action": "distrust_issuer",
+    "ca_fingerprint": "SHA256:uXq3mT1n0rWbG5cVxZ2yA7kL9pQeJ4sHdF8oN6iRtC0"
+   },
+   "kind": "runner_local.distrust_issuer",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "runner_local clear_time_source (revision 6.3)",
+   "json": {
+    "op": "runner_local",
+    "action": "clear_time_source"
+   },
+   "kind": "runner_local.clear_time_source",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "runner_local enroll_owner (revision 6.3)",
+   "json": {
+    "op": "runner_local",
+    "action": "enroll_owner",
+    "client": "cl_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "iroh_endpoint": "58ff2b14ee18ef79cb690dd8ce9a9e8e8d8ce8fde772c88070ceaa99c6447058",
+    "request_id": "req-m06-0009"
+   },
+   "kind": "runner_local.enroll_owner",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "runner_local policy_recheck (revision 6.3)",
+   "json": {
+    "op": "runner_local",
+    "action": "policy_recheck",
+    "request_id": "req-m06-0010"
+   },
+   "kind": "runner_local.policy_recheck",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  }
+ ],
+ "no_capability_requests": [
+  {
+   "what": "controller_record put_environment (revision 6.3)",
+   "json": {
+    "op": "controller_record",
+    "action": "put_environment",
+    "record": {
+     "environment": "env_0123456789abcdef0123456789abcdef",
+     "destination": "lab-runner",
+     "route": {
+      "runner": {
+       "hostname": "192.0.2.10",
+       "port": 2222,
+       "account": "runner",
+       "host_keys": [
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+       ]
+      }
+     },
+     "client": "cl_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+     "role": "owner",
+     "key_fingerprint": "SHA256:uXq3mT1n0rWbG5cVxZ2yA7kL9pQeJ4sHdF8oN6iRtC0",
+     "label": "lab",
+     "pinned_at": "2026-11-21T12:00:00Z"
+    }
+   },
+   "kind": "controller_record.put_environment",
+   "admission": "synchronous",
+   "capability": null
+  },
+  {
+   "what": "controller_record remove_environment (revision 6.3)",
+   "json": {
+    "op": "controller_record",
+    "action": "remove_environment",
+    "environment": "env_0123456789abcdef0123456789abcdef"
+   },
+   "kind": "controller_record.remove_environment",
+   "admission": "synchronous",
+   "capability": null
+  },
+  {
+   "what": "controller_record resume_issuance (revision 6.4)",
+   "json": {
+    "op": "controller_record",
+    "action": "resume_issuance",
+    "environment": "env_0123456789abcdef0123456789abcdef",
+    "effects": [
+     "eff_0123456789abcdef0123456789abcdef"
+    ]
+   },
+   "kind": "controller_record.resume_issuance",
+   "admission": "synchronous",
+   "capability": null
+  }
+ ]
+}

@@ -967,16 +967,19 @@ fn work_reader(environment: EnvironmentId, work: WorkId) -> SetReader {
     })
 }
 
-/// Whether `caller` may stop `work`: the owner may stop any work ID (a stop only ever
-/// narrows); anyone else only a work with at least one binding, every one of which it may
-/// act on (binding IDs and work IDs are not bearer credentials, spec §11.2).
+/// Whether `caller` may stop `work`: the local owner may stop any work ID (a stop only
+/// ever narrows); anyone else, ⟨M06-W0-R03⟩ a paired owner included, only a work with at
+/// least one binding, every one of which it may act on (binding IDs and work IDs are not
+/// bearer credentials, spec §11.2). A stop releases the work's bindings, which is binding
+/// ownership; a paired owner narrows another client's work through the named powers
+/// (grant revocation, policy pause and cutoff), not through a stop.
 fn may_stop(
     tx: &mut Txn<'_>,
     caller: &CallerContext,
     environment: &EnvironmentId,
     work: &WorkId,
 ) -> heimdall_store::Result<bool> {
-    if caller.is_owner() {
+    if caller.has_global_access() {
         return Ok(true);
     }
     let bindings = tx.bindings_for_work(environment, work)?;

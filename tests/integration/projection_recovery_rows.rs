@@ -729,6 +729,7 @@ impl World {
             caller: CallerContext {
                 principal: PrincipalRef::UnixUser { uid: 501 },
                 role: ClientRole::Owner,
+                remote_client: None,
             },
             kind: OperationKind::SetupApply,
             request_id: RequestId::parse("setup-rows").unwrap(),

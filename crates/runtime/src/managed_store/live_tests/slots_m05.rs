@@ -79,6 +79,7 @@ async fn try_job(
             connection: None,
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
         },
     )
     .await
@@ -848,6 +849,7 @@ async fn a04_default_and_profile_change_never_redirects_bindings() {
                 connection: None,
                 context: None,
                 covered_only: false,
+                pair_issuers: Vec::new(),
             },
         )
         .await;

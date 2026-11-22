@@ -84,6 +84,7 @@ async fn ensure_req(
             connection: None,
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
         },
     )
     .await
@@ -164,7 +165,7 @@ async fn coalesced(
     hold.armed.store(true, Ordering::SeqCst);
     let (ops, req, r1) = (p.ops.clone(), required.clone(), format!("r-{tag}-lead"));
     let leader = tokio::spawn(async move { ensure_req(&ops, &r1, req, None).await });
-    hold.reached.notified().await;
+    hold.wait_reached().await;
     let (ops, req, r2) = (p.ops.clone(), required.clone(), format!("r-{tag}-follow"));
     let r2_key = r2.clone();
     let follower = tokio::spawn(async move { ensure_req(&ops, &r2, req, None).await });

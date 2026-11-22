@@ -45,6 +45,16 @@ pub mod ext_m03;
 // ⟨M04⟩ Joint wave 0: the managed-environment set and WSL distribution records.
 pub mod ext_m04;
 pub mod ext_m05;
+// ⟨M06⟩ U1: the runner's role table, invitations and the admission authority generation.
+pub mod ext_m06;
+// ⟨M06 U5a⟩ A destination's ordered approved routes (ADR-0012 §5.1, §9 item 9).
+pub mod ext_routes;
+// ⟨M06 U56⟩ The Iroh transport's key references and exposure consents (ADR-0012 §2).
+pub mod ext_transport;
+// ⟨M06 U3⟩ The runner's grant-to-issuer pins, issuer_trust and time source (ADR-0012 §4).
+pub mod ext_runner;
+// ⟨M06 U4⟩ Typed narrowing effects: the outbox, acknowledgements and policy revisions (ADR-0012 §7).
+pub mod ext_effects;
 pub mod migrations;
 
 pub use ext::{DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent, StoredEventPage};
@@ -262,6 +272,22 @@ const REQUIRED_TABLES: &[&str] = &[
     "decision_cooldowns",
     "work_stops",
     "slot_references",
+    // schema version 9 (M06 remote runners, routes, transport; ADR-0012 §9 item 11)
+    "remote_clients",
+    "remote_invitations",
+    "remote_effect_outbox",
+    "remote_effect_acks",
+    "remote_policy_revisions",
+    "remote_environment_pins",
+    "remote_grant_issuers",
+    "destination_routes",
+    "route_consents",
+    "remote_authority_generation",
+    "transport_keys",
+    // schema version 10 (M06 wave 2: the runner-local widening records; ADR-0012 §3.10)
+    "remote_widening",
+    // schema version 12 (M06 wave 4: the controller's lift acknowledgements; ADR-0006 §18.8)
+    "remote_lift_acks",
 ];
 
 /// Columns added to existing tables that the current schema must contain
@@ -1893,6 +1919,7 @@ mod tests {
             caller: CallerContext {
                 principal: PrincipalRef::UnixUser { uid: 501 },
                 role: ClientRole::Owner,
+                remote_client: None,
             },
             kind: OperationKind::Ensure,
             request_id: heimdall_contract::ids::RequestId::parse(&format!("req-{n}")).unwrap(),
@@ -2052,7 +2079,10 @@ mod tests {
         // grant origin column; 0005: the M02 tables, which add tables only).
         // M03 wave 0 (S): 0006 (the M03 tables) adds tables only as well.
         // ⟨M04/M05 wave 0⟩ 0007 and 0008 add tables, and 0008 one nullable column.
-        assert_eq!(migrations::SCHEMA_VERSION, 8);
+        // ⟨M06 wave 0⟩ 0009 adds tables only. ⟨M06 wave 2⟩ 0010 adds one table.
+        // ⟨M06 wave 3⟩ 0011 adds one table and one defaulted column.
+        // ⟨M06 wave 4⟩ 0012 adds one table.
+        assert_eq!(migrations::SCHEMA_VERSION, 12);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"
@@ -2480,6 +2510,7 @@ mod tests {
             owner: CallerContext {
                 principal: PrincipalRef::UnixUser { uid },
                 role: ClientRole::LimitedConsumer,
+                remote_client: None,
             },
             profile: heimdall_contract::ids::ProfileId::parse("ops").unwrap(),
             profile_revision: 9,
@@ -2626,6 +2657,7 @@ mod tests {
         let owner = CallerContext {
             principal: PrincipalRef::UnixUser { uid: 501 },
             role: ClientRole::Owner,
+            remote_client: None,
         };
         s.transaction(|tx| {
             for g in &grants_before {
@@ -2656,6 +2688,7 @@ mod tests {
                 caller: CallerContext {
                     principal: PrincipalRef::UnixUser { uid: 777 },
                     role: ClientRole::LimitedConsumer,
+                    remote_client: None,
                 },
                 mechanism: "fake_agent".into(),
                 covered: None,

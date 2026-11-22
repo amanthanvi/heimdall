@@ -7,6 +7,17 @@
 - **Markers:** rules changed by this revision carry **⟨r3⟩**. §16 maps each item to its section.
 - **No RemoteDecide in V1:** revision 2's remote decision path is withdrawn (§3.10).
 
+**Dated amendments after revision 3 (the orchestrator's rulings of 2026-11-21, marked ⟨2026-11-21⟩):**
+- §5.5 item 5: the client's identification line on an Iroh leg (M06-W1-R04), and which of its failures end the whole connect;
+- §2.1 and §2.5: a stable serve port;
+- §2.3 item 1, §3.9 item 5 and §3.11: where a paired client's Iroh endpoint ID comes from (`remote_client_endpoints`), and its rotation;
+- §3.2: which several-file `authorizedkeysfile` values verify;
+- §3.4 (and §2.4): the encrypted-local-backup residual of K_mgmt and K_iroh;
+- §3.5: one shared authorized_keys safety module;
+- §3.9 item 5: the join's commit-time time check;
+- §4.5: the refresh dependency's contract value.
+The contract side is ADR-0006 §18.7 (revision 6.3).
+
 **Revision 2 (2026-11-19):**
 - **Applies:** the independent design review (Codex, verdict FIX FIRST), M06-D-R01…R13, at `tests/evidence/artifacts/review-m06-design/round1-codex.md`. It is archived there.
 - **Also applies:** the orchestrator's rulings on §12, and the Windows W1 facts.
@@ -102,6 +113,12 @@ Passive inspection binds nothing (spec §9.2).
 
 ⟨r3⟩ **The decision is bound to the exact delta.** It names each added relay URL and the bind scope before and after, along with the direct-fallback, public-infrastructure and external-roost changes. It is confirmed by an attended session local to the runtime whose endpoint widens (§3.10). A **pure preference change**, such as reordering routes whose exposure is already consented, needs that existing recorded consent and no new decision. Anything not covered by a recorded consent is refused (`exposure_unconsented`).
 
+⟨2026-11-21⟩ **The serve port** (ruling 5, U56-Q5):
+- **Named:** the policy may name a `port` (`heimdall transport enable --port <n>`).
+- **Not named:** the first successful bind's port is recorded durably and reused at every later start, so the routes' direct addresses stay valid across restarts.
+- **Unbindable:** a port that cannot be bound fails closed (`transport_unavailable`), with a doctor finding naming the port. No other port is tried.
+- **Changing it** is `disable` then `enable` (§2.5).
+
 ### 2.2 Infrastructure profiles (the ruling on Q4)
 
 - **`none`:** direct only.
@@ -116,6 +133,10 @@ Passive inspection binds nothing (spec §9.2).
 ### 2.3 ⟨r2⟩ ⟨r3⟩ The serving side, and admission authority (R05, RC-R02; Windows W1 note)
 
 1. **The allowlist** is required and nonempty, and checked before any byte is forwarded. It holds only the endpoint IDs of clients enrolled for that environment.
+   - ⟨2026-11-21⟩ **Where the IDs come from** (ruling 4, U56-Q2): the table `remote_client_endpoints`, one row per client (client ID, endpoint ID, recorded time).
+     - **Recorded at join:** the client sends its own endpoint ID in `join` over its K_mgmt session. The runner records it in the join's commit transaction only when the invitation admits Iroh (`iroh_admission`, part of the invitation's runner-local decision, §3.9 item 2); otherwise the join is refused. The owner never types an endpoint ID.
+     - **Rotation:** the client's rotation form sets or atomically replaces its own row, and a replacement bumps `remote_authority_generation` in the same transaction.
+     - **Revocation** deletes the row in the tombstone's transaction (§3.11).
 2. **The target** is `127.0.0.1:<sshd port>` (or `::1`) only, checked before forwarding.
    - **The outbound connect** to it is bound explicitly to `127.0.0.1` (or `::1`) before `connect()`, so no wildcard local state can exist (W1 run 1's unexplained `0.0.0.0` reading).
 3. ⟨r3⟩ **The runner's durable tombstones and enrollment records are the only admission authority.** The serve child holds no authority of its own.
@@ -152,7 +173,8 @@ Passive inspection binds nothing (spec §9.2).
      - or the owner at the serving host.
      This uses §3.3's bootstrap path. Never an unauthenticated announcement.
    - **Locked store:** the endpoint is unavailable while locked, and reported.
-5. **Disclosure:** K_iroh proves reachability only. Theft of it would let an attacker impersonate that endpoint to its allowlisted peers; SSH host and user authentication still hold (G06 S04/S09).
+5. ⟨2026-11-21⟩ **Backups:** the encrypted-local-backup residual of §3.4 applies to K_iroh in the same stores; its recovery is rotation (item 4).
+6. **Disclosure:** K_iroh proves reachability only. Theft of it would let an attacker impersonate that endpoint to its allowlisted peers; SSH host and user authentication still hold (G06 S04/S09).
 
 ### 2.5 Uninstall
 
@@ -162,6 +184,11 @@ Passive inspection binds nothing (spec §9.2).
 - removes every route that names it, along with their projections and allowlist entries.
 
 A26 verifies removal. G06 made no uninstall claim.
+
+⟨2026-11-21; M06-W3-R01 (`tests/evidence/artifacts/review-m06/w3.md`) and the ruling on it⟩ **`disable` forgets endpoints; it does not revoke clients.**
+- **What it clears:** every `remote_client_endpoints` row, in the narrowing write, with the generation bump.
+- **What it keeps:** each client's Iroh admission. A later `enable` is the runner-local approved widening that resumes serving to clients still enrolled and admitted; they record an endpoint again as a first set.
+- **To remove one client's Iroh access permanently, revoke that client.**
 
 ### 2.6 ⟨r2⟩ Windows, decided per path (the ruling on Q5; R12)
 
@@ -221,6 +248,7 @@ A26 verifies removal. G06 made no uninstall claim.
 **The effective policy for that Match context must show all of these:**
 - `authorizedkeyscommand none` and `authorizedprincipalscommand none`;
 - `authorizedkeysfile` naming only files Heimdall checks. The key must appear in none of them except its own line;
+  - ⟨2026-11-21⟩ (ruling 1) `sshd -T` prints the list without its quoting, so only a single file, or exactly sshd's default pair (`.ssh/authorized_keys .ssh/authorized_keys2`), verifies. Any other list leaves the runner owner-only (`management_sshd_unverified`);
 - `forcecommand none`;
 - `permituserenvironment no`;
 - `acceptenv` ⊆ {`LANG`, `LC_*`}, with a POSIX login shell;
@@ -243,6 +271,16 @@ A probe that disagrees with the verified policy fails closed (`management_sshd_u
 **Limits:**
 - `sshd -T` reflects the on-disk configuration the account can read.
 - A daemon not reloaded since an edit, or one started with another `-f`, can differ. The confirming probes catch the differences that matter, and fail closed.
+- ⟨2026-11-21⟩ The check at runner start uses a loopback `Match` context. A `Match Address` or `LocalPort` block can give a real connection a different policy. The backstop is the confirming probe on the real connection path: if it shows the session is not restricted as the policy claimed, the runner downgrades to owner-only and reports the policy as unverifiable.
+  - **How the runner learns it:** the joining device reports what its four probes observed in `join`, and the runner checks that before the commit. A limited-role join without an observation is refused. The report is self-made by the joining device, so it catches misconfiguration, not a hostile joiner; the static `sshd -T` verification is the only check that holds against one.
+  - **What the runner sees for itself:** at the start of every management session the bridge refuses a session in which sshd allocated a PTY or forwarded an agent. A management session never requests either. The runner then goes owner-only, permanently, with a doctor finding.
+  - ⟨2026-11-21⟩ **How the downgrade is kept** (rulings on follow-ups D and E):
+    - **Stored** as the authority-bearing `meta` row `runner_owner_only`, compared in recovery.
+    - **The one exception to the single-writer rule:** the bridge, which holds no instance lock, sets this row itself. The write is set-only and idempotent, in one `BEGIN IMMEDIATE` transaction with a bounded busy timeout; this path can never clear the row or write anything else. If the write fails, the session is still refused, the failure is logged, and doctor reports it. The bridge then leaves a marker in an owner-only directory, which is a pending-write queue that fails closed: while it exists the runtime treats the runner as owner-only, and at start and at each limited-role admission the runtime records the row under the lock and then removes the marker. Neither the marker's absence nor its removal can lift anything.
+    - **The runtime re-reads the row** at each limited-role admission or decision; it does not cache it from startup.
+    - **A restore carries it forward:** if the current database has the row set, the row and its epoch are written into the restored database in the restore's transaction. A restored database that has the row when the current one lacks it is accepted. Both directions converge on owner-only if either side says so.
+    - **A join refused on a disagreeing probe** commits its refusal and the row in one transaction; the join's own changes do not commit.
+    - **Lifting** needs fresh evidence from the real path and an attended runner-local confirmation (ADR-0006 §18.7 item 19); `sshd -T` alone never lifts it.
 
 ### 3.3 Bootstrap
 
@@ -266,12 +304,18 @@ The same path repairs a lost host pin or a lost K_mgmt.
 - ⟨r3⟩ (R07) **Rotation:**
   - **When:** on compromise, owner request or algorithm change, with no calendar rotation (as K_ca, ADR-0005 §5.1).
   - **How:** a new K_mgmt is invited on each runner (a widening action, §3.10). Then the old client is revoked there.
-- ⟨r3⟩ **No backup.** The key is never exported and is excluded from backups by its store class. Loss is recovered as below, never by restoring a copy.
+- ⟨r3⟩ **No backup.** The key is never exported, and Heimdall makes no backup of it. Loss is recovered as below, never by restoring a copy.
+- ⟨2026-11-21⟩ **Residual: encrypted local backups** (ruling 7; U2-Q8; the same class of limit as K_ca's row in ADR-0005 §5.2). The key is never synchronized, but it can be present in encrypted local backups:
+  - on macOS, Time Machine backups of the login keychain, until the data-protection keychain item (D3) is available (P6 blocked);
+  - account backups that include Secret Service collections or DPAPI blobs.
+  - **Recovery on another device** is never a restore: run `heimdall device retire` and revoke the old client on each runner.
 - **Device retirement is a separate operation** (`heimdall device retire`). It needs an attended local decision (§3.10).
   - **What it does:** revokes this device's client on every runner where it is enrolled, then destroys K_mgmt.
   - **Revoking one runner is narrower:** it removes that runner's record and line only, and never destroys K_mgmt, which may serve other runners.
 
 ### 3.5 The enrollment line
+
+⟨2026-11-21⟩ (ruling 8 (c)) The authorized_keys safety steps (symlink and hard-link refusal, compare-then-rename, append-only add, the re-read check after every write) live in one module that both the enrollment writer (ADR-0005 §3.3) and the runner's management-line writer use.
 
 - **Format:** `restrict,command="<§3.2 item 5>"[,expiry-time="…"] <K_mgmt.pub> heimdall-mgmt:<cid>`.
 - **Writer:** the runner's own Heimdall, using ADR-0005 §3.3's add/remove procedure. It is a local edit that preserves the user's own lines.
@@ -312,7 +356,7 @@ The same path repairs a lost host pin or a lost K_mgmt.
 1. **Pins, both confirmed by explicit fingerprint comparison:**
    - **The receiving key:** the new device shows the fingerprint of its key, and the owner confirms it. The confirmation is bound into the invitation.
    - **The runner's identity:** the new device shows the runner's host-key fingerprint and environment ID from the public bundle, and the user confirms they match the owner's controller.
-2. **Creating an invitation is a widening action** (§3.10), confirmed **runner-locally**. The pending record is {invitation ID, cid, role, receiving key fingerprint, created_wall, created_boot_id, created_elapsed, expires_wall ≤ created + 15 min, generation}.
+2. **Creating an invitation is a widening action** (§3.10), confirmed **runner-locally**. The pending record is {invitation ID, cid, role, receiving key fingerprint, created_wall, created_boot_id, created_elapsed, expires_wall ≤ created + 15 min, generation} and ⟨2026-11-21⟩ `iroh_admission` (whether the client may reach the runner over Iroh, §2.3 item 1).
    - **The line** carries `expiry-time = expires_wall`, as an sshd-enforced backstop.
 3. ⟨r3⟩ **Pre-dispatch rule.**
    - **A session whose cid is `pending`** may send only the activation probe (§3.2) and `join`. Anything else is refused **before dispatch** with `CAPABILITY_UNAVAILABLE`, reason `invitation_pending`.
@@ -324,6 +368,9 @@ The same path repairs a lost host pin or a lost K_mgmt.
    - **A rollback cannot help:** rolling the wall clock back cannot extend an invitation, because the elapsed bound still runs out.
 5. **`join` is a compare-and-set:** `pending → active` only if the invitation ID, the cid, the line's key fingerprint, the role and the generation all match, and item 4 holds **at join time**.
    - **A session that authenticated before expiry but joins after it is refused.**
+   - ⟨2026-11-21⟩ **At the commit** (ruling 2): the runner projects the **upper bound** of now from the time the gate checked, by the elapsed reading of a continuous, suspend-inclusive clock taken in the same process. An unavailable or backwards reading refuses (`invitation_expired`).
+     - ⟨2026-11-21, M06-W2-R01 (blocking; `tests/evidence/artifacts/review-m06/w2.md`)⟩ **The projection is a floor.** The commit-time instant is the later of the projected upper bound and the wall clock read then, so a later wall reading can only bring expiry earlier. A backward wall step beyond the gate's step tolerance, measured against the projection, refuses with `TIME_UNCERTAIN`. The instant is sampled inside the committing transaction, after the line files are read.
+   - ⟨2026-11-21⟩ **Iroh admission:** a join that carries an endpoint ID records it in the same transaction only when the invitation has `iroh_admission` (§2.3 item 1).
 6. **Ordering and recovery:**
    - **The transition is persisted first.** Only then is the line rewritten, without the pending expiry. A reconciler makes the line match the database idempotently.
    - **A lost reply:** a retried `join` returns the recorded result after item 3's identity check.
@@ -380,6 +427,7 @@ The same path repairs a lost host pin or a lost K_mgmt.
 1. the runner commits the tombstone, which is the admission authority;
 2. Iroh admission is closed by §2.3 item 4: suspend, close streams, acknowledge or kill, then report applied;
 3. the line is removed (R8).
+- ⟨2026-11-21⟩ The client's `remote_client_endpoints` row is deleted in step 1's transaction.
 
 **Timing:** it needs no network, and applies to live sessions and subscriptions at once (§3.7).
 
@@ -403,6 +451,15 @@ The same path repairs a lost host pin or a lost K_mgmt.
      2. the runner generates K_env and returns K_env.pub bound to the grant and its generation;
      3. the issuer runs ADR-0005 §3.5's reserve and publish;
      4. the runner installs under §3.5 step 4, checking the certificate's key, issuer (it must be in `issuer_trust`), principals, generation, scope and `valid_before`.
+   - ⟨2026-11-21⟩ **How a grant comes to exist on a runner** (ruling on the W3 `host` unit's questions; ADR-0005 §3.5 "Remote reservations"):
+     - **It starts as an `ensure`** naming the runner's environment. The controller's runtime forwards it over the management session and records exactly what it asked. An `ensure` made locally on the runner goes through the same admission.
+     - **A runner never issues locally.** An admitted grant waits for its issuer (refresh dependency `controller`). The runner prepares K_env, the controller's host issues, and the runner installs.
+     - **The host issues only for scope a controller-held record authorizes:** an `ensure` it forwarded, or a standing policy held on the controller that names that runner. A runner-originated pending grant outside both stays pending, and readiness reports `controller_dependency`.
+     - **Work on the runner** binds through the runner's binding endpoints. A local `ensure` covered by a live issued grant attaches to it.
+     - **Certificate length:** a remote certificate runs to the grant's bound (ADR-0005 rejects short renewed certificates). There is no routine renewal. A re-issue happens only after a lifted cutoff, through the controller's `resume-issuance`, and replaces the certificate the cutoff removed.
+     - **Who may name the issuing CA:** the forwarding controller, or the runner's local owner for a CA already in the runner's `issuer_trust`. The second creates a pending grant only.
+     - **Attach:** same profile; the forwarding client or the runner's local owner; an attached binding's endpoint lists only its own subset of pairs.
+     - **The host's session:** one per owned runner, a 30 s pass, with exponential backoff up to about 5 minutes while a runner is unreachable, reset on success.
 3. ⟨r2⟩ **Lifetime** (the ruling on Q7; R09):
    - **Preferred:** a verified `systemd --user` unit where the owner has enabled linger. Heimdall never enables linger; setup offers it.
    - **Otherwise:** readiness reports the narrower lifetime: `session_scope`, which survives logout only while `KillUserProcesses=no`.
@@ -429,6 +486,7 @@ The same path repairs a lost host pin or a lost K_mgmt.
      - **Path patterns** are diagnostics only.
      - **Reported:** the conditions (lifetime, time bound, process not restarted).
    - **Refusal:** `CAPABILITY_UNAVAILABLE`, reason `controller_dependency`, for inherited controller sockets, and reason `dependency_provenance_unknown`.
+   - ⟨2026-11-21⟩ **The refresh dependency** of a runner's managed binding is the contract value `refresh_dependency: controller`: the controller's issuer. The G07 report calls it `controller_issuer`.
 6. **Fixed-auth onward targets** use runner-local existing access only. The controller's agent is never used.
 
 ## 5. Stable destination identity with several approved routes (M06-T03)
@@ -506,7 +564,7 @@ This text replaces nothing else in ADR-0010 §5.
    - ⟨r3⟩ **Pre-identification lines:** lines the server sends before its identification are buffered and forwarded unchanged once it arrives (RFC 4253 §4.2). The buffer is bounded at 8 KiB and 32 lines; past that the attempt fails.
    - ⟨r3⟩ **A bounded wait:** a 10 s default, configurable per route. A peer that waits for the client to identify first times out at that bound.
      - **That timeout is an establishment failure,** so the next approved route may be tried.
-     - **A route whose server needs client-first identification is incompatible with the helper.** It is reported as such, and stays reachable through a single-route native rendering.
+     - **On a direct or jump leg, a route whose server needs client-first identification is incompatible with the helper** (on an Iroh leg, item 5 applies). It is reported as such, and stays reachable through a single-route native rendering.
 2. **The forwarding boundary** is the first byte forwarded in either direction.
    - **Failover is allowed only before it:** a connect refusal or timeout; a jump leg exiting before identification; an Iroh connection refused or closed before identification.
    - **After it, every failure is terminal for the attempt.** That includes a late Iroh refusal and a downstream failure.
@@ -518,6 +576,18 @@ This text replaces nothing else in ADR-0010 §5.
    - **What it records:** each tried route, its failure class (`refused`, `timeout`, `identification_timeout`, `admission_refused`, `terminal_after_forwarding`), and the route finally used, or none.
    - **Where it can be read:** through `inspect` and the `route.health` event.
    - **What it is not:** the helper's exit codes stay internal.
+
+5. ⟨Amendment, 2026-11-21; M06-W1-R04, Gemini W1 review (`tests/evidence/artifacts/review-m06/w1.md`); orchestrator ruling⟩ **The client's identification line on an Iroh leg.** A QUIC stream is invisible to the serving side until the dialer writes, so holding every client byte until the server's identification would deadlock against `/pigeons/0` serving (which accepts the stream before connecting its target). On an Iroh leg the helper therefore forwards exactly one thing before the server's identification: the client's own SSH identification line. A preamble is not used, because a stock Pigeons roost would forward it to sshd and break raw `/pigeons/0` interop (§1.2).
+   - **Bounded and validated before anything is forwarded:** the first line from the client must start with `SSH-2.0-`, end in CRLF, and be at most 255 bytes including the CRLF (RFC 4253 §4.2). Anything else, no CRLF within 255 bytes, or no line before `identification_timeout` fails closed, and nothing is forwarded.
+   - ⟨2026-11-21⟩ **Which failures end what** (ruling 3):
+     - **A malformed or overlong client line** is terminal for the whole connect, with a precise error. No other route is tried: the client's bytes would be the same on every route.
+     - **A timeout waiting for the client's line** stays route-local. The next approved route may be tried.
+     - **Neither counts against the Iroh route's health.**
+   - ⟨2026-11-21⟩ **Validated before the dial, and waited for once** (M06-W2-R06; ruling on the two windows): the client's line is read and validated before any Iroh leg is dialed. The client window applies once per connect: later routes replay the held line and wait only for the server's identification. The worst case is one client window plus one server window per Iroh route tried.
+   - **Nothing past the line** goes out until the server's `SSH-` arrives; the hold-and-replay rule of items 1–2 covers it.
+   - **Replay on failover:** the line is stateless; on failover the next approved route receives the same bytes exactly once, and the pre-`SSH-` replay guarantee holds.
+   - **Admission order is unchanged:** the serving side checks the allowlist and the authority generation before any target connect; the identification line never bypasses either check.
+   - The line's contents are not logged.
 
 ### 5.6 No session migration
 
@@ -571,6 +641,17 @@ This text replaces nothing else in ADR-0010 §5.
    5. the time sample (§4.4).
    - **Gating:** issuance, approval of new work, and owned-connection admission stay **gated until both grant tombstones and policy revisions are reconciled**, the outbox is drained, and time is bounded.
    - **Stale grants:** a tombstoned grant is never reactivated. A fresh work ID cannot pass a reconciled pause or cutoff.
+   - ⟨2026-11-21⟩ **Rulings on U4's questions:**
+     - **Both ends gate.** The controller's barrier and a per-session gate on the runner refuse issuance until the report and resync are complete (`resync_pending`). The runner is the authority: it refuses prepare and install from a session that skipped the report.
+     - **A revoke always wins over a stale view.** It revokes the named grant at its current generation and everything older. The generation it carries is for idempotency and audit only, never a precondition. Re-issuing after a revoke needs a new widening.
+     - **A cutoff under unbounded uncertain time** fires at once, since it only narrows. Once fired it stays fired even after time becomes certain; only a runner-local attended action lifts it. `environment status` and `doctor` say it fired early because time was uncertain.
+     - **Lifting:** a runner-local attended `resume` or `clear_cutoff` lifts a delivered pause or cutoff. The revision rows stay as the record.
+     - **Coverage:** a cutoff covers the policies that exist when it is delivered. A policy the runner-local owner creates later is that owner's own attended widening.
+   - ⟨2026-11-21; M06-W3-R02 and the ruling on it⟩ **The controller's own delivered effects gate issuance, whatever the runner says.**
+     - A cutoff with scope `all` that this controller delivered blocks all issuance for that runner.
+     - While the runner's report, or any undrained or unlifted effect this controller delivered, holds a pause or cutoff, a prepare answer that names no policy, or one the report does not list as active, is refused.
+     - **This is sticky until a lift is acknowledged on the controller** (W4): issuance resumes only when the runner's report shows the lift and the owner confirms it on the controller, recorded as a controller-held row. Neither alone reopens issuance.
+     - **Residual:** a runner that lies in both its report and its answer passes the report-side checks; only this controller's own delivered effects are independent of it.
 5. **Identity is not reset.**
    - **A changed host key,** or an environment ID that does not match the pin, gives `held`, with `environment_identity_mismatch`.
    - **Repair** goes through independently host-verified access (§3.3).
@@ -658,6 +739,8 @@ The contract owner applies these at M06 wave 0 (m06-plan U0). Each item names th
 - A revoked runner credential remains usable at destinations within the reported residuals while the runner is unreachable.
 - No support label on a Windows path that has no evidence.
 - Headless persistent Iroh endpoints are unavailable in V1 (§2.7 not adopted).
+- ⟨2026-11-21, §5.5 item 5⟩ A client that sends nothing until it sees the server's banner fails on an Iroh route with `identification_timeout`. OpenSSH, Win32-OpenSSH included, sends its identification first, so the product's own path is unaffected.
+- ⟨2026-11-21, §3.4⟩ K_mgmt and K_iroh are never synchronized, but they can be present in encrypted local backups (Time Machine for the macOS login keychain until D3; account backups of Secret Service collections and DPAPI blobs). Recovery on another device is `device retire` and revocation, never a restore.
 
 ## 11. Rejected
 

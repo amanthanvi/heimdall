@@ -96,6 +96,7 @@ fn hello(name: &str) -> Vec<u8> {
             capabilities: server_capabilities(),
             required: BTreeSet::new(),
             interaction: InteractionMode::NonInteractive,
+            remote_client: None,
         }),
         MAX_HELLO_FRAME_BYTES,
     )

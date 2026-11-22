@@ -82,6 +82,7 @@ fn owner(uid: u32) -> Caller {
     Caller::unattended(CallerContext {
         principal: PrincipalRef::UnixUser { uid },
         role: ClientRole::Owner,
+        remote_client: None,
     })
 }
 
@@ -249,6 +250,7 @@ fn ensure_req(rid: &str, work: &str, h: &str, until: Option<&str>) -> EnsureRequ
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     }
 }
 

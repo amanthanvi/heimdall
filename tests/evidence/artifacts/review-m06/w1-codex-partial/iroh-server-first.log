@@ -1,0 +1,25 @@
+warning: unreachable expression
+  --> third_party/netdev-0.47.0/src/net/ip.rs:71:5
+   |
+67 |           return None;
+   |           ----------- any code following this expression is unreachable
+...
+71 | /     if let Some(addr) = try_ipv4() {
+72 | |         Some(addr)
+73 | |     } else {
+74 | |         try_ipv6()
+75 | |     }
+   | |_____^ unreachable expression
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `netdev` (lib) generated 1 warning
+   Compiling heimdall-transport-iroh v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/transport-iroh)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.40s
+     Running unittests src/lib.rs (target/debug/deps/heimdall_transport_iroh-68d847c35bf62461)
+
+running 1 test
+test e2e_tests::reviewer_server_first_waits_for_client_byte ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 25 filtered out; finished in 0.28s
+

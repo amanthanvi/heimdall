@@ -532,6 +532,7 @@ mod pty {
                 context: CallerContext {
                     principal: PrincipalRef::UnixUser { uid: self.uid },
                     role: ClientRole::Owner,
+                    remote_client: None,
                 },
                 attendance: Attendance::Attended {
                     since: heimdall_contract::Timestamp::now(),

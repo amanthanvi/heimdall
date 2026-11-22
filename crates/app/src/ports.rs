@@ -904,6 +904,11 @@ pub enum IssuanceTable {
     Grant,
     /// The verification issuance table (`verification_issuance`; ADR-0008 D5 §6.5).
     Verification,
+    /// ⟨M06 W3; ADR-0005 §3.5 "Remote reservations"⟩ A reservation of kind `remote`: an
+    /// entry of the grant issuance log for a grant that lives on a paired runner, judged by
+    /// the issuer against this controller's own record of the grant it delivered there
+    /// (never by the local grant predicate, which has no such grant).
+    Remote,
 }
 
 /// A reserved issuance entry the issuer is asked to sign (ADR-0008 D3 item 4).

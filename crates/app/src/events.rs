@@ -18,7 +18,7 @@ use std::sync::Arc;
 use heimdall_contract::Timestamp;
 use heimdall_contract::envelope::ResourceRef;
 use heimdall_contract::event::{Cursor, Event, EventFilter, EventType, Snapshot};
-use heimdall_contract::ids::{EnvironmentId, EventId, OperationId};
+use heimdall_contract::ids::{BindingId, EnvironmentId, EventId, GrantId, OperationId};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::time::Clock;
 use heimdall_store::{Store, Txn};
@@ -143,7 +143,14 @@ pub struct SubscriptionStart {
     pub live: broadcast::Receiver<Arc<SequencedEvent>>,
     /// Personalizes live events for this reader.
     pub cursor_for: CursorBuilder,
+    /// ⟨M06-W0-R03⟩ Whether this reader may see a live event ([`event_visible_in`]); the
+    /// runtime hands it to the session (`heimdall_ipc::session::Dispatcher::live_visibility`).
+    pub visible: LiveVisibility,
 }
+
+/// ⟨M06-W0-R03⟩ A reader's live-event visibility (the same shape as
+/// `heimdall_ipc::session::LiveVisibility`).
+pub type LiveVisibility = Arc<dyn Fn(&Event) -> bool + Send + Sync>;
 
 impl std::fmt::Debug for SubscriptionStart {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -582,7 +589,15 @@ impl EventPublisher {
                         && seq <= head
                         && page.events.len() <= MAX_SUBSCRIPTION_BACKLOG as usize;
                     if usable {
-                        return Ok((StartFrom::Backlog(page.events), head));
+                        // ⟨M06-W0-R03⟩ A resumed subscription carries only what this
+                        // reader may see.
+                        let mut visible = Vec::with_capacity(page.events.len());
+                        for stored in page.events {
+                            if event_visible_in(tx, &stored.event, &reader)? {
+                                visible.push(stored);
+                            }
+                        }
+                        return Ok((StartFrom::Backlog(visible), head));
                     }
                     if strict {
                         return Ok((StartFrom::Refused, head));
@@ -635,6 +650,24 @@ impl EventPublisher {
             backlog,
             live,
             cursor_for,
+            visible: self.live_visibility(caller),
+        })
+    }
+
+    /// ⟨M06-W0-R03⟩ The live-event visibility for `reader`: every event for the local owner
+    /// (no store read), else [`event_visible_in`] read per event; a store failure hides the
+    /// event (fail closed).
+    #[must_use]
+    pub fn live_visibility(&self, reader: &CallerContext) -> LiveVisibility {
+        if reader.has_global_access() {
+            return Arc::new(|_| true);
+        }
+        let store = Arc::clone(&self.store);
+        let reader = reader.clone();
+        Arc::new(move |event: &Event| {
+            store
+                .transaction(|tx| event_visible_in(tx, event, &reader))
+                .unwrap_or(false)
         })
     }
 
@@ -647,11 +680,92 @@ impl EventPublisher {
     }
 }
 
-/// Whether `caller` may see an operation created by `owner` (same principal, or
-/// the owner role).
+/// Whether `caller` may see an operation created by `owner`: the same caller, or
+/// ⟨M06-W0-R03⟩ the **local** owner's global access. ⟨rev6⟩ The same caller is the same
+/// principal **and** the same paired client (ADR-0012 §3.7, §9 item 2): a client, a paired
+/// owner included, sees its own operations only.
 #[must_use]
 pub fn visible_to(owner: &CallerContext, caller: &CallerContext) -> bool {
-    owner.principal == caller.principal || caller.is_owner()
+    caller.may_access(owner)
+}
+
+/// ⟨M06-W0-R03⟩ The environment-level event types a caller without global access may see,
+/// by role (ADR-0012 §3.7 "the environment-level views its role permits"): every role sees
+/// the runtime's lifecycle, policy changes (they decide whether its work runs) and its own
+/// resynchronization markers; the owner role also sees the other environment-level events
+/// (decisions, resources, enrollments, sessions, activations, connections and the remote
+/// families).
+#[must_use]
+pub fn environment_view_permitted(event_type: EventType, reader: &CallerContext) -> bool {
+    matches!(
+        event_type,
+        EventType::RuntimeLifecycle | EventType::PolicyChanged | EventType::ResyncRequired
+    ) || reader.is_owner()
+}
+
+/// ⟨M06 W2; the orchestrator's ruling on M06-W0-R03, 2026-11-21⟩ The event types that are
+/// owner-role environment views whatever they concern: decision and resource events reach a
+/// caller without global access only when its role's view set names them, which the limited
+/// roles' does not ([`environment_view_permitted`]), even for an event about the caller's
+/// own operation. A paired owner receives them read-only, within its client scope.
+#[must_use]
+pub fn owner_role_view(event_type: EventType) -> bool {
+    matches!(event_type, EventType::Decision | EventType::ResourceChanged)
+}
+
+/// ⟨M06-W0-R03⟩ Whether `reader` may see `event`, on every delivery path (event pages,
+/// subscription backlogs, live events): the local owner sees everything; anyone else sees
+/// an event about an operation only if it may see that operation, an event about a grant
+/// only if it holds (or held) a binding on it, an event about a binding only if it owns it,
+/// and an environment-level event only as its role permits
+/// ([`environment_view_permitted`]); ⟨M06 W2⟩ an owner-role view ([`owner_role_view`]) only
+/// with the owner role. An event naming an object that no longer exists, or a malformed
+/// reference, is hidden.
+pub fn event_visible_in(
+    tx: &mut Txn<'_>,
+    event: &Event,
+    reader: &CallerContext,
+) -> heimdall_store::Result<bool> {
+    if reader.has_global_access() {
+        return Ok(true);
+    }
+    if owner_role_view(event.event_type) && !environment_view_permitted(event.event_type, reader) {
+        return Ok(false);
+    }
+    let op_owner = |tx: &mut Txn<'_>, id: &OperationId| -> heimdall_store::Result<bool> {
+        Ok(tx
+            .operation(id)?
+            .is_some_and(|op| visible_to(&op.key.caller, reader)))
+    };
+    if let Some(id) = &event.operation_id {
+        return op_owner(tx, id);
+    }
+    let Some(resource) = &event.resource else {
+        return Ok(environment_view_permitted(event.event_type, reader));
+    };
+    let id = resource.id.as_deref().unwrap_or_default();
+    match resource.kind.as_str() {
+        "operation" => match OperationId::parse(id) {
+            Ok(op) => op_owner(tx, &op),
+            Err(_) => Ok(false),
+        },
+        "binding" => match BindingId::parse(id) {
+            Ok(b) => Ok(tx.binding(&b)?.is_some_and(|b| reader.may_access(&b.owner))),
+            Err(_) => Ok(false),
+        },
+        "grant" => {
+            let Ok(grant) = GrantId::parse(id) else {
+                return Ok(false);
+            };
+            for b in tx.bindings_of_grant(&grant)? {
+                if tx.binding(&b)?.is_some_and(|b| reader.may_access(&b.owner)) {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        _ => Ok(environment_view_permitted(event.event_type, reader)),
+    }
 }
 
 /// The snapshot document consistent with a boundary: open and unresolved
@@ -742,6 +856,8 @@ pub fn decision_kind_name(kind: &heimdall_domain::decision::DecisionKind) -> &'s
         K::ReconcileWorkspace { .. } => "reconcile_workspace",
         K::RemoveEnrollment { .. } => "remove_enrollment",
         K::ApproveTargetChange { .. } => "approve_target_change",
+        // ⟨M06 W2⟩ A paired client's widening request, decided runner-locally.
+        K::RemoteWidening(_) => "remote_widening",
     }
 }
 
@@ -753,10 +869,7 @@ mod tests {
     use heimdall_domain::principal::{ClientRole, PrincipalRef};
 
     fn ctx(uid: u32) -> CallerContext {
-        CallerContext {
-            principal: PrincipalRef::UnixUser { uid },
-            role: ClientRole::Owner,
-        }
+        CallerContext::local(PrincipalRef::UnixUser { uid }, ClientRole::Owner)
     }
 
     #[test]
@@ -791,5 +904,41 @@ mod tests {
         assert_ne!(a, b);
         assert_ne!(a, cursor::reader_tag(&limited));
         assert_eq!(a, cursor::reader_tag(&ctx(501)));
+    }
+
+    /// ⟨rev6⟩ ADR-0012 §3.7, §9 item 2: cursors and visibility include the paired client.
+    /// Without one, the reader tag is the revision-5 tag (the hash of the two-field caller
+    /// document, so every issued cursor still resolves); two clients of one account, and
+    /// the account's own limited caller, get different tags and do not see each other's
+    /// operations, while the owner role sees all.
+    #[test]
+    fn remote_client_scopes_cursors_and_visibility() {
+        let local = ctx(501);
+        let before = heimdall_contract::canonical::request_hash(
+            "event-cursor-reader",
+            &serde_json::json!({"principal": {"kind": "unix_user", "uid": 501}, "role": "owner"}),
+        )
+        .unwrap();
+        assert_eq!(cursor::reader_tag(&local), before.0[..8]);
+        let client = |n: u8| CallerContext {
+            role: ClientRole::LimitedConsumer,
+            remote_client: Some(heimdall_contract::ids::ClientId::from_random_bytes([n; 16])),
+            ..local.clone()
+        };
+        let mut limited = local.clone();
+        limited.role = ClientRole::LimitedConsumer;
+        assert_ne!(
+            cursor::reader_tag(&client(1)),
+            cursor::reader_tag(&client(2))
+        );
+        assert_ne!(cursor::reader_tag(&client(1)), cursor::reader_tag(&limited));
+        assert!(visible_to(&client(1), &client(1)));
+        assert!(!visible_to(&client(1), &client(2)));
+        assert!(!visible_to(&client(1), &limited));
+        assert!(!visible_to(&limited, &client(1)));
+        assert!(
+            visible_to(&client(1), &local),
+            "the owner role sees every operation"
+        );
     }
 }

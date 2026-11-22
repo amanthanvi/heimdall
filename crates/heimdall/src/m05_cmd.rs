@@ -1159,6 +1159,26 @@ pub(crate) fn render_target_result(v: &serde_json::Value) -> String {
         }
         out.push('\n');
     }
+    // ⟨M06 W3 host⟩ A cutoff of every policy also went to every runner this controller owns.
+    for (key, line) in [
+        ("delivered", "delivered to runner"),
+        ("pending", "pending on runner"),
+    ] {
+        for runner in v
+            .get("runners")
+            .and_then(|r| r.get(key))
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(environment) = runner.get("environment").and_then(|e| e.as_str()) {
+                out.push_str(&format!(
+                    "{line} {}\n",
+                    crate::output::sanitize_for_terminal(environment)
+                ));
+            }
+        }
+    }
     out
 }
 

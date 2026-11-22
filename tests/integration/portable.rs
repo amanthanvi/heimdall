@@ -73,6 +73,7 @@ fn owner(attended: bool) -> Caller {
     let context = CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::Owner,
+        remote_client: None,
     };
     if attended {
         Caller {
@@ -89,6 +90,7 @@ fn limited() -> Caller {
     Caller::unattended(CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::LimitedConsumer,
+        remote_client: None,
     })
 }
 
@@ -395,6 +397,7 @@ impl Inst {
                     connection: None,
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 },
             )
             .await;

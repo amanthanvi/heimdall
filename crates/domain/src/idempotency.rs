@@ -173,13 +173,56 @@ mod tests {
 
     fn key() -> IdempotencyKey {
         IdempotencyKey {
-            caller: CallerContext {
-                principal: PrincipalRef::UnixUser { uid: 501 },
-                role: ClientRole::Owner,
-            },
+            caller: CallerContext::local(PrincipalRef::UnixUser { uid: 501 }, ClientRole::Owner),
             kind: OperationKind::Ensure,
             request_id: RequestId::parse("req_1").unwrap(),
         }
+    }
+
+    /// ⟨rev6⟩ ADR-0006 §7.1 as revision 6 states it (ADR-0012 §3.7, §9 item 2): the key is
+    /// `(CallerContext{principal, role, remote_client}, kind, request_id)`. Two callers
+    /// that differ only in their paired client get different keys for the same request
+    /// ID, and so does the account's local caller. Without a client the key's document,
+    /// and so its hash and the stored `caller_json`, are byte-identical to revision 5's:
+    /// the expected bytes are written out here, not derived from the type.
+    #[test]
+    fn remote_client_namespaces_the_key_and_none_keeps_the_old_encoding() {
+        let local = key();
+        assert_eq!(
+            serde_json::to_string(&local).unwrap(),
+            r#"{"caller":{"principal":{"kind":"unix_user","uid":501},"role":"owner"},"kind":"ensure","request_id":"req_1"}"#
+        );
+        let old_hash = heimdall_contract::canonical::request_hash(
+            "idempotency-key",
+            &serde_json::json!({
+                "caller": {"principal": {"kind": "unix_user", "uid": 501}, "role": "owner"},
+                "kind": "ensure",
+                "request_id": "req_1",
+            }),
+        )
+        .unwrap();
+        assert_eq!(local.hash().unwrap(), KeyHash(old_hash));
+        // A stored revision-5 key decodes with no client.
+        let stored: IdempotencyKey = serde_json::from_str(
+            r#"{"caller":{"principal":{"kind":"unix_user","uid":501},"role":"owner"},"kind":"ensure","request_id":"req_1"}"#,
+        )
+        .unwrap();
+        assert_eq!(stored, local);
+        let with = |n: u8| {
+            let mut k = key();
+            k.caller.remote_client =
+                Some(heimdall_contract::ids::ClientId::from_random_bytes([n; 16]));
+            k
+        };
+        let (a, b) = (with(1), with(2));
+        assert_eq!(a.request_id, b.request_id);
+        assert_ne!(a, b);
+        assert_ne!(a.hash().unwrap(), b.hash().unwrap());
+        assert_ne!(a.hash().unwrap(), local.hash().unwrap());
+        let text = serde_json::to_string(&a).unwrap();
+        assert!(text.contains(r#""remote_client":"cl_01010101010101010101010101010101""#));
+        let back: IdempotencyKey = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, a);
     }
 
     fn rec(hash: RequestHash, expires_at: Option<&str>) -> IdempotencyRecord {
