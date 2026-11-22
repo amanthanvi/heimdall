@@ -218,7 +218,25 @@ async fn seed(
     .await;
 }
 
+fn unused_fixture_stores(root: &Path) -> [PathBuf; 2] {
+    let stores = [root.join("mgmt-store"), root.join("iroh-key-store")];
+    for store in &stores {
+        assert!(
+            store
+                .symlink_metadata()
+                .is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound),
+            "unexpected fixture store"
+        );
+    }
+    stores
+}
+
 fn cli(home: &ScratchHome, heimdall_home: &Path, args: &[&str]) -> Command {
+    let account = home.root.join("cli-home");
+    let [mgmt, iroh] = unused_fixture_stores(&home.root);
+    for path in [&account, &home.git_home, heimdall_home, &mgmt, &iroh] {
+        assert!(home.scratch().contains_lexically(path));
+    }
     // A native run copies the binary elsewhere and names it (`HEIMDALL_E2E_BIN`), as the
     // other e2e suites do.
     let bin = std::env::var("HEIMDALL_E2E_BIN")
@@ -229,7 +247,13 @@ fn cli(home: &ScratchHome, heimdall_home: &Path, args: &[&str]) -> Command {
     cmd.env_clear()
         .env("HEIMDALL_HOME", heimdall_home)
         .env("HEIMDALL_TEST_SSH_HOME", &home.git_home)
-        .env("HOME", home.root.join("cli-home"))
+        .env("HOME", account)
+        .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
+        .env(
+            "HEIMDALL_TEST_MGMT_STORE",
+            format!("fixture-file:{}", mgmt.to_str().unwrap()),
+        )
+        .env("HEIMDALL_TEST_IROH_KEY_STORE", iroh)
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", home.git_home.join(".gitconfig"))
         .env("LANG", "C")
@@ -435,6 +459,7 @@ impl ChildLog {
             .await
             .unwrap_or_else(|_| self.fail(home, &mut child, "child did not exit"))
             .unwrap();
+        unused_fixture_stores(&home.root);
         self.output(status)
     }
 
@@ -475,7 +500,6 @@ async fn test_runtime(home: &ScratchHome, root: &Path, delay_ms: &str) -> (Child
         .env("HEIMDALL_TEST_ADAPTER", "prepare")
         .env("HEIMDALL_TEST_SLOW_PREPARE_MS", delay_ms)
         .env("HEIMDALL_TEST_TIME_SYNC", "synchronized")
-        .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
         .stdin(Stdio::null());
     let (mut child, log) = ChildLog::start(home, command);
     let ready = tokio::time::timeout(TIMEOUT, async {

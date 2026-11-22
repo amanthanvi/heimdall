@@ -265,25 +265,36 @@ def lint(text, path_exists):
 
 
 def binary_checker(binary):
-    scratch = tempfile.mkdtemp(prefix="hm-skill-lint-", dir="/tmp")
+    scratch = os.path.realpath(tempfile.mkdtemp(prefix="hm-skill-lint-", dir="/tmp"))
     home = os.path.join(scratch, "home")
     hh = os.path.join(scratch, "hh")
     ssh_home = os.path.join(scratch, "ssh")
+    mgmt_store = os.path.join(scratch, "mgmt-store")
+    iroh_store = os.path.join(scratch, "iroh-key-store")
     for d in (home, hh, os.path.join(ssh_home, "etc-ssh")):
         os.makedirs(d, mode=0o700)
     env = {
-        "PATH": "/usr/bin:/bin",
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME": home,
         "HEIMDALL_HOME": hh,
         "HEIMDALL_TEST_SSH_HOME": ssh_home,
+        "HEIMDALL_TEST_SECRET_STORE": "scratch",
+        "HEIMDALL_TEST_MGMT_STORE": f"fixture-file:{mgmt_store}",
+        "HEIMDALL_TEST_IROH_KEY_STORE": iroh_store,
         "LANG": "C",
+        "TERM": "dumb",
     }
     cache = {}
 
     def exists(path):
         if path not in cache:
+            for location in (home, hh, ssh_home, mgmt_store, iroh_store):
+                if os.path.dirname(os.path.realpath(location)) != scratch:
+                    raise ValueError("skill-lint: fixture path leaves the scratch root")
             p = subprocess.run([binary, *path, "--help"], env=env, cwd=scratch,
                                stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
+            if any(os.path.lexists(store) for store in (mgmt_store, iroh_store)):
+                raise ValueError("skill-lint: a help invocation created a fixture store")
             cache[path] = p.returncode == 0
         return cache[path]
 

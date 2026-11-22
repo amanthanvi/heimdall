@@ -168,6 +168,7 @@ impl Fixture {
     }
 
     fn command(&self, host: &Path, body: &str) -> Command {
+        let [mgmt, iroh] = self.unused_fixture_stores();
         let script = self.root.join("fixture.ps1");
         std::fs::write(&script, format!("{LOAD}{body}")).unwrap();
         // A native run copies the binary elsewhere and names it (`HEIMDALL_E2E_BIN`).
@@ -182,6 +183,12 @@ impl Fixture {
             .env("HEIMDALL_HOME", &self.home)
             .env("HOME", self.root.join("account"))
             .env("HEIMDALL_TEST_SSH_HOME", self.root.join("ssh"))
+            .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
+            .env(
+                "HEIMDALL_TEST_MGMT_STORE",
+                format!("fixture-file:{}", mgmt.to_str().unwrap()),
+            )
+            .env("HEIMDALL_TEST_IROH_KEY_STORE", iroh)
             .env("FIXTURE_LOCATION", self.root.join(LOCATION))
             .env("PSModulePath", host.parent().unwrap().join("Modules"))
             .env("TEMP", self.root.join("temp"))
@@ -234,6 +241,23 @@ impl Fixture {
         cmd
     }
 
+    fn unused_fixture_stores(&self) -> [PathBuf; 2] {
+        assert!(self.root.is_absolute());
+        let stores = [
+            self.root.join("mgmt-store"),
+            self.root.join("iroh-key-store"),
+        ];
+        for store in &stores {
+            assert!(
+                store
+                    .symlink_metadata()
+                    .is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound),
+                "unexpected fixture store"
+            );
+        }
+        stores
+    }
+
     async fn output(&self, host: &Path, body: &str) -> Output {
         let stdout = tempfile::NamedTempFile::new_in(&self.root).unwrap();
         let stderr = tempfile::NamedTempFile::new_in(&self.root).unwrap();
@@ -260,6 +284,7 @@ impl Fixture {
                 );
             })
             .unwrap();
+        self.unused_fixture_stores();
         let (stdout, stderr) = read();
         Output {
             status,

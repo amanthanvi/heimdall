@@ -56,6 +56,10 @@ BASE_ENV = {
     # first start can write without an attended `time confirm` (testcfg.rs SYNC_ENV).
     "HEIMDALL_TEST_TIME_SYNC": "synchronized",
     "HEIMDALL_TEST_SSH_HOME": SSH_HOME,
+    # Fixture key stores (AGENTS.md): without them a debug build that touches the management
+    # or transport keys uses the real login keychain.
+    "HEIMDALL_TEST_MGMT_STORE": "fixture-file:" + os.path.join(SCRATCH, "mgmt-store"),
+    "HEIMDALL_TEST_IROH_KEY_STORE": os.path.join(SCRATCH, "iroh-key-store"),
 }
 
 

@@ -180,6 +180,7 @@ impl World {
     }
 
     fn command(&self, bin: &Path) -> Command {
+        let [mgmt, iroh] = self.store_paths();
         let mut command = Command::new(bin);
         command
             .env_clear()
@@ -189,9 +190,22 @@ impl World {
             .env("HOME", &self.home.git_home)
             .env("HEIMDALL_HOME", &self.heimdall_home)
             .env("HEIMDALL_TEST_SSH_HOME", &self.ssh_home)
+            .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
+            .env(
+                "HEIMDALL_TEST_MGMT_STORE",
+                format!("fixture-file:{}", mgmt.to_str().unwrap()),
+            )
+            .env("HEIMDALL_TEST_IROH_KEY_STORE", iroh)
             .current_dir(&self.home.root)
             .stdin(Stdio::null());
         command
+    }
+
+    fn store_paths(&self) -> [PathBuf; 2] {
+        [
+            self.home.root.join("mgmt-store"),
+            self.home.root.join("iroh-key-store"),
+        ]
     }
 
     fn check_env(&self, command: &Command) {
@@ -220,6 +234,27 @@ impl World {
             );
             assert!(seen.insert(path), "aliased rule-4 directories");
         }
+        let [mgmt, iroh] = self.store_paths();
+        for (name, prefix, expected) in [
+            ("HEIMDALL_TEST_MGMT_STORE", "fixture-file:", mgmt),
+            ("HEIMDALL_TEST_IROH_KEY_STORE", "", iroh),
+        ] {
+            let path = vars
+                .get(OsStr::new(name))
+                .and_then(|value| *value)
+                .and_then(OsStr::to_str)
+                .and_then(|value| value.strip_prefix(prefix))
+                .map(Path::new)
+                .expect("missing or malformed fixture store path");
+            assert!(
+                path.is_absolute() && path == expected,
+                "wrong path for {name}"
+            );
+            match path.symlink_metadata() {
+                Ok(meta) => assert!(meta.is_file(), "redirected fixture store {name}"),
+                Err(err) => assert_eq!(err.kind(), std::io::ErrorKind::NotFound),
+            }
+        }
         assert!(!vars.contains_key(OsStr::new("SSH_AUTH_SOCK")));
         assert!(
             self.ssh_home
@@ -243,6 +278,7 @@ impl World {
             .stdout(out.try_clone().unwrap())
             .stderr(err.try_clone().unwrap());
         let status = self.spawn(command, name).wait(name);
+        self.assert_no_fixture_stores();
         use std::io::{Seek as _, SeekFrom};
         out.seek(SeekFrom::Start(0)).unwrap();
         let stdout = read_output(out);
@@ -263,7 +299,6 @@ impl World {
                 self.command(&self.bin)
                     .args(names::RUN)
                     .env("HEIMDALL_TEST_TIME_SYNC", "synchronized")
-                    .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
                     .envs(extra.iter().copied())
                     .process_group(0)
                     .stdout(Stdio::null())
@@ -312,6 +347,18 @@ impl World {
                 .wait("fixture service")
                 .success()
         );
+        self.assert_no_fixture_stores();
+    }
+
+    fn assert_no_fixture_stores(&self) {
+        for store in self.store_paths() {
+            assert!(
+                store
+                    .symlink_metadata()
+                    .is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound),
+                "unexpected fixture store"
+            );
+        }
     }
 
     fn driver(&self) -> Driver {
@@ -499,10 +546,16 @@ fn pair(destination: &str) -> Value {
 }
 
 #[test]
-fn missing_rule_four_home_prevents_process_launch() {
+fn missing_rule_four_home_or_store_prevents_process_launch() {
     let world = World::new();
     let marker = world.home.root.join("unexpected-child");
-    for name in ["HOME", "HEIMDALL_HOME", "HEIMDALL_TEST_SSH_HOME"] {
+    for name in [
+        "HOME",
+        "HEIMDALL_HOME",
+        "HEIMDALL_TEST_SSH_HOME",
+        "HEIMDALL_TEST_MGMT_STORE",
+        "HEIMDALL_TEST_IROH_KEY_STORE",
+    ] {
         let mut command = world.command(Path::new("/usr/bin/touch"));
         command.arg(&marker).env_remove(name);
         let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -512,6 +565,20 @@ fn missing_rule_four_home_prevents_process_launch() {
         }));
         assert!(refused.is_err(), "launch accepted a missing {name}");
         assert!(!marker.exists(), "launch occurred without {name}");
+    }
+    let outside = ScratchHome::new();
+    for store in world.store_paths() {
+        std::os::unix::fs::symlink(outside.root.join("missing"), &store).unwrap();
+        let mut command = world.command(Path::new("/usr/bin/touch"));
+        command.arg(&marker);
+        let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            world
+                .spawn(&mut command, "rule-4 tripwire")
+                .wait("rule-4 tripwire");
+        }));
+        assert!(refused.is_err(), "launch accepted a redirected store");
+        assert!(!marker.exists(), "launch occurred with a redirected store");
+        fs::remove_file(&store).unwrap();
     }
 }
 
@@ -1104,10 +1171,8 @@ async fn materialize_log_in_and_release_through_the_wrapper() {
     let pair = &pairs[0];
     let alias = field(pair, "alias");
     assert_eq!(alias, ALIAS);
-    assert_eq!(
-        pair["endpoint"]["locator"],
-        agent.endpoint().locator().to_str().unwrap()
-    );
+    let endpoint = field(&pair["endpoint"], "locator");
+    assert_eq!(endpoint, agent.endpoint().locator().to_str().unwrap());
     let executable = consumer["executables"]
         .as_array()
         .unwrap()
@@ -1120,16 +1185,14 @@ async fn materialize_log_in_and_release_through_the_wrapper() {
     key.write_private(&identity).unwrap();
     let config = world.ssh_home.join(".ssh/config");
     assert!(config.is_file());
-    let login = world.checked_output(
-        world
-            .command(ssh)
+    let ssh_command = |identity_agent: &str| {
+        let mut command = world.command(ssh);
+        command
             .arg("-F")
-            .arg(config)
+            .arg(&config)
+            .args(["-T", "-oIdentityFile=none", "-oIdentitiesOnly=yes"])
+            .arg(format!("-oIdentityAgent={identity_agent}"))
             .args([
-                "-T",
-                "-oIdentityFile=none",
-                "-oIdentitiesOnly=yes",
-                "-oIdentityAgent=none",
                 "-oCertificateFile=none",
                 "-oGlobalKnownHostsFile=/dev/null",
                 "-oControlMaster=no",
@@ -1142,10 +1205,15 @@ async fn materialize_log_in_and_release_through_the_wrapper() {
             .arg(format!(
                 "UserKnownHostsFile={}",
                 ssh_option_path(&world.home.known_hosts)
-            ))
-            .arg("-i")
-            .arg(identity)
-            .args(["--", alias, "echo wrapper-fixture-login"]),
+            ));
+        command
+    };
+    let login = world.checked_output(
+        ssh_command("none").arg("-i").arg(&identity).args([
+            "--",
+            alias,
+            "echo wrapper-fixture-login",
+        ]),
         "fixture SSH login",
     );
     assert!(
@@ -1157,6 +1225,27 @@ async fn materialize_log_in_and_release_through_the_wrapper() {
     let accepted = sshd.accepted_log();
     assert_eq!(accepted.len(), 1);
     assert_eq!(accepted[0].fingerprint, key.fingerprint());
+
+    // The projected alias selects the fixture's public key. Only the
+    // descriptor's agent can sign once the private-key file is removed.
+    fs::remove_file(&identity).unwrap();
+    let agent_login = world.checked_output(
+        ssh_command(&ssh_option_path(Path::new(endpoint))).args([
+            "--",
+            alias,
+            "echo wrapper-agent-login",
+        ]),
+        "fixture SSH login through the descriptor's agent",
+    );
+    assert!(
+        agent_login.status.success(),
+        "SSH login through the descriptor's agent failed ({})",
+        agent_login.status
+    );
+    assert_eq!(agent_login.stdout.trim(), "wrapper-agent-login");
+    let accepted = sshd.accepted_log();
+    assert_eq!(accepted.len(), 2);
+    assert_eq!(accepted[1].fingerprint, key.fingerprint());
 
     for id in std::collections::BTreeSet::from([binding, original]) {
         let release = driver.request(names::RELEASE, json!({"binding_id":id}));
