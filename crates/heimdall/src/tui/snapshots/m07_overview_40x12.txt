@@ -1,0 +1,12 @@
+[1 Overview] 1/8 [!!] Needs attention
+[!!] Needs attention
+Runtime: connected, read just now
+Static pass: just now
+Workspace: trusted (w)
+Here: this computer · 1 running
+Access: dev auto in this project
+Lock setting: continue · s stop
+> [!!] held op_held1: r retry · k keep
+  [!!] decision dec_trust1: using access
+  [!!] decision dec_ext1: more standing
+Enter open · s stop · ? help · q quit

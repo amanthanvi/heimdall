@@ -1,12 +1,12 @@
-[1 Over] 2 Dest  3 Prof  4 Acti  [!!]
+[1 Overview] 1/8 [!!] Needs attention
 [┌Owner decision dec_ext1 (widen_polic┐
-R│Recorded 09:00:00Z (30s ago) ·      │
-S│expires 09:15:00Z (in 14m)          │
-W│Exactly what approve applies to:    │·
->│Review: more access for a workspace │l
- │you already trust                   │e
- │Tab: deny · Esc: send nothing       │e
- │Approve? Type yes to confirm [y/N]: │
- │_                                   │
+R│Recorded 09:00:00Z (just now) ·     │
+S│expires 09:15:00Z (in 14 min)       │
+W│Exactly what approve applies to:    │
+H│Review: more access for a workspace │
+A│you already trust                   │
+L│Tab: deny · Esc: send nothing       │
+>│Approve? Type yes to confirm [y/N]: │
+ │_                                   │s
  └ 21 more rows below (PgDn, End) ────┘
 Up/Down PgUp/PgDn Home/End · Esc cancel

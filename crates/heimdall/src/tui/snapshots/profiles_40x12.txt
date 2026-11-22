@@ -1,4 +1,4 @@
- 1 Over  2 Dest [3 Prof] 4 Acti  [!!]
+[3 Profiles] 3/8 [!!] Needs attention
 1 total · / to search (never probes)
 > dev          Development  1 pair(s)  r
 
@@ -9,4 +9,4 @@
 
 
 
-/ search · Enter detail · ? help · q qui
+/ search · Enter open · ? help · q quit

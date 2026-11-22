@@ -1,0 +1,40 @@
+[1 Overview] 2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [OK] - s stop
+[OK] Ready
+Runtime: connected; listings read 09:00:25Z (just now)
+Static pass: 09:00:20Z (just now); 100 destinations, 1 profiles, 1 identities
+Environment: this environment · no work running
+Access: this environment's standing access is not listed by this runtime
+Desktop lock: not reported by the runtime
+Pause or stop access: press s (pause automatic access, stop work, a cutoff) · 8 Settings
+> [ !] HOME differs from the account's home
+  [ !] 100 destinations: ssh may offer other identities than the adopted key for this alias (Enter: which ones)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter open · s pause or stop · R refresh · 1-8 views · ? help · q quit

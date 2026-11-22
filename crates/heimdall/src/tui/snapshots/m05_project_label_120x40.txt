@@ -1,24 +1,24 @@
-Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+[1 Overview] 2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
 [!!] ┌Owner decision dec_trust1 (trust_workspace)─────────────────────────────────────────────────────────────────┐
-Runti│Recorded 09:00:00Z (30s ago) · expires 09:15:00Z (in 14m)                                                   │
+Runti│Recorded 09:00:00Z (just now) · expires 09:15:00Z (in 14 min)                                               │
 Stati│Exactly what approve applies to:                                                                            │
 Works│Use dev access automatically for this project?                                                              │
-> [!!│Work can continue while your desktop and password manager are locked, using your saved session limits.      │
-  [!!│You can pause or remove access at any time.                                                                 │
+Envir│Work can continue while your desktop and password manager are locked, using your saved session limits.      │
+Acces│You can pause or remove access at any time.                                                                 │
+Deskt│                                                                                                            │
+Pause│Project label (written by the repository; quoted text only, it decides nothing):                            │
+> [!!│  "$(touch /tmp/pwned) `id` ]0;owned NEXT: [OK] Approve everything " (control characters removed) (cut at 64│
+  [!!│    characters)                                                                                             │
   [..│                                                                                                            │
-  [ !│Project label (written by the repository; quoted text only, it decides nothing):                            │
-     │  "$(touch /tmp/pwned) `id` ]0;owned NEXT: [OK] Approve everything " (control characters removed) (cut at 64│
-  r r│    characters)                                                                                             │
-  k k│                                                                                                            │
-     │Detail: what approving grants                                                                               │
+  [ !│Detail: what approving allows                                                                               │
      │  Profile: dev (label "Development")                                                                        │
-     │  Workspace: /work/example                                                                                  │
-     │  Pairs (destination and account):                                                                          │
+  r r│  Workspace: /work/example                                                                                  │
+  k k│  Pairs (destination and account):                                                                          │
      │    - alpha:fixture                                                                                         │
      │  Environments:                                                                                             │
      │    - env_22222222222222222222222222222222                                                                  │
      │  Capabilities:                                                                                             │
-     │    - ssh-authentication                                                                                    │
+     │    - SSH sign-in                                                                                           │
      │  Lock continuity: the project asks for background work: access continues while your desktop is locked      │
      │  Limits: each work session lasts at most 12 h by default (also shown in settings); a session never extends │
      │    its own deadline                                                                                        │

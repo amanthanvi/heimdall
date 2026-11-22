@@ -1,0 +1,40 @@
+ 1 Overview [2 Destinations] 3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
+2 total · / to search (never probes)
+> [OK] alpha        managed  alpha.example.invalid:22 as fixture
+  [ !] beta         observed (defined in your configuration)
+
+
+
+
+
+
+
+
+
+
+
+     ┌Probes──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+     │Explicit probes for alpha; each names its level:                                                            │
+     │  static            re-run the passive static pass (nothing executes)                                       │
+     │  evaluate          ssh -G with your configuration (runs its commands)                                      │
+     │  agent             one identity-listing request to each agent endpoint                                     │
+     │> network           TCP connect to the host and read its SSH banner                                         │
+     │  host_verification host-key check with nothing to sign (runs your configuration's commands)                │
+     │  authentication    a real authentication, ssh -T ... exit 0 (runs your configuration's commands)           │
+     └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Up/Down choose · Enter run · Esc close

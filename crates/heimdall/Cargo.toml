@@ -220,3 +220,21 @@ path = "../../tests/e2e/dev_home_guard.rs"
 [[test]]
 name = "adversarial_prompt_injection_cli"
 path = "../../tests/adversarial/prompt_injection/cli.rs"
+
+# ⟨M07⟩ U1a (m07-plan U1; spec A20): the TUI's idle output and completed-frame key latency
+# on a pty, against an in-process runtime in a scratch home (Unix).
+[[test]]
+name = "e2e_tui_m07"
+path = "../../tests/e2e/tui_m07.rs"
+
+# ⟨M07⟩ U8a (m07-plan U8): the PowerShell shell integration in a real PowerShell host
+# (Windows PowerShell 5.1 and PowerShell 7 on Windows; pwsh where present elsewhere).
+[[test]]
+name = "e2e_m07_powershell_hook"
+path = "../../tests/e2e/m07_powershell_hook.rs"
+
+# ⟨M07⟩ U2a (m07-plan U2): the CLI-only access-and-stop journey against the loopback
+# fixture sshd and a disposable agent, in a scratch home.
+[[test]]
+name = "e2e_cli_m07"
+path = "../../tests/e2e/cli_m07.rs"

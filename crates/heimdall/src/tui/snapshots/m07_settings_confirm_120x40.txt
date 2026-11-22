@@ -1,0 +1,40 @@
+ 1 Overview  2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities [8 Settings] [!!] - s stop
+Default profile (a preference, never authority)
+  [OK] Default profile: dev · this computer
+
+Standing access: pause, resume, lock behaviour, connections
+> [OK] pol-ws1 · profile dev · project · automatic
+  [!!] pol-per1 · profile dev · personal · paused since 2026-11-03T08:00:00Z
+
+When your desktop locks
+  [ i] Saved: continue (personal access) · projects, observed effect: not known here · Enter
+
+Connections at the deadline (each managed destination)
+  [ i] alpha: existing sessions may stay connected after the deadline (read-only here)
+
+
+
+
+
+
+
+
+
+
+
+
+┌Change a setting──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Set the saved lock setting of pol-ws1 to "continue": work under it is meant to keep going while your desktop is       │
+│locked. This widens access: the runtime asks for your decision next, and nothing changes until you approve it.        │
+│Standing access pol-ws1: profile dev · project ws_11111111111111111111111111111111                                    │
+│Covers: this computer                                                                                                 │
+│Now: automatic                                                                                                        │
+│This saves a setting of this entry only. For one piece of work, the strictest setting that applies to it decides, and │
+│this view has no report of what a lock does to work that is running.                                                  │
+│The runtime's statement now (its own words): Approved work is designed to keep working while your screen or password  │
+│manager is locked, until the end time you approve. On this computer that has not been verified yet. To stop it when   │
+│you lock the screen, set lock behaviour to "revoke on lock".                                                          │
+│Same as: heimdall access lock-behavior --policy pol-ws1 continue                                                      │
+│Type yes to confirm [y/N]: ye_                                                                                        │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+type yes, Enter · Esc cancel

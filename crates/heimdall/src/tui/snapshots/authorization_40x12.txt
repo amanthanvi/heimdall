@@ -1,4 +1,4 @@
- 1 Over [2 Dest] 3 Prof  4 Acti  [!!]
+[2 Destinations] 2/8 [!!] - s stop
 2┌Authorize evaluate──────────────────┐
 >│The evaluate level for alpha runs   │p
  │your configuration's commands with  │n

@@ -1,0 +1,12 @@
+[8 Settings] 8/8 [!!] Needs attention
+┌Change a setting──────────────────────┐
+│Set the saved lock setting of pol-ws1 │
+│to "continue": work under it is meant │
+│to keep going while your desktop is   │
+│locked. This widens access: the       │
+│runtime asks for your decision next,  │
+│and nothing changes until you approve │
+│Type yes to confirm [y/N]: ye_        │
+│                                      │
+└ 22 more rows below (PgDn) ───────────┘
+PgDn read · type yes, Enter · Esc cancel

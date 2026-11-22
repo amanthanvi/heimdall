@@ -1,4 +1,4 @@
- 1 Over  2 Dest  3 Prof [4 Acti] [!!]
+[4 Activity] 4/8 [!!] Needs attention
 Pending decisions
 > [!!] dec_apply1  apply_projection  exp
   [!!] dec_declare1  declare_interaction

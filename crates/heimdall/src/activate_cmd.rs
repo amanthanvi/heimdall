@@ -1,5 +1,5 @@
-//! `activate [--hook] --cwd <PATH>` and `shell init <zsh|bash>` (M05 U4, U9a; ADR-0011 §3.2,
-//! §3.3, §5.3, §10 item 3; m05-plan U4, U9).
+//! `activate [--hook] --cwd <PATH>` and `shell init <zsh|bash|powershell>` (M05 U4, U9a;
+//! ADR-0011 §3.2, §3.3, §5.3, §10 item 3; M07 U8a).
 //!
 //! **The shell hook never prompts** (ruling 3, the client half). `activate --hook` is
 //! noninteractive whatever the terminal: its hello declares `non_interactive`, it never
@@ -25,9 +25,9 @@
 //!   session (the activation keeps running in the runtime after the hook stops waiting:
 //!   ADR-0011 §10 item 7), and fails silently: no endpoint, no runtime, a refusal or the
 //!   budget's end prints nothing and leaves the hook's answer and exit status as they are.
-//! * **The holder** is the shell: its PID (`--shell-pid`, which the script passes as `$$`;
-//!   default the parent process) and its OS start time, so the binding is released when
-//!   the shell exits (ADR-0007 Q5) and a reused PID never counts.
+//! * **The holder** is the shell: its PID (`--shell-pid`, passed as `$$` or `$PID`)
+//!   and its OS start time, so the binding is released when the shell exits (ADR-0007 Q5)
+//!   and a reused PID never counts.
 //! * **The work ID** is `shell:<pid>.<start>.<n>` (ADR-0011 §3.3). The script keeps `n`;
 //!   when the runtime answers that the work's binding has ended (`CREDENTIAL_EXPIRED` with
 //!   no reason), the hook starts the next work `n + 1` once: automatic re-entry within the
@@ -42,16 +42,18 @@
 //!   `needs_review`; it states a fact and names a command, and never asks a question. The
 //!   exit status is always 0: a hook never fails the shell's prompt.
 //!
-//! **`shell init`** prints [`ZSH_SCRIPT`] or [`BASH_SCRIPT`]: static text, with no
-//! interpolation of anything (no path, no repository text, no environment value). It runs
-//! the hook on each directory change (zsh `chpwd`, bash `PROMPT_COMMAND` when `$PWD`
-//! changed) and when the activated access is due again, passes `"$PWD"` as one quoted
+//! **`shell init`** prints [`ZSH_SCRIPT`], [`BASH_SCRIPT`] or [`POWERSHELL_SCRIPT`]: static
+//! text, with no interpolation of anything (no path, no repository text, no environment value). It runs
+//! the hook on each directory change (zsh `chpwd`, bash `PROMPT_COMMAND` or PowerShell's
+//! `prompt` wrapper) and when the activated access is due again, passes the path as one quoted
 //! argument, and treats Heimdall's answer as data: three fields, each checked against a
 //! fixed pattern, never evaluated. ⟨M05; finding A29-F2⟩ Its own state variables
 //! (`__heimdall_seq`, `__heimdall_state`, `__heimdall_due`) are checked against the same
 //! patterns before each use, falling back to their initial values, so a value a
 //! repository's tooling exported into the environment can neither make the hook print an
 //! error on every prompt nor stop it activating.
+//! PowerShell also gives the child and its stdout one shared 1500 ms budget and reads
+//! at most 256 bytes. The Rust hook's internal budget is still 1 s.
 //!
 //! **`activate` without `--hook`** is a foreground activation by working directory, as
 //! `run` without `--profile` is: `ensure` with `context`, the attended decision flow on a
@@ -696,11 +698,119 @@ case ";${PROMPT_COMMAND-};" in
 esac
 "#;
 
+/// The PowerShell integration (`heimdall shell init powershell`): static text (module docs).
+pub(crate) const POWERSHELL_SCRIPT: &str = r#"# Heimdall shell integration for PowerShell (ADR-0011 section 3.2).
+# Enable it in $PROFILE with: Invoke-Expression ((& heimdall shell init powershell) -join "`n")
+# The hook runs when the prompt sees a new directory or access is due again.
+# The Rust hook has a 1 s budget; this wrapper gives the child and stdout 1500 ms total.
+
+if (-not (Test-Path Function:__heimdall_original_prompt)) {
+    Set-Item Function:global:__heimdall_original_prompt -Value $function:prompt
+    $global:__heimdall_seq = '0'
+    $global:__heimdall_state = 'none'
+    $global:__heimdall_due = '0'
+    $global:__heimdall_pwd = $null
+
+    function global:prompt {
+        $promptText = __heimdall_original_prompt
+        $savedErrors = $Error.ToArray()
+        try {
+            $ErrorActionPreference = 'Stop'
+            $location = Get-Location
+            if ($location.Provider.Name -ne 'FileSystem') {
+                $global:__heimdall_pwd = $null
+                return $promptText
+            }
+            $cwd = $location.ProviderPath
+            $statePattern = '\A(?:active|untrusted|paused|needs_review|none)\z'
+            $numberPattern = '\A(?:0|[1-9][0-9]{0,8})\z'
+            $duePattern = '\A(?:0|[1-9][0-9]{0,17})\z'
+            $seq = $global:__heimdall_seq
+            $last = $global:__heimdall_state
+            $due = $global:__heimdall_due
+            $now = [long][Math]::Floor([Diagnostics.Stopwatch]::GetTimestamp() / [Diagnostics.Stopwatch]::Frequency)
+            $validDue = $due -is [string] -and $due -cmatch $duePattern
+            if ($validDue -and $global:__heimdall_pwd -is [string] -and $cwd -ceq $global:__heimdall_pwd -and
+                ($due -ceq '0' -or $now -lt [long]$due)) {
+                return $promptText
+            }
+            if ($seq -isnot [string] -or $seq -cnotmatch $numberPattern) { $seq = '0' }
+            if ($last -isnot [string] -or $last -cnotmatch $statePattern) { $last = 'none' }
+
+            $app = Get-Command -Name heimdall -CommandType Application -ErrorAction Ignore | Select-Object -First 1
+            if ($null -eq $app) { return $promptText }
+            $global:__heimdall_pwd = $cwd
+            if (-not $validDue) { $global:__heimdall_due = '0' }
+            $launch = [Diagnostics.ProcessStartInfo]::new()
+            $launch.FileName = $app.Source
+            $launch.UseShellExecute = $false
+            $launch.RedirectStandardInput = $true
+            $launch.RedirectStandardOutput = $true
+            if ($PSVersionTable.PSVersion.Major -ge 7) {
+                foreach ($arg in @('activate', '--hook', '--cwd', "$cwd", '--shell-pid', $PID, '--seq', $seq, '--last', $last)) {
+                    $launch.ArgumentList.Add([string]$arg)
+                }
+            } else {
+                # Windows PowerShell 5.1 has only a command-line string. Escape backslashes
+                # before the closing quote (for example, when the location is a drive root).
+                $quotedCwd = $cwd -creplace '(\\+)\z', '$1$1'
+                $launch.Arguments = "activate --hook --cwd `"$quotedCwd`" --shell-pid $PID --seq $seq --last $last"
+            }
+            # Leave stderr inherited so the runtime's status line reaches the console.
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            $stream = $null
+            $child = [Diagnostics.Process]::Start($launch)
+            try {
+                $child.StandardInput.Close()
+                $remaining = 1500 - [int]$timer.ElapsedMilliseconds
+                if ($remaining -le 0 -or -not $child.WaitForExit($remaining)) { return $promptText }
+                if ($child.ExitCode -ne 0) { return $promptText }
+
+                # Read raw bytes so the cap holds even for multibyte output. A pipe
+                # inherited by another process can stay open after the child exits.
+                $stream = $child.StandardOutput.BaseStream
+                $bytes = [byte[]]::new(256)
+                $count = 0
+                while ($count -lt $bytes.Length) {
+                    $remaining = 1500 - [int]$timer.ElapsedMilliseconds
+                    if ($remaining -le 0) { return $promptText }
+                    $read = $stream.ReadAsync($bytes, $count, ($bytes.Length - $count))
+                    if (-not $read.Wait($remaining)) { return $promptText }
+                    if ($read.Result -eq 0) { break }
+                    $count += $read.Result
+                }
+                if ($count -eq $bytes.Length) { return $promptText }
+                $answer = [Text.Encoding]::UTF8.GetString($bytes, 0, $count) -creplace '\r?\n\z', ''
+            } finally {
+                try {
+                    if (-not $child.HasExited) { $child.Kill() }
+                } finally {
+                    if ($null -ne $stream) { $stream.Dispose() }
+                    $child.Dispose()
+                }
+            }
+            $state, $next, $recheck = $answer -csplit ' ', 3
+            if ($state -cmatch $statePattern -and $next -cmatch $numberPattern -and $recheck -cmatch $numberPattern) {
+                $global:__heimdall_state = $state
+                $global:__heimdall_seq = $next
+                $global:__heimdall_due = if ($recheck -ceq '0') { '0' } else { [string]($now + [long]$recheck) }
+            }
+        } catch {
+            # A caught .NET exception also enters the caller's error history.
+            $Error.Clear()
+            $Error.AddRange($savedErrors)
+        }
+        return $promptText
+    }
+}
+"#;
+
 /// Handle `shell init`: print the static script (`--json`: in the envelope).
 pub(crate) fn shell_init(ctx: &Ctx, shell: ShellArg) -> ExitCode {
     let (name, script) = match shell {
         ShellArg::Zsh => ("zsh", ZSH_SCRIPT),
         ShellArg::Bash => ("bash", BASH_SCRIPT),
+        ShellArg::Powershell => ("powershell", POWERSHELL_SCRIPT),
     };
     if ctx.json {
         output::emit(
@@ -1074,5 +1184,44 @@ mod tests {
             assert!(script.contains(r#"--cwd "$PWD""#));
             assert!(script.contains("</dev/null"));
         }
+        let code = POWERSHELL_SCRIPT
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .to_ascii_lowercase();
+        for forbidden in [
+            "invoke-expression",
+            "iex",
+            "expandstring",
+            "scriptblock",
+            "& $answer",
+            ". $answer",
+            "redirectstandarderror",
+            "readtoend",
+        ] {
+            assert!(!code.contains(forbidden), "{forbidden}");
+        }
+        assert!(!code.contains("& "));
+        assert!(code.contains(r#"'--cwd', "$cwd", '--shell-pid', $pid"#));
+        assert!(code.contains(r#"--cwd `"$quotedcwd`" --shell-pid $pid"#));
+        assert!(code.contains("$launch.useshellexecute = $false"));
+        assert!(code.contains("$launch.redirectstandardinput = $true"));
+        assert!(code.contains("$child.standardinput.close()"));
+        assert!(code.contains("-commandtype application -erroraction ignore"));
+        assert_eq!(
+            code.matches("1500 - [int]$timer.elapsedmilliseconds")
+                .count(),
+            2
+        );
+        assert!(code.contains("$child.waitforexit($remaining)"));
+        assert!(code.contains("if ($child.exitcode -ne 0) { return $prompttext }"));
+        assert!(code.contains("$savederrors = $error.toarray()"));
+        assert!(code.contains("$error.clear()\n            $error.addrange($savederrors)"));
+        assert!(code.contains("$bytes = [byte[]]::new(256)"));
+        assert!(code.contains("$stream.readasync($bytes, $count, ($bytes.length - $count))"));
+        assert!(code.contains("$read.wait($remaining)"));
+        assert!(code.contains("if (-not $child.hasexited) { $child.kill() }"));
+        assert!(code.contains("$state, $next, $recheck = $answer -csplit ' ', 3"));
     }
 }

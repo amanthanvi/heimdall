@@ -288,24 +288,24 @@ async fn enable_mode_b<S: crate::cli::Session, P: crate::cli::Prompter>(
     if let Err(refused) = crate::setup_cmd::attend_first(s, ctx).await {
         return crate::setup_cmd::Outcome::of(refused);
     }
-    let env = s
-        .request(Request::Environment(EnvironmentRequest::WslEnable {
-            distribution_guid: guid.clone(),
-            account,
-            mode_a: false,
-            mode_b: true,
-        }))
-        .await;
-    let Some(decision) = crate::setup_cmd::pending_decision(&env) else {
-        return crate::setup_cmd::Outcome::of(env);
-    };
-    if !ctx.interactive() {
-        // The pending decision stays pending; nothing more is sent (exit 3).
-        return crate::setup_cmd::Outcome::of(env);
-    }
-    let decided =
-        crate::setup_cmd::confirm_and_decide(s, p, ctx, &decision, MODE_B_PREFACE, None, None)
-            .await;
+    let request = Request::Environment(EnvironmentRequest::WslEnable {
+        distribution_guid: guid.clone(),
+        account,
+        mode_a: false,
+        mode_b: true,
+    });
+    let env = s.request(request.clone()).await;
+    let decided = crate::setup_cmd::approve_request(
+        s,
+        p,
+        ctx,
+        &request,
+        env,
+        |_| Ok(MODE_B_PREFACE.to_owned()),
+        None,
+    )
+    .await
+    .unwrap_or_else(|env| env);
     crate::setup_cmd::Outcome::of(decided)
 }
 

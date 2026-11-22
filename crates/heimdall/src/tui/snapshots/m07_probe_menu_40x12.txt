@@ -1,0 +1,12 @@
+[2 Destinations] 2/8 [!!] - s stop
+2┌Probes──────────────────────────────┐
+>│Explicit probes for alpha; each     │p
+ │names its level:                    │n
+ │  agent             one             │
+ │    identity-listing request to each│
+ │    agent endpoint                  │
+ │> network           TCP connect to  │
+ │    the host and read its SSH banner│
+ └ 2 above, 2 below (Up/Down) ────────┘
+
+Up/Down choose · Enter run · Esc close

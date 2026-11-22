@@ -1,4 +1,4 @@
-[1 Over] 2 Dest  3 Prof  4 Acti  [!!]
+[1 Overview] 1/8 [!!] Needs attention
 Policy history
 
 pol-ws1 · revision 2 · profile
@@ -9,4 +9,4 @@ env_22222222222222222222222222222222
   [OK] active: new work under this
 policy starts automatically within your
 saved limits
-Up/Down scroll · s stop menu · Esc back
+s stop · Esc back

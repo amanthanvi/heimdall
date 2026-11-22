@@ -1,4 +1,4 @@
-Heimdall  1 Overview  2 Destinations  3 Profiles [4 Activity] [!!] Needs attention
+ 1 Overview  2 Destinations  3 Profiles [4 Activity] 5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
 enr_01010101010101010101010101010101: fixture at alpha (account form)
 [!!] State: held (needs you)
 CA SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA · marker hm:m1

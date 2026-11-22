@@ -1,7 +1,7 @@
-Heimdall  1 Overview  2 Destinations  3 Profiles [4 Activity] [!!] Needs attention
+ 1 Overview  2 Destinations  3 Profiles [4 Activity] 5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
 Pending decisions
-> [!!] dec_apply1  apply_projection  expires 09:15:00Z (in 14m)
-  [!!] dec_declare1  declare_interaction  expires 09:15:00Z (in 14m)
+> [!!] dec_apply1  apply_projection  expires 09:15:00Z (in 14 min)
+  [!!] dec_declare1  declare_interaction  expires 09:15:00Z (in 14 min)
 Operations
   [!!] op_held1  setup.apply  outcome_unknown (held)
   [..] op_run1  ensure  running

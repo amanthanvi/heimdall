@@ -5,7 +5,7 @@
 use std::fmt::Write as _;
 
 use heimdall_contract::ids::CaFingerprint;
-use heimdall_contract::issuer::{CaState, IssuerStatus, RecoveryBundle};
+use heimdall_contract::issuer::{CaState, IssuerState, IssuerStatus, RecoveryBundle};
 use heimdall_issuer::ceremony::Registered;
 
 /// The serde name of a public enum value (`snake_case`).
@@ -132,6 +132,45 @@ pub(super) fn status(st: &IssuerStatus, notes: &[String]) -> String {
         let _ = writeln!(out, "note: {n}");
     }
     out
+}
+
+pub(super) fn lost_device_guidance(st: &IssuerStatus, foreign: bool) -> &'static str {
+    let key_unavailable = st.state == IssuerState::StoreUnavailable
+        && st.reason.as_deref() != Some(heimdall_contract::envelope::reason::ISSUER_STORE_LOCKED)
+        && st
+            .cas
+            .iter()
+            .any(|ca| matches!(ca.state, CaState::Active | CaState::Pending));
+    if !key_unavailable && !foreign {
+        return "";
+    }
+    "\nThis installation cannot use the signing key from the device that set up access.\n\
+     If you have its encrypted backup and know the device was not stolen, restore the key with:\n  \
+       heimdall issuer restore --backup <file> --not-stolen\n\
+     To remove that device's trust, use its unredacted recovery bundle on a device that still has access to the machine. Run this once for each entry, using the entry's marker and the alias on this device:\n  \
+       heimdall enroll remove --from-bundle <file> --marker <marker> --alias <local alias>\n"
+}
+
+#[cfg(test)]
+#[test]
+fn lost_device_guidance_names_the_restore_and_removal_commands() {
+    let mut status = IssuerStatus {
+        state: IssuerState::NotInitialized,
+        reason: None,
+        cas: Vec::new(),
+        orphan_store_items: Vec::new(),
+        issuer_isolation: heimdall_contract::managed::IssuerIsolation::SameUserProcess,
+        bundle_stale: false,
+    };
+    assert_eq!(lost_device_guidance(&status, false), "");
+    let guidance = lost_device_guidance(&status, true);
+    assert!(guidance.contains("heimdall issuer restore --backup <file> --not-stolen"));
+    assert!(guidance.contains(
+        "heimdall enroll remove --from-bundle <file> --marker <marker> --alias <local alias>"
+    ));
+    status.state = IssuerState::Ready;
+    assert_eq!(lost_device_guidance(&status, false), "");
+    assert_eq!(lost_device_guidance(&status, true), guidance);
 }
 
 /// ⟨ADR-0008 §17.28 item 7⟩ The service and account of a keychain locator

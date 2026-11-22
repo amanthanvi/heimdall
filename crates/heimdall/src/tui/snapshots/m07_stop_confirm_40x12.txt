@@ -1,0 +1,12 @@
+[1 Overview] 1/8 [!!] Needs attention
+[┌Pause or stop access────────────────┐
+R│Stop this work                      │
+S│Stop work job-7: access only it uses│
+W│ends now and the work ID cannot     │
+H│start again; other work and shared  │
+A│access stay.                        │
+L│Type yes to confirm [y/N]: _        │
+>│                                    │
+ └────────────────────────────────────┘s
+  [!!] decision dec_ext1: more standing
+type yes, Enter · Esc cancel

@@ -1,0 +1,40 @@
+ 1 Overview  2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities [8 Settings] [!!] - s stop
+[!!] Not read: the standing access list could not be read; nothing is known from it
+Default profile (a preference, never authority)
+> [??] Default profile: not known (not read) · this computer
+
+Standing access: pause, resume, lock behaviour, connections
+  not known: the standing access list could not be read (INTERNAL_ERROR)
+
+When your desktop locks
+  [ i] Saved: continue (personal access) · projects, observed effect: not known here · Enter
+
+Connections at the deadline (each managed destination)
+  [ i] alpha: existing sessions may stay connected after the deadline (read-only here)
+
+[!!] The standing access list could not be read (INTERNAL_ERROR): nothing is known about it yet
+Source: inspect policies (default_profiles), read 09:00:25Z (just now). A preference, never authority: only new requests
+that name no profile read it.
+Change: Enter (the same request as `heimdall access default-profile`)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter change · Up/Down move · ? help · q quit

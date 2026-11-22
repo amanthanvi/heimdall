@@ -280,25 +280,13 @@ pub(crate) async fn owner_request<S: Session, P: Prompter>(
         return refused.env;
     }
     let env = s.request(request.clone()).await;
-    let Some(decision) = crate::cli::pending_decision(&env) else {
+    if !widening {
         return env;
+    }
+    let decided = match crate::cli::approve_request(s, p, ctx, &request, env, &mut 2).await {
+        Ok(decided) => decided,
+        Err(env) => return env,
     };
-    if !widening || !ctx.interactive() {
-        return env;
-    }
-    let decided = crate::cli::confirm_and_decide(
-        s,
-        p,
-        ctx,
-        &decision,
-        Verdict::Approve,
-        env.operation_id.clone(),
-        Some(&env.code),
-    )
-    .await;
-    if decided.code != Code::Ok {
-        return decided;
-    }
     if matches!(
         request,
         Request::Policy(PolicyAction::Create { .. } | PolicyAction::ReconcileWorkspace { .. })
