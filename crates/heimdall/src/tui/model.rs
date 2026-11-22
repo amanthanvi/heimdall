@@ -598,8 +598,9 @@ pub(crate) enum Shown {
     Drawn,
 }
 
-/// ⟨M07⟩ Why a typed yes is refused when the last frame drew nothing of the confirmation.
-pub(crate) const REFUSED_NOT_DRAWN: &str = "not on screen yet: nothing was sent";
+/// ⟨M07⟩ Why a typed yes is refused when the last frame drew nothing of the confirmation:
+/// it says the screen changed and asks for the answer again (ruled 2026-11-22).
+pub(crate) const REFUSED_NOT_DRAWN: &str = "screen changed: not sent; answer again";
 /// ⟨M07⟩ Why a typed yes is refused on a terminal too small for the confirmation.
 pub(crate) const REFUSED_TOO_SMALL: &str = "too small to show the change: not sent";
 /// ⟨M07⟩ Why a typed yes is refused before every row has been drawn.
@@ -680,7 +681,7 @@ impl Seen {
 
 /// ⟨M07⟩ Why Enter on the probe menu ran nothing: the latest frame did not draw that
 /// level of the menu for that alias.
-pub(crate) const REFUSED_PROBE_NOT_DRAWN: &str = "not on screen yet: no probe ran";
+pub(crate) const REFUSED_PROBE_NOT_DRAWN: &str = "screen changed: no probe; press again";
 /// ⟨M07⟩ Why Enter on the probe menu ran nothing on a terminal too small for the menu's
 /// alias and that level.
 pub(crate) const REFUSED_PROBE_TOO_SMALL: &str = "too small to show the probe: not run";

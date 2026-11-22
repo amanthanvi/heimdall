@@ -33,7 +33,8 @@ assert (json_flag, non_interactive) == ("--json", "--non-interactive")
 root = Path.cwd()
 for key, directory in (("HOME", "home"), ("HEIMDALL_HOME", "heimdall-home"),
                        ("HEIMDALL_TEST_SSH_HOME", "ssh-home")):
-    assert Path(os.environ[key]) == root / directory
+    assert Path(os.environ[key]).resolve() == root / directory
+(root / "heimdall-home-seen").write_text(os.environ["HEIMDALL_HOME"], encoding="utf-8")
 assert "SSH_AUTH_SOCK" not in os.environ and "H1_TEST_FOREIGN_ENV" not in os.environ
 assert not any((root / "ssh-home" / "etc-ssh").iterdir())
 assert os.environ["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin"
@@ -214,6 +215,20 @@ class HarnessTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertEqual(result["calls"], 0)
         self.assertFalse((self.root / "calls.jsonl").exists())
+
+    @unittest.skipUnless(os.name == "posix", "requires fixture symlinks")
+    def test_homes_keep_the_spelling_of_the_given_root(self):
+        # A runtime is found under the spelling of the Heimdall home it was started with,
+        # and a temporary directory is often reached through a link (macOS /tmp, /var).
+        aliases = tempfile.TemporaryDirectory(prefix="heimdall-h1-alias-", dir="/tmp")
+        self.addCleanup(aliases.cleanup)
+        alias = Path(aliases.name).resolve() / "root"
+        alias.symlink_to(self.root, target_is_directory=True)
+        journey = Journey([sys.executable, "-I", "-B", str(self.stub), "normal"], alias)
+        result = run_task("discover", journey.discover)
+        self.assertTrue(result["success"], result)
+        seen = (self.root / "heimdall-home-seen").read_text(encoding="utf-8")
+        self.assertEqual(seen, str(alias / "heimdall-home"))
 
     def test_cli_marks_driver_tasks_skipped_and_prints_one_summary(self):
         stdout = io.StringIO()

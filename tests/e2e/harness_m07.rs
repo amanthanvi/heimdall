@@ -1,0 +1,1290 @@
+//! ⟨M07 U5h⟩ m07-plan §5a: the two independent harnesses run the deterministic tasks against
+//! the real binary (`CARGO_BIN_EXE_heimdall`, or `HEIMDALL_E2E_BIN`).
+//!
+//! H1 (`examples/harnesses/cli`, a script per task) and H2 (`examples/harnesses/goal-loop`, a
+//! goal and a typed state machine) are Python programs that call only `heimdall --json`. This
+//! file is their fixture driver. Both sources are compiled in and written to the scratch root,
+//! so the test binary carries what it runs.
+//!
+//! | Task (m07-plan §5a) | World | H1 | H2 |
+//! |---|---|---|---|
+//! | 1 discover | existing access | `discover` | goal `discover` |
+//! | 2 use an already-trusted profile | existing access | `covered` | goal `access` |
+//! | 3 request only missing access, handing off the approval | fixture adapter | `approval` | goal `access` with `pairs` |
+//! | 4 recover from a caller timeout by observing | fixture adapter | `timeout` | goal `access` with `timeout_ms` |
+//! | 5 bind work and run a child | existing access | `bind-run` | goal `run` |
+//! | 6 stop it | existing access | `release` | goal `stop` |
+//! | 7 the operation-level capability refusal | existing access | `capability-refusal` | goal `access` with `require_unattended` |
+//!
+//! **Two worlds per harness**, each in its own root inside one scratch directory:
+//! - *existing access*: an in-process runtime as `cli_m07.rs` builds it (the loopback sshd, a
+//!   disposable agent holding a key generated for this run, a saved and approved profile). The
+//!   child of task 5 logs in to the fixture sshd.
+//! - *fixture adapter*: `heimdall service run` as a child with the debug test configuration
+//!   (`crates/heimdall/src/testcfg.rs`): profile `dev` whose pair `h3:deploy` no policy covers
+//!   (task 3), and a delayed prepare so a 1 ms caller timeout always ends first (task 4). Today's
+//!   build has no other way to get either.
+//!
+//! **Request IDs and bindings.** Each harness gives every changing request a request ID of its
+//! own. Task 5 follows task 2 for the same profile and work, so today's build may answer its
+//! `run` with a second binding for that work. Task 6 has to release every binding the harness
+//! holds: for H2 the driver checks one release for each binding H2 reported holding, and for both
+//! harnesses that no binding is left active.
+//!
+//! **The human step** of task 3 is this driver: it reads the pending decision, checks that it
+//! asks for exactly the missing pair, and approves it through the real CLI on a pseudo-terminal
+//! (`script(1)`), typing `yes`. Neither harness can do that: both run without a terminal.
+//!
+//! **Environment (m07-plan §0 rule 4).** Every `heimdall` child and every Python child gets a
+//! cleared environment holding `HOME`, `HEIMDALL_HOME` and `HEIMDALL_TEST_SSH_HOME`, three
+//! separate directories inside the test's scratch root, checked before each launch
+//! ([`launch_homes`]); no `SSH_AUTH_SOCK`. Every wait is bounded, and every process is stopped by
+//! its own handle.
+//!
+//! **Python.** `python3` from `PATH` or the usual system directories, run as `python3 -I -B`
+//! with `PYTHONDONTWRITEBYTECODE=1`. `HEIMDALL_E2E_PYTHON` names another interpreter by absolute
+//! path (for example a 3.9 one, the oldest the harnesses support).
+//!
+//! **Platforms.** The static test runs everywhere. The journey is Unix only for now (`python3`,
+//! `script(1)`, the local fixture sshd): on native Windows it is `blocked`, never passing.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout)]
+
+/// H1's source, as shipped.
+const H1_SOURCE: &str = include_str!("../../examples/harnesses/cli/harness.py");
+/// H2's source, as shipped.
+const H2_SOURCE: &str = include_str!("../../examples/harnesses/goal-loop/harness.py");
+
+/// Standard-library modules a harness may import.
+const STANDARD_LIBRARY: [&str; 13] = [
+    "argparse",
+    "collections",
+    "dataclasses",
+    "json",
+    "os",
+    "pathlib",
+    "queue",
+    "re",
+    "subprocess",
+    "sys",
+    "threading",
+    "time",
+    "uuid",
+];
+
+/// The top-level modules a Python source imports. Any line shaped like an import counts, so a
+/// docstring cannot hide one (and one that merely looks like an import fails closed).
+fn imported_modules(source: &str) -> Vec<String> {
+    let mut modules = Vec::new();
+    for line in source.lines() {
+        let line = line.trim();
+        let named: Vec<&str> = if let Some(rest) = line.strip_prefix("import ") {
+            rest.split(',').collect()
+        } else if let Some(rest) = line.strip_prefix("from ") {
+            match rest.split_once(" import ") {
+                Some((module, _)) => vec![module],
+                None => continue,
+            }
+        } else {
+            continue;
+        };
+        for name in named {
+            let name = name.split_whitespace().next().unwrap_or_default();
+            modules.push(name.split('.').next().unwrap_or_default().to_owned());
+        }
+    }
+    modules
+}
+
+#[test]
+fn harnesses_are_independent_and_use_only_the_standard_library() {
+    // What each harness must never name: the wrapper, the other harness, a way to load code by
+    // name, Heimdall's private files, or a decision command.
+    let common = [
+        "reference-wrapper",
+        "reference_wrapper",
+        "__import__",
+        "importlib",
+        "runpy",
+        "sys.path",
+        "exec(",
+        "eval(",
+        "instance.json",
+        "state.db",
+        "sqlite",
+        "\"approve\"",
+        "\"deny\"",
+        "\"decision\"",
+        "\"tui\"",
+    ];
+    for (harness, source, other) in [
+        ("H1", H1_SOURCE, ["goal-loop", "goal_loop"]),
+        ("H2", H2_SOURCE, ["harnesses/cli", "harnesses.cli"]),
+    ] {
+        let modules = imported_modules(source);
+        assert!(
+            modules.len() >= 5,
+            "{harness}: found too few imports to trust the scan: {modules:?}"
+        );
+        for module in &modules {
+            assert!(
+                STANDARD_LIBRARY.contains(&module.as_str()),
+                "{harness} imports {module:?}, which is not an allowed standard-library module"
+            );
+        }
+        for needle in common.iter().chain(other.iter()) {
+            assert!(!source.contains(needle), "{harness} names {needle:?}");
+        }
+        assert!(
+            source.contains("subprocess") && source.contains("\"--json\""),
+            "{harness} is expected to call `heimdall --json` through subprocess"
+        );
+    }
+    assert_eq!(
+        imported_modules("import os, importlib.util as u\nfrom a.b import c\nx = 1\n"),
+        ["os", "importlib", "a"]
+    );
+}
+
+#[cfg(unix)]
+mod journey {
+    use std::ffi::OsString;
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::path::{Path, PathBuf};
+    use std::process::Stdio;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use heimdall_app::{Attendance, Caller, OpError, Operations};
+    use heimdall_contract::catalog::{
+        CatalogRequest, DeclaredInteraction, DestinationDefinitionSpec, DestinationSpec,
+        IdentitySourceSpec, IdentitySpec, ProfileSpec,
+    };
+    use heimdall_contract::ids::{
+        AccountName, DecisionId, DestinationId, IdentityId, ProfileId, RequestId,
+    };
+    use heimdall_contract::provider::{EndpointKind, EndpointRef};
+    use heimdall_contract::request::{
+        AccessPairRef, DecideRequest, InteractionMode, PolicyAction, Verdict,
+    };
+    use heimdall_contract::setup::{PreviewIntent, SetupPlan, SetupRequest};
+    use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+    use heimdall_localenv::env::{Env, Platform};
+    use heimdall_localenv::paths::SshPaths;
+    use heimdall_localenv::projection::ProjectionConfig;
+    use heimdall_runtime::config::{Config, Paths};
+    use heimdall_runtime::service::{ProjectionWiring, Service, ServiceOptions};
+    use heimdall_testkit::agent::{AgentMode, Endpoint, FakeAgent, FakeAgentConfig, FixtureKey};
+    use heimdall_testkit::home::{ScratchHome, find_program, sh_join};
+    use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
+    use serde_json::{Value, json};
+    use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
+    use tokio::process::{Child, Command};
+    use tokio_util::sync::CancellationToken;
+
+    use super::{H1_SOURCE, H2_SOURCE};
+
+    /// One CLI call, a runtime start or stop.
+    const TIMEOUT: Duration = Duration::from_secs(30);
+    /// One harness invocation (several calls, one of them a bounded wait).
+    const HARNESS_TIMEOUT: Duration = Duration::from_secs(180);
+    /// The fixture adapter's delay before every prepare: a 1 ms caller timeout always ends first.
+    const SLOW_PREPARE_MS: &str = "800";
+    /// The saved, approved profile of the existing-access world.
+    const PROFILE: &str = "lab-access";
+    /// The longest Unix socket path every supported platform accepts.
+    const SOCKET_PATH_MAX: usize = 103;
+
+    fn bin() -> PathBuf {
+        std::env::var("HEIMDALL_E2E_BIN")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_heimdall").to_owned())
+            .into()
+    }
+
+    /// The three launch homes of `root`, checked (m07-plan §0 rule 4): each an existing
+    /// directory inside `scratch`, none equal to or inside another.
+    fn launch_homes(scratch: &Path, root: &Path) -> Result<[(&'static str, PathBuf); 3], String> {
+        let inside = std::fs::canonicalize(scratch).map_err(|e| format!("scratch root: {e}"))?;
+        let homes = [
+            ("HOME", root.join("home")),
+            ("HEIMDALL_HOME", root.join("heimdall-home")),
+            ("HEIMDALL_TEST_SSH_HOME", root.join("ssh-home")),
+        ];
+        let mut real = Vec::new();
+        for (name, path) in &homes {
+            let resolved = std::fs::canonicalize(path).map_err(|e| format!("{name}: {e}"))?;
+            if !resolved.is_dir() || resolved == inside || !resolved.starts_with(&inside) {
+                return Err(format!("{name} is not a directory inside the scratch root"));
+            }
+            real.push(resolved);
+        }
+        for (i, a) in real.iter().enumerate() {
+            for (j, b) in real.iter().enumerate() {
+                if i != j && a.starts_with(b) {
+                    return Err(format!(
+                        "{} and {} are not separate",
+                        homes[i].0, homes[j].0
+                    ));
+                }
+            }
+        }
+        Ok(homes)
+    }
+
+    #[test]
+    fn a_missing_shared_or_foreign_home_fails_before_any_launch() {
+        let scratch = heimdall_testkit::home::Scratch::new().unwrap();
+        let other = heimdall_testkit::home::Scratch::new().unwrap();
+        let root = scratch.path().join("w");
+        for dir in ["home", "heimdall-home"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        let missing = launch_homes(scratch.path(), &root).unwrap_err();
+        assert!(missing.starts_with("HEIMDALL_TEST_SSH_HOME"), "{missing}");
+        std::fs::create_dir(root.join("ssh-home")).unwrap();
+        assert!(launch_homes(scratch.path(), &root).is_ok());
+        // The same root is foreign to another test's scratch directory.
+        let foreign = launch_homes(other.path(), &root).unwrap_err();
+        assert!(foreign.contains("inside the scratch root"), "{foreign}");
+        // A home that is a link to another home is not a separate directory.
+        std::fs::remove_dir(root.join("ssh-home")).unwrap();
+        std::os::unix::fs::symlink(root.join("home"), root.join("ssh-home")).unwrap();
+        let shared = launch_homes(scratch.path(), &root).unwrap_err();
+        assert!(shared.contains("not separate"), "{shared}");
+    }
+
+    /// The test's scratch directory and what every world in it shares.
+    struct Suite {
+        home: ScratchHome,
+        python: PathBuf,
+        h1: PathBuf,
+        h2: PathBuf,
+        /// The login name, redacted from diagnostics.
+        login: String,
+    }
+
+    impl Suite {
+        fn new() -> Suite {
+            let home = ScratchHome::new();
+            let python = std::env::var_os("HEIMDALL_E2E_PYTHON")
+                .map(PathBuf::from)
+                .or_else(|| find_program("python3"))
+                .expect("blocked: python3 is needed to run the harnesses");
+            assert!(
+                python.is_absolute(),
+                "the Python interpreter path is absolute"
+            );
+            // Scripts live apart from the roots the harnesses work in.
+            let sources = home.root.join("src");
+            let mut written = Vec::new();
+            for (name, text) in [("h1", H1_SOURCE), ("h2", H2_SOURCE)] {
+                let dir = sources.join(name);
+                std::fs::create_dir_all(&dir).unwrap();
+                let file = dir.join("harness.py");
+                std::fs::write(&file, text).unwrap();
+                written.push(file);
+            }
+            let out = std::process::Command::new("/usr/bin/id")
+                .arg("-un")
+                .env_clear()
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "fixture account lookup");
+            let login = String::from_utf8(out.stdout).unwrap().trim().to_owned();
+            Suite {
+                home,
+                python,
+                h2: written.pop().unwrap(),
+                h1: written.pop().unwrap(),
+                login,
+            }
+        }
+
+        /// A new root with the layout H1 expects: `home`, `heimdall-home` and `ssh-home` with an
+        /// empty `etc-ssh`, all owner-only.
+        fn root(&self, name: &str) -> PathBuf {
+            let root = self.home.root.join(name);
+            for dir in [
+                root.clone(),
+                root.join("home"),
+                root.join("heimdall-home"),
+                root.join("ssh-home"),
+                root.join("ssh-home/etc-ssh"),
+            ] {
+                std::fs::create_dir(&dir).unwrap();
+                std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            let socket = root.join("heimdall-home/run/control.sock");
+            assert!(
+                socket.as_os_str().len() <= SOCKET_PATH_MAX,
+                "the scratch directory is too deep for the runtime's socket path ({} bytes)",
+                socket.as_os_str().len()
+            );
+            root
+        }
+
+        /// `program` in `root`, with the checked launch environment and nothing else.
+        fn command(&self, root: &Path, program: &Path) -> Command {
+            let homes = launch_homes(&self.home.root, root)
+                .unwrap_or_else(|e| panic!("launch environment refused before launch: {e}"));
+            let mut cmd = Command::new(program);
+            cmd.env_clear()
+                .envs(homes)
+                .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+                .env("LANG", "C")
+                .env("TERM", "dumb")
+                .current_dir(root)
+                .kill_on_drop(true);
+            cmd
+        }
+
+        fn heimdall(&self, root: &Path, args: &[&str]) -> Command {
+            let mut cmd = self.command(root, &bin());
+            cmd.args(args);
+            cmd
+        }
+
+        /// Text for a failure message: no scratch path, no login name, no key material.
+        fn redact(&self, bytes: &[u8]) -> String {
+            let text = String::from_utf8_lossy(bytes);
+            heimdall_testkit::assert_no_canary(&text);
+            let scratch = self.home.root.to_string_lossy();
+            let real = std::fs::canonicalize(&self.home.root).unwrap();
+            let text = text
+                .replace(&*real.to_string_lossy(), "<scratch>")
+                .replace(&*scratch, "<scratch>")
+                .replace(&self.login, "<login>");
+            heimdall_enroll::remote::redact_excerpt(text.as_bytes(), 4096)
+        }
+
+        /// One `heimdall --json` call of the driver's own: its exit code and envelope.
+        async fn call(&self, root: &Path, args: &[&str]) -> (Option<i32>, Value) {
+            let mut all = vec!["--json", "--non-interactive"];
+            all.extend_from_slice(args);
+            let mut cmd = self.heimdall(root, &all);
+            cmd.stdin(Stdio::null());
+            let out = tokio::time::timeout(TIMEOUT, cmd.output())
+                .await
+                .unwrap_or_else(|_| panic!("heimdall {args:?} did not finish"))
+                .unwrap();
+            let envelope = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+                panic!(
+                    "heimdall {args:?}: no envelope; exit {}\nstdout: {}\nstderr: {}",
+                    out.status,
+                    self.redact(&out.stdout),
+                    self.redact(&out.stderr)
+                )
+            });
+            heimdall_testkit::assert_no_canary(&String::from_utf8_lossy(&out.stderr));
+            (out.status.code(), envelope)
+        }
+
+        /// Bindings the runtime of `root` still reports as active.
+        async fn active_bindings(&self, root: &Path) -> Vec<Value> {
+            let (code, listed) = self.call(root, &["inspect", "bindings"]).await;
+            assert_eq!(code, Some(0), "{listed}");
+            listed["data"]["bindings"]
+                .as_array()
+                .expect("a binding list")
+                .iter()
+                .filter(|binding| binding["state"] == "active")
+                .cloned()
+                .collect()
+        }
+    }
+
+    // ---- the existing-access world (as `cli_m07.rs` builds it) ------------------------------
+
+    fn owner(root: &Path) -> Caller {
+        use std::os::unix::fs::MetadataExt as _;
+        Caller {
+            context: CallerContext {
+                principal: PrincipalRef::UnixUser {
+                    uid: std::fs::metadata(root).unwrap().uid(),
+                },
+                role: ClientRole::Owner,
+            },
+            attendance: Attendance::Attended {
+                since: heimdall_contract::Timestamp::now(),
+            },
+            interaction: InteractionMode::Interactive,
+        }
+    }
+
+    /// Fixture setup only: the saved profile's own decisions are approved in process.
+    async fn approve_seed(ops: &Operations, caller: &Caller, pending: OpError) {
+        let id = pending.next.decision_ref.expect("pending owner decision");
+        ops.decide(
+            caller,
+            DecideRequest {
+                decision_id: DecisionId::parse(&id).unwrap(),
+                verdict: Verdict::Approve,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    /// Adopt the fixture key from the disposable agent, add destination `lab` (the loopback
+    /// sshd), save profile [`PROFILE`], apply the projection, and approve the profile's policy.
+    async fn seed(
+        ops: &Operations,
+        caller: &Caller,
+        sshd: &LoopbackSshd,
+        account: &AccountName,
+        key: &FixtureKey,
+        agent: &FakeAgent,
+    ) {
+        let rid = |value| RequestId::parse(value).unwrap();
+        let adopted = ops
+            .catalog(
+                caller,
+                CatalogRequest::AdoptIdentity {
+                    identity: IdentitySpec {
+                        source: IdentitySourceSpec::NativeAgent {
+                            endpoint: EndpointRef {
+                                kind: EndpointKind::UnixSocket,
+                                locator: agent.endpoint().locator().to_str().unwrap().to_owned(),
+                            },
+                        },
+                        public_key: key.public_line_without_comment(),
+                        label: None,
+                    },
+                    request_id: rid("adopt-h"),
+                },
+            )
+            .await
+            .unwrap();
+        let identity = IdentityId::parse(adopted.data["identity_id"].as_str().unwrap()).unwrap();
+        let destination = DestinationId::parse("dst-lab").unwrap();
+        ops.catalog(
+            caller,
+            CatalogRequest::UpsertDestination {
+                destination: DestinationSpec {
+                    id: destination.clone(),
+                    alias: "lab".into(),
+                    definition: DestinationDefinitionSpec::Managed {
+                        hostname: sshd.host.clone(),
+                        port: Some(sshd.port),
+                        account: account.clone(),
+                        identity: identity.clone(),
+                        jump: None,
+                    },
+                    label: None,
+                },
+                request_id: rid("destination-h"),
+            },
+        )
+        .await
+        .unwrap();
+        let profile = ProfileId::parse(PROFILE).unwrap();
+        ops.catalog(
+            caller,
+            CatalogRequest::UpsertProfile {
+                profile: ProfileSpec {
+                    id: profile.clone(),
+                    pairs: [AccessPairRef {
+                        destination,
+                        account: account.clone(),
+                    }]
+                    .into_iter()
+                    .collect(),
+                    label: None,
+                },
+                request_id: rid("profile-h"),
+            },
+        )
+        .await
+        .unwrap();
+        let preview = ops
+            .setup(
+                caller,
+                SetupRequest::Preview {
+                    intent: PreviewIntent::Apply {
+                        include_git: false,
+                        items: Default::default(),
+                        distribution: None,
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        let plan: SetupPlan = serde_json::from_value(preview.data).unwrap();
+        let apply = SetupRequest::Apply {
+            plan_digest: plan.plan_digest,
+            request_id: rid("apply-h"),
+        };
+        if let Err(pending) = ops.setup(caller, apply.clone()).await {
+            approve_seed(ops, caller, pending).await;
+            ops.setup(caller, apply).await.unwrap();
+        }
+        let declare = CatalogRequest::DeclareInteraction {
+            identity,
+            interaction: DeclaredInteraction::None,
+            request_id: rid("declare-h"),
+        };
+        approve_seed(
+            ops,
+            caller,
+            ops.catalog(caller, declare.clone()).await.unwrap_err(),
+        )
+        .await;
+        ops.catalog(caller, declare).await.unwrap();
+        approve_seed(
+            ops,
+            caller,
+            ops.policy(
+                caller,
+                PolicyAction::Create {
+                    profile,
+                    environments: [ops.environment().clone()].into_iter().collect(),
+                    max_window: None,
+                    default: false,
+                },
+            )
+            .await
+            .unwrap_err(),
+        )
+        .await;
+    }
+
+    /// What the existing-access worlds share: one fixture sshd, one disposable agent, one key.
+    struct Lab {
+        sshd: LoopbackSshd,
+        agent: FakeAgent,
+        key: FixtureKey,
+        account: AccountName,
+        /// The fixture key's private half, for the pinned login of the fixture children.
+        login_key: PathBuf,
+    }
+
+    impl Lab {
+        fn start(suite: &Suite) -> Lab {
+            let key = FixtureKey::generate().with_comment("m07-harness-fixture");
+            let agent = FakeAgent::start(
+                Endpoint::in_scratch(suite.home.scratch(), "access").unwrap(),
+                FakeAgentConfig {
+                    keys: vec![key.clone()],
+                    mode: AgentMode::Normal,
+                },
+            );
+            let sshd = LoopbackSshd::start(
+                suite.home.scratch(),
+                SshdConfig {
+                    authorized: vec![key.public().clone()],
+                    ..SshdConfig::default()
+                },
+            )
+            .unwrap();
+            let account = AccountName::parse(sshd.account().unwrap_or(&suite.login)).unwrap();
+            let login_key = suite.home.root.join("login-key");
+            key.write_private(&login_key).unwrap();
+            Lab {
+                sshd,
+                agent,
+                key,
+                account,
+                login_key,
+            }
+        }
+
+        /// Logins the fixture sshd accepted so far, each checked to be the generated key's.
+        fn logins(&self) -> usize {
+            let accepted = self.sshd.accepted_log();
+            assert!(
+                accepted
+                    .iter()
+                    .all(|login| login.fingerprint == self.key.fingerprint()),
+                "the fixture sshd accepted a key this run did not generate"
+            );
+            accepted.len()
+        }
+    }
+
+    /// One harness's existing-access world: an in-process runtime over its root.
+    struct ExistingAccess {
+        root: PathBuf,
+        shutdown: CancellationToken,
+        serving: tokio::task::JoinHandle<Result<(), heimdall_runtime::service::ServiceError>>,
+    }
+
+    impl ExistingAccess {
+        async fn start(suite: &Suite, lab: &Lab, name: &str) -> ExistingAccess {
+            let root = suite.root(name);
+            launch_homes(&suite.home.root, &root).expect("launch environment");
+            let ssh_home = root.join("ssh-home");
+            let ssh_dir = ssh_home.join(".ssh");
+            std::fs::create_dir(&ssh_dir).unwrap();
+            std::fs::set_permissions(&ssh_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+            for (file, text) in [
+                ("config", String::new()),
+                ("known_hosts", format!("{}\n", lab.sshd.host_key_line)),
+            ] {
+                let path = ssh_dir.join(file);
+                std::fs::write(&path, text).unwrap();
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            }
+            let paths = Paths::under(&root.join("heimdall-home"));
+            let mut projection = ProjectionConfig::new(
+                SshPaths::with_test_override(ssh_home.clone(), ssh_home.join("etc-ssh")),
+                Platform::current(),
+                paths.config_dir.clone(),
+            )
+            .with_state_dir(paths.state_dir.clone());
+            projection.env = Env::from_vars([("HOME", ssh_home.display().to_string())]);
+            let mut options = ServiceOptions::with_clock(
+                Arc::new(heimdall_runtime::platform::SystemClock::try_new().unwrap()),
+                heimdall_testkit::ScriptedTimeSync::new(
+                    heimdall_domain::time::SyncStatus::Synchronized,
+                ),
+            );
+            options.projection = ProjectionWiring::Config(Box::new(projection));
+            options.existing_access = true;
+            let shutdown = CancellationToken::new();
+            let service = Service::start_with(paths, Config::default(), options, shutdown.clone())
+                .await
+                .unwrap();
+            seed(
+                service.operations(),
+                &owner(&root),
+                &lab.sshd,
+                &lab.account,
+                &lab.key,
+                &lab.agent,
+            )
+            .await;
+            ExistingAccess {
+                root,
+                shutdown,
+                serving: tokio::spawn(service.run()),
+            }
+        }
+
+        /// A child program inside the root: one pinned login to the fixture sshd that runs
+        /// `remote`. Every agent and default identity is switched off; the key is the fixture's.
+        fn child(&self, lab: &Lab, name: &str, remote: &str) -> PathBuf {
+            let ssh_dir = self.root.join("ssh-home/.ssh");
+            let ssh = find_program("ssh").expect("ssh client");
+            let mut words: Vec<OsString> = vec![ssh.into(), "-T".into(), "-F".into()];
+            words.push(ssh_dir.join("config").into());
+            for option in [
+                "IdentityFile=none",
+                "IdentitiesOnly=yes",
+                "IdentityAgent=none",
+                "CertificateFile=none",
+                "ControlMaster=no",
+                "ControlPath=none",
+                "BatchMode=yes",
+                "StrictHostKeyChecking=yes",
+                "GlobalKnownHostsFile=/dev/null",
+            ] {
+                words.push("-o".into());
+                words.push(option.into());
+            }
+            words.push("-o".into());
+            words.push(
+                format!(
+                    "UserKnownHostsFile={}",
+                    heimdall_testkit::home::ssh_option_path(&ssh_dir.join("known_hosts"))
+                )
+                .into(),
+            );
+            words.push("-i".into());
+            words.push(lab.login_key.clone().into());
+            words.push("lab".into());
+            words.push(remote.into());
+            let script = self.root.join(name);
+            std::fs::write(&script, format!("#!/bin/sh\nexec {}\n", sh_join(&words))).unwrap();
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+            script
+        }
+
+        async fn stop(self) {
+            self.shutdown.cancel();
+            tokio::time::timeout(TIMEOUT, self.serving)
+                .await
+                .expect("the in-process runtime stops")
+                .unwrap()
+                .unwrap();
+        }
+    }
+
+    // ---- the fixture-adapter world (the real binary's runtime) ------------------------------
+
+    struct FixtureAdapter {
+        root: PathBuf,
+        runtime: Child,
+    }
+
+    impl FixtureAdapter {
+        async fn start(suite: &Suite, name: &str) -> FixtureAdapter {
+            let root = suite.root(name);
+            let mut cmd = suite.heimdall(&root, &["--non-interactive", "service", "run"]);
+            cmd.env("HEIMDALL_TEST_ADAPTER", "prepare")
+                .env("HEIMDALL_TEST_SLOW_PREPARE_MS", SLOW_PREPARE_MS)
+                .env("HEIMDALL_TEST_TIME_SYNC", "synchronized")
+                .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            let mut runtime = cmd.spawn().unwrap();
+            let deadline = tokio::time::Instant::now() + TIMEOUT;
+            loop {
+                let mut status = suite.heimdall(&root, &["--json", "--non-interactive", "status"]);
+                status.stdin(Stdio::null());
+                let out = tokio::time::timeout(TIMEOUT, status.output())
+                    .await
+                    .expect("status answers")
+                    .unwrap();
+                if out.status.success() {
+                    break;
+                }
+                assert!(
+                    runtime.try_wait().unwrap().is_none(),
+                    "the fixture runtime exited during startup"
+                );
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "the fixture runtime did not start"
+                );
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            FixtureAdapter { root, runtime }
+        }
+
+        async fn stop(mut self, suite: &Suite) {
+            let (code, stopped) = suite.call(&self.root, &["service", "stop"]).await;
+            assert_eq!(code, Some(0), "service stop: {stopped}");
+            let status = tokio::time::timeout(TIMEOUT, self.runtime.wait())
+                .await
+                .expect("the fixture runtime exits after `service stop`")
+                .unwrap();
+            assert!(status.success(), "the fixture runtime exited cleanly");
+        }
+    }
+
+    // ---- the human step ---------------------------------------------------------------------
+
+    /// What the person at the terminal does for task 3: read the pending decision, check that
+    /// it asks for exactly the missing pair of this operation, and approve it through the real
+    /// CLI on a pseudo-terminal, typing `yes` at its prompt.
+    async fn approve_at_a_terminal(suite: &Suite, root: &Path, handoff: &Value) {
+        let decision = handoff["decision_ref"]
+            .as_str()
+            .expect("a decision reference");
+        let operation = handoff["operation_id"].as_str().expect("an operation");
+        for (id, prefix) in [(decision, "dec_"), (operation, "op_")] {
+            let rest = id.strip_prefix(prefix).unwrap_or_default();
+            assert!(
+                !rest.is_empty() && rest.len() <= 64 && rest.bytes().all(|b| b.is_ascii_hexdigit()),
+                "the handoff names a malformed reference"
+            );
+        }
+        let (code, listed) = suite.call(root, &["decision", "list"]).await;
+        assert_eq!(code, Some(0), "{listed}");
+        let pending = listed["data"]["decisions"].as_array().expect("decisions");
+        assert_eq!(
+            pending.len(),
+            1,
+            "exactly one decision is pending: {listed}"
+        );
+        assert_eq!(pending[0]["decision_id"], decision);
+        assert_eq!(pending[0]["state"], "pending");
+        assert_eq!(pending[0]["kind"], "approve_authority");
+        assert_eq!(pending[0]["request"]["operation_id"], operation);
+        assert_eq!(
+            pending[0]["request"]["delta"]["added_scope"]["pairs"],
+            json!([{"account": "deploy", "destination": "h3"}]),
+            "the request asks for only the missing pair"
+        );
+
+        let script = find_program("script")
+            .expect("blocked: script(1) is needed for the pseudo-terminal approval");
+        let mut cmd = suite.command(root, &script);
+        if cfg!(target_os = "linux") {
+            let line = sh_join(&[
+                bin().into(),
+                "decision".into(),
+                "approve".into(),
+                decision.into(),
+            ]);
+            cmd.args(["-q", "-e", "-c", &line, "/dev/null"]);
+        } else {
+            cmd.args(["-q", "/dev/null"])
+                .arg(bin())
+                .args(["decision", "approve", decision]);
+        }
+        let mut child = cmd
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        // The terminal's input stays open until the command ends: closing it would end the terminal.
+        let mut terminal = child.stdin.take().expect("the terminal's input");
+        let mut stdout = child.stdout.take().unwrap();
+        let mut seen = Vec::new();
+        let mut answered = false;
+        let typed = tokio::time::timeout(TIMEOUT * 2, async {
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = stdout.read(&mut buf).await.unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                seen.extend_from_slice(&buf[..n]);
+                if !answered && String::from_utf8_lossy(&seen).contains("[y/N]: ") {
+                    terminal.write_all(b"yes\n").await.unwrap();
+                    terminal.flush().await.unwrap();
+                    answered = true;
+                }
+            }
+            child.wait().await.unwrap()
+        })
+        .await;
+        let status = typed.unwrap_or_else(|_| {
+            panic!(
+                "the approval did not finish on the pseudo-terminal: {}",
+                suite.redact(&seen)
+            )
+        });
+        drop(terminal);
+        let transcript = String::from_utf8_lossy(&seen);
+        heimdall_testkit::assert_no_canary(&transcript);
+        assert!(
+            status.success() && answered && transcript.contains(decision),
+            "approve on the pseudo-terminal: exit {status}: {}",
+            suite.redact(&seen)
+        );
+    }
+
+    // ---- running a harness ------------------------------------------------------------------
+
+    /// Run one harness invocation to its end and return its summary. A handoff line on stderr
+    /// (`decision_ref`, `operation_id`) gets the human step, then `continue` on stdin.
+    async fn run_harness(
+        suite: &Suite,
+        root: &Path,
+        source: &Path,
+        args: Vec<OsString>,
+        expect_handoffs: usize,
+    ) -> Value {
+        let mut cmd = suite.command(root, &suite.python);
+        cmd.args(["-I", "-B"])
+            .arg(source)
+            .arg("--heimdall-bin")
+            .arg(bin())
+            .arg("--scratch-root")
+            .arg(root)
+            .args(args)
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = cmd.spawn().unwrap();
+        let mut stdin = child.stdin.take();
+        if expect_handoffs == 0 {
+            stdin = None; // closed: a harness that asks for a person gets end-of-file
+        }
+        let mut stdout = child.stdout.take().unwrap();
+        let mut stderr = BufReader::new(child.stderr.take().unwrap()).lines();
+        let reader = tokio::spawn(async move {
+            let mut bytes = Vec::new();
+            stdout.read_to_end(&mut bytes).await.map(|_| bytes)
+        });
+        let mut diagnostics = String::new();
+        let mut handoffs = 0;
+        let finished = tokio::time::timeout(HARNESS_TIMEOUT, async {
+            while let Some(line) = stderr.next_line().await.unwrap() {
+                heimdall_testkit::assert_no_canary(&line);
+                match serde_json::from_str::<Value>(&line) {
+                    Ok(handoff) if handoff["decision_ref"].is_string() => {
+                        handoffs += 1;
+                        assert!(handoffs <= expect_handoffs, "an unexpected handoff");
+                        approve_at_a_terminal(suite, root, &handoff).await;
+                        let terminal = stdin.as_mut().expect("the harness's stdin");
+                        terminal.write_all(b"continue\n").await.unwrap();
+                        terminal.flush().await.unwrap();
+                    }
+                    _ => {
+                        diagnostics.push_str(&line);
+                        diagnostics.push('\n');
+                    }
+                }
+            }
+            child.wait().await.unwrap()
+        })
+        .await;
+        let Ok(status) = finished else {
+            panic!(
+                "the harness did not finish: {}",
+                suite.redact(diagnostics.as_bytes())
+            );
+        };
+        let output = tokio::time::timeout(TIMEOUT, reader)
+            .await
+            .expect("the harness's stdout closes")
+            .unwrap()
+            .unwrap();
+        let text = String::from_utf8_lossy(&output);
+        heimdall_testkit::assert_no_canary(&text);
+        let summary: Value = serde_json::from_str(text.trim_end()).unwrap_or_else(|_| {
+            panic!(
+                "the harness printed no summary; exit {status}\nstdout: {}\nstderr: {}",
+                suite.redact(&output),
+                suite.redact(diagnostics.as_bytes())
+            )
+        });
+        assert!(
+            status.success() && handoffs == expect_handoffs,
+            "the harness failed: exit {status}, {handoffs} handoffs\nsummary: {}\nstderr: {}",
+            suite.redact(&output),
+            suite.redact(diagnostics.as_bytes())
+        );
+        assert_eq!(text.lines().count(), 1, "one summary line");
+        summary
+    }
+
+    fn words(parts: &[&str]) -> Vec<OsString> {
+        parts.iter().map(OsString::from).collect()
+    }
+
+    /// The §5a task a harness's own task name stands for.
+    fn task_number(name: &str) -> u64 {
+        match name {
+            "discover" => 1,
+            "covered" => 2,
+            "approval" => 3,
+            "timeout" => 4,
+            "bind-run" => 5,
+            "release" | "stop" => 6,
+            "capability-refusal" => 7,
+            other => panic!("a harness reported an unknown task {other:?}"),
+        }
+    }
+
+    /// The recorded fields of one task (m07-plan §5a "Recorded per task and harness").
+    fn records(harness: &str, world: &str, summary: &Value) -> Vec<Value> {
+        assert_eq!(summary["harness"], harness);
+        summary["tasks"]
+            .as_array()
+            .expect("task records")
+            .iter()
+            .map(|task| {
+                json!({
+                    "harness": harness,
+                    "task": task_number(task["task"].as_str().expect("a task name")),
+                    "name": task["task"],
+                    "world": world,
+                    "success": task["success"],
+                    "calls": task["calls"],
+                    "round_trips": task["round_trips"],
+                    "human_handoffs": task["human_handoffs"],
+                    "invalid_retries": task["invalid_retries"],
+                    "wall_time_ms": task["wall_time_ms"],
+                    "discovery_bytes": task["discovery_bytes"],
+                    "detail": task["detail"],
+                })
+            })
+            .collect()
+    }
+
+    /// After a harness's existing-access tasks: one new login with the fixture key, and no
+    /// binding left active (the stop of task 6 released it; a finished child's binding ends).
+    async fn check_existing_access(
+        suite: &Suite,
+        lab: &Lab,
+        world: &ExistingAccess,
+        before: usize,
+    ) {
+        assert_eq!(
+            lab.logins(),
+            before + 1,
+            "the child of task 5 logged in to the fixture sshd exactly once"
+        );
+        let deadline = tokio::time::Instant::now() + TIMEOUT;
+        loop {
+            let active = suite.active_bindings(&world.root).await;
+            if active.is_empty() {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "bindings are still active after the stop: {}",
+                active.len()
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// After a harness's fixture-adapter tasks: no decision is left pending.
+    async fn check_fixture_adapter(suite: &Suite, world: &FixtureAdapter) {
+        let (code, listed) = suite.call(&world.root, &["decision", "list"]).await;
+        assert_eq!(code, Some(0), "{listed}");
+        let pending = listed["data"]["decisions"].as_array().expect("decisions");
+        assert!(
+            pending.iter().all(|d| d["state"] != "pending"),
+            "a decision is still pending: {listed}"
+        );
+    }
+
+    async fn run_h1(suite: &Suite, lab: &Lab) -> Vec<Value> {
+        let mut out = Vec::new();
+        let world = ExistingAccess::start(suite, lab, "h1e").await;
+        let child = world.child(lab, "h1-child", "echo h1-fixture-child");
+        let before = lab.logins();
+        let mut args = words(&[
+            "--profile",
+            PROFILE,
+            "--task",
+            "discover",
+            "--task",
+            "covered",
+            "--task",
+            "bind-run",
+            "--task",
+            "release",
+            "--task",
+            "capability-refusal",
+            "--child",
+        ]);
+        args.push(child.into());
+        let summary = run_harness(suite, &world.root, &suite.h1, args, 0).await;
+        out.extend(records("H1", "existing-access", &summary));
+        check_existing_access(suite, lab, &world, before).await;
+        world.stop().await;
+
+        let world = FixtureAdapter::start(suite, "h1f").await;
+        let approval = words(&[
+            "--profile",
+            "dev",
+            "--approval-pair",
+            "h3:deploy",
+            "--task",
+            "approval",
+        ]);
+        let summary = run_harness(suite, &world.root, &suite.h1, approval, 1).await;
+        out.extend(records("H1", "fixture-adapter", &summary));
+        let timeout = words(&["--profile", "ops", "--task", "timeout"]);
+        let summary = run_harness(suite, &world.root, &suite.h1, timeout, 0).await;
+        out.extend(records("H1", "fixture-adapter", &summary));
+        check_fixture_adapter(suite, &world).await;
+        world.stop(suite).await;
+        out
+    }
+
+    fn goals(list: &[Value]) -> Vec<OsString> {
+        list.iter()
+            .flat_map(|goal| [OsString::from("--goal"), goal.to_string().into()])
+            .collect()
+    }
+
+    /// H2's own record of how it moved: every step came from its transition table.
+    fn check_h2_paths(summary: &Value, expected: &[(&str, &[&str])]) {
+        assert!(
+            summary["call_set"]
+                .as_str()
+                .is_some_and(|source| source.contains("held for U4b")),
+            "H2 says where its call set came from"
+        );
+        let tasks = summary["tasks"].as_array().expect("task records");
+        assert_eq!(tasks.len(), expected.len());
+        for (task, (name, path)) in tasks.iter().zip(expected) {
+            assert_eq!(task["task"], *name);
+            let steps = task["transitions"].as_array().expect("transitions");
+            assert!(
+                steps.iter().all(|step| step["by_table"] == true),
+                "{name}: a step did not come from the transition table: {task}"
+            );
+            let states: Vec<&str> = steps.iter().map(|s| s["to"].as_str().unwrap()).collect();
+            assert_eq!(states, *path, "{name}: {task}");
+        }
+    }
+
+    /// The bindings H2 reports holding once the child of task 5 runs: the one task 2 prepared,
+    /// and the child's own when the build made another for the same work. Read from H2's typed
+    /// records only.
+    fn h2_held_for_the_run(tasks: &Value) -> Vec<String> {
+        let (covered, running) = (&tasks[1], &tasks[2]);
+        let prepared = covered["final_state"]["binding_id"]
+            .as_str()
+            .expect("task 2 ends holding a binding");
+        let bound = running["final_state"]["binding_id"]
+            .as_str()
+            .expect("task 5 runs its child under a binding");
+        assert_eq!(covered["held"], json!([prepared]), "{covered}");
+        let held: Vec<String> = running["held"]
+            .as_array()
+            .expect("H2 reports what it holds")
+            .iter()
+            .map(|id| id.as_str().expect("a binding ID").to_owned())
+            .collect();
+        let expected: Vec<&str> = if prepared == bound {
+            vec![prepared]
+        } else {
+            vec![prepared, bound]
+        };
+        assert_eq!(
+            held, expected,
+            "H2 holds the prepared binding and the child's: {running}"
+        );
+        held
+    }
+
+    async fn run_h2(suite: &Suite, lab: &Lab) -> Vec<Value> {
+        let mut out = Vec::new();
+        let world = ExistingAccess::start(suite, lab, "h2e").await;
+        // The child reports that it is up, then holds its login open until its input ends.
+        let child = world.child(lab, "h2-child", "echo h2-fixture-child; cat");
+        let before = lab.logins();
+        let work = "h2-lab-work";
+        let summary = run_harness(
+            suite,
+            &world.root,
+            &suite.h2,
+            goals(&[
+                json!({"goal": "discover"}),
+                json!({"task": "covered", "goal": "access", "profile": PROFILE, "work_id": work}),
+                json!({"task": "bind-run", "goal": "run", "profile": PROFILE, "work_id": work,
+                       "argv": [child]}),
+                json!({"goal": "stop"}),
+                json!({"task": "capability-refusal", "goal": "access", "profile": PROFILE,
+                       "work_id": "h2-unattended-work", "require_unattended": true,
+                       "expect_refusal": "CAPABILITY_UNAVAILABLE"}),
+            ]),
+            0,
+        )
+        .await;
+        // Task 5 is a request of its own (a new request ID), so the build may bind the child
+        // under a second binding for the same work. H2 reports what it holds after each goal;
+        // the stop of task 6 is one release for each binding, then `stopped`.
+        let held = h2_held_for_the_run(&summary["tasks"]);
+        println!(
+            "a32 note: H2 held {} binding(s) for one piece of work when task 6 began",
+            held.len()
+        );
+        let mut stop_path = vec!["releasing"; held.len() - 1];
+        stop_path.push("stopped");
+        check_h2_paths(
+            &summary,
+            &[
+                ("discover", &["discovered"]),
+                ("covered", &["ready"]),
+                ("bind-run", &["running"]),
+                ("stop", &stop_path),
+                ("capability-refusal", &["failed"]),
+            ],
+        );
+        let stop = &summary["tasks"][3];
+        assert_eq!(
+            stop["child_exit_code"], 0,
+            "the child of task 5 ended cleanly when task 6 stopped it"
+        );
+        assert_eq!(
+            (stop["calls"].as_u64(), &stop["held"]),
+            (Some(held.len() as u64), &json!([])),
+            "task 6 released each binding H2 held, once: {stop}"
+        );
+        out.extend(records("H2", "existing-access", &summary));
+        check_existing_access(suite, lab, &world, before).await;
+        world.stop().await;
+
+        let world = FixtureAdapter::start(suite, "h2f").await;
+        let summary = run_harness(
+            suite,
+            &world.root,
+            &suite.h2,
+            goals(&[
+                json!({"task": "approval", "goal": "access", "profile": "dev",
+                       "work_id": "h2-wider-work", "pairs": ["h3:deploy"]}),
+                json!({"task": "timeout", "goal": "access", "profile": "ops",
+                       "work_id": "h2-slow-work", "timeout_ms": 1}),
+            ]),
+            1,
+        )
+        .await;
+        check_h2_paths(
+            &summary,
+            &[
+                ("approval", &["pending_approval", "ready"]),
+                ("timeout", &["observing", "ready"]),
+            ],
+        );
+        out.extend(records("H2", "fixture-adapter", &summary));
+        check_fixture_adapter(suite, &world).await;
+        world.stop(suite).await;
+        out
+    }
+
+    /// The shape of the composition record (the evidence file itself is the integrator's).
+    fn check_composition(composition: &Value) {
+        let records = composition["records"].as_array().expect("records");
+        assert_eq!(records.len(), 14, "seven tasks for each of two harnesses");
+        for harness in ["H1", "H2"] {
+            let mut tasks: Vec<u64> = records
+                .iter()
+                .filter(|record| record["harness"] == harness)
+                .map(|record| record["task"].as_u64().expect("a task number"))
+                .collect();
+            tasks.sort_unstable();
+            assert_eq!(tasks, [1, 2, 3, 4, 5, 6, 7], "{harness} ran each task once");
+        }
+        for record in records {
+            let task = record["task"].as_u64().unwrap();
+            let count = |field: &str| {
+                record[field]
+                    .as_u64()
+                    .unwrap_or_else(|| panic!("{field} is a count: {record}"))
+            };
+            assert_eq!(record["success"], true, "{record}");
+            assert!(count("calls") >= 1, "{record}");
+            assert_eq!(count("round_trips"), count("calls"), "{record}");
+            assert_eq!(
+                count("invalid_retries"),
+                0,
+                "zero invalid retries: {record}"
+            );
+            assert_eq!(count("human_handoffs"), u64::from(task == 3), "{record}");
+            assert_eq!(count("discovery_bytes") > 0, task == 1, "{record}");
+            let wall = record["wall_time_ms"].as_f64().expect("wall time");
+            assert!((0.0..120_000.0).contains(&wall), "{record}");
+            assert!(record["world"].is_string() && record["name"].is_string());
+            match task {
+                // `ACCESS_READY` in one intent-level request; the refusal is met in one too.
+                2 | 7 => assert_eq!(count("calls"), 1, "{record}"),
+                // The request, then one observation of the same operation: never a repeat.
+                4 => assert_eq!(count("calls"), 2, "{record}"),
+                _ => {}
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn both_harnesses_complete_the_deterministic_tasks() {
+        let suite = Suite::new();
+        let lab = Lab::start(&suite);
+        let mut records = run_h1(&suite, &lab).await;
+        records.extend(run_h2(&suite, &lab).await);
+        records.sort_by_key(|r| (r["harness"].as_str().map(str::to_owned), r["task"].as_u64()));
+        let composition = json!({
+            "case": "A32",
+            "tasks": "m07-plan §5a, tasks 1 to 7",
+            "platform": format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
+            "harnesses": ["H1", "H2"],
+            "held": [
+                "H2 loads its call set from a local table until `schema show primitives` is served (U4b)",
+                "native Windows: blocked (the journey needs python3, script(1) and the local fixture sshd)",
+            ],
+            "records": records,
+        });
+        // Written into the scratch root and read back: what is checked is what was recorded.
+        let file = suite.home.root.join("m07-a32-composition.json");
+        std::fs::write(&file, serde_json::to_vec_pretty(&composition).unwrap()).unwrap();
+        let recorded: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        check_composition(&recorded);
+        for record in recorded["records"].as_array().unwrap() {
+            println!("a32 record: {record}");
+        }
+    }
+}

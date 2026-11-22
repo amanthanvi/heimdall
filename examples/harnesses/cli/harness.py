@@ -62,26 +62,25 @@ def check_reply(status, envelope, expected_exit, *codes):
 
 def scratch_environment(root):
     require(root.is_absolute() and root.is_dir(), "expected an absolute fixture scratch root")
-    root = root.resolve(strict=True)
+    real = root.resolve(strict=True)
     if os.name == "posix":
-        info = root.stat()
+        info = real.stat()
         require(info.st_uid == os.geteuid() and info.st_mode & 0o077 == 0,
                 "expected an owner-only fixture scratch root")
-    home = root / "home"
-    state = root / "heimdall-home"
-    ssh = root / "ssh-home"
-    etc = ssh / "etc-ssh"
-    for directory in (home, state, ssh, etc):
+    etc = real / "ssh-home" / "etc-ssh"
+    for directory in (real / "home", real / "heimdall-home", real / "ssh-home", etc):
         require(directory.is_dir() and directory.resolve(strict=True) == directory,
                 "missing or redirected fixture home directory")
     require(not any(etc.iterdir()), "expected an empty fixture etc-ssh directory")
+    # Checked by real path, passed under the root as given: a runtime is found under the
+    # spelling of the Heimdall home it was started with.
     return {
         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
         "LANG": "C",
         "TERM": "dumb",
-        "HOME": str(home),
-        "HEIMDALL_HOME": str(state),
-        "HEIMDALL_TEST_SSH_HOME": str(ssh),
+        "HOME": str(root / "home"),
+        "HEIMDALL_HOME": str(root / "heimdall-home"),
+        "HEIMDALL_TEST_SSH_HOME": str(root / "ssh-home"),
     }
 
 

@@ -391,6 +391,8 @@ W1's audit found that a batched key sequence can still trigger some actions befo
 - **Behind the reading guard in W2:** operation cancel (`x`), which stops someone's running work, and the network probe, which opens an outbound TCP connection. Each is accepted only when the latest frame drew its target.
 - **Left as they are, by ruling:** connect (`c`, a plain `ssh`) and starting the runtime (`S`).
 - **Tests:** a batched sequence triggers neither cancel nor the network probe unseen, each with a revert proof.
+- **Named limit (ruled 2026-11-22):** a resize away and back whose signals are both still undelivered when the worker settle completes is not counted, a kernel signal-latency window that no pending-signal mechanism closes; the live size read at action time is the backstop for every resize whose size still differs.
+- **Refusals under load (ruled 2026-11-22):** a loaded machine may refuse one more answer at a drawn frame; the refusal says the screen changed and asks for the answer again, which is the fail-closed behaviour for durable and outbound actions.
 
 ### U9: Exit suite, evidence and ratification (the integrator)
 
@@ -590,6 +592,15 @@ The two differ in how they compose calls (a script versus a goal and state machi
 
 The records go to `m07-a32-composition.json`. M09-T02's LLM evaluations stay separate.
 
+**Amendments from W3 (ruled 2026-11-22):**
+- **H2's states as built:** the list above plus `observing(operation_id)`, for an accepted operation that is neither an approval nor a provider wait. Also `reconciling(operation_id)` (the operation of an uncertain outcome, while it is observed), `releasing` (one per extra binding, on the way to `stopped`) and `unresolved(code, operation_id)` (the bound ran out while reconciling). Two payloads carry more than shown: `pending_approval(decision_ref, operation_id)` and `running(pid, binding_id)`. With a new request ID for `run`, today's build makes a second binding for the same work on the one grant (ADR-0011 §10 item 12, I-1: a separate reference), so H2 keeps every binding it was given and its stop passes through `releasing` once per extra binding before `stopped`.
+- **`invalid_retries`** counts the answers whose `next.action` is `fix_request` or `new_request_id`. The same definition goes into the A32 evidence record.
+- **Request IDs:** every changing request gets its own ID, `run` after `access` included. The idempotency key is never a continuation token.
+- **`OUTCOME_UNKNOWN`:** a harness never sends the request again. It observes the named operation until it reaches a terminal state, within the task's existing bound; `ACCESS_READY` seen there counts as the goal met. Still unfinished at the bound, it reports `OUTCOME_UNKNOWN` with the operation ID.
+- **The binding `ensure` prepared:** with a new request ID for `run`, it stays active after the child ends, until `access release`. U4b's skill says to release it when the work no longer needs it, or to skip `ensure` when `run` alone is enough. Observed today and recorded in the A32 evidence: a `run` that reuses `ensure`'s request ID is accepted and adopts `ensure`'s binding (ADR-0013 §13, U0-Q2).
+- **Two fixture worlds, accepted for A32:** tasks 1, 2, 5, 6 and 7 run on existing access (the loopback sshd, a disposable agent, a saved profile); tasks 3 and 4 run on the fixture adapter, because today's build offers a partly covered profile and a slow prepare only there. The record states this with the reason.
+- **Windows:** both real-binary journeys are Unix-only as first written. That is fixture plumbing, not inherent, and W4 plans the Windows coverage (see `progress.md`).
+
 ## 6. Exit mapping
 
 Records live in `tests/evidence/m07-*.json`. The lowest-row rule applies. "All" means macOS arm64, the Linux devbox and Windows 11. §6.1 controls the exit and ratification.
@@ -689,7 +700,9 @@ ADR-0013 §11 lists D1–D21, and §12 the pre-release corrections PC1–PC8, wi
 
 ## 10. Questions
 
-There are none open. Q1–Q12 are ruled, and revision 3 applies the orchestrator's rulings S1–S4 and those on RC02 and RC05–RC11 (§0a). **The choices revision 3 makes within those rulings:**
+**One is open, for U0** (2026-11-22; ADR-0013 §13, U0-Q1): which code a non-interactive `ensure` that needs approval answers. Today's build serves `INTERACTION_REQUIRED` with a `next.decision_ref`; the journeys below and the skill say `APPROVAL_REQUIRED`. Until U0 decides, the wrapper and both harnesses accept `decision_ref` under either code.
+
+Q1–Q12 are ruled, and revision 3 applies the orchestrator's rulings S1–S4 and those on RC02 and RC05–RC11 (§0a). **The choices revision 3 makes within those rulings:**
 - the snapshot caps (1,000 operations, 256 pending decisions, 768 KiB);
 - the 64 KiB item bound and its per-field caps (U0 confirms the numbers against current validation);
 - `remote_pending`'s first 16 entries;
