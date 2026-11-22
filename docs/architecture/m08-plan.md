@@ -1,6 +1,10 @@
 # M08 plan: harden and package what is actually supported
 
-**Status:** draft, revision 3 (2026-11-22), from the M08 design unit. ADR-0009 allows no further independent re-check: the orchestrator reviews this revision's diff against revision 2. No production code was written for the design.
+**Status:** accepted, revision 4 (2026-11-22), from the M08 design unit; the orchestrator checked revision 4 against its rulings and accepted it with ADR-0014. **Revision 4 is the last design round.** The orchestrator checks it against the rulings below. **The independent check of the restore protocol moves to U2b's implementation review,** where it meets real fault injection. No production code was written for the design.
+
+**Revision 4:**
+- **What it applies:** the second re-check (Codex, NOT CLOSED: N01 and N02 blocking, N03 moderate; `tests/evidence/artifacts/review-m08/design-recheck2.md`) under the orchestrator's rulings of 2026-11-22: the epoch on every mutating request and no quiet period; adoption fenced before it is published; the ledger digest over the full idempotency key.
+- **Where to find the changes:** §13's last three rows.
 
 **Revision 3:**
 - **What it applies:** the scoped re-check (Codex, NOT CLOSED: R01 and R02 open, RC-N01 new, R10 low; `tests/evidence/artifacts/review-m08/design-recheck.md`) under the orchestrator's rulings of 2026-11-22: a restore epoch and replay fence, one durable generation switch, a per-generation operation record, and P2 relabelled.
@@ -9,7 +13,7 @@
 **Revision 2:**
 - **What it applies:** the independent design review (Codex, REVISE, M08-D-R01–R10; `tests/evidence/artifacts/review-m08/design.md`) and the orchestrator's rulings of 2026-11-22 on Q1–Q11 and on each finding (§0a).
 - **Where to find the changes:** §13 maps each finding to its place.
-**Design ADR:** ADR-0014 (proposed, revision 3): the fuzz boundary list and stopping rule, the update and recovery contract, the artifact and provenance policy, the support-bundle and privacy defaults, and the benchmark and soak thresholds. ADR-0014 wins wherever this plan differs.
+**Design ADR:** ADR-0014 (proposed, revision 4; accepted at merge, with its contract and storage deltas H1–H13 pending the contract owner's handoff): the fuzz boundary list and stopping rule, the update and recovery contract, the artifact and provenance policy, the support-bundle and privacy defaults, and the benchmark and soak thresholds. ADR-0014 wins wherever this plan differs.
 **Basis:** `main` at `de097dac` (the M01–M05 exits, M03's claim gating, M04's claims update, the accepted M06 design, the M07 design). Read for write sets only: `origin/m06/w4` at `c4e9a5b5` and `origin/m07/w2` at `8e5bb1d6`.
 **Delivery rules:** ADR-0009.
 
@@ -51,6 +55,9 @@
 | **D-R10:** real invocations and exits recorded where they exist; the rest labelled as not reproducible | the probe record; §9 |
 | **Re-check R01 (ruled): a restore epoch.** Restore raises it; everything minted before belongs to the old epoch; later terminal operations and idempotency facts carry forward when the old store is readable; otherwise every pre-restore request without a terminal record is refused as stale; reauthorization revives nothing; the runner's effect ledger is the authority for later remote effects | ADR-0014 §3.6 "The restore epoch and the replay fence", H9, H13; U2b |
 | **Re-check R02 and RC-N01 (ruled): one durable generation switch.** Each family in its own generation directory; a `CURRENT` pointer written, synced and renamed; start-up trusts only the pointer; earlier generations kept under unique names with an operation record (install, adopt, restore, reset; migrations appended) | ADR-0014 §3.6 "Store generations", H12; U2b |
+| **Re-check 2, N01 (ruled): the epoch on requests; no quiet period.** Every mutating request carries the epoch its ID was minted under, bound at mint time and reused on retry; the server refuses a non-current epoch, attended or not. The CLI, TUI, wrapper and harnesses follow it. The ledger and every fence follow ADR-0006 §7.4's retention exactly | ADR-0014 §3.6 fence steps 3–6, H13, H9; U2b; a line for M07's wrapper and harnesses in the handoff |
+| **Re-check 2, N02 (ruled): fence first, then publish.** Intent, legacy schema fence, copy, pointer, completion; never relying on an older build understanding the pointer; a one-way boundary | ADR-0014 §3.2 item 8, §3.6 "Adoption"; U2b; §7.2 journeys 3–4 |
+| **Re-check 2, N03 (ruled):** the ledger digest covers the full idempotency key | ADR-0014 §3.6 fence step 4; U2b |
 | **Re-check R10 (ruled):** P2 is a recorded summary, not independently checked | §9; the probe record |
 | **Economy (the review's answer 6):** an unchanged fuzz target is not rerun on a candidate; minimized cases extend existing seeds where a suite has them | ADR-0014 §2.3; U1 |
 
@@ -155,7 +162,7 @@ Each unit lists its marking, owner role, owned paths, what it builds, its tests 
 
 - **Starts** on the contract owner's explicit handoff (rule 2), which names the files.
 - **Owns:** `crates/contract/**`, `schemas/**`, `tests/contracts/**`, the `cli.rs` subcommand table, the store migration, `check.sh` steps, the root manifest; ADR-0006's next revision section; the version string (`1.0.0-rc.1`, set once).
-- **Builds:** ADR-0014 §7's deltas as accepted by the contract owner, each as an addition that fails closed until its unit lands (the M05 skeleton rule): the support-bundle command and schema; the stop preview; the state commands **with §3.6's restore rule as an authority rule of the contract**; the restore epoch, the backup's environment binding and the quarantine states (H9, H10); **the storage layout of H12** (generation directories, the pointer, the operation record, the request ledger), which M06 and M07 own the files of today, so it is named in the handoff; the epoch in the hello and the stale-request refusals (H13); the new reasons, doctor findings and residue kinds; the build-provenance fields.
+- **Builds:** ADR-0014 §7's deltas as accepted by the contract owner, each as an addition that fails closed until its unit lands (the M05 skeleton rule): the support-bundle command and schema; the stop preview; the state commands **with §3.6's restore rule as an authority rule of the contract**; the restore epoch, the backup's environment binding and the quarantine states (H9, H10); **the storage layout of H12** (generation directories, the pointer, the operation record, the adoption intent, the request ledger), which M06 and M07 own the files of today, so it is named in the handoff; the epoch in the hello **and on every mutating request,** with the stale-request refusal (H13), which the CLI, the TUI and M07's wrapper and harnesses must follow in the same change; the new reasons, doctor findings and residue kinds; the build-provenance fields.
 - **Tests:** schema goldens; the command-tree golden; migration up; every new command answers its "not available in this build" envelope until its unit replaces it.
 - **Native:** Windows and the devbox at the merge candidate.
 
@@ -192,7 +199,7 @@ Each unit lists its marking, owner role, owned paths, what it builds, its tests 
 - **Native:** rehearsals in the Mac container and a disposable WSL distribution.
 
 **U2b — after the contract handoff.**
-- **Owns:** new `crates/heimdall/src/state_cmd.rs` and the stop-preview code in `service_cmd.rs`; **in `crates/store` and `crates/runtime` (the store and path files, M06's and M07's today, named in the handoff):** the generation layout, the pointer, the operation record, adoption by copy, the request ledger, the restore staging and sanitization; the doctor finding for a moved executable; the residue rows in `uninstall_cmd.rs` and the purge sweep's handling of generations; the moved-block report in `crates/localenv/src/projection/`.
+- **Owns:** new `crates/heimdall/src/state_cmd.rs` and the stop-preview code in `service_cmd.rs`; **in `crates/store` and `crates/runtime` (the store and path files, M06's and M07's today, named in the handoff):** the generation layout, the pointer, the operation record, the adoption (intent, fence, copy, pointer), the request ledger, the restore staging and sanitization; the doctor finding for a moved executable; the residue rows in `uninstall_cmd.rs` and the purge sweep's handling of generations; the moved-block report in `crates/localenv/src/projection/`.
 - **Depends:** U0; M06's exit (its client, invitation, exposure, pending-effect and effect-ledger records are what §3.6 quarantines and reconciles).
 - **Builds:** ADR-0014 §3 in full, with §3.6: the generation switch, the restore epoch and replay fence, identity binding, exclusion under the instance lock, staging, sanitization, the report; reset as a generation.
 - **Tests:**
@@ -204,7 +211,11 @@ Each unit lists its marking, owner role, owned paths, what it builds, its tests 
     - `restore_voids_consumed_and_expired_invitations` (a join and a replay are refused);
     - **`request_completed_after_the_backup_is_never_run_again`:** backup → the request completes → the store is made unreadable → restore → reauthorize → retry with the same request ID. It is answered `REQUEST_STALE` from the fence record, and the fixture adapter's ledger shows no second execution. Checked **after reopening and reauthorization.** A second variant keeps the old store readable: the retry gets the carried terminal answer;
     - `old_decision_reference_is_refused_after_restore_and_reauthorization`;
-    - `quiet_period_when_ledger_and_store_are_both_unreadable` (a non-interactive mutating request is refused; an attended one proceeds; the report gives the end time);
+    - **`no_duplicate_effect_when_store_and_ledger_are_both_lost`:** backup → the request completes → the store and the ledger are destroyed → restore → reauthorize → the same request ID with its original epoch, sent attended and sent non-interactive. Both are refused `REQUEST_STALE`; the fixture adapter's ledger shows no second effect. A request minted after a fresh hello proceeds;
+    - `stale_epoch_is_refused_before_any_write` (for every mutating request kind, through the CLI, the TUI's requests and the wrapper);
+    - `clients_carry_the_epoch_with_a_kept_request_id` (the CLI's `--request-id` retry path, the wrapper and both harnesses);
+    - `equal_request_ids_across_clients_roles_and_kinds_have_separate_fences`;
+    - `fence_retention_follows_the_idempotency_contract` (an unresolved key's fence is answered after any wait; a settled key's lasts its retention from settlement and then the 30-day marker; with only the ledger readable nothing is dropped early);
     - `runner_effect_applied_after_the_backup_is_adopted_not_resent`;
     - `restore_keeps_a_retired_issuer_retired_and_an_unpaired_environment_unpaired`;
     - `restore_disables_exposure_and_closes_pending_widening_decisions`;
@@ -215,7 +226,7 @@ Each unit lists its marking, owner role, owned paths, what it builds, its tests 
     - `unreadable_or_dangling_pointer_stops_and_never_picks_another_generation`;
     - **`reset_then_restart_serves_the_new_generation`;**
     - **`restore_restore_reset_keeps_every_earlier_generation`** (unique names, one record each, none overwritten; start-up serves the last);
-    - `adoption_by_copy_interrupted_before_and_after_the_switch`, and `older_executable_refuses_the_adopted_from_store`;
+    - **`adoption_killed_at_each_step_then_older_build_then_newer_build`:** a kill after each of the five steps (intent, fence, copy, pointer, completion); then the older build is started; then the newer one. Before the fence the older build serves the flat store, and the newer build then adopts it with what the older one wrote. After the fence the older build refuses and writes nothing, and the newer build resumes from the intent. A revocation made by the older build is never missing afterwards;
     - `ledger_append_precedes_the_first_store_write` (a kill between them leaves a ledger entry and no record; an ordinary restart ignores it; a restore fences it);
   - `reset_is_attended_and_says_it_creates_a_new_identity`;
   - `reset_without_any_readable_inventory_says_so_and_refuses_non_interactive`;
@@ -374,7 +385,7 @@ W4                                    U8 exit suite, records, claim audit, the c
 | macOS arm64 (floor: macOS 27) | `aarch64-apple-darwin`; system frameworks, `libSystem`, `libiconv` only [observed] | the Mac | `.tar.gz` | ad-hoc, linker-signed [observed]; Developer ID and notarization need B13 |
 | Linux x86-64 (floors: Ubuntu 24.04, Debian 13) | `x86_64-unknown-linux-gnu`, dynamic, glibc 2.31 link floor (ruled) | the Mac, through the zig shims every native run has used since M01 | `.tar.gz` | none |
 | Linux arm64 | `aarch64-unknown-linux-gnu`, the same floor | the Mac, zig | `.tar.gz` | none. The native row is blocked on B9 |
-| Windows x86-64 (floor: Windows 11 26H2, in-box OpenSSH) | `x86_64-pc-windows-msvc`, static C runtime | the PC (the toolchain every native Windows run used) | `.zip`, containing the Linux x86-64 `heimdall` as the WSL helper beside `heimdall.exe` (`crates/wsl/src/host.rs`) | none (B16 for Authenticode) |
+| Windows x86-64 (floor: Windows 11 26H2, in-box OpenSSH) | `x86_64-pc-windows-msvc`, static C runtime | the PC (the toolchain every native Windows run used) | `.zip`, containing the Linux x86-64 `heimdall` as the WSL helper, in the `linux-x86_64` directory beside `heimdall.exe` where the product looks for it (`crates/wsl/src/spawn.rs`) | none (B16 for Authenticode) |
 | WSL2 x86-64 (floor: Ubuntu 24.04) | the Linux x86-64 binary inside the distribution; the Windows archive on the host | — | no archive of its own | — |
 
 ### 4.1 What "clean machine" means here
@@ -546,8 +557,8 @@ Records live in `tests/evidence/m08-*.json`. The lowest-row rule applies. "All" 
 - **Journeys:**
   1. **Verify, install and start:** the archive checked against the external index before it is unpacked; then from the archive alone. An install interrupted at each step leaves a complete executable pair.
   2. **Update with active work:** the stop preview names the held run and the live session; the update keeps the environment ID, policies, cutoffs, pauses and enrollments; unexpired grants are served again after restart under the existing re-issue rule; nothing expired or stopped returns.
-  3. **Rollback, same schema:** the previous binary serves the same store.
-  4. **Rollback across a schema change:** the older binary refuses the newer store and touches nothing; the restore follows ADR-0014 §3.6: nothing revoked, consumed, retired or unpaired after the backup returns; recovered clients, invitations and exposure are quarantined; a request that completed after the backup is never run again, also after reauthorization; another environment's backup is refused; an interruption before or after each sync and the pointer rename ends in the old generation or the new one.
+  3. **Rollback, same schema:** the previous binary serves the same store. **Adoption of the generation layout is one-way** (ADR-0014 §3.2 item 8): once the flat store is fenced, a build that predates generations refuses it, finished or not; the journey kills the adoption at each step, starts the older build, then the newer one, and no revocation is lost.
+  4. **Rollback across a schema change:** the older binary refuses the newer store and touches nothing; the restore follows ADR-0014 §3.6: nothing revoked, consumed, retired or unpaired after the backup returns; recovered clients, invitations and exposure are quarantined; a request that completed after the backup is never run again, also after reauthorization and also when the store and the ledger are both lost; another environment's backup is refused; an interruption before or after each sync and the pointer rename ends in the old generation or the new one.
   5. **Recover:** a damaged store stops unsafe operations; `doctor` names the choices; a restore keeps the identity and recovers no authority; a reset says it creates a new identity and lists what it orphans, or says that it cannot list it; after a reset, a restart serves the new generation; repeated restores and a reset keep every earlier generation.
   6. **Uninstall:** the preexisting SSH and Git configuration is byte-identical to before install; the remaining remote enrollments and pairings are listed; backups and the previous binary are listed.
   7. **Provenance:** the archive matches the external index and every file matches the inner manifest; the SBOM matches the selected graph; the notices are complete; the signature status printed in the release notes equals what `codesign` and the Windows signature check report.
@@ -633,9 +644,8 @@ ADR-0014 §7 lists them for the contract owner. None is applied by this plan. In
 ## 11. Questions for the orchestrator
 
 **None is open.** Q1–Q11 were ruled on 2026-11-22 (§0a); Q3 was reversed by the ruling on D-R06; the re-check's R01, R02, RC-N01 and R10 were ruled the same day. **The choices revision 3 makes within those rulings, for the orchestrator's review:**
-- **A request ledger outside the store** (ADR-0014 §3.6, fence step 3). The ruling says every pre-restore request without a terminal record is refused when the old store is unreadable. A request made after the backup leaves nothing in the backup, and its ID is minted by the caller, so the server cannot recognize it from the restored store or from an epoch. The ledger (an epoch and a digest per request, synced before the request's first store write) is what lets the restore write a refusal for it. Its cost is one more synced append per mutating request.
-- **A quiet period when the ledger is lost too** (fence step 4): non-interactive mutating requests are refused for the idempotency retention; attended ones proceed.
-- **Adoption by copy** of a store in today's layout, with the old family then fenced against older executables by its schema version, so that no family member is ever moved.
+- **The epoch on requests is the fence; the request ledger is the second line** (ADR-0014 §3.6, fence steps 3–5; ruled). The ledger is kept for a caller that breaks the rule by re-stamping an old ID, and so that a known retry gets a precise stored answer. Its digest covers the full idempotency key, and its retention is ADR-0006 §7.4's. Its cost is one more synced append per mutating request. **Revision 3's quiet period is withdrawn.**
+- **Adoption** of a store in today's layout: intent, fence, copy, pointer, completion, in that order (ruled). No family member is ever moved, and the boundary is one-way.
 - **Migration stays in place** inside a generation, recorded in the generation's operation record; it does not switch generations.
 - **The carry-forward** covers every revocation, retirement, unpairing, consumption, cutoff and pause (revision 2), and now every terminal operation and idempotency record.
 - **Reset with no readable inventory** discloses and asks for a typed confirmation when attended, and refuses under `--non-interactive` (revision 2).
@@ -692,7 +702,11 @@ One observation for the owner's list, not a question: the macOS login entry's la
 | **D-R09:** release artifacts and the handoff to M09 | ADR-0014 §4.2 (the matrix, the reference configuration, the policy, the procedure); U7a, U7b; U8's populated worksheet and the M09 steps; §12 |
 | **D-R10:** the probe evidence | The record: `commands-r2.txt` with exits; revision 1's static observations and counts labelled "recorded, not reproducible"; the withdrawn figures marked; §9's "Standing" column |
 | **The review's answers on Q6, Q8, economy** | ADR-0014 §6.6 (the soak's supervision rule); U3c and H11; ADR-0014 §2.3 and U1a (no rerun of an unchanged target) |
-| **Re-check R01:** a request completed after the backup could be retried after a restore | ADR-0014 §3.6 "The restore epoch and the replay fence" (the epoch in every server-minted reference; carried terminal records; the request ledger and fence records; the quiet period; reauthorization reopens nothing; the runner's effect ledger); H9, H13; U2b's `request_completed_after_the_backup_is_never_run_again`, `old_decision_reference_is_refused…`, `quiet_period_…`, `runner_effect_applied_after_the_backup…`; §7.2 journey 4 |
+| **Re-check R01:** a request completed after the backup could be retried after a restore | ADR-0014 §3.6 "The restore epoch and the replay fence" (the epoch in every server-minted reference; carried terminal records; the request ledger and fence records; reauthorization reopens nothing; revision 3's quiet period was withdrawn in revision 4; the runner's effect ledger); H9, H13; U2b's `request_completed_after_the_backup_is_never_run_again`, `old_decision_reference_is_refused…`, `runner_effect_applied_after_the_backup…`; §7.2 journey 4 |
 | **Re-check R02:** recovery from a crash between family members | ADR-0014 §3.6 "Store generations: one durable switch" (no member is ever renamed; the staged generation durable before the pointer moves; start-up trusts only the pointer; platforms and what is not tested); H12; U2b's `switch_interrupted_before_and_after_each_sync_and_the_rename`, `unreadable_or_dangling_pointer_…`, the adoption cases |
 | **Re-check RC-N01:** a completed reset looked like an inconsistent restore | ADR-0014 §3.6 (the per-generation operation record; "Reset is the same switch"); U2b's `reset_then_restart_serves_the_new_generation`, `restore_restore_reset_keeps_every_earlier_generation` |
 | **Re-check R10:** P2's standing | §9 P2 ("a recorded summary, not independently checked"); the probe record's limitation |
+| **Re-check 2, N01:** replay when the store and the ledger are both lost; retention | ADR-0014 §3.6 fence step 3 (the epoch on every mutating request, refused when not current, attended or not; the stated residual), step 4 (the ledger's retention is ADR-0006 §7.4's, also when only the ledger is readable), step 5 (the quiet period withdrawn); H13; U2b's `no_duplicate_effect_when_store_and_ledger_are_both_lost`, `stale_epoch_is_refused_before_any_write`, `clients_carry_the_epoch_with_a_kept_request_id`, `fence_retention_follows_the_idempotency_contract` |
+| **Re-check 2, N02:** the adoption crash window | ADR-0014 §3.6 "Adoption of today's layout: fence first, then publish" and §3.2 item 8 (the one-way boundary); §7.2 journey 3; U2b's `adoption_killed_at_each_step_then_older_build_then_newer_build` |
+| **Re-check 2, N03:** the ledger's namespace | ADR-0014 §3.6 fence step 4 (the digest over principal, caller role, `remote_client`, operation kind and request ID; lookup by digest); U2b's `equal_request_ids_across_clients_roles_and_kinds_have_separate_fences` |
+| **Where the independent check goes next** | Revision 4 is the last design round. U2b's implementation review (the plan §6.7 security review of W2) checks the restore protocol line by line against ADR-0014 §3.6, with the fault sets run natively |
