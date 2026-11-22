@@ -60,6 +60,12 @@ Before planning, reviewing, testing or recording a wave, read
   anything that writes to the owner's keychain or credential store. If it happens,
   stop, delete exactly the item you created (identified by non-secret attributes),
   verify it is gone, and report it.
+- `heimdall connect <alias>` and `heimdall run -- ssh …` start the `ssh` found on `PATH`,
+  with only the alias for an existing-access destination. `HEIMDALL_TEST_SSH_HOME` covers
+  Heimdall's own checks, not that child, so on a host it reads the account's real
+  `~/.ssh/config`. In tests, put a wrapper `ssh` first on `PATH` that adds `-F <scratch
+  config>` and the isolated options (as `tests/e2e/cli_m02.rs` does), or run inside a
+  container. Never run them on a host without one of those.
 - Work that `heimdall run` or `connect` launches on a runner gets the account's real
   `HOME`, `USER` and `SHELL` from the account database (ADR-0012 §4), with no debug
   redirect; on the devbox that is the owner's account. So in tests, every `ssh` inside
