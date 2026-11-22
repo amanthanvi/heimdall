@@ -1,0 +1,5 @@
+schema_version = 1
+
+[retention]
+operations = "7d"
+events = "7d"

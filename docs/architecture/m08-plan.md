@@ -321,7 +321,11 @@ Each unit lists its marking, owner role, owned paths, what it builds, its tests 
 - **Owns:** new `crates/heimdall/src/support_cmd.rs`.
 - **Depends:** U0, U6a.
 - **Builds:** `heimdall support bundle`, with the frozen-bytes preview, working when the runtime is down or the store is unreadable; the mapping of the frozen views onto U6a's input types, in which **a field is free text unless its type says otherwise**.
-- **Tests:** the A33 journey of §7.3; `bundle_works_with_a_corrupt_store`; `bundle_writes_nothing_without_the_command`; `every_view_field_has_a_declared_export_type` (a source check: a new field with no declared type fails the build, so it cannot be exported by default).
+- **Requirements carried from U6a's review (2026-11-22; orchestrator's ruling):**
+  - **Codes come only from enumerations.** No string that arrives as data (a name, a label, a reason text) is passed to the collector as a code. A code-shaped host name would otherwise be exported.
+  - **Identifier inclusion never exports a word-like value typed as an identifier, unless its type is an enumerated identifier kind** (user name, host name, alias, path, fingerprint, Heimdall ID). A field whose kind is not one of those stays pseudonymized or withheld even with `--include-identifiers`.
+  - **Random-looking path segments stay withheld.** More withheld fields than expected is the safe direction and is not "fixed" by loosening the check.
+- **Tests:** the A33 journey of §7.3; `bundle_works_with_a_corrupt_store`; `bundle_writes_nothing_without_the_command`; `every_view_field_has_a_declared_export_type`; `codes_are_taken_only_from_enumerations` (a source check on the mapping); `identifier_inclusion_needs_an_enumerated_kind`; (a source check: a new field with no declared type fails the build, so it cannot be exported by default).
 - **Native:** macOS, the devbox and Windows at the merge candidate.
 
 ### U7: Privacy defaults, release notes, policies and runbooks (T06; plan §10.2–§10.4)

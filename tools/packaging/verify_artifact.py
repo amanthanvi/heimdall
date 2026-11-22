@@ -4,6 +4,7 @@
 Usage:
     python3 -I tools/packaging/verify_artifact.py <archive.tar.gz|archive.zip|directory>
             [--target <triple>] [--index <SHA256SUMS>] [--forbid <text>]... [--forbid-file <file>]
+            [--allow-exact <text>]...
     python3 -I tools/packaging/verify_artifact.py --self-test
 
 Nothing in the archive is executed. Exit code 0 only when every check passes; 1 when
@@ -16,7 +17,11 @@ Checks:
   * with --index, the archive's own digest is in that external index (ADR-0014 section 4.4);
   * no file holds a build-host path (a home directory, a cargo registry or rustup
     toolchain path), a private-key block, a full canary value, or any --forbid text
-    (the build script passes the builder's home, cargo, rustup and checkout paths);
+    (the build script passes the builder's home, cargo, rustup and checkout paths and the
+    builder's user name). `--allow-exact <text>` names one exact string that may contain a
+    forbidden text: each occurrence of exactly those bytes is masked before the scan, so the
+    same text anywhere else still fails. It exists for the product's own identifiers (the
+    macOS login-entry label embeds the repository owner's account name), not for paths;
   * each executable imports only the libraries the bare operating system has:
     macOS system frameworks, libSystem and libiconv; glibc's own libraries with no
     symbol version above the floor; Windows system DLLs with no separate C runtime;
@@ -297,7 +302,7 @@ def check_binary(rel, data, target, fail):
 
 # -------------------------------------------------------------------------- verify
 
-def verify(src, target=None, forbid=(), index=None):
+def verify(src, target=None, forbid=(), index=None, allow_exact=()):
     """Return the list of failures for `src` (empty when it passes)."""
     failures = []
     fail = failures.append
@@ -341,16 +346,23 @@ def verify(src, target=None, forbid=(), index=None):
         for f in sorted(set(listed) - set(actual)):
             fail(f"{f}: listed in {SUMS} but absent")
 
-        rules = list(GENERIC) + [
-            (f"forbidden text #{i + 1}", re.compile(re.escape(t.encode("utf-8"))))
+        # Generic rules always scan the real bytes; only the --forbid texts scan the masked
+        # copy, so an allowed string can never hide a path, a key block or a canary.
+        rules = [(label, rx, False) for label, rx in GENERIC] + [
+            (f"forbidden text #{i + 1}", re.compile(re.escape(t.encode("utf-8"))), True)
             for i, t in enumerate(forbid) if t]
         kinds = 0
         executables = set()
         for f in files:
             with open(os.path.join(root, f), "rb") as fh:
                 data = fh.read()
-            for label, rx in rules:
-                n = len(rx.findall(data))
+            scanned = data
+            for exact in allow_exact:
+                raw = exact.encode("utf-8")
+                if raw:
+                    scanned = scanned.replace(raw, b"\0" * len(raw))
+            for label, rx, masked in rules:
+                n = len(rx.findall(scanned if masked else data))
                 if n:
                     fail(f"{f}: {label}, {n} occurrence(s)")
             try:
@@ -443,6 +455,17 @@ def self_test():
         ("private key", {"heimdall": good, "k": key}, {}, "private key block"),
         ("forbidden text", {"heimdall": good + b"xx-builder-name-xx"}, {"forbid": ["builder-name"]},
          "forbidden text #1"),
+        ("forbidden text inside an allowed exact string passes",
+         {"heimdall": good + b"\0io.example.builder-name.label.\0"},
+         {"forbid": ["builder-name"], "allow": ["io.example.builder-name.label."]}, None),
+        ("the same text elsewhere still fails",
+         {"heimdall": good + b"\0io.example.builder-name.label.\0/x/builder-name/y"},
+         {"forbid": ["builder-name"], "allow": ["io.example.builder-name.label."]}, "forbidden text #1"),
+        ("a near miss of the allowed string still fails",
+         {"heimdall": good + b"\0io.example.builder-name.other\0"},
+         {"forbid": ["builder-name"], "allow": ["io.example.builder-name.label."]}, "forbidden text #1"),
+        ("an allowed string does not mask a generic rule",
+         {"heimdall": good + home}, {"allow": ["/.cargo/"]}, "home directory path"),
         ("extra library", {"heimdall": _elf(["libc.so.6", "libssl.so.3"])}, {}, "libssl.so.3"),
         ("glibc above the floor", {"heimdall": _elf(["libc.so.6"], "GLIBC_2.38")}, {}, "GLIBC_2.38"),
         ("no executable", {"README": b"ok\n"}, {}, "no executable"),
@@ -453,7 +476,8 @@ def self_test():
     with tempfile.TemporaryDirectory(prefix="hm-verify-selftest-") as tmp:
         for i, (name, files, opt, expect) in enumerate(cases):
             root = _tree(tmp, f"c{i}", files, tamper=opt.get("tamper"))
-            got = verify(root, target=opt.get("target"), forbid=opt.get("forbid", ()))
+            got = verify(root, target=opt.get("target"), forbid=opt.get("forbid", ()),
+                         allow_exact=opt.get("allow", ()))
             ok = (not got) if expect is None else any(expect in g for g in got)
             if not ok:
                 bad += 1
@@ -519,7 +543,7 @@ def self_test():
 def main(argv):
     if argv == ["--self-test"]:
         return self_test()
-    src, target, forbid, index = None, None, [], None
+    src, target, forbid, index, allow = None, None, [], None, []
     it = iter(argv)
     try:
         for a in it:
@@ -527,6 +551,8 @@ def main(argv):
                 target = next(it)
             elif a == "--index":
                 index = next(it)
+            elif a == "--allow-exact":
+                allow.append(next(it))
             elif a == "--forbid":
                 forbid.append(next(it))
             elif a == "--forbid-file":
@@ -540,7 +566,7 @@ def main(argv):
                 raise Failure("one archive at a time")
         if src is None:
             raise Failure("no archive given")
-        failures = verify(src, target, forbid, index)
+        failures = verify(src, target, forbid, index, allow)
     except StopIteration:
         print("verify_artifact: an option is missing its value")
         return 2

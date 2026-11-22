@@ -21,7 +21,8 @@
 #      packages this build compiled), THIRD-PARTY-NOTICES.txt, BUILD-RECORD.json and the
 #      inner MANIFEST.sha256, which lists every file except itself;
 #   4. packs a deterministic .tar.gz and verifies it (verify_artifact.py), passing the
-#      builder's home, cargo, rustup and checkout paths as forbidden text;
+#      builder's home, cargo, rustup and checkout paths and user name as forbidden text,
+#      with the one exact login-entry label allowed;
 #   5. copies the SBOM and the build record beside the archive and rewrites the external
 #      index target/release-artifacts/SHA256SUMS over every archive and record there. The
 #      index is never packed (ADR-0014 section 4.4).
@@ -182,11 +183,16 @@ rm -f -- "$messages"
 # --- verify, pack, verify -------------------------------------------------------------
 forbid=$(mktemp "${TMPDIR:-/tmp}/hm-forbid.XXXXXX")
 trap 'rm -f -- "$forbid"' EXIT
-# Paths only. A bare user name is not forbidden: the product's own identifiers may hold the
-# repository owner's account name.
-{ echo "$HOME"; echo "$repo"; echo "$cargo_home"; echo "$rustup_home"; } | sort -u >"$forbid"
+# The builder's paths and user name. The user name is forbidden everywhere except inside the
+# exact macOS login-entry label prefix, which embeds the repository owner's account name
+# (crates/runtime/src/autostart/render.rs). Here the two names are the same string, so a
+# global allowance would hide a real local leak; only those exact bytes are masked. If the
+# label is renamed (owner input B17), this allowance goes away.
+{ echo "$HOME"; echo "$repo"; echo "$cargo_home"; echo "$rustup_home"; id -un; } | awk 'length($0) >= 4' | sort -u >"$forbid"
+label=$(sed -n 's/^pub const LAUNCH_AGENT_LABEL_PREFIX: &str = "\(.*\)";$/\1/p' crates/runtime/src/autostart/render.rs | head -1)
+[ -n "$label" ] || { echo "build-release: the login-entry label was not found in crates/runtime/src/autostart/render.rs" >&2; exit 2; }
 
-verify() { python3 -I "$here/verify_artifact.py" "$1" --target "$target" --forbid-file "$forbid"; }
+verify() { python3 -I "$here/verify_artifact.py" "$1" --target "$target" --forbid-file "$forbid" --allow-exact "$label"; }
 verify "$stage" || { echo "build-release: the staged tree failed verification; no archive written" >&2; exit 1; }
 archive="$out/$name.tar.gz"
 rm -f -- "$archive"
@@ -197,7 +203,7 @@ verify "$archive" || { rm -f -- "$archive"; echo "build-release: the archive fai
 install -m 0644 "$stage/heimdall-$target.cdx.json" "$out/$name.cdx.json"
 install -m 0644 "$stage/BUILD-RECORD.json" "$out/$name.build-record.json"
 py index --dir "$out" || exit 1
-python3 -I "$here/verify_artifact.py" "$archive" --target "$target" --forbid-file "$forbid" --index "$out/SHA256SUMS" >/dev/null ||
+python3 -I "$here/verify_artifact.py" "$archive" --target "$target" --forbid-file "$forbid" --allow-exact "$label" --index "$out/SHA256SUMS" >/dev/null ||
     { echo "build-release: the archive does not match the external index" >&2; exit 1; }
 
 echo "== archive: target/release-artifacts/$name.tar.gz"

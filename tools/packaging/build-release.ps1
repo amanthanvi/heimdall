@@ -124,18 +124,22 @@ Remove-Item -Force -LiteralPath $messages
 
 $forbid = [System.IO.Path]::GetTempFileName()
 try {
-    @($userHome, $repo, $cargoHome, $rustupHome) | Sort-Object -Unique | Set-Content -Encoding utf8 -LiteralPath $forbid
-    & python -I "$here\verify_artifact.py" $stage --target $target --forbid-file $forbid
+    # The builder's paths and user name; the name is allowed only inside the exact macOS
+    # login-entry label prefix (see build-release.sh).
+    @($userHome, $repo, $cargoHome, $rustupHome, $env:USERNAME) | Where-Object { $_.Length -ge 4 } | Sort-Object -Unique | Set-Content -Encoding utf8 -LiteralPath $forbid
+    $label = (Select-String -Path crates\runtime\src\autostart\render.rs -Pattern 'pub const LAUNCH_AGENT_LABEL_PREFIX: &str = "(.*)";' | Select-Object -First 1).Matches[0].Groups[1].Value
+    if (-not $label) { Fail 2 "the login-entry label was not found" }
+    & python -I "$here\verify_artifact.py" $stage --target $target --forbid-file $forbid --allow-exact $label
     if ($LASTEXITCODE -ne 0) { Fail 1 "the staged tree failed verification; no archive written" }
     $archive = Join-Path $out "$name.zip"
     if (Test-Path $archive) { Remove-Item -Force -LiteralPath $archive }
     Py pack --stage $stage --time $commitTime --out $archive
-    & python -I "$here\verify_artifact.py" $archive --target $target --forbid-file $forbid
+    & python -I "$here\verify_artifact.py" $archive --target $target --forbid-file $forbid --allow-exact $label
     if ($LASTEXITCODE -ne 0) { Remove-Item -Force -LiteralPath $archive; Fail 1 "the archive failed verification and was removed" }
     Copy-Item (Join-Path $stage "heimdall-$target.cdx.json") (Join-Path $out "$name.cdx.json")
     Copy-Item (Join-Path $stage "BUILD-RECORD.json") (Join-Path $out "$name.build-record.json")
     Py index --dir $out
-    & python -I "$here\verify_artifact.py" $archive --target $target --forbid-file $forbid --index (Join-Path $out "SHA256SUMS") | Out-Null
+    & python -I "$here\verify_artifact.py" $archive --target $target --forbid-file $forbid --allow-exact $label --index (Join-Path $out "SHA256SUMS") | Out-Null
     if ($LASTEXITCODE -ne 0) { Fail 1 "the archive does not match the external index" }
 } finally {
     Remove-Item -Force -LiteralPath $forbid -ErrorAction SilentlyContinue

@@ -77,8 +77,10 @@ Everything goes under `target/release-artifacts/`:
 - **Roles:** `target` (compiled for the target; nothing is claimed about what the linker
   kept), `host` (a proc macro, a build script, or a dependency of one), `test-support`
   (reached only through `heimdall-testkit`; removed from release builds before the candidate).
-- **A bare user name is not a forbidden string:** the product's own identifiers may contain
-  the repository owner's account name. Paths are forbidden.
+- **The builder's user name is forbidden everywhere except one exact string:** the macOS
+  login-entry label prefix, which embeds the repository owner's account name. The verifier
+  masks exactly those bytes (`--allow-exact`) and nothing else, so the name anywhere else
+  still fails. The allowance goes away if the label is renamed (owner input B17).
 
 ## Not done yet
 
@@ -86,5 +88,5 @@ Everything goes under `target/release-artifacts/`:
   when they exist; today the build prints them as missing.
 - The binary does not yet report its own commit and target (contract delta H7), so the check
   cannot compare them with the build record.
-- `deny.toml` passes on `bd6e0f40`; its known-bad fixtures (a copyleft crate, a git source) are not written yet.
+- `deny-selftest.sh` checks `deny.toml` against the real workspace, a permissive fixture and a copyleft fixture. The `[sources]` rules have no fixture: a git dependency cannot be resolved offline.
 - The `check.sh` step for the two self-tests is handed to that file's owner.

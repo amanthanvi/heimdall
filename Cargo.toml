@@ -33,6 +33,7 @@ members = [
     # (M04-owned) and the pure trusted-work project logic (M05-owned). Skeletons only.
     "crates/wsl",
     "crates/project",
+    "crates/support",
 ]
 
 [workspace.package]
@@ -63,6 +64,7 @@ heimdall-issuer = { path = "crates/issuer" }
 heimdall-enroll = { path = "crates/enroll" }
 heimdall-wsl = { path = "crates/wsl" }
 heimdall-project = { path = "crates/project" }
+heimdall-support = { path = "crates/support" }
 
 # --- serialization and schemas ---------------------------------------------
 serde = { version = "=1.0.229", features = ["derive"] }

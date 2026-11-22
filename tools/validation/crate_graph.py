@@ -30,6 +30,7 @@ What it rejects (exit 1, with the reason):
     (third-party dependencies are fine);
   * an edge `heimdall-registry` or `heimdall-project` -> any workspace crate but
     `heimdall-contract` and `heimdall-domain` (both are pure; ADR-0011 section 2).
+  * an edge `heimdall-support` -> any workspace crate but `heimdall-contract` (pure; m08-plan U6a).
 The rules are vacuous for a crate that does not exist yet, so the check works whether
 or not the M03 crates (registry, credential, issuer, enroll) or the M04/M05 crates (wsl,
 project) exist.
@@ -73,6 +74,7 @@ ONLY_ALLOWED = {
     "heimdall-ipc": {"heimdall-contract"},
     "heimdall-registry": {"heimdall-contract", "heimdall-domain"},
     "heimdall-project": {"heimdall-contract", "heimdall-domain"},
+    "heimdall-support": {"heimdall-contract"},
 }
 
 

@@ -1,0 +1,31 @@
+[package]
+name = "heimdall-support"
+description = "Heimdall support bundle (M08 U6a; ADR-0014 §5.1): typed codes, safe values, identifiers, secrets and free text in; one bounded plain-text bundle of JSON files with a manifest, its preview and a separate inverse map out. Pure; provisional input types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Production edges: no workspace crate (the crate-graph step allows heimdall-contract only;
+# tools/validation/crate_graph.py). Every third-party crate is already pinned in the
+# workspace; none enters the lock.
+[dependencies]
+# Timestamps are `jiff::Timestamp`, the type `heimdall_contract::Timestamp` aliases.
+jiff = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# Fixed-seed properties (ADR-0009 §2.3), run through `TestRunner` so that a failure
+# reports only a field name and a digest.
+proptest = { workspace = true }
+
+# M08 U6a: the bundle's redaction suite (m08-plan U6a; ADR-0014 §5.1 "Tests").
+[[test]]
+name = "adversarial_support_bundle_redaction"
+path = "../../tests/adversarial/support_bundle_redaction.rs"

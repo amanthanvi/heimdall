@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Start a soak run of a release archive in a container (m08-plan U5a; ADR-0014 section 6).
+#
+# Usage: bash tools/benchmarks/m08/run-soak.sh --stage <staged archive dir> --seconds <n>
+#            [--tick <s>] [--seed <n>] [--id <name>] [--block]
+#   --stage    a directory holding the Linux `heimdall` for this machine's container
+#              architecture (target/release-artifacts/heimdall-<version>-<target>/)
+#   --block    wait for the run, print the analysis, remove the container. Use it for a
+#              rehearsal. Without it the run is detached and supervises itself (the 72-hour
+#              run only; ADR-0014 section 6.6): read target/m08-soak/<id>/{S,L}/status.json.
+# Exit code: with --block, 0 when both lanes ended DONE and the analysis found no failure;
+# 1 otherwise; 2 on a usage or setup error. Without --block, 0 once the container started.
+#
+# The container: no network, 2 CPUs, 2 GiB memory, 512 processes. The repository and the
+# archive are mounted read-only; the only writable mount is the run's output directory.
+# Start it through /tmp/hm-tools/heavy-gate.sh except for a smoke run of a few minutes.
+set -euo pipefail
+repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)
+image=hm-m08-soak:1
+stage=""; seconds=""; tick=60; seed=1; id=""; block=no
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --stage) stage=$2; shift 2 ;;
+        --seconds) seconds=$2; shift 2 ;;
+        --tick) tick=$2; shift 2 ;;
+        --seed) seed=$2; shift 2 ;;
+        --id) id=$2; shift 2 ;;
+        --block) block=yes; shift ;;
+        *) sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+    esac
+done
+case "$seconds:$tick:$seed" in *[!0-9:]*|:*|*::*) echo "run-soak: --seconds, --tick and --seed are numbers" >&2; exit 2 ;; esac
+[ -n "$stage" ] && [ -f "$stage/heimdall" ] || { echo "run-soak: --stage must hold a heimdall executable" >&2; exit 2; }
+stage=$(cd "$stage" && pwd -P)
+id=${id:-$(date -u +%Y%m%dT%H%M%SZ)}
+case "$id" in *[!A-Za-z0-9_-]*) echo "run-soak: --id is letters, digits, - and _" >&2; exit 2 ;; esac
+name="hm-m08-soak-$id"
+out="$repo/target/m08-soak/$id"
+[ ! -e "$out" ] || { echo "run-soak: $out exists" >&2; exit 2; }
+mkdir -p "$out"
+docker image inspect "$image" >/dev/null 2>&1 || docker build -q -t "$image" "$repo/tools/benchmarks/m08" >/dev/null
+printf '{"host_started_at":"%s","container":"%s","image":"%s","limits":"network none, 2 CPUs, 2 GiB, 512 pids","host_os":"%s %s"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$name" "$image" "$(uname -s)" "$(uname -m)" >"$out/host.json"
+docker run -d --name "$name" --network none --cpus 2 --memory 2g --pids-limit 512 \
+    -v "$repo":/src:ro -v "$stage":/a:ro -v "$out":/out \
+    "$image" bash /src/tools/benchmarks/m08/entry.sh "$seconds" "$seed" "$tick" >/dev/null
+echo "run-soak: started $name; output in target/m08-soak/$id"
+[ "$block" = yes ] || exit 0
+code=$(docker wait "$name")
+printf '{"host_stopped_at":"%s","container_exit":%s}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$code" >"$out/host-end.json"
+docker rm "$name" >/dev/null
+PYTHONDONTWRITEBYTECODE=1 python3 -I "$repo/tools/benchmarks/m08/analyze.py" "$out" || code=1
+[ "$code" = 0 ]
