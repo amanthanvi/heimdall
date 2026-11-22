@@ -1,8 +1,9 @@
 # Benchmark and soak harness (M08 U5a)
 
 Runs a **release archive** in a container with no network and measures it from outside
-(m08-plan §6; ADR-0014 §6). **Provisional, to be integrated:** version 1 covers part of the
-soak's workload and no dedicated benchmark yet.
+(m08-plan §6; ADR-0014 §6). **Provisional, to be integrated:** version 2 covers part of the
+soak's workload (it adds per-kind file sizes and lane selection to version 1) and no
+dedicated benchmark yet.
 
 | File | What it does |
 |---|---|
@@ -46,13 +47,33 @@ most one such container (soak or fuzz) at a time.
 | 2026-11-22 | the Linux arm64 rehearsal archive of `bd6e0f40` (`--allow-dirty`), in the Mac's Docker | 400 s, tick 8 s, seed 7 (`smoke3`) | Both lanes DONE and passed the scaled checks. 50 samples each; 4 faults each; 0 unexpected login failures; 0 unrequested connection attempts during sshd outages; the runtime came back by itself after each stop and kill; resident memory about 19 MiB; 16 descriptors. **A smoke run of the harness, not a rehearsal and not evidence** |
 | 2026-11-22 13:05–15:05 UTC | the same archive (executable sha256 `79073dad…f55f`), the Mac's Docker, kernel 7.0.14-linuxkit, aarch64 | 7200 s, tick 60 s, seed 20261122 (`rehearsal1`), detached, 2 CPUs, 2 GiB, no network | **The 2-hour rehearsal. Both lanes DONE (exit 0) and passed the scaled checks; a rehearsal of the harness, not an A34 result.** Lane S: 120 samples, 10 faults, 90 logins and 90 connects ok, 30 of each failed during faults as expected, 0 unexpected; one runtime process throughout; resident memory 19.1–19.3 MiB, fitted slope 0.010 MiB/h; 16 descriptors; 3 threads. Lane L: 13 faults, 102 ok, 18 failed as expected, 0 unexpected; 8 runtime processes over the run; the runtime was back by an on-demand start after each of 7 stops and kills. 0 unrequested connection attempts in 8 sshd outages. CLI end-to-end times outside faults, P50/P95 in ms (process start included; not the spec §15.1 measures): `status` 8/17, `inspect capabilities` 13/27, `connect` 103/156 |
 
-**An observation from the rehearsal to follow up, not a finding yet:** lane S's files grew
-from 1.5 MB to 4.7 MB in two hours (about 1.6 MB per hour) with the file count constant at
-17, while lane L, whose runtime restarts, stayed at 1.5 MB. Version 1 records only the
-total, so it cannot say whether that is the log, the database or its write-ahead log, and
-its analysis checks the file count, not the bytes. Version 2 must sample those three
-separately and apply ADR-0014 §6.2 item 4 to them; a write-ahead log that is only
-truncated at restart would matter for a runtime that runs for weeks.
+| 2026-11-22 20:10–22:10 UTC | the Linux arm64 archive of the `m08/w0` tree at `8f1295f4` (`main` `6a087fbb` merged; executable from archive sha256 `f60f72df…0e71a`), the Mac's Docker | 7200 s, tick 60 s, seed 20261123 (`laneS-v2`), **lane S alone, harness version 2** | Lane S DONE and passed. 120 samples, 9 faults, 93 logins and 93 connects ok, 27 of each failed during faults as expected, 0 unexpected, 0 unrequested attempts; resident memory 21.6 MiB flat. **File sizes by kind: see below** |
+
+**Which file grew in the first rehearsal, and does it have a ceiling? (version 2's answer)**
+
+| Kind | Start | After 20 minutes | Minutes 20 to 119 |
+|---|---|---|---|
+| Write-ahead log | 1,676,872 bytes | 4,120,032 | **constant at 4,120,032** |
+| Database | 4,096 | 684,032 | **constant at 684,032** |
+| Shared-memory file | 32,768 | 32,768 | constant |
+| Logs | 2,106 | 2,106 | constant |
+| Backups, other | 114; 5,584 | the same | constant |
+
+- **It was the write-ahead log.** It grew by about 136 KiB a minute until it reached
+  4,120,032 bytes, which is 1000 pages of 4,120 bytes, SQLite's default automatic checkpoint
+  point. At that moment the database went from 4 KiB to 684 KiB, and from then on neither
+  file changed size for the remaining 100 minutes: the log is reused in place.
+- **So the growth has a ceiling within this run:** about 4.1 MB of write-ahead log plus the
+  database. The first rehearsal's 1.5 MB to 4.7 MB was this fill, seen as a total. Lane L
+  stayed small then because each restart of the runtime checkpoints and truncates the log.
+- **What two hours cannot show:** whether the database grows over days as history
+  accumulates up to the seven-day retention. Here it did not grow at all after the first
+  checkpoint; the 72-hour run, with the retention shortened as ADR-0014 §6.2 item 4 says, is
+  what settles that.
+- Until the first checkpoint, the database file itself is one 4 KiB page and all state is
+  in the write-ahead log. That is ordinary for this journal mode; it matters to anything
+  that copies the database file alone (a backup or a support tool must take the family, or
+  go through SQLite).
 
 Two earlier smoke runs failed on harness defects, not on the product: the lane read a
 pseudo-terminal transcript as one JSON document, and it identified processes through

@@ -44,7 +44,7 @@ mkdir -p "$out"
 docker image inspect "$image" >/dev/null 2>&1 || docker build -q -t "$image" "$repo/tools/benchmarks/m08" >/dev/null
 printf '{"host_started_at":"%s","container":"%s","image":"%s","limits":"network none, 2 CPUs, 2 GiB, 512 pids","host_os":"%s %s"}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$name" "$image" "$(uname -s)" "$(uname -m)" >"$out/host.json"
-docker run -d --name "$name" --network none --cpus 2 --memory 2g --pids-limit 512 \
+docker run -d --init --name "$name" --network none --cpus 2 --memory 2g --pids-limit 512 \
     -v "$repo":/src:ro -v "$stage":/a:ro -v "$out":/out \
     "$image" bash /src/tools/benchmarks/m08/entry.sh "$seconds" "$seed" "$tick" "$lanes" >/dev/null
 echo "run-soak: started $name; output in target/m08-soak/$id"
