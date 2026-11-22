@@ -107,6 +107,20 @@ Each has what today's build does (observed, with where), and a recommendation.
 - **Recommended:** class 6 (conflict) with `next.action` `new_request_id`, so H2's
   `invalid_retries` definition counts it and no table needs a seventh class.
 
+### U0-Q7. `access release` takes no request ID
+- **Observed:** `heimdall access release <BINDING_ID>` takes no `--request-id` (its `--help`, main
+  `2785d6ea`). A release answered `OUTCOME_UNKNOWN` therefore has no key to replay under and no
+  request to observe: a consumer can only watch an operation, when the answer names one. A repeated
+  release of the same binding was observed to answer `already_released` (M07 W3, by hand).
+- **The two options (the contract owner's):**
+  - **(a)** release takes `--request-id` and is idempotent by it, like other mutating requests; it
+    then also carries the H13 restore epoch;
+  - **(b)** the contract states that a repeated release of the same binding is safe and answers
+    `already_released`, with no other effect.
+- **Consequence either way:** harness H2 changes once U0 rules. Today it never sends a release
+  again while its outcome is unknown, and without a named operation it reports `still_unknown`,
+  keeps the binding held and exits 1.
+
 ## 4. Rulings already made that U0 or U4b must carry
 
 - `invalid_retries` counts answers whose `next.action` is `fix_request` or `new_request_id`.
@@ -118,6 +132,12 @@ Each has what today's build does (observed, with where), and a recommendation.
   released, and the attempt counts as failed.
 - The pipe-name MUSTs for ADR-0013 §8 (a `heimdall-` prefix, a `-control` suffix, a non-empty
   token; no owner-SID option), approved for revision 7.
+- **For U4b's skill text:** `inspect bindings` is a read-only call already in the CLI contract;
+  the skill gains it (H2 uses it to read a binding's state after an uncertain release). The skill
+  also says to release the `ensure` binding when the work no longer needs it, or to skip `ensure`
+  when `run` alone is enough.
+- A binding missing from the binding list is `not_listed` (not held), never `released`: absence
+  could also be expiry or revocation.
 - Follow-up M07-F1 (a runtime is found only under the spelling of its home) belongs to M08's path
   and authority unit.
 

@@ -8,6 +8,8 @@ its process. It never reads an answer's message text.
 
 It follows the contract's rules where a shortcut would be easier. One of them: a
 request whose outcome is uncertain is never sent again, and a release is no exception.
+One new release can follow an uncertain one in one case only: the uncertain answer
+named an operation, and that operation ended saying the release did not happen.
 
 It needs Python 3.9 or newer and uses the standard library only. It was written
 independently of H1 (`../cli`) and of the reference wrapper, and imports neither.
@@ -80,7 +82,8 @@ Any goal may carry a `task` label for its record.
     bindings. The stop then fails. See "Refused releases" below.
   - A release answered `OUTCOME_UNKNOWN` is recorded apart from a refusal, and the
     stop goes on with the other bindings. The stop then fails. A later stop observes
-    that release before it sends anything. See "Uncertain releases" below.
+    that release before it sends anything, and in most cases sends nothing. See
+    "Uncertain releases" below.
   - A stop that fails does not end its child. A stop ends its child only when it
     reaches `stopped`. A child that is still running when H2 closes is ended then.
   - With nothing held, a stop fails without a call.
@@ -99,9 +102,10 @@ Any goal may carry a `task` label for its record.
 - `reconciling` holds the operation of an uncertain outcome while H2 observes it.
 - `releasing` holds the next binding to release.
 - `observing_release` holds a binding whose release was answered uncertainly, and the
-  operation that answer named. H2 observes that operation.
+  operation that answer named. H2 waits on that operation. This is the only state
+  from which a new release of the same binding can follow.
 - `inspecting_release` holds such a binding where the answer named no operation. H2
-  reads the binding's own state from `inspect bindings`.
+  reads the binding's own state from `inspect bindings`. No release follows from it.
 - `failed` also carries `operation_id` when its code is `OUTCOME_UNKNOWN` and an
   operation is known. When a stop ends with a binding it did not release, `failed`
   names the first one: its `binding_id`, the `exit_code` of the answer about it, and
@@ -114,10 +118,13 @@ Any goal may carry a `task` label for its record.
   at the step limit. It carries the code `OUTCOME_UNKNOWN` and that operation's ID.
 
 Beside the state, H2 keeps the list of bindings it holds: every binding it was given
-and has not released. A binding leaves the list in two ways only:
+and has not released. A binding leaves the list in three ways only:
 
 - its release is answered `OK` with exit 0;
-- an observation says that its uncertain release happened.
+- an observation says that its uncertain release happened;
+- after an uncertain release that named no operation, the complete list of
+  `inspect bindings` does not name it. It is then `not_listed`: not held, and not
+  recorded as released.
 
 A binding Heimdall refused to release stays on the list. So does one whose release
 is still uncertain. A binding joins the list when:
@@ -255,36 +262,83 @@ uncertain, the first call is an observation, not a release:
 | named an operation | that operation: `operation wait <operation>` | `observing_release` |
 | named no operation | the binding's own state: `inspect bindings` | `inspecting_release` |
 
-`RELEASE_SAYS` reads the observation from typed fields only. There are three results:
+`RELEASE_SAYS` reads the observation from typed fields only. Each observation is one
+attempt, recorded with one of four outcomes.
 
-| Result | The operation says | The list of bindings says | H2 then |
-| --- | --- | --- | --- |
-| released | its own code is `OK`, `next.action` is `none`, exit 0 | the binding's `state` is `released`, or the complete list does not name the binding | takes the binding off its list and sends nothing |
-| never ran | it ended with another code, `next.action` `none`, and `effect_status` `none` | the binding's `state` is `active` | sends one new release of that binding |
-| still unknown | anything else | anything else | keeps the binding held and reports it; sends nothing |
+**Where the answer named an operation,** H2 waits on it once, for up to `OBSERVE_MS`
+(20 s), within the stop's step limit. It then acts on what that operation says:
 
-- **Released** has the step code `(a release observed)`.
-- **Never ran** has the step code `(a release that never ran)`, and moves to
-  `releasing` with the same binding. This is the only way a release is sent a second
-  time. The new release is read like any other: answered, refused or uncertain.
-- **Still unknown** has the step code `(an uncertain release)`. It covers an
-  operation that is unfinished, or whose own code is `OUTCOME_UNKNOWN`, or that ended
-  with an effect other than `none`. It covers a state no table has, a list that could
-  not be read, and any observation in the wrong exit class (recorded with
-  `"inconsistent": true`). The stop goes on with the other bindings and fails. The run
-  exits 1.
+| The operation | Outcome | H2 then |
+| --- | --- | --- |
+| ended with its own code `OK`, `next.action` `none`, exit 0 | `released` | takes the binding off its list and sends nothing |
+| ended with another code, `next.action` `none` and `effect_status` `none`, in that code's exit class | `not_run` | sends one new release of that binding |
+| anything else | `still_unknown` | keeps the binding held and reports it; sends nothing |
 
-Each stop observes an uncertain binding once. A stop of its own does not observe the
-uncertain answer it was just given: the next stop, or the close, does. The close does
-not observe an uncertain answer of its own either. It reports the binding as held,
-with the operation to observe.
+"Anything else" covers an operation still unfinished when the wait ran out, one whose
+own code is `OUTCOME_UNKNOWN`, one that ended with an effect other than `none`, a
+wait that was itself refused, and any answer in the wrong exit class.
 
-Two readings here are H2's own, and are open with the contract owner:
+**Where the answer named no operation,** H2 reads the binding's `state` in the
+complete list of `inspect bindings`. Nothing it reads there is followed by a release:
 
-- **`active` is read as "never ran".** Without an operation, the list of bindings
-  cannot tell a release that never ran from one that has not been applied yet.
-- **A binding the complete list does not name is read as released.** Today's build
-  drops a released binding from `inspect bindings`.
+| The list of bindings | Outcome | H2 then |
+| --- | --- | --- |
+| gives the binding the state `released` | `released` | takes the binding off its list and sends nothing |
+| does not name the binding | `not_listed` | takes the binding off its list and sends nothing; it is not recorded as released |
+| gives the binding the state `active` | `still_unknown` | keeps the binding held and reports it; sends nothing |
+| anything else | `still_unknown` | the same |
+
+"Anything else" covers a state no table has, a binding listed in two states, a list
+that could not be read or is not the complete list, and any answer in the wrong exit
+class.
+
+Four rules follow from the contract owner's rulings of 2026-11-22:
+
+- **An `active` binding alone is not evidence that the release never ran.** The
+  release may not have been applied yet. H2 sends no new release. It reports
+  `still_unknown`, keeps the binding held, and the run exits 1.
+- **A binding the complete list does not name is `not_listed`.** That means "not
+  held". It never means "released": the binding may as well have expired or been
+  revoked. The stop counts it as not held, so the binding leaves `held` and the stop
+  can still reach `stopped`. The record says `not_listed`, and no record says that
+  H2 observed a release.
+- **One new release can follow an uncertain one in one case only.** The uncertain
+  answer named an operation H2 can wait on, H2 waited, and the operation ended saying
+  that the release did not happen (`not_run`). The transition table has that row for
+  `observing_release` alone, and no row of `RELEASE_SAYS` for `inspect bindings`
+  gives that reading. The new release is read like any other: answered, refused or
+  uncertain.
+- **Still unknown is an end, not a retry.** The binding stays held, the stop goes on
+  with the other bindings and fails, and the run exits 1. A later stop, or the close,
+  observes once more. An observation in the wrong exit class is recorded with
+  `"inconsistent": true`.
+
+Each outcome has a step code of its own in `transitions`:
+
+| Outcome | Step code | Moves to |
+| --- | --- | --- |
+| `released`, by an observation | `(a release observed)` | the next binding, or the end of the stop |
+| `not_run` | `(a release that never ran)` | `releasing`, with the same binding |
+| `still_unknown` | `(a release still unknown)` | the next binding, or `failed` |
+| `not_listed` | `(a binding not listed)` | the next binding, or the end of the stop |
+
+`(an uncertain release)` is the step of the release that was itself answered
+`OUTCOME_UNKNOWN`.
+
+**The stop or close that receives the uncertain answer does not observe it itself.**
+Each stop observes an uncertain binding once, and only one that an earlier stop left
+uncertain. The next stop, or the close, observes it. So a single close that receives
+`OUTCOME_UNKNOWN` ends with the binding held, and the run exits 1. Its record names
+the operation to observe, when the answer named one.
+
+**The reading of `inspect bindings` comes from the contract's binding list, not from
+an observed run.** H2 has the list's word for the binding's state. It did not see
+the release run, and no real-binary run answers a release uncertainly today. The
+stub tests alone cover this reading.
+
+**`inspect bindings` is the one call H2 uses that the skill does not list yet**
+(`skills/heimdall/SKILL.md`). It is a read-only call of the CLI contract. The skill
+gains it later.
 
 ## Exit classes
 
@@ -345,20 +399,33 @@ Stdout is one JSON summary: `harness`, `call_set`, one record per goal in `tasks
 `round_trips`, `human_handoffs`, `invalid_retries`, `wall_time_ms`,
 `discovery_bytes`, `detail`, `skipped`) and adds `goal`, `final_state`,
 `transitions` (the path it took), `held` (the bindings H2 still holds after the
-goal), `refused_releases` (the releases Heimdall refused during the goal) and
-`outcome_unknown` (the releases left uncertain during the goal: by their own answer,
-or by an observation).
+goal), and four lists of what the goal's calls about releases came to:
+
+| List | Holds |
+| --- | --- |
+| `refused_releases` | the releases Heimdall refused during the goal |
+| `outcome_unknown` | the releases answered `OUTCOME_UNKNOWN` during the goal |
+| `still_unknown` | the observations of the goal that did not say what became of an uncertain release |
+| `not_listed` | the bindings the goal found missing from the complete list of bindings |
+
+A binding in one of the first three is still held. A binding in `not_listed` is not.
 
 Before it exits, H2 releases whatever the goals left held and ends a child that is
-still running. `close` reports that: `released` lists the bindings that left H2's
-list then, and `held` lists those still on it. The close is one stop of its own, made
-in rounds that are each bounded by the step limit.
+still running. `close` reports that: `released` lists the bindings released then, by
+an answer or by an observed release, and `held` lists those still on H2's list. A
+binding the close found `not_listed` is in neither: it is not held, and it was not
+observed to be released. `release_attempts` names it.
+
+The close is always a stop of its own, whatever state the goals left, and every call
+it makes is an attempt of its own, recorded with `by` `close`. It is made in rounds
+that are each bounded by the step limit.
 
 - It asks about every held binding once, whatever an earlier stop was answered. A
   binding a stop goal was refused is asked for once more.
 - It follows the same rules as a stop goal: a binding it does not release is recorded
   and set aside, and the rest are still released.
 - It observes a release an earlier stop left uncertain, and does not send it again.
+- It does not observe a release that it was itself answered uncertainly.
 - A round that makes no attempt ends it.
 
 The summary's `release_attempts` is keyed by binding. It has one entry for each
@@ -377,18 +444,27 @@ An attempt is one call. Its fields:
 | Field | Meaning |
 | --- | --- |
 | `by` | `stop` for a stop goal, `close` for the close |
-| `outcome` | `released`, `refused`, `outcome_unknown`, or `not_run` (an observation said the release never ran) |
+| `outcome` | `released`, `refused`, `outcome_unknown` (the release was answered `OUTCOME_UNKNOWN`), `still_unknown` (an observation did not say what became of it), `not_run` (its operation ended and said the release did not happen) or `not_listed` (the complete list of bindings does not name the binding) |
 | `code`, `exit_code` | the answer's code and the exit status of its process. For an observed operation, the code is the operation's own once it has one |
 | `observed` | present on an observation: `operation` or `bindings` |
 | `state` | present on a `bindings` observation that could be read: the binding's state, or `(not listed)` |
-| `request_id`, `operation_id` | present while the outcome is `outcome_unknown`. See "Uncertain releases" |
+| `request_id`, `operation_id` | present while the outcome is `outcome_unknown` or `still_unknown`. See "Uncertain releases" |
 | `inconsistent`, `detail` | present when the exit class does not fit the code: `true`, and the mismatch named as a probable product defect |
 
-An entry in a goal's `refused_releases` or `outcome_unknown` is the same attempt with
-its `binding_id`, and without `by` and `outcome`.
+An entry in one of a goal's four lists is the same attempt with its `binding_id`, and
+without `by` and `outcome`.
 
-A release observed to have never run and then released has three attempts:
-`outcome_unknown`, `not_run`, `released`.
+A release whose operation said it did not happen, and that was then released, has
+three attempts: `outcome_unknown`, `not_run`, `released`. A binding found missing
+from the list has two, and it is not held:
+
+```json
+{"<binding>": {"held": false, "attempts": [
+  {"by": "stop", "outcome": "outcome_unknown", "code": "OUTCOME_UNKNOWN", "exit_code": 7,
+   "request_id": null},
+  {"by": "close", "outcome": "not_listed", "code": "OK", "exit_code": 0,
+   "observed": "bindings", "state": "(not listed)"}]}}
+```
 
 - Calls and round trips count CLI subprocesses.
 - A goal that ends in `unresolved` has one last step in `transitions` that is not a
@@ -403,7 +479,8 @@ A release observed to have never run and then released has three attempts:
 
 The process exits 0 when every goal was met, `release_attempts` is empty and nothing
 is left held. It exits 1 otherwise: a release that was refused or uncertain fails the
-run, whatever a later attempt made of it.
+run, whatever a later attempt made of it. That includes a binding later found
+`not_listed`.
 
 ## Held
 
@@ -421,6 +498,9 @@ run, whatever a later attempt made of it.
 - **The request ID of a release.** Today's `access release` takes none. If it takes
   one later, H2 records it in `request_id`. Whether H2 may then send the release
   again under the same ID is the contract owner's to say.
+- **`inspect bindings` in the skill.** It is the one call H2 uses that
+  `skills/heimdall/SKILL.md` does not list yet. It is a read-only call of the CLI
+  contract, and the skill gains it later.
 
 ## Tests
 
@@ -439,9 +519,12 @@ The tests use a stub `heimdall` in a temporary directory. They cover:
   refusals than one stop may ask for; and the exit status of the run;
 - a release in the wrong exit class: it is recorded like a refusal with
   `inconsistent`, and the rest are still released;
-- uncertain releases: the record; each result of observing one, by its operation
-  and by the list of bindings, in a later stop and in the close; that the release is
-  never sent again while its outcome is unknown; and the summary by binding;
+- uncertain releases: the record; each result of observing one, in a later stop and
+  in the close. By its operation: released, not released (one new release, and only
+  then), and still unfinished. By the list of bindings: `active` (no new release),
+  not listed (`not_listed`, never `released`), and `released`. Also that the release
+  is never sent again while its outcome is unknown; that a close alone ends with the
+  binding held; and the summary by binding with the exit status of the run;
 - exit classes: the stub ends an answer in the wrong class for each kind of call,
   and the goal fails;
 - an uncertain outcome: its operation is observed until it ends, the request is
