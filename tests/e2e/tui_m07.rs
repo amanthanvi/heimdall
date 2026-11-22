@@ -1527,7 +1527,7 @@ mod pty {
             "Stop work job-7: access only it uses ends now",
             "yes refused: it was not on screen",
             "Type yes to confirm [y/N]: _",
-            "not on screen yet: nothing was sent",
+            "screen changed: not sent; answer again",
         ] {
             assert!(refused.contains(shown), "{shown}:\n{refused}");
         }
@@ -1559,7 +1559,7 @@ mod pty {
         // still runs.
         pty.write(b"\rx");
         w.wait_screen("the batch's outcome", LONG, |s| {
-            footer(s).contains("not on screen yet") || footer(s).contains("cancel")
+            footer(s).contains("screen changed") || footer(s).contains("cancel")
         });
         let refused = w.screen();
         for shown in [op.as_str(), "State: running", "x cancels it"] {
@@ -1567,7 +1567,7 @@ mod pty {
         }
         assert_eq!(
             footer(&refused),
-            "not on screen yet: nothing was sent",
+            "screen changed: not sent; answer again",
             "{refused}"
         );
         let shown = w.json(&["--json", "operation", "show", &op]);
@@ -1646,7 +1646,7 @@ mod pty {
             format!("Explicit probes for {PROBED}; each names its level:"),
             "> network ".to_owned(),
             "Enter refused: it was not on screen".to_owned(),
-            "not on screen yet: no probe ran".to_owned(),
+            "screen changed: no probe; press again".to_owned(),
         ] {
             assert!(refused.contains(&shown), "{shown}:\n{refused}");
         }
@@ -1710,7 +1710,7 @@ mod pty {
         use rustix::process::{Pid, Signal, WaitOptions, kill_process, waitpid};
 
         const WORK: &str = "m07-resize";
-        const REFUSED: &str = "not on screen yet: nothing was sent";
+        const REFUSED: &str = "screen changed: not sent; answer again";
         const SHORT: Duration = Duration::from_secs(5);
         let _guard = super::parallel_test();
         let w = World::new(&[("HEIMDALL_TEST_ADAPTER", "prepare")]);
@@ -1861,7 +1861,7 @@ mod pty {
         /// Attempts per action. The fix waits a bounded time for the worker thread to
         /// count the resize, so one pass proves little: a rare miss needs many.
         const ATTEMPTS: usize = 20;
-        const REFUSED: &str = "not on screen yet: nothing was sent";
+        const REFUSED: &str = "screen changed: not sent; answer again";
         const PROMPT: &str = "Type yes to confirm [y/N]: _";
         const SHORT: Duration = Duration::from_secs(5);
 
@@ -2302,7 +2302,7 @@ mod pty {
         fn network_probe_enter() {
             const NAME: &str = "the probe menu's Enter on network";
             const PROBED: &str = "hm-m07-roundtrip";
-            const NOT_RUN: &str = "not on screen yet: no probe ran";
+            const NOT_RUN: &str = "screen changed: no probe; press again";
             let _guard = super::super::parallel_test();
             let w = World::new(&[]);
             // An observed alias that the scratch configuration (the static pass's too)

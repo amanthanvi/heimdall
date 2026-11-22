@@ -117,10 +117,12 @@ connection closure. A `goodbye` frame has `code` and `message` and ends the
 connection.
 
 Use `interaction: "non_interactive"` for automation. It also defaults to that
-value when omitted. The runtime refuses `attend` on a non-interactive session
-with `INTERACTION_REQUIRED`. Even on an interactive session, attendance
-alone grants no approval. The wrapper leaves owner decisions and time
-confirmation to an attended owner client.
+value when omitted. `attend` is a sequenced top-level frame, for example
+`{"type":"attend","seq":1}`. The runtime answers a non-interactive session
+with a correlated `response` carrying `INTERACTION_REQUIRED`. It accepts
+attendance on an interactive session. Owner approval is a separate action.
+The wrapper leaves owner decisions and time confirmation to an attended owner
+client.
 
 ## Requests and results
 
@@ -162,6 +164,13 @@ or failed operation. Read that operation's state and recorded outcome to decide
 what to do next. Validate `data` against the request's expected shape before
 reading it. In a successful `inspect destinations` response, `data` is an object
 and `data.items` is an array.
+
+When an `ensure` needs additional owner approval, the current runtime returns
+`state: "awaiting_approval"` and `next.decision_ref`. An unattended caller
+receives `INTERACTION_REQUIRED`. An attended caller using interactive mode
+receives `APPROVAL_REQUIRED`. Hand the decision reference to the owner to
+review and approve in an attended client. Use the original request ID with
+the same parameters to retrieve its recorded result.
 
 Use the [code table][codes] for code defaults. Exit classes are a CLI
 convention. IPC sends envelopes.
