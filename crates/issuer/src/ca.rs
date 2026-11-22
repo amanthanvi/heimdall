@@ -150,7 +150,8 @@ impl CaSet {
             .and_then(|fp| self.cas.get(fp))
             .ok_or(IssuerRefusal::CaNotLoaded)?;
         let usable = match table {
-            IssuanceTable::Grant => loaded.state == CaState::Active,
+            // ⟨M06 W3⟩ A remote reservation is a grant certificate: an active CA only.
+            IssuanceTable::Grant | IssuanceTable::Remote => loaded.state == CaState::Active,
             IssuanceTable::Verification => {
                 matches!(loaded.state, CaState::Active | CaState::Pending)
             }

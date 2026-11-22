@@ -233,6 +233,7 @@ mod tests {
             connection: None,
             context: Some(WorkContext { cwd: "/w".into() }),
             covered_only: false,
+            pair_issuers: Vec::new(),
         }
     }
 

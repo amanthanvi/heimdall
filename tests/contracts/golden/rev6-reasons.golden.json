@@ -1,0 +1,119 @@
+{
+ "source": "ADR-0006 revision 6 (M06 wave 0; section 18): ADR-0012 section 9 item 7, transcribed. Every new reason is under CAPABILITY_UNAVAILABLE; route_dependency_out_of_scope is the existing M04 reason and is not repeated here (`reused`). `m06_pending` is the one pending reason (`iroh_admission_closing`, under remote_pending): a state, not an error, so it has no code. No new top-level code and no exit-code change: the code table stays at 30 rows. Revision 6.3 (M06 wave 3; section 18.7) adds local_owner_required, the one M06 reason under INTERACTION_REQUIRED, and resync_pending.",
+ "m06": [
+  {
+   "reason": "role_insufficient",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "client_revoked",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "invitation_expired",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "invitation_consumed",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "invitation_pending",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "decision_binding_mismatch",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "management_sshd_unverified",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "management_sshd_unsupported",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "mgmt_key_store_locked",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "mgmt_key_store_unavailable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "transport_key_store_unavailable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "controller_dependency",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "dependency_provenance_unknown",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "issuer_untrusted",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "environment_identity_mismatch",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "host_pin_defeated",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "route_binding_ambiguous",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "route_unapproved",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "relay_unapproved",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "exposure_unconsented",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "transport_unavailable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "transport_refused",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "transport_authority_lost",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "key_already_authorized",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "local_owner_required",
+   "code": "INTERACTION_REQUIRED"
+  },
+  {
+   "reason": "resync_pending",
+   "code": "CAPABILITY_UNAVAILABLE"
+  }
+ ],
+ "reused": [
+  {
+   "reason": "route_dependency_out_of_scope",
+   "code": "CAPABILITY_UNAVAILABLE",
+   "list": "m04"
+  }
+ ],
+ "m06_pending": [
+  "iroh_admission_closing"
+ ]
+}

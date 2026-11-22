@@ -2809,8 +2809,16 @@ async fn real_issuer_with(
         &ops,
     );
     adjust(&mut config);
+    let bound = config.request_timeout;
     let issuer = heimdall_issuer::client::ChildIssuer::new(config);
-    issuer.start().await.unwrap();
+    let begun = Instant::now();
+    if let Err(e) = issuer.start().await {
+        panic!(
+            "the fixture's issuer child did not start: {e:?} after {:?} (its `load` is bounded \
+             by the request timeout, {bound:?})",
+            begun.elapsed()
+        );
+    }
     assert_eq!(
         issuer.state(),
         heimdall_contract::issuer::IssuerState::Ready
@@ -3152,18 +3160,27 @@ fn recheck4_cancelling_stop_must_not_signal_unverified_child() {
         .build()
         .unwrap();
     rt.block_on(async {
+        // The request timeout stays the runtime's own: it also bounds the fixture's first
+        // `load` (the child reading and unwrapping the seeded CA), which takes longer than a
+        // shortened bound on a loaded machine, and the start then fails before the case
+        // under test begins.
         let issuer = real_issuer_with(&rig, |c| {
             c.child_image = Some(image_unreadable_after_start());
-            c.request_timeout = Duration::from_secs(2);
         })
         .await;
+        let request_timeout = heimdall_issuer::client::REQUEST_TIMEOUT;
         let identity = issuer.identity().unwrap();
         let pid = identity.pid;
         let head = rig.event_head();
         let record = rig.store().transaction(|tx| tx.issuer(&fp)).unwrap();
         signal_pid("-STOP", pid);
-        // The load times out at 2 s; the cleanup's wait (≤ 5 s) is cancelled at 2.5 s.
-        let cancelled = tokio::time::timeout(Duration::from_millis(2500), issuer.reload()).await;
+        // The load times out at the request timeout; the cleanup's wait (≤ 5 s) is cancelled
+        // half a second into it.
+        let cancelled = tokio::time::timeout(
+            request_timeout + Duration::from_millis(500),
+            issuer.reload(),
+        )
+        .await;
         assert!(cancelled.is_err(), "cancelled during the cleanup's wait");
         // Only that child is signalled: whatever holds the PID is still the same process
         // (unreaped, its start token unchanged) until it has ended and been reaped.

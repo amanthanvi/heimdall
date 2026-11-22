@@ -1,0 +1,37 @@
+   Compiling rustix v1.1.6
+   Compiling tempfile v3.27.0
+   Compiling rusty-fork v0.3.1
+   Compiling proptest v1.12.0
+   Compiling heimdall-remote v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/remote)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.94s
+     Running unittests src/lib.rs (target/debug/deps/heimdall_remote-2397fc1c32e1f1ae)
+
+running 25 tests
+test line::tests::expiry_rounds_down_and_is_utc ... ok
+test bridge::tests::arguments_are_exactly_client_and_home ... ok
+test invitations::tests::liveness_needs_both_bounds_on_checked_time_in_the_creation_boot ... ok
+test line::tests::paths_and_keys_outside_the_set_are_refused ... ok
+test roles::tests::refusals_carry_their_codes_and_reasons ... ok
+test roles::tests::a_client_identity_needs_a_runner_hello_and_the_role_table ... ok
+test line::tests::renders_the_exact_line_and_checks_the_charset ... ok
+test line::tests::parser_and_uniqueness_see_through_options_comments_and_padding ... ok
+test sshd_policy::tests::accepted_variants ... ok
+test sshd_policy::tests::limited_roles_need_verification_and_probes_confirm ... ok
+test sshd_policy::tests::match_context_values_cannot_add_criteria ... ok
+test line::tests::line_fingerprint_needs_exactly_one_unshadowed_line ... ok
+test sshd_policy::tests::devbox_shaped_output_is_verified_with_both_files ... ok
+test tests::availability_fails_closed_with_driver_unavailable ... ok
+test bridge::tests::the_first_frame_must_be_a_hello ... ok
+test roles::tests::revocation_is_rechecked_per_frame_and_on_subscriptions ... ok
+test bridge::tests::a_remote_hello_naming_a_client_is_refused_before_any_local_hello ... ok
+test roles::tests::roles_hold_only_their_permissions_through_the_check ... ok
+test roles::tests::pending_client_reaches_only_probe_and_join ... ok
+test bridge::tests::bridge_originates_the_only_hello_and_relays ... ok
+test bridge::tests::a_second_hello_closes_the_session ... ok
+test bridge::tests::an_identity_frame_closes_the_session ... ok
+test sshd_policy::tests::each_failing_field_is_refused_by_name ... ok
+test bridge::tests::bridge_identity_ignores_environment ... ok
+test sshd_policy::tests::real_sshd_t_with_scratch_configurations ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+

@@ -254,7 +254,60 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
         "slot_references",
         RecoveryClass::Discarded("shared-slot references; local, end with the runtime"),
     ),
+    // ⟨M06⟩ Wave 0 (migration 0009; ADR-0006 §18): no store API writes these tables yet, so
+    // they are always empty and nothing of them can change between an uninstall's
+    // confirmation and its purge. Each unit that adds a writer reclassifies its table
+    // before the writer lands; the transport key references, the role table, invitations,
+    // the effect outbox and acknowledgements, the policy revisions and the two pin tables
+    // are expected to become `Rows` (DONE question W0C-Q3).
+    // ⟨M06 W1⟩ Written by `crate::ext_m06` (U1): the role table and its tombstones, and the
+    // invitations, are authority (orchestrator ruling of 2026-11-21: every authority-bearing
+    // table compares rows).
+    ("remote_clients", RecoveryClass::Rows),
+    ("remote_invitations", RecoveryClass::Rows),
+    // ⟨M06 U4⟩ Written by `crate::ext_effects`: the controller's undelivered narrowing effects,
+    // the runner's acknowledgements and its delivered policy revisions are authority-bearing
+    // (m06-plan rule 4b), so the rows compare.
+    ("remote_effect_outbox", RecoveryClass::Rows),
+    ("remote_effect_acks", RecoveryClass::Rows),
+    ("remote_policy_revisions", RecoveryClass::Rows),
+    // ⟨M06 W2⟩ Written by `crate::ext_m06` (U2): the controller's pinned runner identities
+    // (environment ID, host keys, this device's client) are authority-bearing: rows compare.
+    ("remote_environment_pins", RecoveryClass::Rows),
+    // ⟨M06 U3⟩ Written by `crate::ext_runner`: a grant's pin to its issuing controller and CA.
+    ("remote_grant_issuers", RecoveryClass::Rows),
+    // ⟨M06 W1⟩ Written by `Txn::put_destination_routes` (U5a): the approved routes and their
+    // exposure policies decide what a route may contact, so they compare rows (ruling of
+    // 2026-11-21; the conservative reading).
+    ("destination_routes", RecoveryClass::Rows),
+    // ⟨M06 U56⟩ Written by `crate::ext_transport`: a recorded exposure consent is what a
+    // runner-local decision widened, so the rows compare (ruling of 2026-11-21).
+    ("route_consents", RecoveryClass::Rows),
+    // ⟨M06 W1⟩ Written by `crate::ext_m06` (U1); the serve lease's generation (ruling of
+    // 2026-11-21, W0C-Q4).
+    ("remote_authority_generation", RecoveryClass::Rows),
+    // ⟨M06 U56⟩ Written by `crate::ext_transport`: the K_iroh references (never the key)
+    // name the endpoint that serves and dials, so the rows compare (ruling of 2026-11-21).
+    ("transport_keys", RecoveryClass::Rows),
+    // ⟨M06 W2⟩ Migration 0010, written by `crate::ext_m06` (the runner-local widening
+    // records' key and recorded terminal result, ADR-0012 §3.10): what a runner-local
+    // decision executed is authority, so the rows compare (ruling of 2026-11-21).
+    ("remote_widening", RecoveryClass::Rows),
+    // ⟨M06 W3⟩ Migration 0011, written by `crate::ext_m06` (ADR-0006 §18.7 item 1): a paired
+    // client's Iroh endpoint ID is the serve allowlist's source (admission authority), so the
+    // rows compare.
+    ("remote_client_endpoints", RecoveryClass::Rows),
+    // ⟨M06 W4⟩ Migration 0012, written by `crate::ext_effects` (ADR-0006 §18.8 item 4): the
+    // owner's acknowledgement that a delivered pause or cutoff was lifted is one of the two
+    // things that reopen issuance for a runner, so the rows compare.
+    ("remote_lift_acks", RecoveryClass::Rows),
 ];
+
+/// ⟨M06⟩ Why a migration-0009 table is `Discarded` in wave 0 ([`TABLE_RECOVERY`]).
+/// ⟨M06 U4⟩ No table carries it any more (every 0009 table has its writer and its class); the
+/// placeholder test keeps reading it, so a later table added under it is still checked.
+#[cfg_attr(not(test), allow(dead_code))]
+const M06_UNWRITTEN: &str = "M06 wave 0: created by migration 0009 with no writer; the unit that adds its writer (m06-plan U1-U5) classifies it first (fail closed: `Rows` for a record the purge must not lose)";
 
 /// ⟨ADR-0008 §17.32 item 1 (audit A4)⟩ Every `meta` key the store writes, by exact key
 /// or by prefix (ending in `:`), classified for the recovery snapshot: `None` when its
@@ -325,6 +378,49 @@ pub const META_RECOVERY: &[(&str, Option<&str>)] = &[
     (
         "m05.default_profile:",
         Some("a local catalog preference (the default profile)"),
+    ),
+    // ⟨M06 U3⟩ `crate::ext_runner`: runner-local widenings (ADR-0012 §3.10), so they compare.
+    ("runner_time_source", None),
+    ("runner_issuer_trust:", None),
+    // ⟨M06 W3; ADR-0006 §18.7 item 18⟩ The runner's owner-only downgrade: authority-bearing,
+    // so it is in the snapshot and compared (a database without it is never taken for one
+    // with it).
+    ("runner_owner_only", None),
+    // ⟨§18.7 item 19⟩ The evidence an attended lift judges.
+    (
+        "runner_policy_recheck",
+        Some(
+            "the recheck evidence of an attended lift: it grants nothing by itself, expires in 15 minutes and is bound to the downgrade's epoch, which is in the snapshot",
+        ),
+    ),
+    // ⟨M06 U4⟩ `crate::ext_effects` (ADR-0012 §7.1): what this controller last saw of a runner.
+    (
+        "remote_contact:",
+        Some("the controller's connectivity observations of its runners; local, not authority"),
+    ),
+    // ⟨M06 W3⟩ `crate::ext_effects` (ADR-0005 §3.5 "Remote reservations"): the controller's
+    // records of the grants it delivered to its runners. Authority-bearing: a remote
+    // certificate's content comes from them.
+    ("remote_delivered_grant:", None),
+    // ⟨M06 W3⟩ `crate::ext_transport` (ADR-0012 §2.1 ⟨2026-11-21⟩): the serve port the
+    // first successful bind recorded, reused at every start.
+    (
+        "transport_serve_port",
+        Some(
+            "the Iroh serve endpoint's recorded port: a local reachability parameter, not authority",
+        ),
+    ),
+    (
+        "transport_serve_port_unbindable",
+        Some("the serve port the last start could not bind: a local diagnostic for the doctor"),
+    ),
+    // ⟨rev6.3; ADR-0006 §18.7 item 10⟩ `crate::ext_transport`: the K_iroh rotation still
+    // being announced to this device's recorded runners.
+    (
+        "transport_rotation",
+        Some(
+            "which recorded runners still await this device's rotated Iroh endpoint ID: local progress of a rotation, not authority (the key references are the transport_keys rows)",
+        ),
     ),
 ];
 
@@ -2596,6 +2692,84 @@ fn bundle_digest_key(sha256: &str) -> Result<String> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    /// ⟨M06 W1; orchestrator ruling of 2026-11-21⟩ A table may stay `Discarded` under the
+    /// "no writer yet" placeholder ([`M06_UNWRITTEN`]) only while nothing in this crate writes
+    /// it: the unit that adds a writer reclassifies the table in the same commit. Scans this
+    /// crate's sources for SQL writes (`INSERT … INTO`, `UPDATE`, `DELETE FROM`) naming each such
+    /// table. The sources are embedded at compile time (no repository read at run time, so the
+    /// test also runs where only the binary is shipped); `every_source_is_embedded` keeps the
+    /// list complete.
+    const SOURCES: &[(&str, &str)] = &[
+        ("codec.rs", include_str!("codec.rs")),
+        ("ext.rs", include_str!("ext.rs")),
+        ("ext_m03.rs", include_str!("ext_m03.rs")),
+        ("ext_m04.rs", include_str!("ext_m04.rs")),
+        ("ext_m05.rs", include_str!("ext_m05.rs")),
+        ("ext_m06.rs", include_str!("ext_m06.rs")),
+        ("ext_routes.rs", include_str!("ext_routes.rs")),
+        ("ext_transport.rs", include_str!("ext_transport.rs")),
+        ("ext_runner.rs", include_str!("ext_runner.rs")),
+        ("ext_effects.rs", include_str!("ext_effects.rs")),
+        ("lib.rs", include_str!("lib.rs")),
+        ("migrations.rs", include_str!("migrations.rs")),
+    ];
+
+    /// Every `mod` of `lib.rs` names an embedded source, so a new module cannot hide a writer
+    /// from `placeholder_discarded_tables_have_no_writer`.
+    #[test]
+    fn every_source_is_embedded() {
+        let lib = SOURCES.iter().find(|(n, _)| *n == "lib.rs").unwrap().1;
+        for line in lib.lines() {
+            let t = line.trim();
+            let decl = t
+                .strip_prefix("pub mod ")
+                .or_else(|| t.strip_prefix("mod "));
+            if let Some(rest) = decl
+                && let Some(name) = rest.strip_suffix(';')
+            {
+                let file = format!("{name}.rs");
+                assert!(
+                    SOURCES.iter().any(|(n, _)| *n == file),
+                    "module {name} is not embedded in SOURCES"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn placeholder_discarded_tables_have_no_writer() {
+        let mut sources = String::new();
+        for (_, text) in SOURCES {
+            sources.push_str(&text.to_ascii_lowercase());
+            sources.push('\n');
+        }
+        let squeezed = sources.split_whitespace().collect::<Vec<_>>().join(" ");
+        let mut offenders = Vec::new();
+        for (table, class) in TABLE_RECOVERY {
+            if *class != RecoveryClass::Discarded(M06_UNWRITTEN) {
+                continue;
+            }
+            let written = [
+                format!("insert into {table} "),
+                format!("insert or replace into {table} "),
+                format!("insert or ignore into {table} "),
+                format!("update {table} "),
+                format!("delete from {table} "),
+                format!("delete from {table}\""),
+            ]
+            .iter()
+            .any(|needle| squeezed.contains(needle.as_str()));
+            if written {
+                offenders.push(*table);
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "tables written but still Discarded(M06_UNWRITTEN): {offenders:?}; reclassify them \
+             in TABLE_RECOVERY in the same commit as the writer"
+        );
+    }
 
     /// The `enrollments` states the migration's partial UNIQUE index covers: the
     /// enrollment path (orchestrator ruling on S1, plus `manual_pending`).

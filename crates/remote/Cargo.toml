@@ -1,0 +1,51 @@
+[package]
+name = "heimdall-remote"
+description = "Heimdall remote access (M06; ADR-0012 §3, §7): roles, invitations, verified sshd policy, the management line, runner-local widening, the serve-side bridge, and outbox/resync. A runner runtime wires it into its dispatcher (heimdall-runtime paired sessions)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Production edges (m06-plan U0; tools/validation/crate_graph.py): the graph rule allows
+# contract, domain, store, app and ipc, and refuses every other workspace crate (never the
+# runtime or the transport): the runtime wires this crate. No new third-party package: each
+# below is already pinned in the workspace.
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }
+# U1: the role table, invitations and the admission authority generation (`ext_m06`).
+heimdall-store = { workspace = true }
+# U1: `no_window!` (ADR-0008 §17.43, ruling I-24) for the `sshd -T` and `getent` children.
+heimdall-app = { workspace = true }
+# U1: the bridge's framing (`encode_frame`, the sanitized `parse_frame`).
+heimdall-ipc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+jiff = { workspace = true }
+thiserror = { workspace = true }
+# The bridge's relay and the bounded `sshd -T` run.
+tokio = { workspace = true }
+# The scratch Ed25519 host key for `sshd -T -h` (ADR-0012 §3.2), generated in process.
+ssh-key = { workspace = true }
+getrandom = { workspace = true }
+zeroize = { workspace = true }
+# Key fingerprints (`SHA256:` + unpadded base64) and request digests.
+sha2 = { workspace = true }
+base64ct = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = { workspace = true }
+proptest = { workspace = true }
+
+# ⟨M06⟩ U1 (m06-plan U1; ADR-0012 §3.9, §3.10): the invitation state machine over random
+# sequences, the focused fault test and the runner-side denial cases (T-RA1–T-RA4). Hosted
+# here, not in heimdall-runtime: the runtime has no edge to this crate (it wires it in W2),
+# and this crate already has the proptest edge (the app-hosted model tests' convention).
+[[test]]
+name = "model_remote_roles"
+path = "../../tests/model/remote_roles.rs"

@@ -114,6 +114,7 @@ mod windows {
         Caller::unattended(CallerContext {
             principal: PrincipalRef::UnixUser { uid: 501 },
             role: ClientRole::Owner,
+            remote_client: None,
         })
     }
 
@@ -320,6 +321,7 @@ mod windows {
                     connection: None,
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 },
             ))
             .unwrap_or_else(|e| panic!("ensure: {} {}", e.code, e.message))

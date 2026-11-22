@@ -137,23 +137,23 @@ pub fn distribution_view(
     running: RunningState,
 ) -> Option<EnvironmentView> {
     let namespace = rec.namespace.clone()?;
-    Some(EnvironmentView {
-        environment_id: namespace,
-        kind: EnvironmentKindView::WslDistribution,
-        label: None,
-        state: if running == RunningState::Running {
+    Some(EnvironmentView::new(
+        namespace,
+        EnvironmentKindView::WslDistribution,
+        None,
+        if running == RunningState::Running {
             EnvironmentState::Active
         } else {
             EnvironmentState::NotRunning
         },
-        realization: RealizationView::Wsl {
+        RealizationView::Wsl {
             name: rec.name.clone(),
             guid: rec.guid.clone(),
             account: rec.account.clone().unwrap_or_default(),
             modes: modes(rec),
             helper: None,
         },
-    })
+    ))
 }
 
 /// The target for a distribution's Mode A items, from its record: `None` while Mode A

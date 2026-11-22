@@ -86,12 +86,110 @@ fn pair_kind(
     }))
 }
 
+/// ⟨M06 W4 grant-e2e; ADR-0012 §4 item 2 ⟨2026-11-21⟩; m06-plan §2 item 1⟩ The CAs an
+/// `ensure` names per pair (`EnsureRequest::pair_issuers`), with the paired controller that
+/// forwarded it (`None`: a local caller).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct NamedIssuers {
+    /// The CA named for each pair.
+    pub(super) cas: std::collections::BTreeMap<AccessPair, heimdall_contract::ids::CaFingerprint>,
+    /// The paired client the request came from.
+    pub(super) controller: Option<heimdall_contract::ids::ClientId>,
+    /// ⟨M06 W4; ADR-0006 §18.8 item 1⟩ The request came from this installation's local
+    /// owner (no paired client, the owner role): on a runner it may name a CA already in
+    /// the runner's `issuer_trust`.
+    pub(super) local_owner: bool,
+    /// ⟨M06 W4⟩ On a runner: a live grant the controller issued covers the request's
+    /// pairs for this caller (`runner_m06::covering_grant`), so the pairs are the
+    /// controller's managed ones; the request attaches to that grant or waits as it does.
+    pub(super) attach: bool,
+}
+
+impl NamedIssuers {
+    /// What `request`, sent by `caller`, names.
+    pub(super) fn of(
+        request: &EnsureRequest,
+        caller: &heimdall_domain::principal::CallerContext,
+    ) -> Self {
+        Self {
+            cas: request
+                .pair_issuers
+                .iter()
+                .map(|i| (i.pair.clone(), i.ca_fingerprint.clone()))
+                .collect(),
+            controller: caller.remote_client.clone(),
+            local_owner: caller.remote_client.is_none() && caller.has_global_access(),
+            attach: false,
+        }
+    }
+}
+
+fn issuer_untrusted(pair: &AccessPair) -> OpError {
+    OpError::new(
+        Code::CapabilityUnavailable,
+        "the CA named for the pair is not in this runner's issuer_trust for the party that \
+         named it",
+    )
+    .with_reason(reason::ISSUER_UNTRUSTED)
+    .with_effect(EffectStatus::None)
+    .with_resource("destination", Some(pair.destination.to_string()))
+}
+
+/// A pair an `ensure` names a CA for: `managed_certificate` only when that CA is in this
+/// runner's `issuer_trust`
+///
+/// * for the forwarding controller, when a paired client sent the request; or
+/// * ⟨M06 W4; ADR-0006 §18.8 item 1⟩ for any controller, when this runner's **local
+///   owner** sent it. That admits a pending grant only: the runner never issues, and the
+///   trusted controller's host signs for it only under its own record (ADR-0005 §3.5
+///   condition 8).
+///
+/// `issuer_untrusted` otherwise: a paired client naming a CA trusted for another
+/// controller, a local caller that is not the owner, a CA no entry names, an installation
+/// that trusts no issuer. The runner's own catalog, preference and enrollment are not read.
+fn named_pair_kind(
+    tx: &mut Txn<'_>,
+    pair: &AccessPair,
+    ca: &heimdall_contract::ids::CaFingerprint,
+    named: &NamedIssuers,
+) -> heimdall_store::Result<Result<PairKind, OpError>> {
+    let entry = tx.trusted_remote_issuer(ca)?;
+    let trusted = match (&named.controller, &entry) {
+        (Some(c), Some(e)) => &e.controller == c,
+        (None, Some(_)) => named.local_owner,
+        (_, None) => false,
+    };
+    Ok(if trusted {
+        Ok(PairKind::Managed)
+    } else {
+        Err(issuer_untrusted(pair))
+    })
+}
+
 /// The per-pair resolution of `pairs` (module docs). With no stored preference this
 /// is exactly M02's `catalog_mechanism(catalog_pairs(pairs))`.
 pub(super) fn resolve_pairs(
     tx: &mut Txn<'_>,
     pairs: &BTreeSet<AccessPair>,
 ) -> heimdall_store::Result<Result<PairsResolution, OpError>> {
+    resolve_pairs_named(tx, pairs, &NamedIssuers::default())
+}
+
+/// [`resolve_pairs`] for a request that may name its pairs' issuing CAs (`named`): a named
+/// pair resolves through [`named_pair_kind`] only; a CA named for a pair outside `pairs`
+/// is `USAGE_ERROR`.
+pub(super) fn resolve_pairs_named(
+    tx: &mut Txn<'_>,
+    pairs: &BTreeSet<AccessPair>,
+    named: &NamedIssuers,
+) -> heimdall_store::Result<Result<PairsResolution, OpError>> {
+    if named.cas.keys().any(|p| !pairs.contains(p)) {
+        return Ok(Err(OpError::new(
+            Code::UsageError,
+            "the request names an issuing CA for a pair outside its scope",
+        )
+        .with_effect(EffectStatus::None)));
+    }
     // ⟨M04 U6; ADR-0010 §5 item 2⟩ A routed pair's jump hop must be a managed pair in
     // this scope or existing access: `route_dependency_out_of_scope` before anything
     // is admitted.
@@ -105,7 +203,12 @@ pub(super) fn resolve_pairs(
     let mut pending_projection = false;
     let mut existing = BTreeSet::new();
     for p in pairs {
-        match pair_kind(tx, p)? {
+        let kind = match named.cas.get(p) {
+            Some(ca) => named_pair_kind(tx, p, ca, named)?,
+            None if named.attach => Ok(PairKind::Managed),
+            None => pair_kind(tx, p)?,
+        };
+        match kind {
             Err(e) => return Ok(Err(e)),
             Ok(PairKind::Managed) => managed = true,
             Ok(PairKind::PendingProjection) => {
@@ -237,6 +340,13 @@ pub(crate) fn ensure_hash_extra(
     if let Some(c) = &req.connection {
         extra.insert("connection".to_owned(), serde_json::json!(c));
     }
+    // ⟨M06 W4⟩ Only when present: the same request ID naming another CA is another request.
+    if !req.pair_issuers.is_empty() {
+        extra.insert(
+            "pair_issuers".to_owned(),
+            serde_json::json!(req.pair_issuers),
+        );
+    }
     if let Some(context) = &req.context {
         extra.insert("context".to_owned(), serde_json::json!(context));
         if req.covered_only {
@@ -298,6 +408,7 @@ impl Operations {
     /// (`pair_not_enrolled`, `mixed_mechanisms`, …) is left to resolution, as in M02.
     pub(super) async fn ensure_precheck(
         &self,
+        caller: &heimdall_domain::principal::CallerContext,
         req: &EnsureRequest,
     ) -> Result<EnsurePrecheck, OpError> {
         if req
@@ -319,6 +430,7 @@ impl Operations {
         };
         let revision = req.profile_revision;
         let scope = req.scope.clone();
+        let named = NamedIssuers::of(req, caller);
         let resolution = self
             .write(move |tx, _| {
                 let pairs = if scope.is_empty() {
@@ -336,12 +448,14 @@ impl Operations {
                 } else {
                     scope
                 };
-                resolve_pairs(tx, &pairs)
+                resolve_pairs_named(tx, &pairs, &named)
             })
             .await?;
         // ⟨wave 4⟩ Open only with the managed wiring (effects and issuer) and the
         // managed adapter configured; otherwise refused before any record.
-        let managed_available = self.managed_driver_wired()
+        // ⟨M06 W3 grant-path⟩ On a remote runner the mechanism needs no issuer here: the
+        // grant waits for the controller's (`super::runner_m06`).
+        let managed_available = (self.managed_driver_wired() || self.runner_grants().is_some())
             && self
                 .adapter_infos()
                 .iter()
@@ -382,6 +496,7 @@ mod tests {
             connection,
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
         }
     }
 

@@ -715,6 +715,115 @@ pub mod reason {
         (NOT_COVERED, Code::InteractionRequired),
         (WORK_STOPPED, Code::CredentialExpired),
     ];
+
+    // --- ⟨M06⟩ revision 6 (ADR-0012 §9 item 7; ADR-0006 §18) ----------------------------
+    // Every one is `CAPABILITY_UNAVAILABLE` (exit 4, not retryable). The existing
+    // [`ROUTE_DEPENDENCY_OUT_OF_SCOPE`] (M04) is reused, not repeated.
+
+    /// ⟨M06⟩ The caller's role lacks the permission or capability (ADR-0012 §3.8, §6.2).
+    pub const ROLE_INSUFFICIENT: &str = "role_insufficient";
+    /// ⟨M06⟩ The client was revoked; its sessions and subscriptions are closed (§3.7).
+    pub const CLIENT_REVOKED: &str = "client_revoked";
+    /// ⟨M06⟩ The invitation is not live: time uncertain, its boot anchor lost, or its wall
+    /// deadline or elapsed bound passed (§3.9 item 4).
+    pub const INVITATION_EXPIRED: &str = "invitation_expired";
+    /// ⟨M06⟩ The invitation was already consumed (§3.9 items 5, 7).
+    pub const INVITATION_CONSUMED: &str = "invitation_consumed";
+    /// ⟨M06⟩ A pending client's session sent something other than the activation probe or
+    /// `join`, refused before dispatch (§3.9 item 3).
+    pub const INVITATION_PENDING: &str = "invitation_pending";
+    /// ⟨M06⟩ A decision does not match the action and canonical parameters it was bound to
+    /// (§3.10 item 2).
+    pub const DECISION_BINDING_MISMATCH: &str = "decision_binding_mismatch";
+    /// ⟨M06⟩ A limited role on a runner whose effective sshd policy is not verified (§3.2).
+    pub const MANAGEMENT_SSHD_UNVERIFIED: &str = "management_sshd_unverified";
+    /// ⟨M06⟩ A confirming activation probe disagrees with the verified sshd policy (§3.2).
+    pub const MANAGEMENT_SSHD_UNSUPPORTED: &str = "management_sshd_unsupported";
+    /// ⟨M06⟩ K_mgmt's store is locked: management connections are unavailable (§3.4).
+    pub const MGMT_KEY_STORE_LOCKED: &str = "mgmt_key_store_locked";
+    /// ⟨M06, rev6.2⟩ No verified persistent store holds (or can hold) K_mgmt on this device:
+    /// absent, unsupported (desktop controllers only), corrupt, or its access list does not
+    /// trust this executable. Unlocking cannot help (contrast [`MGMT_KEY_STORE_LOCKED`]);
+    /// management connections are unavailable and the runners' work continues (§3.4).
+    pub const MGMT_KEY_STORE_UNAVAILABLE: &str = "mgmt_key_store_unavailable";
+    /// ⟨M06⟩ No verified platform store for K_iroh: no persistent Iroh endpoint (§2.4).
+    pub const TRANSPORT_KEY_STORE_UNAVAILABLE: &str = "transport_key_store_unavailable";
+    /// ⟨M06⟩ Runner work would depend on an inherited controller socket (§4.5).
+    pub const CONTROLLER_DEPENDENCY: &str = "controller_dependency";
+    /// ⟨M06⟩ A source of unknown provenance: no unattended readiness claim (§4.5).
+    pub const DEPENDENCY_PROVENANCE_UNKNOWN: &str = "dependency_provenance_unknown";
+    /// ⟨M06⟩ The certificate's issuer is not in the runner's `issuer_trust` (§4.2).
+    pub const ISSUER_UNTRUSTED: &str = "issuer_untrusted";
+    /// ⟨M06⟩ A changed host key, or an environment ID that does not match the pin: `held`
+    /// (§7.5).
+    pub const ENVIRONMENT_IDENTITY_MISMATCH: &str = "environment_identity_mismatch";
+    /// ⟨M06⟩ An effective client setting defeats the catalog host pin (§5.2).
+    pub const HOST_PIN_DEFEATED: &str = "host_pin_defeated";
+    /// ⟨M06⟩ The route helper found zero or several bindings at its endpoint (§5.4).
+    pub const ROUTE_BINDING_AMBIGUOUS: &str = "route_binding_ambiguous";
+    /// ⟨M06⟩ A route, address or hint outside the approved routes (§2.1, §5.5).
+    pub const ROUTE_UNAPPROVED: &str = "route_unapproved";
+    /// ⟨M06⟩ A relay outside the effective exposure policy (§2.1).
+    pub const RELAY_UNAPPROVED: &str = "relay_unapproved";
+    /// ⟨M06⟩ Exposure not covered by a recorded consent (§2.1).
+    pub const EXPOSURE_UNCONSENTED: &str = "exposure_unconsented";
+    /// ⟨M06⟩ The transport is unavailable, or the endpoint cannot apply its policy (§2.1).
+    pub const TRANSPORT_UNAVAILABLE: &str = "transport_unavailable";
+    /// ⟨M06⟩ The transport refused the connection.
+    pub const TRANSPORT_REFUSED: &str = "transport_refused";
+    /// ⟨M06⟩ Admission authority cannot be read: the serve child is not started (§2.3
+    /// item 5).
+    pub const TRANSPORT_AUTHORITY_LOST: &str = "transport_authority_lost";
+    /// ⟨M06⟩ The key is already authorized under another line (§3.5).
+    pub const KEY_ALREADY_AUTHORIZED: &str = "key_already_authorized";
+    /// ⟨M06, rev6.3⟩ A local-only form (`runner_local.*`, `controller_record.*`, `decide`)
+    /// sent from a paired session (`INTERACTION_REQUIRED`): only the owner at this machine
+    /// can do it, so retrying from the paired session can never succeed (ADR-0006 §18.7).
+    pub const LOCAL_OWNER_REQUIRED: &str = "local_owner_required";
+    /// ⟨M06, rev6.3⟩ Issuance is gated until the session has completed the authority report
+    /// and resynchronization (ADR-0012 §7.4): the controller's barrier and the runner's
+    /// per-session gate both answer it.
+    pub const RESYNC_PENDING: &str = "resync_pending";
+
+    /// ⟨M06⟩ Revision 6's reasons with their codes, kept separate from [`ALL`], [`M03`],
+    /// [`M04`] and [`M05`] (the code table is unchanged): golden
+    /// `rev6-reasons.golden.json` key `m06`.
+    pub const M06: &[(&str, Code)] = &[
+        (ROLE_INSUFFICIENT, Code::CapabilityUnavailable),
+        (CLIENT_REVOKED, Code::CapabilityUnavailable),
+        (INVITATION_EXPIRED, Code::CapabilityUnavailable),
+        (INVITATION_CONSUMED, Code::CapabilityUnavailable),
+        (INVITATION_PENDING, Code::CapabilityUnavailable),
+        (DECISION_BINDING_MISMATCH, Code::CapabilityUnavailable),
+        (MANAGEMENT_SSHD_UNVERIFIED, Code::CapabilityUnavailable),
+        (MANAGEMENT_SSHD_UNSUPPORTED, Code::CapabilityUnavailable),
+        (MGMT_KEY_STORE_LOCKED, Code::CapabilityUnavailable),
+        (MGMT_KEY_STORE_UNAVAILABLE, Code::CapabilityUnavailable),
+        (TRANSPORT_KEY_STORE_UNAVAILABLE, Code::CapabilityUnavailable),
+        (CONTROLLER_DEPENDENCY, Code::CapabilityUnavailable),
+        (DEPENDENCY_PROVENANCE_UNKNOWN, Code::CapabilityUnavailable),
+        (ISSUER_UNTRUSTED, Code::CapabilityUnavailable),
+        (ENVIRONMENT_IDENTITY_MISMATCH, Code::CapabilityUnavailable),
+        (HOST_PIN_DEFEATED, Code::CapabilityUnavailable),
+        (ROUTE_BINDING_AMBIGUOUS, Code::CapabilityUnavailable),
+        (ROUTE_UNAPPROVED, Code::CapabilityUnavailable),
+        (RELAY_UNAPPROVED, Code::CapabilityUnavailable),
+        (EXPOSURE_UNCONSENTED, Code::CapabilityUnavailable),
+        (TRANSPORT_UNAVAILABLE, Code::CapabilityUnavailable),
+        (TRANSPORT_REFUSED, Code::CapabilityUnavailable),
+        (TRANSPORT_AUTHORITY_LOST, Code::CapabilityUnavailable),
+        (KEY_ALREADY_AUTHORIZED, Code::CapabilityUnavailable),
+        (LOCAL_OWNER_REQUIRED, Code::InteractionRequired),
+        (RESYNC_PENDING, Code::CapabilityUnavailable),
+    ];
+
+    /// ⟨M06⟩ A `remote_pending` reason, not an error reason: an Iroh revocation is
+    /// reported pending until the serve child acknowledged suspending admission (or was
+    /// stopped) (ADR-0012 §2.3 item 4).
+    pub const IROH_ADMISSION_CLOSING: &str = "iroh_admission_closing";
+
+    /// ⟨M06⟩ Every `remote_pending` reason (no code: a pending state, never an error).
+    pub const M06_PENDING: &[&str] = &[IROH_ADMISSION_CLOSING];
 }
 
 /// ⟨M05⟩ Warning codes revision 5 adds for M05 (m05-plan §4 item 9).

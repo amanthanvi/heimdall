@@ -196,6 +196,29 @@ pub(crate) async fn doctor<P: Prompter>(
     {
         report.findings.push(f);
     }
+    // ⟨M06 W3; ADR-0012 §2.1 ⟨2026-11-21⟩⟩ The Iroh serve port the last start could not bind,
+    // read read-only from the store (the runtime recorded it; it is never started here).
+    if let Some(f) = transport_port_finding(ctx) {
+        report.findings.push(f);
+    }
+    // ⟨M06 W3; ADR-0012 §7.4 ⟨2026-11-21⟩⟩ A delivered cutoff that fired early because the
+    // runner's time was uncertain stays fired; say so (read-only, from the store).
+    report.findings.extend(early_cutoff_findings(ctx));
+    // ⟨ADR-0006 §18.7 "Also ruled", 2026-11-21⟩ A runner whose home, `~/.ssh` or
+    // authorized_keys would fail sshd's `StrictModes`: reported, never fixed.
+    if let Some(f) = runner_strict_modes_finding(ctx) {
+        report.findings.push(f);
+    }
+    // ⟨ADR-0006 §18.7 items 16–17⟩ A runner that went owner-only because a management
+    // session was not restricted as its sshd policy claimed: reported, never cleared here.
+    if let Some(f) = runner_owner_only_finding(ctx) {
+        report.findings.push(f);
+    }
+    // ⟨ADR-0012 §3.2 "How the downgrade is kept"⟩ The bridge refused a session but could
+    // not record the downgrade: its note, reported.
+    if let Some(f) = runner_downgrade_unrecorded_finding(ctx) {
+        report.findings.push(f);
+    }
     let value = serde_json::to_value(&report).unwrap_or_default();
     let human = output::render_doctor(&value);
     let mut env = Envelope::ok(value);
@@ -921,6 +944,268 @@ fn issuer_store_finding_of(
     })
 }
 
+/// ⟨M06 W3; ADR-0012 §2.1 ⟨2026-11-21⟩, ADR-0006 §18.7 item 5⟩ The finding code for an Iroh
+/// serve port the runtime could not bind (proposed for `heimdall_contract::doctor::finding`;
+/// the reason is `transport_unavailable`).
+pub(crate) const TRANSPORT_SERVE_PORT_UNBINDABLE: &str = "transport_serve_port_unbindable";
+
+/// The serve port the runtime's last serve start could not bind, read read-only
+/// (`Txn::transport_serve_bind_failure`); `None` when there is none or the store cannot be
+/// read.
+fn transport_port_finding(ctx: &Ctx) -> Option<Finding> {
+    let store = open_store(ctx).ok()?;
+    let port = store
+        .transaction(|tx| tx.transport_serve_bind_failure())
+        .ok()
+        .flatten()?;
+    Some(transport_port_finding_of(port))
+}
+
+/// The finding naming `port` (module docs).
+fn transport_port_finding_of(port: u16) -> Finding {
+    use heimdall_contract::envelope::reason;
+    Finding {
+        code: TRANSPORT_SERVE_PORT_UNBINDABLE.to_owned(),
+        severity: FindingSeverity::Problem,
+        subject: ResourceRef {
+            kind: "transport".to_owned(),
+            id: Some(format!("port {port}")),
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!(
+            "the Iroh serve port {port} cannot be bound, so the serve endpoint is not running \
+             (transport_unavailable; no other port is tried): free the port, or change it with \
+             `heimdall transport disable` then `heimdall transport enable --serve --port <n>`"
+        ),
+        next: NextAction {
+            action: "owner_decision".to_owned(),
+            ..NextAction::default()
+        },
+        reason: Some(reason::TRANSPORT_UNAVAILABLE.to_owned()),
+    }
+}
+
+/// ⟨M06 W3; ADR-0012 §7.4 ⟨2026-11-21⟩⟩ The finding code for a delivered cutoff that fired
+/// before the owner's instant because the runner's time was uncertain (proposed for
+/// `heimdall_contract::doctor::finding`).
+pub(crate) const CUTOFF_FIRED_UNDER_UNCERTAIN_TIME: &str = "cutoff_fired_under_uncertain_time";
+
+/// One finding per cutoff this installation knows fired early under uncertain time
+/// (`heimdall_app::remote_status::early_cutoffs`); none when the store cannot be read.
+fn early_cutoff_findings(ctx: &Ctx) -> Vec<Finding> {
+    let Ok(store) = open_store(ctx) else {
+        return Vec::new();
+    };
+    store
+        .transaction(heimdall_app::remote_status::early_cutoffs)
+        .unwrap_or_default()
+        .iter()
+        .map(|(environment, cutoff)| early_cutoff_finding_of(environment.as_ref(), cutoff))
+        .collect()
+}
+
+/// The finding for one early cutoff: on a runner (`environment` none) it names the local
+/// lift; on a controller it names the runner the cutoff is in effect on.
+fn early_cutoff_finding_of(
+    environment: Option<&heimdall_contract::ids::EnvironmentId>,
+    cutoff: &heimdall_app::remote_status::EarlyCutoff,
+) -> Finding {
+    let (subject, lift) = match environment {
+        Some(e) => (
+            ResourceRef {
+                kind: "environment".to_owned(),
+                id: Some(e.as_str().to_owned()),
+            },
+            format!("on runner {}: ", e.as_str()),
+        ),
+        None => (
+            ResourceRef {
+                kind: "policy".to_owned(),
+                id: Some(cutoff.scope.clone()),
+            },
+            String::new(),
+        ),
+    };
+    Finding {
+        code: CUTOFF_FIRED_UNDER_UNCERTAIN_TIME.to_owned(),
+        severity: FindingSeverity::Warning,
+        subject,
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!("{lift}{}", cutoff.statement()),
+        next: NextAction {
+            action: "owner_decision".to_owned(),
+            ..NextAction::default()
+        },
+        reason: Some(cutoff.reason.to_owned()),
+    }
+}
+
+/// ⟨ADR-0006 §18.7 "Also ruled", 2026-11-21⟩ The finding code for a remote runner whose
+/// account files would fail sshd's `StrictModes` (proposed for
+/// `heimdall_contract::doctor::finding`).
+pub(crate) const RUNNER_SSH_STRICT_MODES: &str = "runner_ssh_strict_modes";
+
+/// The finding for a runner installation (read-only: the runner marker in the store) whose
+/// home directory, `~/.ssh` or `authorized_keys` sshd's `StrictModes` would refuse
+/// (`m06_cmd::strict_modes_problems`). `None` on any other installation, when nothing is
+/// wrong, or when the store cannot be read. Nothing is changed.
+fn runner_strict_modes_finding(ctx: &Ctx) -> Option<Finding> {
+    let store = open_store(ctx).ok()?;
+    if !store
+        .transaction(heimdall_runtime::paired::is_runner)
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let paths = ctx.paths().ok()?;
+    let problems = crate::m06_cmd::runner_strict_modes(&paths);
+    (!problems.is_empty()).then(|| runner_strict_modes_finding_of(&problems))
+}
+
+/// The finding naming `problems`.
+fn runner_strict_modes_finding_of(problems: &[crate::m06_cmd::StrictModesProblem]) -> Finding {
+    Finding {
+        code: RUNNER_SSH_STRICT_MODES.to_owned(),
+        severity: FindingSeverity::Problem,
+        subject: ResourceRef {
+            kind: "environment".to_owned(),
+            id: None,
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: crate::m06_cmd::strict_modes_statement(problems),
+        next: NextAction {
+            action: "owner_decision".to_owned(),
+            ..NextAction::default()
+        },
+        reason: None,
+    }
+}
+
+/// ⟨ADR-0006 §18.7 items 16–17; ADR-0012 §3.2 "Limits"⟩ The finding code for a remote runner
+/// that is owner-only because its sshd policy proved unverifiable on a real connection
+/// (proposed for `heimdall_contract::doctor::finding`).
+pub(crate) const RUNNER_SSHD_POLICY_UNVERIFIABLE: &str = "runner_sshd_policy_unverifiable";
+
+/// The finding for an installation whose state database holds the runner's owner-only
+/// downgrade (ADR-0006 §18.7 item 18, `heimdall_store::ext_runner::RunnerDowngrade`: the
+/// bridge refused a session with a terminal or a forwarded agent, or a device's probes
+/// disagreed). `None` without the row, without a state database, or when the database
+/// cannot be opened (`doctor` reports that separately). Read-only.
+fn runner_owner_only_finding(ctx: &Ctx) -> Option<Finding> {
+    let paths = ctx.paths().ok()?;
+    let db = paths
+        .state_dir
+        .join(heimdall_runtime::service::STATE_DB_FILE);
+    if !db.exists() {
+        return None;
+    }
+    let store =
+        heimdall_store::Store::open_read_only(&db, std::sync::Arc::new(heimdall_store::NoFaults))
+            .ok()?;
+    heimdall_runtime::paired::recorded_owner_only(&store).map(runner_owner_only_finding_of)
+}
+
+/// The finding naming `cause`.
+fn runner_owner_only_finding_of(cause: heimdall_runtime::paired::OwnerOnlyCause) -> Finding {
+    Finding {
+        code: RUNNER_SSHD_POLICY_UNVERIFIABLE.to_owned(),
+        severity: FindingSeverity::Problem,
+        subject: ResourceRef {
+            kind: "environment".to_owned(),
+            id: None,
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!(
+            "this runner is owner-only: {}. Its sshd policy for this account is unverifiable, \
+             so limited-role invitations and joins are refused. A restart does not lift \
+             this, and neither does `sshd -T` alone. Correct the sshd configuration that \
+             applies to this account's real connections (a Match block can differ from the \
+             checked one). Then run `heimdall environment recheck <environment>` on the \
+             owner's controller, and within 15 minutes `heimdall remote policy recheck` on \
+             this runner's terminal",
+            cause.statement(),
+        ),
+        next: NextAction {
+            action: "owner_decision".to_owned(),
+            ..NextAction::default()
+        },
+        reason: None,
+    }
+}
+
+/// ⟨ADR-0012 §3.2 "How the downgrade is kept"⟩ The finding code for a runner whose bridge
+/// refused a management session but could not record the owner-only downgrade (proposed
+/// for `heimdall_contract::doctor::finding`).
+pub(crate) const RUNNER_DOWNGRADE_UNRECORDED: &str = "runner_downgrade_unrecorded";
+
+/// The finding for a home whose log directory holds the bridge's marker of a downgrade it
+/// could not record (`heimdall_runtime::paired::UNRECORDED_DOWNGRADE_LOG`: a pending write
+/// that fails closed). `None` without the marker. Read-only: the runtime, not `doctor`,
+/// records the row and removes the marker.
+fn runner_downgrade_unrecorded_finding(ctx: &Ctx) -> Option<Finding> {
+    let paths = ctx.paths().ok()?;
+    let noted = heimdall_runtime::paired::unrecorded_downgrade(&paths.log_dir)?;
+    let db = paths
+        .state_dir
+        .join(heimdall_runtime::service::STATE_DB_FILE);
+    // Whether the downgrade stands all the same (a later event recorded it): only a row
+    // that is read and absent says it does not.
+    let standing =
+        heimdall_store::Store::open_read_only(&db, std::sync::Arc::new(heimdall_store::NoFaults))
+            .ok()
+            .map(|store| heimdall_runtime::paired::recorded_owner_only(&store).is_some());
+    Some(runner_downgrade_unrecorded_finding_of(noted, standing))
+}
+
+/// The finding for `noted`; `standing` is whether the downgrade row stands now (`None`
+/// when the state database cannot be read).
+fn runner_downgrade_unrecorded_finding_of(
+    noted: heimdall_runtime::paired::UnrecordedDowngrade,
+    standing: Option<bool>,
+) -> Finding {
+    let when = noted.at.map_or_else(String::new, |at| format!(" at {at}"));
+    let state = match standing {
+        Some(true) => "The downgrade is recorded in the state database now",
+        Some(false) => "The downgrade is not in the state database yet",
+        None => "Whether the downgrade is in the state database now cannot be read",
+    };
+    Finding {
+        code: RUNNER_DOWNGRADE_UNRECORDED.to_owned(),
+        severity: FindingSeverity::Problem,
+        subject: ResourceRef {
+            kind: "environment".to_owned(),
+            id: None,
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!(
+            "a management session was refused{when} ({}), and the owner-only downgrade could \
+             not be written to this runner's state database then. It is pending in `{}` in \
+             this installation's log directory. {state}. While that file exists this \
+             runner is owner-only: limited-role invitations and joins are refused. The \
+             runtime records the downgrade at its next start or its next limited-role \
+             admission, and then removes the file itself. Removing the file by hand lifts \
+             nothing. If this finding stays, find why the state database cannot be written \
+             (a full disk, its permissions, or a lock held for seconds), and check that the \
+             log directory is this account's own directory, not a link, and closed to other \
+             accounts. Correct the sshd configuration that applies to this account's real \
+             connections; the downgrade itself is lifted only by `heimdall environment \
+             recheck` and `heimdall remote policy recheck`",
+            noted.cause.statement(),
+            heimdall_runtime::paired::UNRECORDED_DOWNGRADE_LOG,
+        ),
+        next: NextAction {
+            action: "owner_decision".to_owned(),
+            ..NextAction::default()
+        },
+        reason: None,
+    }
+}
+
 /// Whether an issuer CA is registered: one that is neither `deleted` nor `retired`.
 fn ca_registered_in(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<bool> {
     use heimdall_contract::issuer::CaState;
@@ -1431,6 +1716,138 @@ mod tests {
         }
     }
 
+    /// ⟨ADR-0006 §18.7 "Also ruled", 2026-11-21⟩ A runner whose account files would fail
+    /// sshd's `StrictModes` is a finding that names them and says Heimdall does not fix
+    /// them; an installation without state has none.
+    #[test]
+    fn a_runner_failing_strict_modes_is_a_finding() {
+        let f = runner_strict_modes_finding_of(&[crate::m06_cmd::StrictModesProblem {
+            what: "home",
+            problem: "group_or_other_writable",
+        }]);
+        assert_eq!(f.code, RUNNER_SSH_STRICT_MODES);
+        assert_eq!(f.severity, FindingSeverity::Problem);
+        assert_eq!(f.next.action, "owner_decision");
+        assert!(
+            f.message.contains("StrictModes")
+                && f.message
+                    .contains("the home directory is writable by group or others")
+                && f.message.contains("Heimdall does not change these"),
+            "{}",
+            f.message
+        );
+    }
+
+    /// ⟨ADR-0006 §18.7 items 16–19⟩ The owner-only downgrade is a finding that names its
+    /// cause and the two commands that lift it.
+    #[test]
+    fn a_runner_gone_owner_only_is_a_finding() {
+        use heimdall_runtime::paired::OwnerOnlyCause;
+        for (cause, said) in [
+            (OwnerOnlyCause::SessionPty, "allocated a terminal"),
+            (OwnerOnlyCause::SessionAgent, "forwarded an agent"),
+            (OwnerOnlyCause::Probe, "probes showed"),
+        ] {
+            let f = runner_owner_only_finding_of(cause);
+            assert_eq!(f.code, RUNNER_SSHD_POLICY_UNVERIFIABLE);
+            assert_eq!(f.severity, FindingSeverity::Problem);
+            assert_eq!(f.next.action, "owner_decision");
+            assert!(
+                f.message.contains(said)
+                    && f.message.contains("owner-only")
+                    && f.message.contains("neither does `sshd -T` alone")
+                    && f.message.contains("heimdall environment recheck")
+                    && f.message.contains("heimdall remote policy recheck"),
+                "{}",
+                f.message
+            );
+        }
+    }
+
+    /// ⟨ADR-0012 §3.2 "How the downgrade is kept"⟩ The bridge's note of a downgrade it
+    /// could not record is read back as written and reported, saying whether the row
+    /// stands now; no note, no finding.
+    #[test]
+    fn a_downgrade_the_bridge_could_not_record_is_a_finding() {
+        use heimdall_runtime::paired::{
+            OwnerOnlyCause, UNRECORDED_DOWNGRADE_LOG, note_unrecorded_downgrade,
+            unrecorded_downgrade,
+        };
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        // The marker's directory is owner-only (one others can write is itself a finding).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let open = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(dir.path(), open).unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(
+                unrecorded_downgrade(dir.path()).map(|n| n.cause),
+                Some(OwnerOnlyCause::Unreadable)
+            );
+            let private = std::fs::Permissions::from_mode(0o700);
+            std::fs::set_permissions(dir.path(), private).unwrap_or_else(|e| panic!("{e}"));
+        }
+        assert_eq!(unrecorded_downgrade(dir.path()), None);
+        // The marker's directory is created one level deep only: never the home.
+        let at: Timestamp = "2026-11-21T09:00:00Z"
+            .parse()
+            .unwrap_or_else(|e| panic!("{e}"));
+        let deep = dir.path().join("absent").join("log");
+        assert!(note_unrecorded_downgrade(&deep, OwnerOnlyCause::SessionPty, at).is_err());
+        assert!(!dir.path().join("absent").exists());
+        for cause in [OwnerOnlyCause::SessionPty, OwnerOnlyCause::SessionAgent] {
+            note_unrecorded_downgrade(dir.path(), cause, at).unwrap_or_else(|e| panic!("{e}"));
+        }
+        let text = std::fs::read_to_string(dir.path().join(UNRECORDED_DOWNGRADE_LOG))
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            text,
+            "session_pty 2026-11-21T09:00:00Z\nsession_agent_forwarded 2026-11-21T09:00:00Z\n"
+        );
+        let noted = unrecorded_downgrade(dir.path()).unwrap_or_else(|| panic!("no note"));
+        assert_eq!(
+            (noted.cause, noted.at),
+            (OwnerOnlyCause::SessionAgent, Some(at))
+        );
+        for (standing, said) in [
+            (Some(false), "is not in the state database yet"),
+            (Some(true), "is recorded in the state database now"),
+            (None, "cannot be read"),
+        ] {
+            let f = runner_downgrade_unrecorded_finding_of(noted, standing);
+            assert_eq!(f.code, RUNNER_DOWNGRADE_UNRECORDED);
+            assert_eq!(f.severity, FindingSeverity::Problem);
+            assert_eq!(f.next.action, "owner_decision");
+            assert!(
+                f.message.contains(said)
+                    && f.message.contains("forwarded an agent")
+                    && f.message.contains("2026-11-21T09:00:00Z")
+                    && f.message
+                        .contains("While that file exists this runner is owner-only")
+                    && f.message
+                        .contains("Removing the file by hand lifts nothing")
+                    && f.message.contains(UNRECORDED_DOWNGRADE_LOG),
+                "{}",
+                f.message
+            );
+        }
+        // The marker is bounded: a full file takes no further line (it stands as it is).
+        std::fs::write(dir.path().join(UNRECORDED_DOWNGRADE_LOG), vec![b'x'; 4096])
+            .unwrap_or_else(|e| panic!("{e}"));
+        note_unrecorded_downgrade(dir.path(), OwnerOnlyCause::SessionPty, at)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            std::fs::metadata(dir.path().join(UNRECORDED_DOWNGRADE_LOG))
+                .map(|m| m.len())
+                .ok(),
+            Some(4096)
+        );
+        assert_eq!(
+            unrecorded_downgrade(dir.path()).map(|n| n.cause),
+            Some(OwnerOnlyCause::Unreadable)
+        );
+    }
+
     /// ⟨ADR-0008 §17.28 item 6⟩ The finding only for an `issuer.status` reporting the
     /// access-list denial (never the lock, another store reason, or none).
     #[test]
@@ -1469,6 +1886,43 @@ mod tests {
                 "{other:?}"
             );
         }
+    }
+
+    /// ⟨M06 W3; ADR-0012 §2.1 ⟨2026-11-21⟩⟩ An unbindable serve port recorded by the runtime
+    /// is reported, naming the port and the way to change it; with none recorded (or no
+    /// state) there is no finding.
+    #[test]
+    fn an_unbindable_serve_port_is_a_finding_naming_it() {
+        let f = transport_port_finding_of(40_123);
+        assert_eq!(f.code, TRANSPORT_SERVE_PORT_UNBINDABLE);
+        assert_eq!(f.reason.as_deref(), Some("transport_unavailable"));
+        assert_eq!(f.subject.id.as_deref(), Some("port 40123"));
+        assert!(f.message.contains("40123"), "{}", f.message);
+        assert!(f.message.contains("heimdall transport disable"));
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let mut ctx = tty();
+        ctx.home = Some(dir.path().join("home"));
+        assert!(
+            transport_port_finding(&ctx).is_none(),
+            "no state, no finding"
+        );
+        let paths = ctx.paths().unwrap_or_else(|e| panic!("{e:?}"));
+        paths.ensure().unwrap_or_else(|e| panic!("{e}"));
+        let db = paths
+            .state_dir
+            .join(heimdall_runtime::service::STATE_DB_FILE);
+        let store = Store::open(&db, std::sync::Arc::new(heimdall_store::NoFaults))
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(transport_port_finding(&ctx).is_none(), "none recorded");
+        store
+            .transaction(|tx| tx.record_transport_serve_bind_failure(40_124))
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        let found = transport_port_finding(&ctx);
+        assert!(
+            found.is_some_and(|f| f.message.contains("40124")),
+            "the recorded port is named"
+        );
     }
 
     /// §17.25 item 13: an unrecorded family or version is named; a recorded one, no

@@ -297,7 +297,8 @@ pub fn uninstall_in_progress() -> OpError {
 /// * fenced: `enrollment` `apply`, `verify`, `remove` (own and foreign), `reconcile`,
 ///   `abandon` and `step` (dispatching a remote step); `issuer` `register` (rotation
 ///   and restore included), `unlock` and `retire` (with or without `deleted_locator`);
-///   `decide` with `approve`, whatever the kind;
+///   `decide` with `approve`, whatever the kind; ⟨M06 W3⟩ every widening
+///   `runner_local.*` form (`RunnerLocalRequest::is_widening`);
 /// * not fenced: every read-only request (`inspect`, `observe`, the previews, `issuer`
 ///   `status` and `bundle`), `decide` with `deny`, `enrollment` `step_result` (a step
 ///   dispatched before the fence records its truth; its follow-through is deferred),
@@ -310,6 +311,12 @@ pub fn fenced(request: &Request) -> bool {
         Request::Enrollment(r) => enrollment_fenced(r),
         Request::Issuer(r) => issuer_fenced(r),
         Request::Decide(r) => r.verdict != Verdict::Deny,
+        // ⟨M06 W3; runner Q10⟩ The runner-local widening writers (issuer trust, the
+        // time-source designation, the owner enrollment) change authority-bearing state
+        // the uninstall snapshot compares: refused while the fence is held, so a change
+        // during an uninstall is prevented, not only detected afterwards. The narrowing
+        // forms stay admitted, as a denial is.
+        Request::RunnerLocal(r) => r.is_widening(),
         _ => false,
     }
 }
@@ -1078,6 +1085,7 @@ mod tests {
         Caller::unattended(CallerContext {
             principal: PrincipalRef::UnixUser { uid: 501 },
             role: ClientRole::Owner,
+            remote_client: None,
         })
     }
 
@@ -1177,6 +1185,28 @@ mod tests {
             ops.uninstall_fence_acquire(2).await.unwrap(),
             FenceAcquired::Held
         );
+    }
+
+    /// ⟨M06 W3; runner Q10⟩ The runner-local widening writers are fenced work, as the
+    /// other authority writers are; the narrowing forms are not (they stay admitted during
+    /// an uninstall, as a denial does).
+    #[test]
+    fn runner_local_widening_forms_are_fenced() {
+        use heimdall_contract::ids::{ClientId, RequestId};
+        use heimdall_contract::remote::RunnerLocalRequest as L;
+        let client = ClientId::from_random_bytes([7; 16]);
+        let request_id = RequestId::parse("fence-rl-1").unwrap();
+        let trust = L::TrustIssuer {
+            controller: client.clone(),
+            ca_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOv0".to_owned(),
+            request_id: request_id.clone(),
+        };
+        let designate = L::DesignateTimeSource { client, request_id };
+        for widening in [trust, designate] {
+            assert!(widening.is_widening());
+            assert!(fenced(&Request::RunnerLocal(widening)));
+        }
+        assert!(!fenced(&Request::RunnerLocal(L::ClearTimeSource)));
     }
 
     /// The fence serializes with fenced requests: `acquire` waits for one already past

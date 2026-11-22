@@ -403,6 +403,7 @@ fn client_hello(schema: &str, name: &str) -> ClientHello {
         capabilities: server_capabilities(),
         required: BTreeSet::new(),
         interaction: InteractionMode::NonInteractive,
+        remote_client: None,
     }
 }
 
@@ -2339,4 +2340,186 @@ async fn reply_hook_runs_after_the_response_so_the_requester_reads_ok_before_goo
             vec![("inspect", Code::Ok), ("shutdown", Code::Ok)]
         );
     }
+}
+
+/// ⟨M06-W0-R03⟩ A dispatcher whose readers may not see one operation's live events: the
+/// session asks it once per subscription (`Dispatcher::live_visibility`) and applies the
+/// answer to every live event, as `filter_matches` is applied.
+#[derive(Clone)]
+struct ScopedDispatcher {
+    inner: TestDispatcher,
+    hidden: OperationId,
+}
+
+#[async_trait::async_trait]
+impl Dispatcher for ScopedDispatcher {
+    async fn dispatch(
+        &self,
+        session: &SessionInfo,
+        request: Request,
+    ) -> Envelope<serde_json::Value> {
+        self.inner.dispatch(session, request).await
+    }
+
+    async fn subscribe(
+        &self,
+        session: &SessionInfo,
+        filter: EventFilter,
+        from: Option<Cursor>,
+    ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>> {
+        self.inner.subscribe(session, filter, from).await
+    }
+
+    fn live_visibility(
+        &self,
+        _session: &SessionInfo,
+    ) -> Option<heimdall_ipc::session::LiveVisibility> {
+        let hidden = self.hidden.clone();
+        Some(Arc::new(move |e: &Event| {
+            e.operation_id.as_ref() != Some(&hidden)
+        }))
+    }
+}
+
+/// ⟨M06-W0-R03⟩ Live events the dispatcher's reader visibility hides are never delivered;
+/// visible ones (an operation's, and an environment-level event) are, in order.
+#[tokio::test]
+async fn live_events_follow_the_readers_visibility() {
+    let f = fixture();
+    let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+    let hidden = OperationId::from_random_bytes([0x0b; 16]);
+    let mine = OperationId::from_random_bytes([0x0a; 16]);
+    let d = ScopedDispatcher {
+        inner: TestDispatcher::new(),
+        hidden: hidden.clone(),
+    };
+    let events = d.inner.events.clone();
+    let server = serve_one(&l, d, ConnectionLimits::default(), CancellationToken::new());
+    let client = async {
+        let s = connect(&f.paths.control).await.unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
+        let SubscribeOutcome::Subscribed { subscription, .. } =
+            c.subscribe(EventFilter::default(), None).await.unwrap()
+        else {
+            panic!("subscribed");
+        };
+        events
+            .send(event(
+                1,
+                EventType::OperationStateChanged,
+                Some(hidden.clone()),
+            ))
+            .unwrap();
+        events
+            .send(event(
+                2,
+                EventType::OperationStateChanged,
+                Some(mine.clone()),
+            ))
+            .unwrap();
+        events
+            .send(event(3, EventType::GrantStateChanged, Some(hidden.clone())))
+            .unwrap();
+        events
+            .send(event(4, EventType::PolicyChanged, None))
+            .unwrap();
+        let mut got = Vec::new();
+        while got.len() < 2 {
+            let (sub, ev) = c.next_event().await.unwrap();
+            assert_eq!(sub, subscription);
+            got.push(ev.cursor.0.clone());
+        }
+        assert_eq!(got, vec!["c2".to_owned(), "c4".to_owned()]);
+        drop(c);
+    };
+    let (r, ()) = tokio::join!(server, client);
+    r.unwrap();
+}
+
+/// ⟨M06-W0-R10⟩ A subscription or `observe` filter selecting a revision-6 event type
+/// whose capability the session did not negotiate is refused `SCHEMA_UNSUPPORTED` before
+/// the dispatcher sees it; earlier event types still subscribe. No remote event exists.
+#[tokio::test]
+async fn revision_6_event_selectors_need_their_capability() {
+    let f = fixture();
+    let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+    let d = TestDispatcher::new();
+    let seen = d.seen.clone();
+    let server = serve_one(&l, d, ConnectionLimits::default(), CancellationToken::new());
+    let client = async {
+        let s = connect(&f.paths.control).await.unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
+        assert!(!c.server().capabilities.contains(capability::ROUTES_V1));
+        for types in [
+            vec![EventType::Route],
+            vec![EventType::Environment],
+            vec![EventType::Client],
+            vec![EventType::Device],
+            vec![EventType::RemoteEffect],
+            vec![EventType::OperationStateChanged, EventType::Route],
+        ] {
+            let filter = EventFilter {
+                operation_id: None,
+                types: types.clone(),
+            };
+            match c.subscribe(filter.clone(), None).await.unwrap() {
+                SubscribeOutcome::Refused(env) => {
+                    assert_eq!(env.code, Code::SchemaUnsupported, "{types:?}");
+                }
+                other => panic!("{types:?}: {other:?}"),
+            }
+            let observed = c
+                .request(Request::Observe(
+                    heimdall_contract::request::ObserveRequest::Events {
+                        cursor: None,
+                        filter,
+                        limit: None,
+                    },
+                ))
+                .await
+                .unwrap();
+            assert_eq!(observed.code, Code::SchemaUnsupported, "{types:?}");
+        }
+        assert!(
+            !seen.lock().unwrap().iter().any(|(k, _)| *k == "observe"),
+            "never dispatched"
+        );
+        // Earlier event types still subscribe and observe.
+        let ok = EventFilter {
+            operation_id: None,
+            types: vec![EventType::OperationStateChanged, EventType::PolicyChanged],
+        };
+        assert!(matches!(
+            c.subscribe(ok.clone(), None).await.unwrap(),
+            SubscribeOutcome::Subscribed { .. }
+        ));
+        let observed = c
+            .request(Request::Observe(
+                heimdall_contract::request::ObserveRequest::Events {
+                    cursor: None,
+                    filter: ok,
+                    limit: None,
+                },
+            ))
+            .await
+            .unwrap();
+        assert_eq!(observed.code, Code::Ok);
+        drop(c);
+    };
+    let (r, ()) = tokio::join!(server, client);
+    r.unwrap();
 }

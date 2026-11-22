@@ -29,6 +29,15 @@
 //! The shell hook (`activate --hook`) never attends, prompts or decides (ADR-0011 §10
 //! item 3).
 //!
+//! **⟨M06⟩ M06 commands (m06-plan U0, U2; ADR-0006 §18; the G08 naming ruling).**
+//! `environment` (op `remote_environment`; no `env` alias) and `device` are answered by
+//! `m06_cmd` through the controller operations (`heimdall_app::remote_env`); ⟨M06 W3⟩ `route
+//! add|remove|prefer` and `transport enable|disable|adopt-roost` are sent to the runtime
+//! (`route.*`, `transport.*`), and `transport rotate` rotates K_iroh and announces it to the
+//! recorded runners. `route connect` (the `ProxyCommand` helper rendered configuration
+//! names) and `transport serve` (the supervised serve child) are hidden and frozen. There is
+//! no top-level `roost`.
+//!
 //! **A bare `heimdall`** (no subcommand) opens the TUI when stdin and stdout are
 //! terminals and neither `--json` nor `--non-interactive` is given (overview §3; ADR-0007
 //! §12.30 item 5); otherwise it is `status`, which never starts the runtime.
@@ -82,8 +91,8 @@ use crate::output::{self, error_value};
 use crate::prompt::{self, Answer};
 use crate::{
     activate_cmd, catalog_cmd, connect_cmd, connections_cmd, container_cmd, delegate_cmd,
-    doctor_cmd, enroll_cmd, issuer_cmd, m03_cmd, m05_cmd, portable_cmd, run_cmd, service_cmd,
-    setup_cmd, tui, uninstall_cmd, wsl_cmd,
+    doctor_cmd, enroll_cmd, issuer_cmd, m03_cmd, m05_cmd, m06_cmd, portable_cmd, run_cmd,
+    service_cmd, setup_cmd, tui, uninstall_cmd, wsl_cmd,
 };
 
 /// Heimdall: set up access once; your terminals, tools, and agents work across
@@ -176,6 +185,24 @@ pub enum Command {
     /// Import portable intent from an exported bundle; it grants no access (M05;
     /// ADR-0011 §2.4).
     Import(ImportArgs),
+    /// Remote runner environments: add, invite, join, revoke-client, remove, update,
+    /// status (M06; ADR-0012 §3, §7).
+    #[command(subcommand)]
+    Environment(m06_cmd::EnvironmentCommand),
+    /// This controller device: retire (M06; ADR-0012 §3.4).
+    #[command(subcommand)]
+    Device(m06_cmd::DeviceCommand),
+    /// A destination's approved routes: add, remove, prefer (M06; ADR-0012 §5).
+    #[command(subcommand)]
+    Route(m06_cmd::RouteCommand),
+    /// The Iroh transport: enable, disable, adopt-roost (M06; ADR-0012 §1, §2, §2.8).
+    #[command(subcommand)]
+    Transport(m06_cmd::TransportCommand),
+    /// The runner's side of a paired environment: `init` (the bootstrap's runner-local
+    /// enrollment) and `serve` (the forced command's bridge). Hidden and frozen: the
+    /// bootstrap session and rendered management lines name them (M06; ADR-0012 §3.3, §3.6).
+    #[command(subcommand, hide = true)]
+    Remote(m06_cmd::RemoteCommand),
     /// Read-only inspection of runtime state. Never starts the runtime.
     Inspect {
         /// Subject: capabilities|environments|profiles|destinations|bindings|grants|operations|decisions
@@ -1225,6 +1252,11 @@ pub enum ServiceCommand {
         /// §6).
         #[arg(long)]
         login: bool,
+        /// ⟨M06⟩ Serve as a remote runner with the forced command's paths (this executable
+        /// and the explicit home): `ServiceOptions::runner`. Hidden: started by the runner's
+        /// own wiring (ADR-0012 §3.2, §4).
+        #[arg(long, hide = true)]
+        runner: bool,
     },
     /// Report whether a runtime is serving (exit 5 when none is).
     Status,
@@ -1336,6 +1368,20 @@ pub struct ProjectTrustArgs {
     /// this environment's default profile). With a manifest, it must be the manifest's.
     #[arg(long, value_name = "PROFILE")]
     pub profile: Option<String>,
+}
+
+/// ⟨M06⟩ The arguments of a registered M06 subcommand not built yet (`m06_cmd`): accepted
+/// and ignored, the command is refused before anything else happens.
+#[derive(Debug, Args)]
+pub struct PlannedArgs {
+    /// The command's arguments (defined by the unit that builds it).
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        hide = true,
+        value_name = "ARGS"
+    )]
+    pub args: Vec<OsString>,
 }
 
 /// `activate` arguments (M05; ADR-0011 §3.2, §10 item 3).
@@ -1549,8 +1595,12 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Service(ServiceCommand::Autostart(c))) => {
             return service_cmd::autostart(&ctx, c);
         }
-        Some(Command::Service(ServiceCommand::Run { detach, login })) => {
-            return service_cmd::run(&ctx, detach, login);
+        Some(Command::Service(ServiceCommand::Run {
+            detach,
+            login,
+            runner,
+        })) => {
+            return service_cmd::run(&ctx, detach, login, runner);
         }
         Some(Command::Service(ServiceCommand::Status)) => return service_cmd::status(&ctx),
         Some(Command::Service(ServiceCommand::Stop)) => return service_cmd::stop(&ctx),
@@ -1598,6 +1648,13 @@ pub fn dispatch(cli: Cli) -> ExitCode {
             | AccessCommand::Resume { .. }
             | AccessCommand::Cutoff { .. }),
         )) if m05_cmd::is_targeted(&command) => return m05_cmd::targeted(&ctx, command),
+        // ⟨M06⟩ U2 (ADR-0012 §3): the controller's environment management; `route` and
+        // `transport` stay refused before any runtime contact until U56 lands.
+        Some(Command::Environment(c)) => return m06_cmd::environment(&ctx, c),
+        Some(Command::Device(c)) => return m06_cmd::device(&ctx, c),
+        Some(Command::Route(c)) => return m06_cmd::route(&ctx, c),
+        Some(Command::Transport(c)) => return m06_cmd::transport(&ctx, c),
+        Some(Command::Remote(c)) => return m06_cmd::remote(&ctx, c),
         Some(Command::Destination(c)) => return catalog_cmd::destination(&ctx, c),
         Some(Command::Identity(c)) => return catalog_cmd::identity(&ctx, c),
         Some(Command::Profile(c)) => return catalog_cmd::profile(&ctx, c),
@@ -1982,6 +2039,7 @@ async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
         connection: a.strict.then(m03_cmd::strict_connection),
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     };
     let is_async = a.r#async;
     let mut client = session(ctx, true).await?;
@@ -3355,6 +3413,7 @@ mod tests {
             connection: None,
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
         }
     }
 

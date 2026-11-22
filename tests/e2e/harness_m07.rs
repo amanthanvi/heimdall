@@ -504,6 +504,7 @@ mod journey {
             context: CallerContext {
                 principal,
                 role: ClientRole::Owner,
+                remote_client: None,
             },
             attendance: Attendance::Attended {
                 since: heimdall_contract::Timestamp::now(),

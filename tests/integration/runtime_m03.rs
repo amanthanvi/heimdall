@@ -111,6 +111,7 @@ fn ctx(role: ClientRole) -> CallerContext {
     CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role,
+        remote_client: None,
     }
 }
 
@@ -399,6 +400,7 @@ fn ensure_req(request_id: &str) -> EnsureRequest {
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     }
 }
 
@@ -953,6 +955,7 @@ impl RawClient {
             capabilities,
             required,
             interaction: InteractionMode::NonInteractive,
+            remote_client: None,
         });
         stream
             .write_all(&encode_frame(&hello, CONTROL_LIMIT).unwrap())

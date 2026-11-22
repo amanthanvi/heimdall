@@ -92,6 +92,7 @@ fn owner() -> Caller {
     Caller::unattended(CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::Owner,
+        remote_client: None,
     })
 }
 
@@ -554,6 +555,7 @@ impl W {
                     connection: None,
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 },
             )
             .await;
@@ -3307,6 +3309,7 @@ async fn pause_leaves_active_grant_permit_releasable_and_refuses_new_activation(
                 connection: None,
                 context: None,
                 covered_only: false,
+                pair_issuers: Vec::new(),
             },
         )
         .await

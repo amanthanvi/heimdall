@@ -72,7 +72,7 @@ pub mod install_refusal {
 
 /// The ancestor chain of `grant`, **root first, parent last** (the shape
 /// `SigningGates::retain` records).
-fn ancestors_root_first(
+pub(super) fn ancestors_root_first(
     tx: &mut Txn<'_>,
     grant: &GrantSnapshot,
 ) -> heimdall_store::Result<Vec<GrantId>> {
@@ -235,6 +235,15 @@ impl Operations {
         req: PrepareRequest<'_>,
         sources: &mut IntegrationSnapshot,
     ) -> Result<(), AdapterError> {
+        // ⟨M06 W4 grant-e2e; ADR-0012 §4 item 2 "A runner never issues locally"⟩ On a
+        // remote runner the local effect driver (key, reserve, sign with an issuer here)
+        // does not run at all: the runner's adapter realizes the grant from what its
+        // controller installed, or refuses. The real runner runtime carries the managed
+        // wiring (its effects materialize the binding), which is why this is checked here
+        // and not left to the wiring's absence.
+        if self.runner_grants().is_some() {
+            return Ok(());
+        }
         match self.managed_prepared(adapter, req).await {
             None => Ok(()),
             Some(Err(e)) => Err(e),
@@ -1438,7 +1447,13 @@ impl Operations {
         intent: &heimdall_domain::revocation::CleanupIntent,
     ) -> IntentDisposition {
         use heimdall_contract::OperationState;
-        let preparing = self.is_preparing(&intent.operation);
+        // ⟨M06 W3 grant-path⟩ On a remote runner the live key is the runner signer's (no
+        // credential instance is recorded for it): an open operation's intent stays while
+        // the controller's certificates for the grant are installed there.
+        let preparing = self.is_preparing(&intent.operation)
+            || self
+                .runner_grants()
+                .is_some_and(|r| r.issued(&intent.grant));
         let (gid, op) = (intent.grant.clone(), intent.operation.clone());
         self.write(move |tx, _| {
             if !grant_is_managed(tx, &gid)? {
@@ -1591,7 +1606,7 @@ impl Operations {
         };
         let (gid, op) = (grant.clone(), operation.clone());
         let now = self.clock().wall();
-        let (installed, start) = self
+        let (installed, start, own_pairs) = self
             .write(move |tx, _| {
                 // ⟨M04 Windows fix round 5⟩ The follower's own request's start authority.
                 let start = tx
@@ -1599,6 +1614,11 @@ impl Operations {
                     .map_or(crate::ports::DistributionStart::Forbidden, |o| {
                         materialize_start(o.kind)
                     });
+                // ⟨M06 W4⟩ The pairs this request resolved to: its binding's own subset.
+                let own_pairs = tx
+                    .recovery_intent(&op)?
+                    .and_then(|i| i.resolved)
+                    .map(|r| r.scope.pairs);
                 tx.record_cleanup_intent(&heimdall_domain::revocation::CleanupIntent {
                     grant: gid.clone(),
                     operation: op,
@@ -1610,16 +1630,36 @@ impl Operations {
                     recorded_at: now,
                 })?;
                 if tx.grant(&gid)?.is_none() {
-                    return Ok((false, start));
+                    return Ok((false, start, own_pairs));
                 }
                 Ok((
                     instances_of(tx, &gid)?
                         .into_iter()
                         .any(|i| i.state == CredentialState::Installed),
                     start,
+                    own_pairs,
                 ))
             })
             .await?;
+        // ⟨M06 W4; the attach rule⟩ On a remote runner the shared credential is the
+        // runner signer's (no credential instance is recorded for it): the further binding
+        // is realized from the runner's signer, only while the controller's certificates
+        // for the grant are installed there.
+        if let Some(runner) = self.runner_grants() {
+            if !runner.issued(grant) {
+                return Err(refusal());
+            }
+            // The binding's endpoint lists its own pairs only; without them, nothing is
+            // realized (fail closed).
+            let Some(pairs) = own_pairs.filter(|p| !p.is_empty()) else {
+                return Err(refusal());
+            };
+            let (b, g) = (binding.clone(), grant.clone());
+            return tokio::task::spawn_blocking(move || runner.attach(&b, &g, &pairs))
+                .await
+                .map_err(|_| refusal())?
+                .map_err(|_| refusal());
+        }
         let Some(effects) = self
             .managed_wiring()
             .and_then(|w| w.effects.clone())

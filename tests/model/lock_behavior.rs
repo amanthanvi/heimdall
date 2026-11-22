@@ -97,6 +97,7 @@ fn owner_ctx() -> CallerContext {
     CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::Owner,
+        remote_client: None,
     }
 }
 
@@ -405,6 +406,7 @@ impl W {
                     connection: None,
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 },
             )
             .await;
@@ -870,6 +872,7 @@ async fn linux_revoke_on_lock_labelled_signal_unverified() {
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     };
     let capabilities = heimdall_contract::request::InspectRequest {
         subject: heimdall_contract::request::InspectSubject::Capabilities,

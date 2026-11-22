@@ -18,6 +18,10 @@ heimdall-domain = { workspace = true }
 heimdall-store = { workspace = true }
 heimdall-app = { workspace = true }
 heimdall-credential = { workspace = true }
+# ⟨M06 W3; ADR-0005 §3.5 "Remote reservations" condition 1⟩ The role table
+# (`heimdall_remote::roles::classify`): which role may issue for a runner's grants is read
+# there, never hard-coded here.
+heimdall-remote = { workspace = true }
 # The `heimdall-issuer/1` frames are UTF-8 JSON objects (ADR-0008 D3 item 3).
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -94,6 +98,11 @@ path = "../../tests/integration/issuer_release_gate.rs"
 [[test]]
 name = "integration_issuer_child"
 path = "../../tests/integration/issuer_child.rs"
+
+# ⟨M06 W3⟩ The `remote` reservation kind (ADR-0005 §3.5 "Remote reservations", conditions 1-7).
+[[test]]
+name = "integration_issuer_remote_m06"
+path = "../../tests/integration/issuer_remote_m06.rs"
 
 # M03 wave 2 (U3): the linearization model (ADR-0005 §9.3 R2/R12; m03-plan U3).
 [[test]]

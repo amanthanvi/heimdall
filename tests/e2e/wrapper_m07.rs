@@ -929,6 +929,7 @@ async fn seed_existing_access(
                 uid: fs::metadata(&world.home.root).unwrap().uid(),
             },
             role: ClientRole::Owner,
+            remote_client: None,
         },
         attendance: Attendance::Attended {
             since: heimdall_contract::Timestamp::now(),

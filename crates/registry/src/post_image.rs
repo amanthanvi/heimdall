@@ -14,6 +14,10 @@
 //! line" is byte-for-byte equal; a near-duplicate (another principal, a trailing
 //! space, a `\r`) is a different line.
 //!
+//! ⟨M06 W3⟩ The line selection and both post-write rules are [`crate::keys_file`]'s (the
+//! one authorized_keys safety module, shared with the runner's management-line writer);
+//! this module supplies the enrollment selector ("contains the marker") and the digests.
+//!
 //! A line **containing the marker** but not equal to our line makes
 //! [`post_image_without`] refuse: the removal never rewrites a line it did not write
 //! (`held`, `registry_line_damaged`; D5 §6.8 step 2).
@@ -22,7 +26,8 @@ use heimdall_domain::enrollment::HoldReason;
 
 use heimdall_domain::projection::Sha256Hex;
 
-use crate::line::{contains, marker_lines, marker_of};
+use crate::keys_file::{self, PostCheckError};
+use crate::line::{contains, marker_of};
 
 /// A registry image kept by its length and SHA-256 only (§17.21 item 4: the
 /// journal never stores another key's line or a comment).
@@ -120,20 +125,13 @@ impl PostWriteError {
 /// `line`; [`PostImageError::InvalidLine`] when `line` has no valid marker.
 pub fn post_image_without(preimage: &[u8], line: &str) -> Result<Vec<u8>, PostImageError> {
     let marker = marker_of(line).ok_or(PostImageError::InvalidLine)?;
-    let mut out = Vec::with_capacity(preimage.len());
-    let mut differing = Vec::new();
-    for (index, piece) in preimage.split_inclusive(|b| *b == b'\n').enumerate() {
-        let body = piece.strip_suffix(b"\n").unwrap_or(piece);
-        if body == line.as_bytes() {
-            continue;
-        }
-        if contains(body, marker.as_bytes()) {
-            differing.push(index + 1);
-        }
-        out.extend_from_slice(piece);
-    }
+    let differing: Vec<usize> = crate::line::lines(preimage)
+        .enumerate()
+        .filter(|(_, body)| *body != line.as_bytes() && contains(body, marker.as_bytes()))
+        .map(|(index, _)| index + 1)
+        .collect();
     if differing.is_empty() {
-        Ok(out)
+        Ok(keys_file::without(preimage, |body| body == line.as_bytes()))
     } else {
         Err(PostImageError::MarkerLineDiffers {
             line_numbers: differing,
@@ -164,32 +162,25 @@ pub fn check_post_append_digest(
     post_append(|without| pre.is_prefix_of(without), post, line)
 }
 
+/// ⟨M06 W3⟩ [`keys_file::check_added`] with the selector "contains the marker".
 fn post_append(
     starts_with_pre: impl Fn(&[u8]) -> bool,
     post: &[u8],
     line: &str,
 ) -> Result<(), PostWriteError> {
     let marker = marker_of(line).ok_or(PostWriteError::InvalidLine)?;
-    let count = marker_lines(post, marker);
-    if count != 1 {
-        return Err(PostWriteError::LineDamaged {
-            marker_lines: count,
-        });
-    }
-    let without = post_image_without(post, line).map_err(|_| PostWriteError::LineDamaged {
-        marker_lines: count,
-    })?;
-    if without.len() == post.len() {
-        // The one marker line is not ours.
-        return Err(PostWriteError::LineDamaged {
-            marker_lines: count,
-        });
-    }
-    if starts_with_pre(&without) {
-        Ok(())
-    } else {
-        Err(PostWriteError::PreimageChanged)
-    }
+    keys_file::check_added(
+        post,
+        |body| contains(body, marker.as_bytes()),
+        line.as_bytes(),
+        starts_with_pre,
+    )
+    .map_err(|e| match e {
+        PostCheckError::Lines { selected } => PostWriteError::LineDamaged {
+            marker_lines: selected,
+        },
+        PostCheckError::Prefix => PostWriteError::PreimageChanged,
+    })
 }
 
 /// The post-write check after `remove`, from its reported content `post` (D5 §6.3):
@@ -218,18 +209,19 @@ pub fn check_post_remove_digest(
     post_remove(post_image.is_prefix_of(post), post, marker)
 }
 
+/// ⟨M06 W3⟩ [`keys_file::check_removed`] with the selector "contains the marker".
 fn post_remove(starts_with_image: bool, post: &[u8], marker: &str) -> Result<(), PostWriteError> {
-    let count = marker_lines(post, marker);
-    if count != 0 {
-        return Err(PostWriteError::MarkerPresent {
-            marker_lines: count,
-        });
-    }
-    if starts_with_image {
-        Ok(())
-    } else {
-        Err(PostWriteError::PostImageChanged)
-    }
+    keys_file::check_removed(
+        post,
+        |body| contains(body, marker.as_bytes()),
+        |_| starts_with_image,
+    )
+    .map_err(|e| match e {
+        PostCheckError::Lines { selected } => PostWriteError::MarkerPresent {
+            marker_lines: selected,
+        },
+        PostCheckError::Prefix => PostWriteError::PostImageChanged,
+    })
 }
 
 #[cfg(test)]

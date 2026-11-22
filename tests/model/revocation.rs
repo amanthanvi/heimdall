@@ -95,6 +95,7 @@ fn owner(uid: u32) -> Caller {
     Caller::unattended(CallerContext {
         principal: PrincipalRef::UnixUser { uid },
         role: ClientRole::Owner,
+        remote_client: None,
     })
 }
 
@@ -438,6 +439,7 @@ impl World {
                     connection: None,
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 },
             )
             .await;
@@ -1073,6 +1075,7 @@ async fn equivalent_work_is_single_flight_with_separate_references() {
                     connection: None,
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 },
             )
             .await
@@ -1444,6 +1447,7 @@ proptest! {
                     connection: None,
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 };
                 handles.push(tokio::spawn(async move { ops.ensure(&owner(501), req).await }));
             }
@@ -1580,6 +1584,7 @@ fn rq(rid: &str, work: &str, hosts: &[&str], until: Option<&str>) -> EnsureReque
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     }
 }
 

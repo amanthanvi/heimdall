@@ -16,6 +16,7 @@ the orchestrator's rulings (§13.4). Rules changed by it are marked **⟨r2.1⟩
 applied where the design was silent.
 **Revision 4 (2026-11-08, task M03-W0-integrate):** the M03 wave-0 contract deltas of docs/architecture/m03-plan.md §5 (revision 6) and ADR-0008 (revision 6, rulings §17.1–§17.14), as implemented at wave 0. Rules changed by it are marked **⟨rev4⟩**; §16 lists the deltas and the readings applied.
 **Revision 5 (2026-11-15, task M04-M05-W0-integrate; draft for the contract owner's approval):** the joint wave 0 of M04 and M05 (ADR-0010 §9 item 9, ADR-0011 §10 item 10): both tracks' additive deltas (`docs/architecture/m04-plan.md` §5, `docs/architecture/m05-plan.md` §4) as amended by the two rulings, the policy-resolution change of ADR-0011 §10 item 1 (replacing §13.6 item 5's first-by-ID choice) and the ensure-hash rule of ADR-0011 §10 item 5; it also carries one M03 follow-up, the reason `issuer_refused` (M03 exit suite, wave 6 question I-8(2)). Rules changed by it are marked **⟨rev5⟩**; §17 lists the deltas, the two rules, the readings applied and the questions put to the contract owner.
+**Revision 6 (2026-11-20, task M06-W0-contract; draft for the orchestrator's approval):** ADR-0012 §9 items 1–11 (the M06 contract deltas; m06-plan U0), applied at M06 wave 0. Two semantic changes are implemented: the caller context gains the paired client (idempotency, ownership, visibility and cursors are keyed by it) and the hello negotiates `required ⊆ offer ∩ server ∩ role`. Everything else is declared and fails closed. Rules changed by it are marked **⟨rev6⟩**; §18 lists the deltas, the readings applied and what is not in wave 0.
 **Affects:** R-AP-01…R-AP-08, R-RT-03, R-RT-06, R-SE-05, R-SE-06, R-AU-06.
 **Executable form:** `crates/contract` (types, code table, limits, schemas),
 `crates/domain::lifecycle` (state machines), `crates/ipc` (transport); `schemas/
@@ -135,6 +136,13 @@ capabilities (intersection), principal, environment_id }` or
 capability outside the **negotiated** set (**⟨rev2⟩** F10: `required ⊆ offer ∩
 capabilities`, so a hello cannot require what it did not offer to speak);
 `USAGE_ERROR` for a malformed hello. `ipc::session::negotiate` is the pure rule.
+**⟨rev6⟩** The rule becomes `required ⊆ offer ∩ server ∩ role` (ADR-0012 §6.2;
+`ipc::session::negotiate_for_role`): a required capability the server lacks stays
+`SCHEMA_UNSUPPORTED`; one the caller's role lacks is `CAPABILITY_UNAVAILABLE`, reason
+`role_insufficient`. `ServerHello.role` reports the role of a role-negotiated session and is
+omitted for the local same-user session (the owner). `ClientHello.remote_client` names a
+paired client and is refused `SCHEMA_UNSUPPORTED` by a runtime that does not offer
+`remote-control/1` (§18).
 
 **⟨rev2⟩ Session interaction and attendance.** `interaction` (`interactive` |
 `non_interactive`, default non-interactive when omitted) is a property of the
@@ -165,7 +173,9 @@ capabilities` returns schema names and the code table; R-AP-08), `service-contro
 principal. Without the negotiated capability it is refused with `SCHEMA_UNSUPPORTED`;
 from a non-owner role it is refused with `CAPABILITY_UNAVAILABLE`. A remote paired
 client (G07) negotiates a subset; its role is carried in the caller context, never
-inferred from the capability list.
+inferred from the capability list. **⟨rev6⟩** `remote-control/1`, `runner/1`, `routes/1` and
+`transport-iroh/1` are declared and not offered; `capability::for_role` gives each role's set
+(§18).
 
 ### 2.5 Per-connection and per-endpoint limits (spec §11.5)
 
@@ -380,7 +390,9 @@ and `LaunchFailed` (127), and `Code::exit_code_for_reason` applies the 126 rule.
 ### 7.1 Identity
 
 `IdempotencyKey = (CallerContext { principal (OS uid/SID), role }, operation kind,
-request_id)`. Keys are namespaced by principal, so the same `request_id` from a
+request_id)`. **⟨rev6⟩** The caller context is `{principal, role, remote_client}` (ADR-0012
+§3.7): two paired clients' identical `request_id`s are different keys. `remote_client` is
+omitted when absent, so every stored key and hash is unchanged (§18). Keys are namespaced by principal, so the same `request_id` from a
 different owner is a different key (spec §14.3 "request-ID collision across
 owners", A29). `request_id` and `work_id` are bounded tokens (`[A-Za-z0-9._:-]`,
 ≤ 128 bytes).
@@ -434,7 +446,9 @@ classify(record, marker, hash, now)`).
 * **Cursor** = opaque `base64url(version || reader_tag || environment || seq)`;
   `reader_tag` is a hash of the authenticated caller context, so cursors are scoped
   to the reader. A cursor from another reader, with an unknown version, or below the
-  retained tail yields `RESYNC_REQUIRED` with `next.resync`. **⟨rev2⟩** The store
+  retained tail yields `RESYNC_REQUIRED` with `next.resync`. **⟨rev6⟩** The caller
+  context includes `remote_client`, so cursors are scoped to the paired client too; a caller
+  without one keeps its tag (§18). **⟨rev2⟩** The store
   keeps **neutral** sequences only (`Txn::stored_events_after`, `StoredEvent { seq,
   event }`); reader-scoped cursors are built **at delivery** by the application
   (`heimdall_app::events::cursor`) and, for live events, by the session through the
@@ -2278,3 +2292,299 @@ profile `inner` with its pair; the destination list has no such row; `connect la
 route skips it and writes nothing for it; the exporter, which has the matching route, is
 `unchanged`), `a_jump_resolves_against_the_reconciled_hop` and
 `every_row_of_a_repeated_destination_id_is_refused`.
+
+## 18. ⟨rev6⟩ Revision 6 (M06 wave 0)
+
+Revision 6 is ADR-0012 §9 (items 1–11) applied at M06 wave 0 (m06-plan U0). The orchestrator
+owns it as the contract owner (m06-plan §0 rule 1). This text is the wave-0 worker's draft for
+that approval; §18.2 lists the readings put to the orchestrator rather than decided here.
+
+Schema major stays `"1"` (§9): every change is additive. Every new field is
+`#[serde(default)]` and omitted when it carries no value, so every M01–M05 document, stored
+record, request hash, cursor and golden is byte-identical. The code table stays at **30 rows**
+and no exit code changes: revision 6 adds reasons (`reason::M06`), never codes.
+
+**Implemented** (the two semantic changes):
+
+* **The caller context** gains `remote_client` (ADR-0012 §9 items 1–2). Idempotency keys,
+  operation ownership and visibility, binding ownership and event cursors are keyed by it.
+  Nothing sets it in wave 0: the runtime builds every caller with `remote_client: None`, and
+  no request field can set it.
+* **Negotiation** is `required ⊆ offer ∩ server ∩ role` with both refusal codes (item 4). Every
+  local caller is the owner, so nothing changes for it, and its server hello is byte-identical.
+  A hello carrying `remote_client` is refused `SCHEMA_UNSUPPORTED` by every wave-0 runtime.
+
+**Declared and failing closed** (everything else):
+
+* the capabilities `remote-control/1`, `runner/1`, `routes/1` and `transport-iroh/1` are
+  declared and **not offered** (`capability::REVISION_6_DECLARED`; `ipc::session` and
+  `inspect capabilities` list none of them);
+* each revision-6 request form names its capability in `Request::required_capability`, so a
+  session that did not negotiate it gets `SCHEMA_UNSUPPORTED` before dispatch;
+* every revision-6 form reached in process answers `CAPABILITY_UNAVAILABLE` with reason
+  `driver_unavailable` **before any record is written**, whatever the caller's role
+  (`Operations::revision_6_request`);
+* the CLI's new commands answer M01's "not available in this build" envelope with "(planned for
+  M06)" (§16.2 item 6);
+* the views, events, routes, readiness residuals and store tables are types and schema only.
+
+### 18.1 Deltas (ADR-0012 §9 item → what landed → where)
+
+| Item | What landed | Where |
+|---|---|---|
+| 1 (§2.1 caller identity) | `CallerContext.remote_client: Option<ClientId>` (serde default, omitted when `None`); `CallerContext::local(principal, role)` and `same_caller` (same principal **and** same client); `ClientId` (`cl_<hex>`, a prefixed ID validated like the others). `runtime::dispatch::caller_for` builds `remote_client: None` | `contract::ids`, `domain::principal`, `runtime::dispatch` |
+| 2 (§7.1 idempotency; §4.1 ownership and visibility; §8 cursors) | The key is `(CallerContext{principal, role, remote_client}, kind, request_id)`; with no client the key document, its hash and the stored `caller_json` are unchanged (explicit bytes in the test). `app::events::visible_to`, `domain::binding::may_act_on` and `revoke`'s grant visibility compare `same_caller` instead of the principal alone; the cursor's reader tag hashes the whole context. The closing of a revoked client's sessions and subscriptions (the terminal `client_revoked` event) is U1's | `domain::idempotency`, `domain::binding`, `app::events`, `app::operations` |
+| 3 (§2.3, §3.1, §13.3 item 2 attendance) | Unchanged, as ADR-0012 states. No `RemoteDecide` form exists; no revision-6 form is attended-only or a widening policy action, and a widening one creates a pending record when its unit lands | `contract::request` |
+| 4 (§2.3 negotiation) | `ipc::session::negotiate_for_role(hello, principal, role, …)`: server lacks a required capability → `SCHEMA_UNSUPPORTED`; the role lacks it → `CAPABILITY_UNAVAILABLE` / `role_insufficient`; optional capabilities are cut to the role's set. `negotiate` is the local owner (`role: None`, not reported). `ServerHello.role: Option<Role>` and `ClientHello.remote_client: Option<ClientId>`, both omitted when absent. A hello with `remote_client` is `SCHEMA_UNSUPPORTED` unless the runtime offers `remote-control/1`. `remote::Role {owner, requester, viewer}`, `remote::Permission` (the seven of ADR-0012 §3.8), `Role::permissions`; `capability::for_role` (owner: `capability::ALL`; requester: `operations/1`, `events/1`, `schema-discovery/1`, `managed-credentials/1`; viewer: `operations/1`, `events/1`, `schema-discovery/1`); the four capabilities, `REVISION_6_DECLARED`, not offered | `contract::ipc`, `contract::remote`, `ipc::session` |
+| 5 (environment view) | `EnvironmentKindView::RemoteRunner`; `RealizationView::RemoteRunner {destination, account}`; `EnvironmentView.{connectivity, last_seen_at, runner_lifetime, remote_pending[], pinned_host_key, management_policy}`, each omitted when absent. `remote::Connectivity` (`connected`, `disconnected{last_seen_at}`, `unreachable{reason}`), `RunnerLifetime` (`user_service`, `session_scope`, `unknown`), `ManagementPolicy` (`verified`, `owner_only`), `RemotePending` (`effect{effect, target, reason?}`, `client_revocation{client, reason?}`); `EnvironmentView::new` for local views. Schema `inspect-environments` regenerated | `contract::environment`, `contract::remote`, `app::operations::{container_m04, wsl_m04}` |
+| 6 (new requests) | `Request::RemoteEnvironment` (op `remote_environment`, actions `add`, `invite`, `join`, `revoke_client`, `remove`, `update`, `status`) and `Request::Device` (`retire`), capability `remote-control/1`; `Request::Route` (`add`, `remove`, `prefer`, `resolve_binding` = `ResolveRouteBinding`), `routes/1`; `Request::Transport` (`enable`, `disable`, `adopt_roost`), `transport-iroh/1`; `Request::Runner` (`prepare_remote_grant`, `install_certificate`, `time_challenge`, `time_response`, `deliver_effect`, `authority_report`), `runner/1`. Kinds `<op>.<action>`. Admission: `status`, `resolve_binding` and `authority_report` read-only, every other form synchronous (no operation row, no new `OperationKind`). `remote::EffectTarget` is typed: `grant_revoke{grant, grant_generation}`, `policy_pause{policy, revision}`, `policy_cutoff{scope: PolicyTarget, revision}`. No `RemoteDecide`; no serve-child lease or suspend message. `Request::is_revision_6`; `app::operations::revision_6_refusal`; the runtime routes the five ops to `Operations::revision_6_request` | `contract::{request, remote, route}`, `app::operations::remote_m06`, `runtime::dispatch` |
+| 7 (reasons) | `reason::M06`: 23 reasons, each `CAPABILITY_UNAVAILABLE` (exit 4, not retryable); `route_dependency_out_of_scope` stays M04's. `reason::IROH_ADMISSION_CLOSING` in `reason::M06_PENDING`, a `remote_pending` reason with no code. Golden `tests/contracts/golden/rev6-reasons.golden.json` | `contract::envelope` |
+| 8 (events) | `EventType::{Environment, Client, Device, RemoteEffect, Route}`, declared and not emitted. Payloads: `remote::EnvironmentEventPayload {kind: connectivity_changed, environment, connectivity}`, `ClientEventPayload {kind: enrolled \| revoked, environment, client, role?}`, `DeviceEventPayload {kind: retired, revoked_on[]}`, `RemoteEffectEventPayload {kind: pending \| acknowledged, environment, producer, effect, target}`; `route::RouteHealthPayload {kind: health \| failed_over, destination, account, attempts: [{route, failure?}], final_route?}` with `RouteFailureClass` (`refused`, `timeout`, `identification_timeout`, `admission_refused`, `terminal_after_forwarding`) | `contract::{event, remote, route}` |
+| 9 (destinations) | Types only: `route::RouteSpec` (`direct{host, port?}`, `jump{via}`, `iroh{endpoint, external_roost}`), `ExposurePolicy {bind, infrastructure, direct_fallback}` (default: the minimal policy), `BindScope`, `InfrastructureProfile` (`none`, `custom{relays}`, `n0_public`), `DestinationRoute {id, route, exposure?, consents[], identification_timeout_ms?}`, `HostKeyPin {public_key, fingerprint}`, `DestinationRoutes {destination, routes[], host_keys[]}`; IDs `RouteId` (`route_`), `ConsentId` (`cns_`), `KeyFingerprint`, `IrohEndpointId` (64 lowercase hex). Not wired into the catalog or the domain | `contract::{route, ids}` |
+| 10 (readiness) | `ReadinessCondition::{RunnerLifetime, RunnerTimeBounded, RunnerProcessNotRestarted}`; `managed::RevocationResiduals {new_authentication?, owned_dedicated_sessions?, owned_admissions?, other_live_sessions?, detached_remote_processes?}`, `AuthenticationResidual {latest_possible_credential_expiry?, destination_clock_error}` (`destination_clock_error` is the existing `DestinationClock`: `{"measured": {behind_upper_ms, …}}` or `"unmeasured"`), `ComponentResidual` (`closed`, `not_ended`, `unknown`); every field omitted when absent. Not attached to `EnsureData` in wave 0 (§18.2 item 14) | `contract::managed` |
+| 11 (store) | Migration `0009_remote` (`SCHEMA_VERSION` 9), tables only: `remote_clients` (the role table and client tombstones), `remote_invitations` (generation, wall deadline, boot ID, elapsed bound), `remote_effect_outbox` and `remote_effect_acks` (keyed by producer, effect ID, typed target and target generation), `remote_policy_revisions`, `remote_environment_pins`, `remote_grant_issuers`, `destination_routes`, `route_consents`, `remote_authority_generation`, `transport_keys` (references only). Runner-local decisions use the existing `decisions` table. In `REQUIRED_TABLES`; classified in `TABLE_RECOVERY` (§18.2 item 16). No store API | `store::migrations`, `store`, `store::ext_m03` |
+| CLI | `env`, `device`, `route`, `transport`, `roost`: registered, arguments accepted and ignored, each answered by `m06_cmd::refuse` with `USAGE_ERROR` (exit 2, effect `none`, `fix_request`) "(planned for M06)" before any runtime contact or home creation; a `--json` after the command still selects the envelope. Golden `tests/contracts/golden/cli-help/top-level.txt` | `heimdall::{cli, m06_cmd}` |
+| Schemas | `schemas/public-api/` regenerated with the real binary (`heimdall schema export`): `request`, `ipc.client-message`, `ipc.server-message`, `event`, `inspect-environments` and `envelope.ensure` (the readiness conditions) changed; no file added | `schemas/public-api` |
+
+**Proofs.**
+* **Contract** (`cargo test -p heimdall-contract`): `contracts::rev6::{rev6_reason_golden, rev6_request_forms, rev6_capabilities_declared_and_roles, rev6_earlier_forms_unchanged, rev6_additive_documents}`; the journaled-kind and capability tables of `contracts::m02` cover every revision-6 form (`golden/journaled-kinds.golden.json`, `golden/rev6-requests.golden.json`); `schema_export::checked_in_public_api_matches_the_model_exactly`; unit tests `ids::tests::m06_ids_validate`, `remote::tests::{roles_hold_their_permissions, effect_targets_are_typed}`, `route::tests::default_exposure_is_minimal`.
+* **Idempotency, ownership, cursors**: `heimdall_domain::idempotency::tests::remote_client_namespaces_the_key_and_none_keeps_the_old_encoding` (two callers differing only in their client get different keys; no client is the revision-5 byte string and hash), `heimdall_domain::binding::tests::foreign_limited_caller_may_not_act`, `heimdall_app::events::tests::remote_client_scopes_cursors_and_visibility`.
+* **Negotiation**: `heimdall_ipc::session::tests::{the_revision_6_capabilities_are_declared_not_offered, negotiation_intersects_the_role_with_both_refusal_codes, a_hello_naming_a_remote_client_is_refused_without_remote_control}`.
+* **The landing**: `heimdall_runtime::dispatch::tests::w0_revision_6_requests_fail_closed_before_any_record` (every form of the golden, as owner and as a limited caller: `driver_unavailable`, effect `none`, no operation, decision, event or generation change); `heimdall_app::operations::remote_m06::tests::only_revision_6_forms_are_refused`; `heimdall::m06_cmd::tests::m06_commands_refuse_as_planned_for_m06`.
+* **Store**: `heimdall_store::migrations::tests::remote_step_applies_on_the_previous_version_and_rolls_back_whole` (0009 on a version-8 database, earlier rows kept; a broken step leaves version 8 and none of its tables), with the existing `failing_step_rolls_back_whole_step_and_version`; `heimdall::uninstall_cmd::tests::recovery_snapshot_classifies_every_table` covers the new tables.
+
+### 18.2 Readings applied where the design is silent (ruled 2026-11-21: confirmed, or amended in §18.5)
+
+1. ⟨amended: §18.5⟩ **A hello naming `remote_client`** is refused `SCHEMA_UNSUPPORTED` by any runtime that does
+   not offer `remote-control/1`; in wave 0 that is every runtime (the integrator's reading).
+2. ⟨amended: §18.5⟩ **Route types are contract-only.** The destination object keeps its single route and jump
+   fields; `DestinationRoutes` is not attached to the catalog or the domain (U5a's work; the
+   integrator's reading).
+3. **The store is forward-only.** m06-plan U0's "migration up and down" is read as: 0009 applies
+   on a version-8 database, a failure inside it rolls the whole step back, and no down
+   migration exists (the integrator's reading). A later change is a new step.
+4. **`ServerHello.role`** is reported only for a role-negotiated session
+   (`negotiate_for_role(.., Some(role), ..)`). The local same-user session is the owner (§2.1)
+   and its hello stays byte-identical.
+5. ⟨amended: §18.5⟩ **The role capability sets** (`capability::for_role`): owner every capability; requester the
+   primitives, events, schema discovery and managed-credential results; viewer the
+   primitives, events and schema discovery. Neither limited role gets `remote-control/1` or
+   another revision-6 capability. A negotiated capability never authorizes: each request is
+   still checked against the role (U1).
+6. **Request names.** `env` is the op `remote_environment` (distinct from revision 5's local
+   `environment`). `ResolveRouteBinding` is `route.resolve_binding` under `routes/1`, because
+   the helper runs wherever a routed alias is rendered. `roost adopt` is
+   `transport.adopt_roost` under `transport-iroh/1`, because the route it creates is an Iroh
+   route.
+7. ⟨amended: §18.5, M06-W0-R08⟩ **Request IDs and admission.** The forms that can widen authority or exposure carry a
+   required `request_id`, so a replay after the runner-local decision returns the recorded
+   terminal result (ADR-0012 §3.10 T-RA3). Those forms are `invite`, `route add`,
+   `route prefer`, `transport enable` and `adopt_roost`. Narrowing, compare-and-set and local
+   forms carry none, as revision 5's environment requests. No form gets an operation row.
+8. **The producer of an effect is never a request field.** `deliver_effect` carries the effect
+   ID and the typed target. The producing controller is the session's authenticated client
+   (ADR-0012 §7.2 "authenticated producing controller").
+9. ⟨superseded: §18.5, M06-W0-R02⟩ **`policy_cutoff` carries no instant.** A delivered cutoff takes effect when applied, the
+   narrowest reading of "ends every affected grant like expiry" (DONE question W0C-Q2).
+10. **Time samples** are two requests: `time_challenge` asks the runner for a nonce, and
+    `time_response {nonce, controller_time}` answers it (T_c). The runner cannot originate a
+    request on the management channel.
+11. **Event families.** Each ADR-0012 name `family.kind` is `EventType::<Family>`, with the
+    payload's `kind` naming the event, as revision 5's `activation` event does. The
+    `route.failed_over` subtype is `kind: failed_over` with the same attempt result as
+    `route.health`.
+12. **The target generation** rides inside the typed target (`grant_generation`, `revision`), not
+    in a separate field beside it (`EffectTarget::generation`).
+13. **A remote runner's realization** is `RealizationView::RemoteRunner {destination, account}`:
+    the catalog destination and runner account that reach it. `EnvironmentView.realization` is
+    required.
+14. ⟨amended: §18.5, M06-W0-R09⟩ **The residuals are not attached in wave 0.** ADR-0012 §9 item 10 puts them beside
+    `EnsureData`'s readiness fields. Attaching an optional field there breaks every
+    `EnsureData` struct literal, and most of them are in test files outside wave 0's write
+    scope. The types are complete and serialize as specified, and U3/U4 attach them (or the
+    integrator does, with the literal edit).
+15. **The wave-0 refusal is uniform.** Every revision-6 form answers `driver_unavailable`
+    whatever the role, so it tells a limited caller nothing beyond the capability list. The
+    role checks (`role_insufficient`) are U1's.
+16. ⟨amended: §18.5⟩ **Store details.**
+    * Runner-local decisions reuse `decisions`.
+    * The outbox (controller) and the acknowledgements (runner) are separate tables, both keyed
+      by the four §7.2 parts.
+    * The admission authority generation is a one-row table of its own, so the serve lease never
+      moves with grant or policy changes; whether it should be the existing
+      `meta.authority_generation` is DONE question W0C-Q4.
+    * No uniqueness is imposed on key fingerprints, since re-inviting a revoked key is U1's
+      decision.
+    * All eleven tables are `Discarded` in the recovery snapshot while no writer exists. Each
+      unit reclassifies its table before its writer lands (DONE question W0C-Q3).
+17. ⟨amended: §18.5, M06-W0-R03⟩ **Ownership and visibility** compare the same principal **and** the same client; the owner
+    role still sees and acts on everything (ADR-0012 §3.7 "plus the environment-level views
+    its role permits").
+18. **IDs.** The new prefixes are `cl_`, `inv_`, `route_`, `eff_` and `cns_`. `KeyFingerprint`
+    has the `CaFingerprint` form (`SHA256:` and 43 base64 characters). `IrohEndpointId` is the
+    64-hex form observed in G06.
+
+### 18.3 Not in wave 0
+
+* Serving any revision-6 form; offering any revision-6 capability; setting `remote_client`
+  (the bridge, U1); attaching `RevocationResiduals` to `EnsureData`.
+* The role table, invitations, the effect outbox, pins, routes and transport keys as store
+  APIs (U1–U5), and their recovery classes.
+* Emitting the revision-6 events; closing a revoked client's sessions and subscriptions; the
+  route-health result; the remote environment view's values.
+* Routes in the catalog and the domain, the helper and failover (U5a, U5b); the transport and
+  its serve child (the `heimdall-transport-iroh` crate); K_mgmt and K_iroh custody.
+* The argument trees of `env`, `device`, `route`, `transport` and `roost` and their help goldens
+  (U2, U5).
+
+### 18.4 Revision 6.1 (M06 wave 1)
+
+Four additive corrections the wave-1 units (U1, U5a, U6a) needed; the integrator applied them
+as contract owner. Schema major stays `"1"`; every revision-6 form keeps its capability,
+admission and fail-closed landing.
+
+| Item | What landed | Where | Raised by |
+|---|---|---|---|
+| 1 | `RemoteEnvironmentRequest::Invite.public_key` (one OpenSSH public key line, public text), required: the runner writes the management line from it and refuses it unless its fingerprint equals `key_fingerprint` (ADR-0012 §3.9 item 1) | `contract::remote` | U1 (the fingerprint alone cannot write a line) |
+| 2 | `RemoteEnvironmentRequest::ActivationProbe {environment, nonce}`, kind `remote_environment.activation_probe`, `remote-control/1`, admitted like `join`: the wire form of ADR-0012 §3.2's confirming probe and one of the two forms a pending client may send (§3.9 item 3) | `contract::remote`, `contract::request` | U1 (no wire form existed) |
+| 3 | `RouteSpec::Iroh.direct_addresses` (`ip:port` strings, omitted when empty): direct paths go only to these unless the exposure policy consents to direct fallback (ADR-0012 §2.1) | `contract::route` | U6a (Q2) |
+| 4 | `RouteFailureClass::AuthenticationOrTrust`: a jump leg that fails host-key verification or authentication at the jump host before identification; terminal, never failed over (ADR-0012 §5.5 item 3) | `contract::route`; used by `app::routes_failover` | U5a (such failures were recorded as `refused`) |
+
+Goldens: `rev6-requests.golden.json` (the invite row gains `public_key`; a probe row),
+`journaled-kinds.golden.json` (the probe kind beside `join`), `contracts::rev6` (22 forms).
+Schemas regenerated (`request`, `ipc.client-message`).
+
+### 18.5 Orchestrator rulings on the W0 review (2026-11-21)
+
+The independent review of `ce5b0dc2..a2576a51` (archived redacted at
+`tests/evidence/artifacts/review-m06/w0.md`; FIX FIRST: M06-W0-R01–R03 blocking) and the
+orchestrator's rulings, applied in M06 wave 1. Readings 3, 4, 6, 8, 10–13, 15 and 18 are
+**confirmed** as the reviewer marked them. The others are amended:
+
+| Reading | Ruling | Finding | Where it lands |
+|---|---|---|---|
+| 1 | W0's unconditional refusal stays. U1 accepts a client ID only from a runner session with a resolved bridge identity and role; a capability advertisement alone never establishes identity | — | U1 (W1), runtime acceptance W2 |
+| 2 | Explicit deferral: U5a attached the route list on the domain side (W1); attaching routes and pins to the **public** destination object (schema) is U56's, with the pin-source ruling | M06-W0-R09 | m06-plan U0, U56 |
+| 5 | Ordinary role intersection stays; a pending session gets a pending-only path (activation probe and `join`, with the invitation and identity checks ahead of any recorded result) without opening `join`'s capability to limited sessions; primitives and event delivery are gated by permission and scope | M06-W0-R06 | U1 before W2's exit (dispatch is wired in W2) |
+| 7 | Per-action replay mapping: a preference among consented routes needs no decision (`route prefer` request ID optional, idempotency only); bootstrap owner enrollment and device retirement are locally attended confirmations, separate from T-RA3; every widening request a paired client can submit carries a required `request_id` with terminal replay — always on `invite`, `route add`, `transport enable` and `transport adopt_roost` (not computed from the consent delta) | M06-W0-R08 | contract (rev 6.1: `Prefer.request_id` optional), `remote::widening` |
+| 9 | **Superseded.** A delivered cutoff carries the owner's instant `at` (`EffectTarget::PolicyCutoff.at`). The runner's effective cutoff is `min(existing, delivered)`: a delivered or replayed cutoff only shortens it; moving it later is a widening (runner-local). An `at` at or before trusted now applies at the durable apply, no signature after that commit; a future `at` is persisted and enforced at `at` by the supervisor wake (I-26 wakes for `cutoff_at`); under uncertain time it fires as soon as `at` may have passed (the upper bound of now) | M06-W0-R02 | contract (rev 6.1), enforcement U4 (tests: early, late, replay under uncertainty) |
+| 14 | Explicit deferral: U3 attaches the residuals to `EnsureData`, with the literal edit, in the same commit | M06-W0-R09 | m06-plan U0, U3 |
+| 16 | Key-fingerprint uniqueness is scoped per runner and role table; policy-revision identity is producer-scoped `(scope_key, producer, revision)` with a runner-side order (`runner_seq`) and composing narrowing effects — migration 0009 amended in place before any writer (unmerged, unreleased); recovery and purge cases before writers, transport writers included (ruling 3: `placeholder_discarded_tables_have_no_writer`) | M06-W0-R05 | 0009, U4, store |
+| 17 | The local owner keeps its global bypass. A paired caller, owner role included, gets client-scoped ownership (principal and client) plus only its role-permitted environment views and the named cross-controller narrowing powers (ADR-0012 §7.2, §8); no blanket bypass for observe, cancel or binding ownership; visibility on every delivery path (event pages, resumed and live subscriptions) | M06-W0-R03 | app, domain, ipc (W1) |
+
+### 18.6 Revision 6.2 (M06 wave 2)
+
+Additive changes the wave-2 units (the paired runtime, U2, U3, U56) needed; the integrator
+records them as contract owner, pending the orchestrator's approval with the W2 review. Schema
+major stays `"1"`; every earlier document, stored record and golden is byte-identical.
+
+| Item | What landed | Where | Source |
+|---|---|---|---|
+| 1 | A runner runtime (its own environment of kind `remote_runner`, written by `heimdall remote init` → `runtime::paired::init_runner`) **offers** `remote-control/1` and the role-intersected subset; every other runtime keeps W0's refusal. A hello's `remote_client` is accepted only when the runner's role table resolves it (`remote::resolve_session`), and the session takes the table's role (§18.5 reading 1) | `runtime::paired`, `ipc::session` | ADR-0012 §3.6 |
+| 2 | `ServerHello.remote_client` (omitted when none): a runner reports the paired client of the session | `contract::ipc` | U2 (W2) |
+| 3 | `client.revoked` events are emitted: revoking a client closes each of its subscriptions with that terminal event, then the session | `runtime::paired` | §9 item 2, ADR-0012 §3.7 |
+| 4 | Decision and resource events reach a paired owner as read-only owner-role environment views with every decision handle stripped (no decision or resource ID usable for approval: live events, resumed backlogs, snapshots, event pages, `inspect decisions`); requester and viewer receive none (their view sets name none) | `app::events`, `runtime::paired` | orchestrator ruling of 2026-11-21 |
+| 5 | `DecisionKind::RemoteWidening` (domain) with migration `0010_remote_widening.sql` (schema 10; recovery class `Rows`, with recovery cases): runner-local widening records are durable decision records; approval and execution re-check the exact request (hash, kind, request ID, invite key and role, transport exposure delta) | `domain`, `store`, `app::operations` | ADR-0012 §3.10; M06-W0-R07/R08 |
+| 6 | Reason `mgmt_key_store_unavailable` (`CAPABILITY_UNAVAILABLE`): a missing, not locked, K_mgmt store | `contract::envelope` (`reason::M06`) | U2 (W2), ADR-0012 §3.4 |
+| 7 | `EnsureData.residuals` (optional, omitted when absent): the per-component residuals of ADR-0012 §7.3 with `latest_possible_credential_expiry` and `destination_clock_error: measured{bound} \| unmeasured` | `contract::request` / readiness types | §18.5 reading 14 (U3) |
+
+**Readings applied in wave 2 (pending the orchestrator's confirmation):**
+- The refresh dependency of a runner's managed binding is the existing contract value `controller` (ADR-0012 §4.5 calls it `controller_issuer`; the value already means the controller's issuer).
+- `issuer_trust` and the time-source designation persist as `meta` keys (classified for the recovery snapshot) until a unit needs a table.
+- The runner's authorized_keys writer (`runtime::paired_lines`) re-implements ADR-0005 §3.3's steps (append-only add, compare-then-rename rewrite and remove, symlink and hard-link refusal, re-read after every write) because the registry helpers fit only enrollment lines; it reads every `AuthorizedKeysFile` and writes only the account's own `authorized_keys`.
+
+
+### 18.7 Revision 6.3 (M06 wave 3)
+
+The orchestrator's rulings of 2026-11-21 on the W2 questions (m06-plan §2 "W3 rulings"; ADR-0012's
+⟨2026-11-21⟩ amendments). Additive: schema major stays `"1"`; every earlier document, stored record
+and golden is byte-identical; each new field is omitted when empty or false.
+
+| Item | What lands | Where | Source |
+|---|---|---|---|
+| 1 | Migration `0011` (schema 11): table `remote_client_endpoints (client_id TEXT PRIMARY KEY REFERENCES remote_clients, endpoint_id TEXT NOT NULL UNIQUE, recorded_at TEXT NOT NULL)`, recovery class `Rows`, with recovery cases; column `remote_invitations.iroh_admission INTEGER NOT NULL DEFAULT 0` | `store` | ruling 4 (Q2) |
+| 2 | `Invite.iroh_admission: bool` (omitted when false): the invited client may reach this runner over Iroh. It is part of the invitation's exact request, so the runner-local widening decision confirms it | `contract::remote` | ruling 4 |
+| 3 | `Join.iroh_endpoint: Option<IrohEndpointId>` (omitted when none): the client's own endpoint ID, sent over its K_mgmt session. The runner records it in the join's commit transaction only when the invitation has `iroh_admission`; otherwise the join is refused (`USAGE_ERROR`, `fix_request`, effect `none`; corrected 2026-11-21: the code table has no `INVALID_REQUEST`). The owner never types endpoint IDs | `contract::remote`, `remote`, `store` | ruling 4 |
+| 4 | `RemoteEnvironmentRequest::RotateEndpoint { environment, endpoint }`, kind `remote_environment.rotate_endpoint` (capability `remote-control/1`, any role, the session's own client only). It sets or atomically replaces that client's `remote_client_endpoints` row, only when its consumed invitation had `iroh_admission`. A replacement bumps `remote_authority_generation` in the same transaction; the same endpoint again is a no-op. The controller's `heimdall transport rotate` rotates this device's K_iroh and sends it to each recorded runner. Revocation deletes the client's row in the tombstone's transaction | `contract::remote`, `remote`, `runtime::paired`, `app` | ruling 4 (answers U56-Q7 for client endpoints) |
+| 5 | `ExposurePolicy.port: Option<u16>` (omitted when none; `0` refused): the serve port. `heimdall transport enable --port <n>`. Without it the first successful bind's port is recorded durably and reused. An unbindable port fails closed (`CAPABILITY_UNAVAILABLE`, reason `transport_unavailable`) with a doctor finding naming the port; changing it is `disable` then `enable` | `contract::route`, `runtime::supervise_transport`, `heimdall` | ruling 5 (Q5) |
+| 6 | `Request::ControllerRecord(ControllerRecordRequest)`: `put_environment { record: RemoteEnvironmentPin }` and `remove_environment { environment }` (kinds `controller_record.put_environment`, `controller_record.remove_environment`). `RemoteEnvironmentPin` and `ManagementRoute` move from `app::remote_env` into the contract unchanged. Local owner only; a paired session is refused. The CLI keeps the TTY confirmations and the ssh bootstrap, sends the form when a runtime answers, and writes directly under the instance lock when none does, so `environment add/join/remove` and `device retire` no longer answer `SERVICE_UNAVAILABLE` while a runtime runs | `contract`, `runtime`, `heimdall`, `app::remote_env` | ruling 6 (W-Q1) |
+| 7 | `Request::RunnerLocal(RunnerLocalRequest)`: `trust_issuer { controller, ca_public_key, request_id }` (the paired owner client whose issuer holds the CA; the runner computes the fingerprint) and `designate_time_source { client, request_id }` (widening: a local owner in an attended session only, after the CLI's typed confirmation), `distrust_issuer { ca_fingerprint }` and `clear_time_source` (narrowing: a local owner). Kinds `runner_local.*`. A paired session is refused. Hidden CLI `heimdall remote issuer-trust add <file> \| remove <fingerprint> \| list` and `heimdall remote time-source set <client> \| clear \| show`, run at the runner (an interactive ssh TTY counts); `environment add`'s bootstrap may run them in its TTY session | `contract`, `runtime::runner*`, `heimdall` | ruling 8 (b); U3-Q7 |
+
+**Readings confirmed by the rulings (2026-11-21), subject to the W2 review:**
+- §18.6 items 1–7 are approved.
+- (a) The refresh dependency of a runner's managed binding is the contract value `controller` (ADR-0012 §4.5 names it).
+- (b) `issuer_trust` and the time-source designation stay `meta` keys. Recovery treats them as authority-bearing: they are in the snapshot and compared, and never silently restored to a different value. Their writers are runner-local and attended (item 7).
+- (c) The re-implemented authorized_keys writer stands for W2. In W3 the shared safety steps (link refusal, compare-then-rename, append-only add, the re-read check) move into one module that both the enrollment writer and `runtime::paired_lines` use, with both callers' tests passing.
+- Several `authorizedkeysfile` entries verify only as sshd's default pair; any other list leaves the runner owner-only (ADR-0012 §3.2).
+
+**The orchestrator's confirmation of the items 2, 4 and 7 readings (2026-11-21), with conditions:**
+- **Item 2:** `iroh_admission` is part of the exact request bound into the `RemoteWidening` decision: its hash, and the exposure delta the owner confirmed runner-locally.
+- **Item 4:** a first set is insert-if-absent, as one compare-and-set.
+  - Two concurrent first sets cannot both win, and a first set never overwrites an existing row.
+  - It is allowed only for a live, unrevoked client whose invitation carried `iroh_admission`, after the per-request role check and the revocation recheck.
+  - Only a replacement bumps `remote_authority_generation`. A first set reaches the serve child through the documented child replacement (U56-Q10), not through a bump.
+  - A race test is added only if the existing compare-and-set tests do not already cover two writers.
+- **Item 7:** paired sessions are refused outright, never left pending: these forms have no remote decision path. The `meta` keys stay authority-bearing in recovery.
+
+**The orchestrator's rulings on the W3 runner unit's questions (2026-11-21):**
+- **Q1:** item 3's refusal is `USAGE_ERROR`, `fix_request`, effect `none`. The code table has no `INVALID_REQUEST` (a doc correction).
+- **Q2, the bootstrap owner and Iroh (item 8 below).**
+- **Q5, local-only forms from a paired session:** `INTERACTION_REQUIRED` with the new additive reason `local_owner_required` (item 9 below).
+- **Q3:** a runner with its runtime offers `runner/1` to owner sessions only. This holds while ADR-0012's role table makes every `runner.*` form owner-only; a form that belongs to another role is gated per request instead. The per-request role check applies to every form either way.
+- **Q4:** `RunnerLocal` sits under `remote-control/1`. The capability only gates availability; authority is checked per request.
+- **Q12:** `remote issuer-trust add --controller <cid>` defaults to the only active owner and must be named when there are several. It stays hidden. The attended confirmation shows the controller's client ID and its K_mgmt fingerprint.
+
+| Item | What lands | Where | Source |
+|---|---|---|---|
+| 8 | **Iroh admission is an attribute of the client**, as well as of the invitation. Invited clients and the bootstrap owner follow one rule.<br>- **Join:** copies the invitation's `iroh_admission` to the client.<br>- **First set:** `RotateEndpoint`'s first set reads the client's admission.<br>- **The bootstrap owner:** `remote init --iroh-endpoint <id>`, validated by the Iroh library's own parser (anything else is refused). The runner-local TTY confirmation shows the endpoint ID next to the owner key's fingerprint. The admission and the endpoint row are recorded in the owner enrollment's transaction.<br>- **A later opt-in:** `remote init`'s idempotent repair path (same key, same client), with the same confirmation. It only adds admission and a first endpoint, and never replaces an existing endpoint (that is `RotateEndpoint`'s job). | `store` (migration 0011), `remote`, `runtime::paired`, `heimdall` (`remote init`), `app::remote_env_ssh` | orchestrator ruling Q2 |
+| 9 | **Reason `local_owner_required`** (`INTERACTION_REQUIRED`), for a local-only form sent from a paired session: `runner_local.*`, `controller_record.*`, and a paired `decide`, which had no reason before. Without a reason a wrapper cannot tell this from "ask the user and retry", and a retry from the paired session can never succeed. Adding a reason where there was none is additive; the goldens that change are listed at integration | `contract::envelope` (`reason::M06`), `runtime::paired`, `remote::roles` | orchestrator ruling Q5 |
+| 10 | **`TransportRequest::Rotate`** (kind `transport.rotate`; a rotation, not a widening): rotates this device's K_iroh through the runtime, so `transport rotate` no longer answers `SERVICE_UNAVAILABLE` while a runtime runs. Local owner only; a paired session gets `INTERACTION_REQUIRED` / `local_owner_required`.<br>- **Retry-safe, as `device retire`:** the new key is stored as a new item and the old key is never overwritten.<br>- **Per runner:** each recorded runner gets `RotateEndpoint`; a runner that fails stays recorded as pending.<br>- **A re-run** finishes the pending runners and mints no further key.<br>- **The old K_iroh** is destroyed only after every recorded runner has acknowledged or been forgotten.<br>- **Output:** names the runners still pending. | `contract::route`, `runtime`, `app::transport`, `credential`, `heimdall` | orchestrator ruling (surface Q1), 2026-11-21 |
+
+**Also ruled (surface Q2, 2026-11-21):** on an Iroh leg the client-line window applies once per connect, not once per route: the line is held and replayed, so later routes wait only for the server's identification (ADR-0012 §5.5 item 5).
+
+**The orchestrator's rulings on the U4 unit's questions (2026-11-21):**
+
+| Item | What lands | Where | Source |
+|---|---|---|---|
+| 11 | **Reason `resync_pending`** (`CAPABILITY_UNAVAILABLE`): issuance refused until the authority report and resynchronization are complete. The controller's barrier answers it, and so does a **per-session gate on the runner**: the runner refuses prepare and install from any session that has not completed the report and resync, whatever the controller does | `contract::envelope`, `app::remote_status`, `runtime::runner*` | U4 Q1, Q2 |
+| 12 | The prepare answer carries an optional **policy ID** (omitted when none), so the controller's barrier can refuse a paused or cut-off scope earlier. The runner's install check stays authoritative | `contract`, `runtime::runner_issuance`, `app::remote_status` | U4 Q6 |
+| 13 | `environment status --json`: the remote fields (connectivity, last-known readiness, pending effects, residuals) sit in each environment's entry. There is no separate `remote_status` array | `app::remote_env`, `heimdall` | U4 Q8 |
+
+**Semantics ruled with them (recorded in ADR-0012 §7):** a cutoff that fired under uncertain time stays fired; a runner-local attended `resume` or `clear_cutoff` lifts a delivered pause or cutoff; a cutoff covers the policies that exist at delivery; a revoke is never defeated by a stale generation.
+| 14 | `RunnerLocalRequest::EnrollOwner { client, public_key, iroh_endpoint, request_id }`, kind `runner_local.enroll_owner`: `remote init`'s repair path when a runtime already runs (M06-W2-R02). Attended, local owner only, with the same TTY confirmation as `remote init`; it adds admission and a first endpoint and never replaces one (item 8). Approved (2026-11-21): idempotent per `request_id` and for the same key and client; a paired session gets `local_owner_required` | `contract::remote`, `runtime::paired`, `heimdall` | follow-ups A (W2-R02) |
+| 15 | `local_owner_required` also on the remaining attended-only forms sent from a paired session: `confirm_time`, issuer unlock, `device retire` and attend. One rule everywhere; the goldens that change are listed at integration | `runtime`, `ipc`, `remote::roles` | orchestrator ruling, 2026-11-21 |
+
+**Also ruled (2026-11-21):**
+- `remote init` may create a missing `~/.ssh` (0700) after the TTY confirmation: only if absent, never changing an existing directory's mode or owner, refusing a symlink or a directory the account does not own, and writing `authorized_keys` 0600 through the shared module. A home directory that would fail sshd's `StrictModes` is reported in the output and in `doctor`, not fixed.
+- A debug-only variable `HEIMDALL_TEST_RUNNER_SSHD_CONFIG` (an absolute path, used only as the `sshd -T` check's configuration path) is read under `cfg(debug_assertions)` and is in `testcfg`'s refused set for release builds.
+- A first `remote init` while a non-runner runtime runs answers `driver_unavailable`, and its message says to stop the local runtime first.
+
+**The orchestrator's ruling on the probe-mismatch trigger (2026-11-21):**
+
+| Item | What lands | Where | Source |
+|---|---|---|---|
+| 16 | `Join.probe: Option<ProbeObservation>` (omitted when none): what the joining device's four probes observed (PTY, `-W` forward, agent forwarding with a disposable agent, `SetEnv` canary). The runner runs the policy check before the join's commit. A disagreeing join is refused (`management_sshd_unsupported`) and the runner goes owner-only, permanently. A limited-role join without an observation is refused; owner joins are exempt | `contract::remote`, `remote`, `runtime::paired`, `app::remote_env` | ruling on follow-ups C Q3 |
+| 17 | **The bridge checks its own session at start.** If sshd allocated a PTY (`SSH_TTY` set) or forwarded an agent (`SSH_AUTH_SOCK` set), it refuses the session, and the runner goes owner-only, permanently, with a doctor finding. No contract type | `heimdall` (`remote serve`), `runtime::paired` | same ruling |
+
+- `request_id` is **advisory** for `runner_local.*`: those forms are idempotent by convergence, and each is attended, so a reused ID with a different body gets its own confirmation. Wrappers must not rely on detecting a mismatched reuse for them.
+- A refused `~/.ssh` answers `CONFIG_CONFLICT` before the confirmation. New output names: `strict_modes` (`remote init`) and the doctor finding `runner_ssh_strict_modes`.
+
+**The orchestrator's ruling on storing and lifting the owner-only downgrade (2026-11-21):**
+
+| Item | What lands | Where | Source |
+|---|---|---|---|
+| 18 | **The downgrade is an authority-bearing `meta` key**, not a marker file: in the recovery snapshot, compared, and never silently restored to a different value (a restore that would clear it keeps it set). The uninstall inventory lists it | `store`, `runtime::paired`, `heimdall` | ruling on follow-ups D Q1–Q2 |
+| 19 | **Lifting it is a local, attended widening that needs fresh evidence from the real path**; `sshd -T` alone never lifts it.<br>- **On the owner's controller:** `heimdall environment recheck <env>` (owner only) runs the four probes over a real management session and sends `RemoteEnvironmentRequest::RunnerPolicyRecheck { environment, probe }` (kind `remote_environment.runner_policy_recheck`, owner only). The runner records the result only when `sshd -T` verifies now and the probe agrees; otherwise it refuses with the reason.<br>- **On the runner:** `heimdall remote policy recheck` (hidden; `RunnerLocalRequest::PolicyRecheck { request_id }` when a runtime runs; `local_owner_required` from a paired session) shows that evidence, with its time and the probing controller, and clears the downgrade only after the TTY confirmation.<br>- **Refused:** evidence older than 15 minutes, or from before a later downgrade. | `contract::remote`, `remote`, `runtime::paired`, `app::remote_env`, `heimdall` | same ruling |
+
+- An inconclusive probe means no limited-role join; the controller's message says the probe was inconclusive, so only an owner join is possible.
+
+### 18.8 Revision 6.4 (M06 wave 4)
+
+Additive; schema major stays `"1"`; every new field is omitted when empty. Rulings of 2026-11-21 (m06-plan §2).
+
+| Item | What lands | Where | Source |
+|---|---|---|---|
+| 1 | `EnsureRequest.pair_issuers` (omitted when empty): per pair, the fingerprint of the CA the controller will issue from. Set by the forwarding controller, or by the runner's local owner for a CA already in the runner's `issuer_trust` (a pending grant only). The runner resolves a pair to a managed certificate only when that CA is trusted for the naming party; otherwise `issuer_untrusted` | `contract::request`, `app::operations::runner_m06` | W4 `grant-e2e` |
+| 2 | `AuthorityReport.pending_grants` (omitted when empty): the runner's grants awaiting their issuer, for record source (b) | `contract::remote`, `runtime::runner*` | W4 `grant-e2e` |
+| 3 | The pending answer (`ACCEPTED`, no reason) carries `refresh_dependency: controller` and `remote_pending` (grant IDs) in its data | `contract::envelope` | W4 `grant-e2e` |
+| 4 | `heimdall environment resume-issuance <env>` and its local-owner, attended form: the controller-side acknowledgement of a lift. Issuance after a delivered pause or cutoff resumes only when the runner's report shows the lift and this acknowledgement is recorded. The form is `controller_record.resume_issuance` (it writes the controller's own record, on the local-owner path of §18.7 item 6; confirmed 2026-11-21). The acknowledgement names the specific delivered effect and releases only that one; it never pre-acknowledges a later cutoff. The form carries `effects` (required, nonempty): the effect IDs the owner was shown before the confirmation. An empty list is `USAGE_ERROR`; an unknown ID, another environment's, or one not delivered is `NOT_FOUND`; either way nothing is written for any ID. The acknowledgement row is migration `0012_remote_lift_acks` (schema 12), recovery class `Rows` | `contract::controller_record`, `store`, `app::remote_status*`, `heimdall` | ruling on M06-W3-R02 |

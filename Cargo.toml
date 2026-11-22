@@ -33,6 +33,10 @@ members = [
     # (M04-owned) and the pure trusted-work project logic (M05-owned). Skeletons only.
     "crates/wsl",
     "crates/project",
+    # M06 (m06-plan U0; ADR-0012 §13): remote roles, invitations and the bridge, and the
+    # feature-gated Iroh transport. Skeletons only; they fail closed.
+    "crates/remote",
+    "crates/transport-iroh",
 ]
 
 [workspace.package]
@@ -63,6 +67,8 @@ heimdall-issuer = { path = "crates/issuer" }
 heimdall-enroll = { path = "crates/enroll" }
 heimdall-wsl = { path = "crates/wsl" }
 heimdall-project = { path = "crates/project" }
+heimdall-remote = { path = "crates/remote" }
+heimdall-transport-iroh = { path = "crates/transport-iroh" }
 
 # --- serialization and schemas ---------------------------------------------
 serde = { version = "=1.0.229", features = ["derive"] }
@@ -82,6 +88,14 @@ tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net"
 tokio-util = { version = "=0.7.20", default-features = false, features = ["codec"] }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std", "sink"] }
 async-trait = { version = "=0.1.92" }
+
+# --- Iroh transport (M06; ADR-0012 §1; dependencies.md §6) -----------------------------
+# Feature `iroh` of heimdall-transport-iroh only. tls-ring: TLS through ring, no default
+# features (no portmapper, no n0 presets compiled in by default).
+iroh = { version = "=1.4.2", default-features = false, features = ["tls-ring"] }
+# Declared so the `hm-no-route-probe` feature reaches the copy netwatch uses; resolved to the
+# vendored, patched source by [patch.crates-io] below (ADR-0012 §1 item 3, ruling Q8).
+netdev = { version = "=0.47.0", default-features = false }
 
 # --- storage ---------------------------------------------------------------------
 rusqlite = { version = "=0.41.1", features = ["bundled"] }
@@ -194,6 +208,12 @@ unimplemented = "warn"
 # The M02 skeleton (m02-plan U0) marked unreachable unit bodies with
 # todo!("M02-Uxx ..."); wave 3b removed the last one, so the lint denies again.
 todo = "deny"
+
+# M06 (ADR-0012 §1 item 3, ruling Q8): netdev 0.47.0 with the default-route probe removed
+# behind the feature `hm-no-route-probe` (a 7-line patch). third_party/README.md has the
+# provenance, the checksum and how to re-derive it.
+[patch.crates-io]
+netdev = { path = "third_party/netdev-0.47.0" }
 
 [profile.release]
 opt-level = "z"

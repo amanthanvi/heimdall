@@ -16,9 +16,166 @@
     "items"
   ],
   "$defs": {
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "ClientId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §3.6, §3.7): a paired management client, minted by the\nrunner at invitation (`cl_<32 hex>`). It names the enrollment line\n(`heimdall-mgmt:<cid>`) and the bridge's argv; it is never a credential and never a\nrequest field that sets a caller (ADR-0006 §18).",
+      "type": "string"
+    },
+    "Connectivity": {
+      "description": "A remote environment's connectivity as the controller sees it (ADR-0012 §7.1).",
+      "oneOf": [
+        {
+          "description": "A management session is open.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "connected"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "No session; last seen then.",
+          "type": "object",
+          "properties": {
+            "last_seen_at": {
+              "description": "When the runner was last reached.",
+              "type": "string",
+              "format": "date-time"
+            },
+            "state": {
+              "type": "string",
+              "const": "disconnected"
+            }
+          },
+          "required": [
+            "state",
+            "last_seen_at"
+          ]
+        },
+        {
+          "description": "The runner cannot be reached for a known reason.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "description": "The reason (a stable reason string).",
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "const": "unreachable"
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ]
+        }
+      ]
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
     "DistributionGuid": {
       "description": "A WSL distribution's registration GUID under `HKCU\\...\\Lxss` (ADR-0010 §3 item 1): the\nidentity of a distribution, kept across renames; a re-registered distribution is a new\nGUID. Wire form: 36 lowercase hex-and-hyphen characters, `8-4-4-4-12`, no braces\n(validated on decode; the CLI normalizes case and strips braces before sending).",
       "type": "string"
+    },
+    "EffectId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §7.2): a narrowing effect, minted by its producing\ncontroller. Keyed with the authenticated producer, the typed target and its\ngeneration.",
+      "type": "string"
+    },
+    "EffectTarget": {
+      "description": "A typed narrowing effect's target (ADR-0012 §7.2). With the authenticated producing\ncontroller (the session's client, never a field) and the effect ID, it keys the\neffect; each target carries its own generation.",
+      "oneOf": [
+        {
+          "description": "Applied as a durable grant tombstone (ADR-0005 §6.1 \"Revocation\"), acknowledged\nwith its enforcement state.",
+          "type": "object",
+          "properties": {
+            "grant": {
+              "description": "The grant.",
+              "$ref": "#/$defs/GrantId"
+            },
+            "grant_generation": {
+              "description": "The grant's generation.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "grant_revoke"
+            }
+          },
+          "required": [
+            "kind",
+            "grant",
+            "grant_generation"
+          ]
+        },
+        {
+          "description": "Applied as a durable policy revision: running grants continue, new activations\nare refused (§6.1 \"Pause\"). Not a tombstone.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "policy_pause"
+            },
+            "policy": {
+              "description": "The policy.",
+              "$ref": "#/$defs/PolicyId"
+            },
+            "revision": {
+              "description": "The revision this pause produces.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "policy",
+            "revision"
+          ]
+        },
+        {
+          "description": "Applied as a durable policy revision that also ends every affected grant like\nexpiry and refuses new grants until cleared (ADR-0005 §6.1 \"Cutoff\").\n⟨rev6.1; M06-W0-R02, orchestrator ruling⟩ It carries the owner's instant `at` (as the\nlocal `policy cutoff` request does). The runner's effective cutoff is\n`min(existing, at)`: a delivered or replayed cutoff only shortens it, never delays it\n(moving a cutoff later is a widening, runner-local). An `at` at or before trusted now\napplies at the durable apply, with no signature after that commit; a future `at` is\npersisted and enforced at `at` by the supervisor wake; under uncertain time it fires\nas soon as `at` may have passed (the upper bound of now). Enforcement is m06-plan U4's.",
+          "type": "object",
+          "properties": {
+            "at": {
+              "description": "The owner's cutoff instant.",
+              "type": "string",
+              "format": "date-time"
+            },
+            "kind": {
+              "type": "string",
+              "const": "policy_cutoff"
+            },
+            "revision": {
+              "description": "The revision this cutoff produces.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "scope": {
+              "description": "The policies it applies to.",
+              "$ref": "#/$defs/PolicyTarget"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "at",
+            "revision"
+          ]
+        }
+      ]
     },
     "EnvironmentId": {
       "description": "Stable environment ID (spec §4.1 \"Environment\").",
@@ -41,6 +198,11 @@
           "description": "A local container environment.",
           "type": "string",
           "const": "container"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6 (ADR-0012 §4.1, §9 item 5): a Heimdall runtime on a headless Linux\nhost under the runner account, managed over the management channel.",
+          "type": "string",
+          "const": "remote_runner"
         }
       ]
     },
@@ -73,6 +235,17 @@
       "description": "One environment in `inspect environments` (m04-plan §5 item 4: every environment, not\nonly the caller's).",
       "type": "object",
       "properties": {
+        "connectivity": {
+          "description": "⟨M06⟩ Revision 6 (ADR-0012 §7.1, §9 item 5): a remote runner's connectivity. Every\nrevision-6 field is omitted when absent, so every M04 view is unchanged.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Connectivity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "environment_id": {
           "description": "Environment ID.",
           "$ref": "#/$defs/EnvironmentId"
@@ -88,9 +261,57 @@
             "null"
           ]
         },
+        "last_seen_at": {
+          "description": "⟨M06⟩ When the runner was last reached.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "management_policy": {
+          "description": "⟨M06⟩ Whether limited roles may enroll (ADR-0012 §3.2).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ManagementPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pinned_host_key": {
+          "description": "⟨M06⟩ The runner's pinned host key (ADR-0012 §3.3, §7.5).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyFingerprint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "realization": {
           "description": "Realization.",
           "$ref": "#/$defs/RealizationView"
+        },
+        "remote_pending": {
+          "description": "⟨M06⟩ Narrowing steps reported but not yet applied on the runner (ADR-0012 §7.1).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemotePending"
+          }
+        },
+        "runner_lifetime": {
+          "description": "⟨M06⟩ The runner runtime's lifetime (ADR-0012 §4.3).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunnerLifetime"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "state": {
           "description": "State.",
@@ -103,6 +324,10 @@
         "state",
         "realization"
       ]
+    },
+    "GrantId": {
+      "description": "Grant ID (spec §4.1 \"Grant\").",
+      "type": "string"
     },
     "HelperState": {
       "description": "The helper's observed state for a Mode B distribution.",
@@ -123,6 +348,105 @@
           "const": "unavailable"
         }
       ]
+    },
+    "KeyFingerprint": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §3.9 item 1, §5.1, §9 items 5 and 9): an SSH public key's\nfingerprint, `SHA256:` followed by exactly 43 characters of unpadded standard base64,\nas `ssh-keygen -l` prints it (the same form as [`CaFingerprint`]). Used for pinned\nhost keys and for an invitation's receiving key. Validated on parse and on decode;\ncompared exactly.",
+      "type": "string"
+    },
+    "ManagementPolicy": {
+      "description": "Whether limited roles may enroll on the runner (ADR-0012 §3.2).",
+      "oneOf": [
+        {
+          "description": "The effective sshd policy for the account was verified: limited roles may enroll.",
+          "type": "string",
+          "const": "verified"
+        },
+        {
+          "description": "Not verified: only `owner` clients may enroll (`management_sshd_unverified`).",
+          "type": "string",
+          "const": "owner_only"
+        }
+      ]
+    },
+    "PolicyId": {
+      "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
+      "type": "string"
+    },
+    "PolicyTarget": {
+      "description": "What a narrowing or block action applies to (ADR-0011 §7.3 \"Targets\"; m05-plan §4\nitem 2), tagged by `kind`.",
+      "oneOf": [
+        {
+          "description": "One policy.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "policy"
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "kind",
+            "policy_id"
+          ]
+        },
+        {
+          "description": "Every policy for a profile.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "profile"
+            },
+            "profile": {
+              "description": "Profile.",
+              "$ref": "#/$defs/ProfileId"
+            }
+          },
+          "required": [
+            "kind",
+            "profile"
+          ]
+        },
+        {
+          "description": "Every policy of a workspace.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "workspace"
+            },
+            "workspace": {
+              "description": "Workspace.",
+              "$ref": "#/$defs/WorkspaceId"
+            }
+          },
+          "required": [
+            "kind",
+            "workspace"
+          ]
+        },
+        {
+          "description": "Every policy.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "all"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
     },
     "RealizationView": {
       "description": "How an environment is realized, as `inspect environments` shows it (m04-plan §5\nitem 4). Tagged by `kind`.",
@@ -214,8 +538,115 @@
             "directory",
             "in_container_path"
           ]
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: a remote runner, reached through a catalog destination's approved\nroutes as its runner account (ADR-0012 §3.3, §5).",
+          "type": "object",
+          "properties": {
+            "account": {
+              "description": "The runner account.",
+              "$ref": "#/$defs/AccountName"
+            },
+            "destination": {
+              "description": "The catalog destination of the runner host.",
+              "$ref": "#/$defs/DestinationId"
+            },
+            "kind": {
+              "type": "string",
+              "const": "remote_runner"
+            }
+          },
+          "required": [
+            "kind",
+            "destination",
+            "account"
+          ]
         }
       ]
+    },
+    "RemotePending": {
+      "description": "One entry of `EnvironmentView.remote_pending` (ADR-0012 §2.3 item 4, §7.1): a\nnarrowing step reported but not yet applied on the runner.",
+      "oneOf": [
+        {
+          "description": "A typed effect not yet acknowledged.",
+          "type": "object",
+          "properties": {
+            "effect": {
+              "description": "The effect.",
+              "$ref": "#/$defs/EffectId"
+            },
+            "kind": {
+              "type": "string",
+              "const": "effect"
+            },
+            "reason": {
+              "description": "A pending reason ([`crate::envelope::reason::M06_PENDING`]).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "target": {
+              "description": "Its target.",
+              "$ref": "#/$defs/EffectTarget"
+            }
+          },
+          "required": [
+            "kind",
+            "effect",
+            "target"
+          ]
+        },
+        {
+          "description": "A client revocation whose Iroh admission is not yet closed\n(`iroh_admission_closing`).",
+          "type": "object",
+          "properties": {
+            "client": {
+              "description": "The client.",
+              "$ref": "#/$defs/ClientId"
+            },
+            "kind": {
+              "type": "string",
+              "const": "client_revocation"
+            },
+            "reason": {
+              "description": "A pending reason ([`crate::envelope::reason::M06_PENDING`]).",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "client"
+          ]
+        }
+      ]
+    },
+    "RunnerLifetime": {
+      "description": "The runner runtime's lifetime (ADR-0012 §4.3).",
+      "oneOf": [
+        {
+          "description": "A verified `systemd --user` unit with linger enabled by the owner.",
+          "type": "string",
+          "const": "user_service"
+        },
+        {
+          "description": "The narrower lifetime: survives logout only while `KillUserProcesses=no`.",
+          "type": "string",
+          "const": "session_scope"
+        },
+        {
+          "description": "Not determined.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "WorkspaceId": {
+      "description": "Workspace (adopted checkout) ID (spec §4.1 \"Workspace\").",
+      "type": "string"
     },
     "WslMode": {
       "description": "The modes enabled for a WSL distribution.",

@@ -124,6 +124,7 @@ fn owner_ctx() -> CallerContext {
     CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::Owner,
+        remote_client: None,
     }
 }
 
@@ -492,6 +493,7 @@ fn ctx_req_str(cwd: &str, rid: &str, work: &str, covered_only: bool) -> EnsureRe
             cwd: cwd.to_owned(),
         }),
         covered_only,
+        pair_issuers: Vec::new(),
     }
 }
 

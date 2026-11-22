@@ -27,6 +27,9 @@
 //! `PR_SET_PDEATHSIG(SIGKILL)`.
 
 pub mod remote;
+// ⟨M06 U5a⟩ Verification through an approved single-hop jump with the jump's own catalog pin
+// (ADR-0012 §5.7; ADR-0010 §5 item 5, §10 item 6).
+pub mod routes;
 // ADR-0008 §17.17 item 5: the one `unsafe` module (Linux `PR_SET_PDEATHSIG`).
 #[cfg(target_os = "linux")]
 mod sys;

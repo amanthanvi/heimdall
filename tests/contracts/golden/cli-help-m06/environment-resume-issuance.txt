@@ -1,0 +1,12 @@
+Confirm, on this controller, that the pauses and cutoffs it delivered to a runner were lifted there. Lists each one awaiting this and acknowledges only those listed; one delivered later needs its own. Needs a terminal and a typed yes. Issuance for the runner resumes only when its report shows each lift as well; neither alone reopens it
+
+Usage: heimdall environment resume-issuance [OPTIONS] <ENVIRONMENT>
+
+Arguments:
+  <ENVIRONMENT>  The runner environment
+
+Options:
+      --json             Machine output: one JSON envelope on stdout (NDJSON for event streams)
+      --non-interactive  Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --home <DIR>       Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+  -h, --help             Print help

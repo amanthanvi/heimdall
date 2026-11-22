@@ -177,6 +177,17 @@ impl Clock for SystemClock {
         Self::read_continuous()
     }
 
+    /// `None` when the platform source fails now ([`Self::continuous`] then answers the
+    /// last value, which a commit-time check must not read as "no time elapsed").
+    fn try_continuous(&self) -> Option<Duration> {
+        let nanos = os::continuous_nanos().ok()?;
+        Some(Duration::from_nanos(
+            LAST_CONTINUOUS_NANOS
+                .fetch_max(nanos, Ordering::AcqRel)
+                .max(nanos),
+        ))
+    }
+
     fn boot_id(&self) -> BootId {
         Self::read_boot_id()
     }

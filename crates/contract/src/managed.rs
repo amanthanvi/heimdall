@@ -179,6 +179,15 @@ pub enum ReadinessCondition {
     /// ⟨M04⟩ Revision 5: the pair's jump hop must stay usable (its readiness is the
     /// weaker of the two hops).
     RouteDependency,
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §4.3, §4.5, §9 item 10): the runner runtime's lifetime
+    /// must hold (a verified user service, or the narrower session scope).
+    RunnerLifetime,
+    /// ⟨M06⟩ Revision 6: the runner's time must stay bounded (its anchor, or a qualifying
+    /// time sample within the RTT bound, ADR-0012 §4.4).
+    RunnerTimeBounded,
+    /// ⟨M06⟩ Revision 6: the runner process must not restart (K_env is held in its memory
+    /// only; a restart needs the issuer, ADR-0012 §0).
+    RunnerProcessNotRestarted,
 }
 
 /// What would trigger a refresh.
@@ -311,6 +320,56 @@ pub struct RevocationSemantics {
     pub latest_possible_credential_expiry: Option<Timestamp>,
     /// The weakest destination clock of the grant's pairs.
     pub destination_clock: DestinationClock,
+}
+
+/// ⟨M06⟩ Revision 6 (ADR-0012 §7.3, §9 item 10): the new-authentication residual of a
+/// revocation. Its bound comes from the counted issuance history (reserved and published
+/// certificates count until their `valid_before`) plus the destination clock's error;
+/// where that error is unmeasured the residual reads "until `valid_before` plus an
+/// unmeasured destination-clock error", never a bare deadline.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AuthenticationResidual {
+    /// The latest instant a counted certificate stays valid; absent: `unknown` (no counted
+    /// history for the grant).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_possible_credential_expiry: Option<Timestamp>,
+    /// The destination clock's error: `{"measured": {…}}` (its bound is
+    /// `behind_upper_ms`) or `"unmeasured"`.
+    pub destination_clock_error: DestinationClock,
+}
+
+/// ⟨M06⟩ Revision 6: one session component's residual after a revocation (ADR-0012 §7.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ComponentResidual {
+    /// Closed on the applied revoke.
+    Closed,
+    /// Not ended by the revoke (detached remote processes).
+    NotEnded,
+    /// Not determined (other live sessions until the G09 table applies, or no history).
+    Unknown,
+}
+
+/// ⟨M06⟩ Revision 6 (ADR-0012 §7.3, §9 item 10): a revocation's residuals, reported per
+/// component (no new cap, ADR-0012 §12 Q9). Every field is omitted when absent.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RevocationResiduals {
+    /// New authentication at destinations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_authentication: Option<AuthenticationResidual>,
+    /// Owned dedicated sessions (closed at once on an applied revoke).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owned_dedicated_sessions: Option<ComponentResidual>,
+    /// Owned admissions (closed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owned_admissions: Option<ComponentResidual>,
+    /// Other live sessions (per the G09 table).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other_live_sessions: Option<ComponentResidual>,
+    /// Detached remote processes (not ended).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detached_remote_processes: Option<ComponentResidual>,
 }
 
 /// Where an evidence entry comes from.

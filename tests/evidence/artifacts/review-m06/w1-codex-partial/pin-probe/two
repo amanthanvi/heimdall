@@ -1,0 +1,4 @@
+Host fixture
+  HostName 127.0.0.1
+  StrictHostKeyChecking yes
+  UserKnownHostsFile /tmp/fixture pins
