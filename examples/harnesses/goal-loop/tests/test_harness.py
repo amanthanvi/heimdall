@@ -1081,6 +1081,34 @@ class PlannerTests(unittest.TestCase):
                                        "HEIMDALL_TEST_MGMT_STORE", "HEIMDALL_TEST_SECRET_STORE",
                                        "HEIMDALL_TEST_SSH_HOME", "HOME", "LANG", "PATH", "TERM"])
 
+    def test_windows_variables_are_found_under_any_spelling_of_their_names(self):
+        # On Windows `os.environ` holds its names upper-cased, so the copy H2 is given has
+        # `SYSTEMROOT` and no `SystemRoot` (the native run of 2026-11-22: every task ended
+        # "SystemRoot is not an absolute Windows directory" with no call made).
+        given = {key.upper(): value for key, value in self.environment.items()}
+        given["SYSTEMROOT"] = r"C:\Windows"
+        self.assertNotIn("SystemRoot", given)
+        env = h2.launch_environment(self.root, given, windows=True)
+        self.assertEqual(env["SystemRoot"], r"C:\Windows")
+        self.assertEqual(env["PATH"],
+                         r"C:\Windows\System32\OpenSSH;C:\Windows\System32;C:\Windows")
+        for name in h2.HOMES:
+            self.assertEqual(env[name], self.environment[name])
+        self.assertEqual(env["USERPROFILE"], self.environment["HOME"])
+        # Off Windows a name is its exact spelling: nothing is taken from another one.
+        with self.assertRaises(h2.PlannerError):
+            h2.launch_environment(self.root, {key.lower(): value
+                                              for key, value in self.environment.items()},
+                                  windows=False)
+
+    def test_a_store_path_that_cannot_be_resolved_is_refused_as_a_planner_error(self):
+        # Whether a looping link raises depends on the Python version, so the failure is
+        # injected: the point is that it comes out as this harness's own error.
+        with patch.object(h2.Path, "resolve", side_effect=OSError("unreadable")), \
+                self.assertRaises(h2.PlannerError) as refused:
+            h2.launch_environment(self.root, self.environment)
+        self.assertIn("could not be resolved", str(refused.exception))
+
     def test_goals_are_checked_before_any_call(self):
         bad = [[], {"goal": "approve"}, {"goal": ["access"]}, {"goal": "access", "profile": "covered"},
                {"goal": "access", "profile": "--home", "work_id": "w"},

@@ -440,17 +440,35 @@ def windows_launch_variables(system_root, fixture_home):
     return variables
 
 
-def launch_environment(root, given):
+def given_value(given, name, windows):
+    """`name` in the environment this harness was given. Windows names its variables
+    without regard to case, and Python's `os.environ` there holds them upper-cased
+    (`SYSTEMROOT`), so a copy of it has no `SystemRoot` key: on Windows any spelling
+    of the name is the variable."""
+    value = given.get(name)
+    if value is None and windows:
+        wanted = name.upper()
+        for key, candidate in given.items():
+            if key.upper() == wanted:
+                return candidate
+    return value
+
+
+def launch_environment(root, given, windows=None):
     """The three separate homes and fixture stores inside the scratch root, fixed
     PATH, LANG and TERM, and Windows system and scratch paths.
 
+    `windows` says which platform's variables to build (the running one when omitted).
+
     The homes are checked by their real paths and passed on as they were given: a
     runtime is found under the spelling of the Heimdall home it was started with."""
+    if windows is None:
+        windows = os.name == "nt"
     require(root.is_absolute() and root.is_dir(), "the scratch root is not an absolute directory")
     real_root = Path(os.path.realpath(root))
     homes = {}
     for name in HOMES:
-        value = given.get(name)
+        value = given_value(given, name, windows)
         require(bool(value) and Path(value).is_absolute() and Path(value).is_dir(),
                 f"{name} is not set to an existing absolute directory")
         real = Path(os.path.realpath(value))
@@ -462,22 +480,23 @@ def launch_environment(root, given):
             require(name == other_name or (home != other and home not in other.parents),
                     f"{name} and {other_name} are not separate directories")
     env = {"LANG": "C", "TERM": "dumb"}
-    env.update((name, given[name]) for name in HOMES)
+    env.update((name, given_value(given, name, windows)) for name in HOMES)
     for name, prefix in STORES.items():
-        value = given.get(name, "")
+        value = given_value(given, name, windows) or ""
         path = Path(value[len(prefix):])
         require(value.startswith(prefix) and path.is_absolute(),
                 f"{name} is not set to {prefix}<absolute path>")
         try:
             real = path.resolve()
         except (OSError, RuntimeError):
-            raise HarnessError(f"{name} could not be resolved") from None
+            raise PlannerError(f"{name} could not be resolved") from None
         require(real_root in real.parents and (not real.exists() or real.is_file()),
                 f"{name} is not a file path inside the scratch root")
         env[name] = value
     env["HEIMDALL_TEST_SECRET_STORE"] = "scratch"
-    if os.name == "nt":
-        env.update(windows_launch_variables(given.get("SystemRoot", ""), env["HOME"]))
+    if windows:
+        env.update(windows_launch_variables(
+            given_value(given, "SystemRoot", windows) or "", env["HOME"]))
     else:
         env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
     return env
