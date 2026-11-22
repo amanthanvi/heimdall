@@ -288,6 +288,7 @@ Three layers, none of which hashes itself:
 
 - **Allowed for linked code:** MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, BSL-1.0, Unlicense, CC0-1.0. Where a crate offers a choice, a permitted alternative is selected and recorded.
 - **Where the list comes from:** every licence the probe found on `main` (over a superset of the selected graph), plus ISC and CC0-1.0. M06's tree (iroh and its TLS stack) was not inventoried; U4a runs the policy on it, and any licence it needs beyond this list is a recorded decision, not a silent addition.
+- **Recorded per-crate exception (2026-11-22, the orchestrator's ruling):** `webpki-roots`, which M06's `iroh` feature brings in, is the Mozilla root-certificate list as data, under CDLA-Permissive-2.0, a permissive data licence. It is allowed for that crate only (`deny.toml` names it, with the reason and the command that found it). Any other crate under CDLA-Permissive-2.0 is refused until it is looked at.
 - **Refused without a recorded decision:** any copyleft licence, any licence with a field-of-use or network clause, a crate with no licence, a git or path source outside `third_party/`.
 - **Enforced** by one pinned tool, on licences, sources and bans.
 - **Notices:** every linked crate's licence text, generated from the same graph. A missing text fails the build.
