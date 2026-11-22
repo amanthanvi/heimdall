@@ -19,7 +19,7 @@
 //! **Two worlds per harness**, each in its own root inside one scratch directory:
 //! - *existing access*: an in-process runtime as `cli_m07.rs` builds it (the loopback sshd, a
 //!   disposable agent holding a key generated for this run, a saved and approved profile). The
-//!   child of task 5 logs in to the fixture sshd.
+//!   child of task 5 logs in to the fixture sshd twice (see "The login oracle").
 //! - *fixture adapter*: `heimdall service run` as a child with the debug test configuration
 //!   (`crates/heimdall/src/testcfg.rs`): profile `dev` whose pair `h3:deploy` no policy covers
 //!   (task 3), and a delayed prepare so a 1 ms caller timeout always ends first (task 4). Today's
@@ -28,12 +28,23 @@
 //! **Request IDs and bindings.** Each harness gives every changing request a request ID of its
 //! own. Task 5 follows task 2 for the same profile and work, so today's build may answer its
 //! `run` with a second binding for that work. Task 6 has to release every binding the harness
-//! holds: for H2 the driver checks one release for each binding H2 reported holding, and for both
-//! harnesses that no binding is left active.
+//! holds: for H2 the driver checks one release for each binding H2 reported holding.
+//!
+//! **Cleanup (M07-W3-R01).** Tasks 3 and 4 each end holding a binding, so each harness releases
+//! them in the fixture-adapter world too, after its tasks: H1 with its `release` task, H2 with a
+//! `stop` goal. Those records are checked and are not among the seven. Every world of both
+//! harnesses ends with no binding active, and H2 reports nothing left to release when it closes.
+//!
+//! **The login oracle (M07-W3-R02).** `heimdall run` gives the child of task 5 the binding's
+//! signing endpoint as `SSH_AUTH_SOCK`. The child first checks that this is the disposable agent
+//! of this run and nothing else, then logs in to the fixture sshd through that endpoint, with no
+//! key file. Only then does it make the isolated login (every agent off, the generated key by
+//! `-i`). A dead endpoint fails the first login, so it fails the task. The driver checks both
+//! logins in the sshd's log, the first one's output, and a signature by the fixture agent.
 //!
 //! **The human step** of task 3 is this driver: it reads the pending decision, checks that it
-//! asks for exactly the missing pair, and approves it through the real CLI on a pseudo-terminal
-//! (`script(1)`), typing `yes`. Neither harness can do that: both run without a terminal.
+//! asks for exactly the missing pair, and approves it through the real CLI on a testkit terminal
+//! (`script(1)` on Unix, ConPTY on Windows), typing `yes`.
 //!
 //! **Environment (m07-plan §0 rule 4).** Every `heimdall` child and every Python child gets a
 //! cleared environment holding `HOME`, `HEIMDALL_HOME` and `HEIMDALL_TEST_SSH_HOME`, three
@@ -41,12 +52,13 @@
 //! ([`launch_homes`]); no `SSH_AUTH_SOCK`. Every wait is bounded, and every process is stopped by
 //! its own handle.
 //!
-//! **Python.** `python3` from `PATH` or the usual system directories, run as `python3 -I -B`
-//! with `PYTHONDONTWRITEBYTECODE=1`. `HEIMDALL_E2E_PYTHON` names another interpreter by absolute
-//! path (for example a 3.9 one, the oldest the harnesses support).
+//! **Python.** `HEIMDALL_E2E_PYTHON` names an absolute Python 3.9+ interpreter. The fallback
+//! looks for `python3` on Unix and `python.exe` or `python3.exe` on the Windows runner's PATH.
+//! All invocations use `-I -B` and set `PYTHONDONTWRITEBYTECODE=1`.
 //!
-//! **Platforms.** The static test runs everywhere. The journey is Unix only for now (`python3`,
-//! `script(1)`, the local fixture sshd): on native Windows it is `blocked`, never passing.
+//! **Platforms.** Unix runs both worlds together. Windows has a self-contained adapter test
+//! (tasks 3 and 4) and a test using the native runner's disposable loopback sshd (tasks 1, 2
+//! and 7). Tasks 5 and 6 also need the child login oracle and the Windows `spawned` run record.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout)]
 
 /// H1's source, as shipped.
@@ -145,9 +157,10 @@ fn harnesses_are_independent_and_use_only_the_standard_library() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod journey {
     use std::ffi::OsString;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt as _;
     use std::path::{Path, PathBuf};
     use std::process::Stdio;
@@ -174,7 +187,10 @@ mod journey {
     use heimdall_runtime::config::{Config, Paths};
     use heimdall_runtime::service::{ProjectionWiring, Service, ServiceOptions};
     use heimdall_testkit::agent::{AgentMode, Endpoint, FakeAgent, FakeAgentConfig, FixtureKey};
-    use heimdall_testkit::home::{ScratchHome, find_program, sh_join};
+    use heimdall_testkit::console::TerminalCommand;
+    use heimdall_testkit::home::ScratchHome;
+    #[cfg(unix)]
+    use heimdall_testkit::home::{find_program, sh_join};
     use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
     use serde_json::{Value, json};
     use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
@@ -192,14 +208,37 @@ mod journey {
     /// The saved, approved profile of the existing-access world.
     const PROFILE: &str = "lab-access";
     /// The longest Unix socket path every supported platform accepts.
+    #[cfg(unix)]
     const SOCKET_PATH_MAX: usize = 103;
 
-    fn bin() -> PathBuf {
-        std::env::var("HEIMDALL_E2E_BIN")
-            .ok()
+    fn python() -> PathBuf {
+        let python = std::env::var_os("HEIMDALL_E2E_PYTHON")
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| env!("CARGO_BIN_EXE_heimdall").to_owned())
-            .into()
+            .map(PathBuf::from);
+        #[cfg(unix)]
+        let python = python.or_else(|| find_program("python3"));
+        #[cfg(windows)]
+        let python = python.or_else(|| {
+            // The Store's WindowsApps aliases are not interpreters and can open the Store.
+            let path = std::env::var_os("PATH")?;
+            std::env::split_paths(&path)
+                .filter(|dir| {
+                    dir.is_absolute()
+                        && !dir
+                            .iter()
+                            .any(|part| part.eq_ignore_ascii_case("WindowsApps"))
+                })
+                .flat_map(|dir| ["python.exe", "python3.exe"].map(|name| dir.join(name)))
+                .find(|candidate| candidate.is_file())
+        });
+        let python = python.expect(
+            "blocked: journey not run; Python 3.9+ is missing (set HEIMDALL_E2E_PYTHON to the absolute interpreter path)",
+        );
+        assert!(
+            python.is_absolute() && python.is_file(),
+            "blocked: journey not run; expected an absolute Python executable (HEIMDALL_E2E_PYTHON)"
+        );
+        python
     }
 
     /// The three launch homes of `root`, checked (m07-plan §0 rule 4): each an existing
@@ -247,16 +286,20 @@ mod journey {
         // The same root is foreign to another test's scratch directory.
         let foreign = launch_homes(other.path(), &root).unwrap_err();
         assert!(foreign.contains("inside the scratch root"), "{foreign}");
-        // A home that is a link to another home is not a separate directory.
-        std::fs::remove_dir(root.join("ssh-home")).unwrap();
-        std::os::unix::fs::symlink(root.join("home"), root.join("ssh-home")).unwrap();
-        let shared = launch_homes(scratch.path(), &root).unwrap_err();
-        assert!(shared.contains("not separate"), "{shared}");
+        #[cfg(unix)]
+        {
+            // A home that is a link to another home is not a separate directory.
+            std::fs::remove_dir(root.join("ssh-home")).unwrap();
+            std::os::unix::fs::symlink(root.join("home"), root.join("ssh-home")).unwrap();
+            let shared = launch_homes(scratch.path(), &root).unwrap_err();
+            assert!(shared.contains("not separate"), "{shared}");
+        }
     }
 
     /// The test's scratch directory and what every world in it shares.
     struct Suite {
         home: ScratchHome,
+        bin: PathBuf,
         python: PathBuf,
         h1: PathBuf,
         h2: PathBuf,
@@ -266,15 +309,22 @@ mod journey {
 
     impl Suite {
         fn new() -> Suite {
-            let home = ScratchHome::new();
-            let python = std::env::var_os("HEIMDALL_E2E_PYTHON")
-                .map(PathBuf::from)
-                .or_else(|| find_program("python3"))
-                .expect("blocked: python3 is needed to run the harnesses");
+            let bin = if cfg!(debug_assertions) {
+                std::env::var_os("HEIMDALL_E2E_BIN")
+                    .filter(|s| !s.is_empty())
+                    .map_or_else(
+                        || PathBuf::from(env!("CARGO_BIN_EXE_heimdall")),
+                        PathBuf::from,
+                    )
+            } else {
+                panic!("blocked: the journey needs a debug build");
+            };
+            let python = python();
             assert!(
-                python.is_absolute(),
-                "the Python interpreter path is absolute"
+                bin.is_absolute() && bin.is_file(),
+                "expected an absolute debug Heimdall executable (HEIMDALL_E2E_BIN)"
             );
+            let home = ScratchHome::new();
             // Scripts live apart from the roots the harnesses work in.
             let sources = home.root.join("src");
             let mut written = Vec::new();
@@ -285,15 +335,21 @@ mod journey {
                 std::fs::write(&file, text).unwrap();
                 written.push(file);
             }
-            let out = std::process::Command::new("/usr/bin/id")
-                .arg("-un")
-                .env_clear()
-                .output()
-                .unwrap();
-            assert!(out.status.success(), "fixture account lookup");
-            let login = String::from_utf8(out.stdout).unwrap().trim().to_owned();
+            #[cfg(unix)]
+            let login = {
+                let out = std::process::Command::new("/usr/bin/id")
+                    .arg("-un")
+                    .env_clear()
+                    .output()
+                    .unwrap();
+                assert!(out.status.success(), "fixture account lookup");
+                String::from_utf8(out.stdout).unwrap().trim().to_owned()
+            };
+            #[cfg(windows)]
+            let login = std::env::var("HM_FIXTURE_SSHD_USER").unwrap_or_default();
             Suite {
                 home,
+                bin,
                 python,
                 h2: written.pop().unwrap(),
                 h1: written.pop().unwrap(),
@@ -313,34 +369,67 @@ mod journey {
                 root.join("ssh-home/etc-ssh"),
             ] {
                 std::fs::create_dir(&dir).unwrap();
+                #[cfg(unix)]
                 std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+                #[cfg(windows)]
+                heimdall_testkit::win::set_owner_only(&dir).unwrap();
             }
-            let socket = root.join("heimdall-home/run/control.sock");
-            assert!(
-                socket.as_os_str().len() <= SOCKET_PATH_MAX,
-                "the scratch directory is too deep for the runtime's socket path ({} bytes)",
-                socket.as_os_str().len()
-            );
+            #[cfg(unix)]
+            {
+                let socket = root.join("heimdall-home/run/control.sock");
+                assert!(
+                    socket.as_os_str().len() <= SOCKET_PATH_MAX,
+                    "the scratch directory is too deep for the runtime's socket path ({} bytes)",
+                    socket.as_os_str().len()
+                );
+            }
             root
+        }
+
+        /// The allowlisted environment for pipes and the attended terminal alike.
+        fn environment(&self, root: &Path) -> Vec<(&'static str, OsString)> {
+            let homes = launch_homes(&self.home.root, root)
+                .unwrap_or_else(|e| panic!("launch environment refused before launch: {e}"));
+            let mut env = vec![("LANG", "C".into()), ("TERM", "dumb".into())];
+            #[cfg(unix)]
+            env.push(("PATH", "/usr/bin:/bin:/usr/sbin:/sbin".into()));
+            #[cfg(windows)]
+            {
+                let windows = PathBuf::from(std::env::var_os("SystemRoot").expect("SystemRoot"));
+                assert!(windows.is_absolute(), "SystemRoot must be absolute");
+                let system = windows.join("System32");
+                let path = std::env::join_paths([system.join("OpenSSH"), system, windows.clone()])
+                    .unwrap();
+                env.extend([("SystemRoot", windows.into()), ("PATH", path)]);
+                let home = root.join("home").into_os_string();
+                for name in [
+                    "USERPROFILE",
+                    "ProgramData",
+                    "ALLUSERSPROFILE",
+                    "APPDATA",
+                    "LOCALAPPDATA",
+                    "TEMP",
+                    "TMP",
+                ] {
+                    env.push((name, home.clone()));
+                }
+            }
+            env.extend(homes.map(|(name, path)| (name, path.into_os_string())));
+            env
         }
 
         /// `program` in `root`, with the checked launch environment and nothing else.
         fn command(&self, root: &Path, program: &Path) -> Command {
-            let homes = launch_homes(&self.home.root, root)
-                .unwrap_or_else(|e| panic!("launch environment refused before launch: {e}"));
             let mut cmd = Command::new(program);
             cmd.env_clear()
-                .envs(homes)
-                .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
-                .env("LANG", "C")
-                .env("TERM", "dumb")
+                .envs(self.environment(root))
                 .current_dir(root)
                 .kill_on_drop(true);
             cmd
         }
 
         fn heimdall(&self, root: &Path, args: &[&str]) -> Command {
-            let mut cmd = self.command(root, &bin());
+            let mut cmd = self.command(root, &self.bin);
             cmd.args(args);
             cmd
         }
@@ -351,10 +440,12 @@ mod journey {
             heimdall_testkit::assert_no_canary(&text);
             let scratch = self.home.root.to_string_lossy();
             let real = std::fs::canonicalize(&self.home.root).unwrap();
-            let text = text
+            let mut text = text
                 .replace(&*real.to_string_lossy(), "<scratch>")
-                .replace(&*scratch, "<scratch>")
-                .replace(&self.login, "<login>");
+                .replace(&*scratch, "<scratch>");
+            if !self.login.is_empty() {
+                text = text.replace(&self.login, "<login>");
+            }
             heimdall_enroll::remote::redact_excerpt(text.as_bytes(), 4096)
         }
 
@@ -397,12 +488,21 @@ mod journey {
     // ---- the existing-access world (as `cli_m07.rs` builds it) ------------------------------
 
     fn owner(root: &Path) -> Caller {
-        use std::os::unix::fs::MetadataExt as _;
+        #[cfg(unix)]
+        let principal = {
+            use std::os::unix::fs::MetadataExt as _;
+            PrincipalRef::UnixUser {
+                uid: std::fs::metadata(root).unwrap().uid(),
+            }
+        };
+        #[cfg(windows)]
+        let principal: PrincipalRef = {
+            assert!(root.is_dir());
+            heimdall_testkit::win::current_principal().unwrap()
+        };
         Caller {
             context: CallerContext {
-                principal: PrincipalRef::UnixUser {
-                    uid: std::fs::metadata(root).unwrap().uid(),
-                },
+                principal,
                 role: ClientRole::Owner,
             },
             attendance: Attendance::Attended {
@@ -444,7 +544,11 @@ mod journey {
                     identity: IdentitySpec {
                         source: IdentitySourceSpec::NativeAgent {
                             endpoint: EndpointRef {
-                                kind: EndpointKind::UnixSocket,
+                                kind: if cfg!(windows) {
+                                    EndpointKind::NamedPipe
+                                } else {
+                                    EndpointKind::UnixSocket
+                                },
                                 locator: agent.endpoint().locator().to_str().unwrap().to_owned(),
                             },
                         },
@@ -556,6 +660,7 @@ mod journey {
         key: FixtureKey,
         account: AccountName,
         /// The fixture key's private half, for the pinned login of the fixture children.
+        #[cfg(unix)]
         login_key: PathBuf,
     }
 
@@ -576,20 +681,32 @@ mod journey {
                     ..SshdConfig::default()
                 },
             )
-            .unwrap();
-            let account = AccountName::parse(sshd.account().unwrap_or(&suite.login)).unwrap();
-            let login_key = suite.home.root.join("login-key");
-            key.write_private(&login_key).unwrap();
+            .unwrap_or_else(|error| panic!("blocked: existing-access journey not run: {error}"));
+            #[cfg(unix)]
+            let account = sshd.account().unwrap_or(&suite.login);
+            #[cfg(windows)]
+            let account = sshd.account().expect(
+                "blocked: existing-access journey not run; the loopback sshd needs HM_FIXTURE_SSHD_USER",
+            );
+            let account = AccountName::parse(account).unwrap();
+            #[cfg(unix)]
+            let login_key = {
+                let path = suite.home.root.join("login-key");
+                key.write_private(&path).unwrap();
+                path
+            };
             Lab {
                 sshd,
                 agent,
                 key,
                 account,
+                #[cfg(unix)]
                 login_key,
             }
         }
 
         /// Logins the fixture sshd accepted so far, each checked to be the generated key's.
+        #[cfg(unix)]
         fn logins(&self) -> usize {
             let accepted = self.sshd.accepted_log();
             assert!(
@@ -600,6 +717,32 @@ mod journey {
             );
             accepted.len()
         }
+
+        /// Signing requests the disposable agent received so far for the generated key.
+        #[cfg(unix)]
+        fn signatures(&self) -> usize {
+            let fingerprint = self.key.fingerprint();
+            self.agent
+                .log()
+                .iter()
+                .filter(|contact| contact.key_fp.as_deref() == Some(fingerprint.as_str()))
+                .count()
+        }
+
+        #[cfg(unix)]
+        fn seen(&self) -> Seen {
+            Seen {
+                logins: self.logins(),
+                signatures: self.signatures(),
+            }
+        }
+    }
+
+    /// What the fixture sshd and the disposable agent had seen at one moment.
+    #[cfg(unix)]
+    struct Seen {
+        logins: usize,
+        signatures: usize,
     }
 
     /// One harness's existing-access world: an in-process runtime over its root.
@@ -616,6 +759,7 @@ mod journey {
             let ssh_home = root.join("ssh-home");
             let ssh_dir = ssh_home.join(".ssh");
             std::fs::create_dir(&ssh_dir).unwrap();
+            #[cfg(unix)]
             std::fs::set_permissions(&ssh_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
             for (file, text) in [
                 ("config", String::new()),
@@ -623,6 +767,7 @@ mod journey {
             ] {
                 let path = ssh_dir.join(file);
                 std::fs::write(&path, text).unwrap();
+                #[cfg(unix)]
                 std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
             }
             let paths = Paths::under(&root.join("heimdall-home"));
@@ -661,24 +806,26 @@ mod journey {
             }
         }
 
-        /// A child program inside the root: one pinned login to the fixture sshd that runs
-        /// `remote`. Every agent and default identity is switched off; the key is the fixture's.
-        fn child(&self, lab: &Lab, name: &str, remote: &str) -> PathBuf {
+        /// One pinned login to the fixture sshd (alias `lab`) that runs `remote`: the option set
+        /// every fixture login shares, then `identity`, which says where the key comes from.
+        #[cfg(unix)]
+        fn login(&self, identity: &[&str], key: Option<&Path>, remote: &str) -> Vec<OsString> {
             let ssh_dir = self.root.join("ssh-home/.ssh");
             let ssh = find_program("ssh").expect("ssh client");
             let mut words: Vec<OsString> = vec![ssh.into(), "-T".into(), "-F".into()];
             words.push(ssh_dir.join("config").into());
             for option in [
                 "IdentityFile=none",
-                "IdentitiesOnly=yes",
-                "IdentityAgent=none",
                 "CertificateFile=none",
                 "ControlMaster=no",
                 "ControlPath=none",
                 "BatchMode=yes",
                 "StrictHostKeyChecking=yes",
                 "GlobalKnownHostsFile=/dev/null",
-            ] {
+            ]
+            .iter()
+            .chain(identity)
+            {
                 words.push("-o".into());
                 words.push(option.into());
             }
@@ -690,12 +837,52 @@ mod journey {
                 )
                 .into(),
             );
-            words.push("-i".into());
-            words.push(lab.login_key.clone().into());
+            if let Some(key) = key {
+                words.push("-i".into());
+                words.push(key.into());
+            }
             words.push("lab".into());
             words.push(remote.into());
+            words
+        }
+
+        /// Where the child `name` writes what its login through the binding's endpoint printed.
+        #[cfg(unix)]
+        fn endpoint_login_output(&self, name: &str) -> PathBuf {
+            self.root.join(format!("{name}.endpoint-login"))
+        }
+
+        /// A child program inside the root. It makes two pinned logins to the fixture sshd.
+        ///
+        /// 1. **Through the binding's own signing endpoint (M07-W3-R02).** `heimdall run` sets
+        ///    the child's `SSH_AUTH_SOCK` to it. The child goes on only when that names the
+        ///    disposable agent of this run (exit 96 otherwise: no other agent is ever asked).
+        ///    It then logs in with that agent and no key file, and the login's output goes to
+        ///    [`Self::endpoint_login_output`]. A dead endpoint fails here (exit 97).
+        /// 2. **Isolated.** Every agent and default identity is switched off; the key is the
+        ///    fixture's, by `-i`. This login runs `remote` and is what the harness watches.
+        #[cfg(unix)]
+        fn child(&self, lab: &Lab, name: &str, remote: &str) -> PathBuf {
+            let through_endpoint = self.login(
+                &["IdentitiesOnly=no", "IdentityAgent=SSH_AUTH_SOCK"],
+                None,
+                &format!("echo {name}-endpoint-login"),
+            );
+            let isolated = self.login(
+                &["IdentitiesOnly=yes", "IdentityAgent=none"],
+                Some(&lab.login_key),
+                remote,
+            );
             let script = self.root.join(name);
-            std::fs::write(&script, format!("#!/bin/sh\nexec {}\n", sh_join(&words))).unwrap();
+            let text = format!(
+                "#!/bin/sh\n[ \"${{SSH_AUTH_SOCK-}}\" = {expected} ] || exit 96\n\
+                 {through_endpoint} </dev/null >{output} || exit 97\nexec {isolated}\n",
+                expected = sh_join(&[lab.agent.endpoint().locator()]),
+                through_endpoint = sh_join(&through_endpoint),
+                output = sh_join(&[self.endpoint_login_output(name).into()]),
+                isolated = sh_join(&isolated),
+            );
+            std::fs::write(&script, text).unwrap();
             std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
             script
         }
@@ -799,63 +986,31 @@ mod journey {
             "the request asks for only the missing pair"
         );
 
-        let script = find_program("script")
-            .expect("blocked: script(1) is needed for the pseudo-terminal approval");
-        let mut cmd = suite.command(root, &script);
-        if cfg!(target_os = "linux") {
-            let line = sh_join(&[
-                bin().into(),
-                "decision".into(),
-                "approve".into(),
-                decision.into(),
-            ]);
-            cmd.args(["-q", "-e", "-c", &line, "/dev/null"]);
-        } else {
-            cmd.args(["-q", "/dev/null"])
-                .arg(bin())
-                .args(["decision", "approve", decision]);
+        let mut cmd = TerminalCommand::new(&suite.bin)
+            .args(["decision", "approve", decision])
+            .current_dir(root);
+        for (name, value) in suite.environment(root) {
+            cmd = cmd.env(name, value);
         }
-        let mut child = cmd
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        // The terminal's input stays open until the command ends: closing it would end the terminal.
-        let mut terminal = child.stdin.take().expect("the terminal's input");
-        let mut stdout = child.stdout.take().unwrap();
-        let mut seen = Vec::new();
-        let mut answered = false;
-        let typed = tokio::time::timeout(TIMEOUT * 2, async {
-            let mut buf = [0u8; 4096];
-            loop {
-                let n = stdout.read(&mut buf).await.unwrap_or(0);
-                if n == 0 {
-                    break;
+        let (status, answered, transcript) = tokio::task::spawn_blocking(move || {
+            let mut terminal = cmd.spawn().unwrap_or_else(|error| {
+                if cfg!(unix) && error.kind() == std::io::ErrorKind::NotFound {
+                    panic!("blocked: script(1) is needed for the terminal approval");
                 }
-                seen.extend_from_slice(&buf[..n]);
-                if !answered && String::from_utf8_lossy(&seen).contains("[y/N]: ") {
-                    terminal.write_all(b"yes\n").await.unwrap();
-                    terminal.flush().await.unwrap();
-                    answered = true;
-                }
-            }
-            child.wait().await.unwrap()
+                panic!("the approval terminal did not start: {}", error.kind());
+            });
+            let answered =
+                terminal.expect("[y/N]:", TIMEOUT).is_ok() && terminal.send(b"yes\r").is_ok();
+            let status = answered.then(|| terminal.wait(TIMEOUT)).flatten();
+            (status, answered, terminal.text())
         })
-        .await;
-        let status = typed.unwrap_or_else(|_| {
-            panic!(
-                "the approval did not finish on the pseudo-terminal: {}",
-                suite.redact(&seen)
-            )
-        });
-        drop(terminal);
-        let transcript = String::from_utf8_lossy(&seen);
+        .await
+        .unwrap();
         heimdall_testkit::assert_no_canary(&transcript);
         assert!(
-            status.success() && answered && transcript.contains(decision),
-            "approve on the pseudo-terminal: exit {status}: {}",
-            suite.redact(&seen)
+            status == Some(0) && answered && transcript.contains(decision),
+            "approve on the terminal: exit {status:?}, typed yes: {answered}: {}",
+            suite.redact(transcript.as_bytes())
         );
     }
 
@@ -874,7 +1029,7 @@ mod journey {
         cmd.args(["-I", "-B"])
             .arg(source)
             .arg("--heimdall-bin")
-            .arg(bin())
+            .arg(&suite.bin)
             .arg("--scratch-root")
             .arg(root)
             .args(args)
@@ -990,19 +1145,30 @@ mod journey {
             .collect()
     }
 
-    /// After a harness's existing-access tasks: one new login with the fixture key, and no
-    /// binding left active (the stop of task 6 released it; a finished child's binding ends).
-    async fn check_existing_access(
-        suite: &Suite,
-        lab: &Lab,
-        world: &ExistingAccess,
-        before: usize,
-    ) {
+    /// After a harness's existing-access tasks.
+    ///
+    /// The child `name` of task 5 logged in twice, each time with the generated key: once
+    /// through the signing endpoint its binding gave it, which the disposable agent signed for,
+    /// and once isolated, from the key file.
+    #[cfg(unix)]
+    fn check_logins(lab: &Lab, world: &ExistingAccess, name: &str, before: &Seen) {
+        assert_eq!(
+            std::fs::read_to_string(world.endpoint_login_output(name)).ok(),
+            Some(format!("{name}-endpoint-login\n")),
+            "the child of task 5 logged in through the endpoint its binding gave it"
+        );
+        assert!(
+            lab.signatures() > before.signatures,
+            "the disposable agent signed for the login through the binding's endpoint"
+        );
         assert_eq!(
             lab.logins(),
-            before + 1,
-            "the child of task 5 logged in to the fixture sshd exactly once"
+            before.logins + 2,
+            "the child of task 5 logged in to the fixture sshd exactly twice"
         );
+    }
+
+    async fn check_no_active_bindings(suite: &Suite, world: &ExistingAccess) {
         let deadline = tokio::time::Instant::now() + TIMEOUT;
         loop {
             let active = suite.active_bindings(&world.root).await;
@@ -1018,7 +1184,8 @@ mod journey {
         }
     }
 
-    /// After a harness's fixture-adapter tasks: no decision is left pending.
+    /// After a harness's fixture-adapter tasks and its cleanup: no decision is left pending and
+    /// no binding is left active.
     async fn check_fixture_adapter(suite: &Suite, world: &FixtureAdapter) {
         let (code, listed) = suite.call(&world.root, &["decision", "list"]).await;
         assert_eq!(code, Some(0), "{listed}");
@@ -1027,13 +1194,36 @@ mod journey {
             pending.iter().all(|d| d["state"] != "pending"),
             "a decision is still pending: {listed}"
         );
+        let active = suite.active_bindings(&world.root).await;
+        assert!(
+            active.is_empty(),
+            "bindings are still active after the harness's tasks: {}",
+            active.len()
+        );
     }
 
-    async fn run_h1(suite: &Suite, lab: &Lab) -> Vec<Value> {
-        let mut out = Vec::new();
+    /// Take the cleanup that follows a world's tasks off a summary: its last record, named
+    /// `name`, which made `releases` calls and succeeded. It is not one of the seven tasks.
+    fn take_cleanup(summary: &mut Value, name: &str, releases: u64) -> Value {
+        let cleanup = summary["tasks"]
+            .as_array_mut()
+            .expect("task records")
+            .pop()
+            .expect("a cleanup record");
+        assert_eq!(
+            (
+                &cleanup["task"],
+                &cleanup["success"],
+                cleanup["calls"].as_u64()
+            ),
+            (&json!(name), &json!(true), Some(releases)),
+            "the cleanup released each binding once: {cleanup}"
+        );
+        cleanup
+    }
+
+    async fn run_h1_existing(suite: &Suite, lab: &Lab) -> Vec<Value> {
         let world = ExistingAccess::start(suite, lab, "h1e").await;
-        let child = world.child(lab, "h1-child", "echo h1-fixture-child");
-        let before = lab.logins();
         let mut args = words(&[
             "--profile",
             PROFILE,
@@ -1041,20 +1231,48 @@ mod journey {
             "discover",
             "--task",
             "covered",
-            "--task",
-            "bind-run",
-            "--task",
-            "release",
+        ]);
+        #[cfg(unix)]
+        let before = lab.seen();
+        #[cfg(unix)]
+        {
+            let child = world.child(lab, "h1-child", "echo h1-fixture-child");
+            args.extend(words(&[
+                "--task",
+                "bind-run",
+                "--task",
+                "release",
+                "--task",
+                "capability-refusal",
+                "--child",
+            ]));
+            args.push(child.into());
+        }
+        #[cfg(windows)]
+        args.extend(words(&[
             "--task",
             "capability-refusal",
-            "--child",
-        ]);
-        args.push(child.into());
+            "--task",
+            "release",
+        ]));
         let summary = run_harness(suite, &world.root, &suite.h1, args, 0).await;
-        out.extend(records("H1", "existing-access", &summary));
-        check_existing_access(suite, lab, &world, before).await;
+        #[cfg(windows)]
+        let summary = {
+            let mut summary = summary;
+            take_cleanup(&mut summary, "release", 1);
+            summary
+        };
+        #[cfg(unix)]
+        check_logins(lab, &world, "h1-child", &before);
+        check_no_active_bindings(suite, &world).await;
         world.stop().await;
+        records("H1", "existing-access", &summary)
+    }
 
+    async fn run_h1_adapter(suite: &Suite) -> Vec<Value> {
+        let mut out = Vec::new();
+        // Tasks 3 and 4 each end holding a binding. H1 releases it with its `release` task at
+        // the end of the same invocation: a cleanup, not a second task 6.
         let world = FixtureAdapter::start(suite, "h1f").await;
         let approval = words(&[
             "--profile",
@@ -1063,11 +1281,15 @@ mod journey {
             "h3:deploy",
             "--task",
             "approval",
+            "--task",
+            "release",
         ]);
-        let summary = run_harness(suite, &world.root, &suite.h1, approval, 1).await;
+        let mut summary = run_harness(suite, &world.root, &suite.h1, approval, 1).await;
+        take_cleanup(&mut summary, "release", 1);
         out.extend(records("H1", "fixture-adapter", &summary));
-        let timeout = words(&["--profile", "ops", "--task", "timeout"]);
-        let summary = run_harness(suite, &world.root, &suite.h1, timeout, 0).await;
+        let timeout = words(&["--profile", "ops", "--task", "timeout", "--task", "release"]);
+        let mut summary = run_harness(suite, &world.root, &suite.h1, timeout, 0).await;
+        take_cleanup(&mut summary, "release", 1);
         out.extend(records("H1", "fixture-adapter", &summary));
         check_fixture_adapter(suite, &world).await;
         world.stop(suite).await;
@@ -1105,6 +1327,7 @@ mod journey {
     /// The bindings H2 reports holding once the child of task 5 runs: the one task 2 prepared,
     /// and the child's own when the build made another for the same work. Read from H2's typed
     /// records only.
+    #[cfg(unix)]
     fn h2_held_for_the_run(tasks: &Value) -> Vec<String> {
         let (covered, running) = (&tasks[1], &tasks[2]);
         let prepared = covered["final_state"]["binding_id"]
@@ -1132,12 +1355,11 @@ mod journey {
         held
     }
 
-    async fn run_h2(suite: &Suite, lab: &Lab) -> Vec<Value> {
-        let mut out = Vec::new();
-        let world = ExistingAccess::start(suite, lab, "h2e").await;
+    #[cfg(unix)]
+    async fn run_h2_child(suite: &Suite, lab: &Lab, world: &ExistingAccess) -> Value {
         // The child reports that it is up, then holds its login open until its input ends.
         let child = world.child(lab, "h2-child", "echo h2-fixture-child; cat");
-        let before = lab.logins();
+        let before = lab.seen();
         let work = "h2-lab-work";
         let summary = run_harness(
             suite,
@@ -1186,12 +1408,62 @@ mod journey {
             (Some(held.len() as u64), &json!([])),
             "task 6 released each binding H2 held, once: {stop}"
         );
-        out.extend(records("H2", "existing-access", &summary));
-        check_existing_access(suite, lab, &world, before).await;
-        world.stop().await;
+        assert_eq!(
+            summary["close"],
+            json!({"released": [], "held": []}),
+            "H2 had nothing left to release when it closed"
+        );
+        check_logins(lab, world, "h2-child", &before);
+        summary
+    }
 
+    #[cfg(windows)]
+    async fn run_h2_without_child(suite: &Suite, world: &ExistingAccess) -> Value {
+        let mut summary = run_harness(
+            suite,
+            &world.root,
+            &suite.h2,
+            goals(&[
+                json!({"goal": "discover"}),
+                json!({"task": "covered", "goal": "access", "profile": PROFILE,
+                       "work_id": "h2-lab-work"}),
+                json!({"task": "capability-refusal", "goal": "access", "profile": PROFILE,
+                       "work_id": "h2-unattended-work", "require_unattended": true,
+                       "expect_refusal": "CAPABILITY_UNAVAILABLE"}),
+                json!({"task": "cleanup", "goal": "stop"}),
+            ]),
+            0,
+        )
+        .await;
+        check_h2_paths(
+            &summary,
+            &[
+                ("discover", &["discovered"]),
+                ("covered", &["ready"]),
+                ("capability-refusal", &["failed"]),
+                ("cleanup", &["stopped"]),
+            ],
+        );
+        let cleanup = take_cleanup(&mut summary, "cleanup", 1);
+        assert_eq!(cleanup["held"], json!([]), "{cleanup}");
+        assert_eq!(summary["close"], json!({"released": [], "held": []}));
+        summary
+    }
+
+    async fn run_h2_existing(suite: &Suite, lab: &Lab) -> Vec<Value> {
+        let world = ExistingAccess::start(suite, lab, "h2e").await;
+        #[cfg(unix)]
+        let summary = run_h2_child(suite, lab, &world).await;
+        #[cfg(windows)]
+        let summary = run_h2_without_child(suite, &world).await;
+        check_no_active_bindings(suite, &world).await;
+        world.stop().await;
+        records("H2", "existing-access", &summary)
+    }
+
+    async fn run_h2_adapter(suite: &Suite) -> Vec<Value> {
         let world = FixtureAdapter::start(suite, "h2f").await;
-        let summary = run_harness(
+        let mut summary = run_harness(
             suite,
             &world.root,
             &suite.h2,
@@ -1200,6 +1472,8 @@ mod journey {
                        "work_id": "h2-wider-work", "pairs": ["h3:deploy"]}),
                 json!({"task": "timeout", "goal": "access", "profile": "ops",
                        "work_id": "h2-slow-work", "timeout_ms": 1}),
+                // Tasks 3 and 4 each end holding a binding: release both before the record.
+                json!({"task": "cleanup", "goal": "stop"}),
             ]),
             1,
         )
@@ -1209,18 +1483,32 @@ mod journey {
             &[
                 ("approval", &["pending_approval", "ready"]),
                 ("timeout", &["observing", "ready"]),
+                ("cleanup", &["releasing", "stopped"]),
             ],
         );
-        out.extend(records("H2", "fixture-adapter", &summary));
+        assert_eq!(
+            (
+                &summary["tasks"][1]["held"].as_array().map(Vec::len),
+                &summary["close"]
+            ),
+            (&Some(2), &json!({"released": [], "held": []})),
+            "H2 held one binding for each of tasks 3 and 4, and its stop left none to close"
+        );
+        let cleanup = take_cleanup(&mut summary, "cleanup", 2);
+        assert_eq!(cleanup["held"], json!([]), "{cleanup}");
         check_fixture_adapter(suite, &world).await;
         world.stop(suite).await;
-        out
+        records("H2", "fixture-adapter", &summary)
     }
 
     /// The shape of the composition record (the evidence file itself is the integrator's).
-    fn check_composition(composition: &Value) {
+    fn check_composition(composition: &Value, expected: &[u64]) {
         let records = composition["records"].as_array().expect("records");
-        assert_eq!(records.len(), 14, "seven tasks for each of two harnesses");
+        assert_eq!(
+            records.len(),
+            expected.len() * 2,
+            "tasks for both harnesses"
+        );
         for harness in ["H1", "H2"] {
             let mut tasks: Vec<u64> = records
                 .iter()
@@ -1228,7 +1516,7 @@ mod journey {
                 .map(|record| record["task"].as_u64().expect("a task number"))
                 .collect();
             tasks.sort_unstable();
-            assert_eq!(tasks, [1, 2, 3, 4, 5, 6, 7], "{harness} ran each task once");
+            assert_eq!(tasks, expected, "{harness} ran each selected task once");
         }
         for record in records {
             let task = record["task"].as_u64().unwrap();
@@ -1260,31 +1548,61 @@ mod journey {
         }
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn both_harnesses_complete_the_deterministic_tasks() {
-        let suite = Suite::new();
-        let lab = Lab::start(&suite);
-        let mut records = run_h1(&suite, &lab).await;
-        records.extend(run_h2(&suite, &lab).await);
+    fn record_composition(suite: &Suite, mut records: Vec<Value>, expected: &[u64], held: &[&str]) {
         records.sort_by_key(|r| (r["harness"].as_str().map(str::to_owned), r["task"].as_u64()));
+        let mut held_items = vec![
+            "H2 loads its call set from a local table until schema show primitives is served (U4b)",
+        ];
+        held_items.extend_from_slice(held);
         let composition = json!({
             "case": "A32",
-            "tasks": "m07-plan §5a, tasks 1 to 7",
+            "tasks": expected,
             "platform": format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
             "harnesses": ["H1", "H2"],
-            "held": [
-                "H2 loads its call set from a local table until `schema show primitives` is served (U4b)",
-                "native Windows: blocked (the journey needs python3, script(1) and the local fixture sshd)",
-            ],
+            "held": held_items,
             "records": records,
         });
         // Written into the scratch root and read back: what is checked is what was recorded.
         let file = suite.home.root.join("m07-a32-composition.json");
         std::fs::write(&file, serde_json::to_vec_pretty(&composition).unwrap()).unwrap();
         let recorded: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
-        check_composition(&recorded);
+        check_composition(&recorded, expected);
         for record in recorded["records"].as_array().unwrap() {
             println!("a32 record: {record}");
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn both_harnesses_complete_the_deterministic_tasks() {
+        let suite = Suite::new();
+        let lab = Lab::start(&suite);
+        let mut records = run_h1_existing(&suite, &lab).await;
+        records.extend(run_h1_adapter(&suite).await);
+        records.extend(run_h2_existing(&suite, &lab).await);
+        records.extend(run_h2_adapter(&suite).await);
+        record_composition(&suite, records, &[1, 2, 3, 4, 5, 6, 7], &[]);
+    }
+
+    #[cfg(windows)]
+    const WINDOWS_HELD: &str = "tasks 5 and 6: need a Windows child login oracle and H2 support for the spawned run record";
+
+    #[cfg(windows)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn both_harnesses_use_the_fixture_adapter_on_windows() {
+        let suite = Suite::new();
+        let mut records = run_h1_adapter(&suite).await;
+        records.extend(run_h2_adapter(&suite).await);
+        record_composition(&suite, records, &[3, 4], &[WINDOWS_HELD]);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn both_harnesses_use_existing_access_on_windows() {
+        let suite = Suite::new();
+        let lab = Lab::start(&suite);
+        let mut records = run_h1_existing(&suite, &lab).await;
+        records.extend(run_h2_existing(&suite, &lab).await);
+        record_composition(&suite, records, &[1, 2, 7], &[WINDOWS_HELD]);
     }
 }

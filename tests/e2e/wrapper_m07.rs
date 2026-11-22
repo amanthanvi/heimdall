@@ -1103,10 +1103,8 @@ async fn materialize_log_in_and_release_through_the_wrapper() {
     let pair = &pairs[0];
     let alias = field(pair, "alias");
     assert_eq!(alias, ALIAS);
-    assert_eq!(
-        pair["endpoint"]["locator"],
-        agent.endpoint().locator().to_str().unwrap()
-    );
+    let endpoint = field(&pair["endpoint"], "locator");
+    assert_eq!(endpoint, agent.endpoint().locator().to_str().unwrap());
     let executable = consumer["executables"]
         .as_array()
         .unwrap()
@@ -1119,16 +1117,14 @@ async fn materialize_log_in_and_release_through_the_wrapper() {
     key.write_private(&identity).unwrap();
     let config = world.ssh_home.join(".ssh/config");
     assert!(config.is_file());
-    let login = world.checked_output(
-        world
-            .command(ssh)
+    let ssh_command = |identity_agent: &str| {
+        let mut command = world.command(ssh);
+        command
             .arg("-F")
-            .arg(config)
+            .arg(&config)
+            .args(["-T", "-oIdentityFile=none", "-oIdentitiesOnly=yes"])
+            .arg(format!("-oIdentityAgent={identity_agent}"))
             .args([
-                "-T",
-                "-oIdentityFile=none",
-                "-oIdentitiesOnly=yes",
-                "-oIdentityAgent=none",
                 "-oCertificateFile=none",
                 "-oGlobalKnownHostsFile=/dev/null",
                 "-oControlMaster=no",
@@ -1141,10 +1137,15 @@ async fn materialize_log_in_and_release_through_the_wrapper() {
             .arg(format!(
                 "UserKnownHostsFile={}",
                 ssh_option_path(&world.home.known_hosts)
-            ))
-            .arg("-i")
-            .arg(identity)
-            .args(["--", alias, "echo wrapper-fixture-login"]),
+            ));
+        command
+    };
+    let login = world.checked_output(
+        ssh_command("none").arg("-i").arg(&identity).args([
+            "--",
+            alias,
+            "echo wrapper-fixture-login",
+        ]),
         "fixture SSH login",
     );
     assert!(
@@ -1156,6 +1157,27 @@ async fn materialize_log_in_and_release_through_the_wrapper() {
     let accepted = sshd.accepted_log();
     assert_eq!(accepted.len(), 1);
     assert_eq!(accepted[0].fingerprint, key.fingerprint());
+
+    // The projected alias selects the fixture's public key. Only the
+    // descriptor's agent can sign once the private-key file is removed.
+    fs::remove_file(&identity).unwrap();
+    let agent_login = world.checked_output(
+        ssh_command(&ssh_option_path(Path::new(endpoint))).args([
+            "--",
+            alias,
+            "echo wrapper-agent-login",
+        ]),
+        "fixture SSH login through the descriptor's agent",
+    );
+    assert!(
+        agent_login.status.success(),
+        "SSH login through the descriptor's agent failed ({})",
+        agent_login.status
+    );
+    assert_eq!(agent_login.stdout.trim(), "wrapper-agent-login");
+    let accepted = sshd.accepted_log();
+    assert_eq!(accepted.len(), 2);
+    assert_eq!(accepted[1].fingerprint, key.fingerprint());
 
     for id in std::collections::BTreeSet::from([binding, original]) {
         let release = driver.request(names::RELEASE, json!({"binding_id":id}));

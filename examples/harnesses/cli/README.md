@@ -18,14 +18,19 @@ by their real paths and passed under the root as you gave it, so the calls reach
 the runtime the driver started under that same path. The fixture driver starts a
 ready debug runtime before the journey.
 
+On Windows, H1 requires an absolute `SystemRoot`. It builds `PATH` from the
+in-box OpenSSH directory, `System32`, and `SystemRoot`, and sets
+`USERPROFILE`, `ProgramData`, `ALLUSERSPROFILE`, `APPDATA`, `LOCALAPPDATA`,
+`TEMP`, and `TMP` to the fixture's `home` directory.
+
 | Task | Fixture and result |
 | --- | --- |
 | `discover` | Reads `schema show codes` and the running fixture's `inspect capabilities`. |
-| `covered` | Preapproved profile. One `access ensure` reaches `ACCESS_READY` and supplies the binding for `release`. |
+| `covered` | Preapproved profile. One `access ensure` reaches `ACCESS_READY` and supplies a binding for `release`. |
 | `approval` | Profile with a missing pair. `--approval-pair destination:account` enables the fixture-driver handoff. |
 | `timeout` | A fresh profile with delayed preparation. After the 1 ms caller timeout, `operation wait` observes the original ensure reach `ACCESS_READY`. |
 | `bind-run` | Preapproved profile. Supply an absolute scratch child executable and its arguments through `--child` at the end of the command. The child prints `h1-fixture-child` and exits 0. |
-| `release` | Run `covered` earlier in the same invocation. `access release` drops its binding. |
+| `release` | Run `covered`, `approval` or `timeout` earlier in the same invocation. Each of them ends holding a binding. `release` drops every one with its own `access release` call, the newest first. |
 | `capability-refusal` | Existing-access profile. `access ensure --require-unattended` must exit 4 with `CAPABILITY_UNAVAILABLE` and effect `none`. |
 
 Repeat `--task` to execute tasks in order. Use separate invocations when the

@@ -37,12 +37,21 @@ for key, directory in (("HOME", "home"), ("HEIMDALL_HOME", "heimdall-home"),
 (root / "heimdall-home-seen").write_text(os.environ["HEIMDALL_HOME"], encoding="utf-8")
 assert "SSH_AUTH_SOCK" not in os.environ and "H1_TEST_FOREIGN_ENV" not in os.environ
 assert not any((root / "ssh-home" / "etc-ssh").iterdir())
-assert os.environ["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin"
+if os.name == "nt":
+    windows = Path(os.environ["SystemRoot"])
+    system = windows / "System32"
+    assert os.environ["PATH"].split(";") == list(map(str, (system / "OpenSSH", system, windows)))
+    for name in ("USERPROFILE", "ProgramData", "ALLUSERSPROFILE",
+                 "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"):
+        assert os.environ[name] == os.environ["HOME"]
+else:
+    assert os.environ["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin"
 with (root / "calls.jsonl").open("a", encoding="utf-8") as log:
     print(json.dumps(args), file=log)
 
 op = "op_fixture"
 binding = "binding_fixture"
+observed = "binding_observed"  # the binding of the operation `operation wait` observes
 rows = [{"code": "ACCESS_READY", "exit_code": 0}]
 
 
@@ -82,7 +91,7 @@ elif args[:2] == ["access", "ensure"]:
           next={"action": "use_binding", "binding_id": binding})
 elif args == ["operation", "wait", op, "--timeout-ms", "30000"]:
     reply(data={"operation_id": "op_other" if mode == "wrong-operation" else op,
-                "state": "succeeded", "code": "ACCESS_READY", "result": {"binding_id": binding}},
+                "state": "succeeded", "code": "ACCESS_READY", "result": {"binding_id": observed}},
           operation_id=op)
 elif args[:5] == ["operation", "events", "--operation", op, "--follow"]:
     if args[5:] == ["--max-events", "1", "--cursor=cursor-fixture"]:
@@ -93,8 +102,9 @@ elif args[:5] == ["operation", "events", "--operation", op, "--follow"]:
         assert args[5:] == ["--max-events", "0"]
         snapshot = {"data": {"operation": {"operation_id": op, "state": "awaiting_approval"}}}
         reply(data={"subscription": 1, "cursor": "cursor-fixture", "snapshot": snapshot}, state="running")
-elif args == ["access", "release", binding]:
-    reply(data={"binding_id": binding, "outcome": {"outcome": "released", "remaining_references": 0}})
+elif args[:2] == ["access", "release"] and args[2:] in ([binding], [observed]):
+    reply(data={"binding_id": binding if mode == "other-binding" else args[2],
+                "outcome": {"outcome": "released", "remaining_references": 0}})
 elif args[0] == "run":
     assert args[1] == "--profile" and args[3] == "--work-id" and args[5] == "--request-id"
     assert args[7] == "--" and Path(args[8]).is_absolute() and args[9:] == ["fixture-argument"]
@@ -112,6 +122,27 @@ def fixture_root(test):
     (root / "heimdall-home").mkdir()
     (root / "ssh-home" / "etc-ssh").mkdir(parents=True)
     return root
+
+
+class WindowsEnvironmentTests(unittest.TestCase):
+    def test_windows_environment_uses_only_system_and_fixture_paths(self):
+        windows = r"D:\Windows"
+        home = r"C:\fixture root\home"
+        inherited = {"PATH": r"C:\extra", "SSH_AUTH_SOCK": "parent-agent"}
+        with patch.dict(os.environ, inherited):
+            self.assertEqual(HARNESS["windows_environment"](windows, home), {
+                "SystemRoot": windows,
+                "PATH": r"D:\Windows\System32\OpenSSH;D:\Windows\System32;D:\Windows",
+                "USERPROFILE": home,
+                "ProgramData": home,
+                "ALLUSERSPROFILE": home,
+                "APPDATA": home,
+                "LOCALAPPDATA": home,
+                "TEMP": home,
+                "TMP": home,
+            })
+        with self.assertRaisesRegex(HARNESS["HarnessError"], "SystemRoot"):
+            HARNESS["windows_environment"](r"D:Windows", home)
 
 
 class HarnessTests(unittest.TestCase):
@@ -145,7 +176,9 @@ class HarnessTests(unittest.TestCase):
                    run_task("timeout", journey.timeout, "slow"),
                    run_task("release", journey.release),
                    run_task("capability-refusal", journey.capability_refusal, "existing-access")]
-        self.assertEqual([result["calls"] for result in results], [1, 2, 1, 1])
+        # `release` drops every binding the earlier tasks were given: the covered one and
+        # the one of the operation `timeout` observed, one call for each, the newest first.
+        self.assertEqual([result["calls"] for result in results], [1, 2, 2, 1])
         for result in results:
             self.assertTrue(result["success"], result)
             self.assertEqual(result["discovery_bytes"], 0)
@@ -155,8 +188,12 @@ class HarnessTests(unittest.TestCase):
         calls = self.calls()
         self.assertEqual(calls[1][-2:], ["--timeout-ms", "1"])
         self.assertEqual(calls[2], ["operation", "wait", "op_fixture", "--timeout-ms", "30000"])
-        self.assertEqual(calls[3], ["access", "release", "binding_fixture"])
-        self.assertEqual(calls[4][-1], "--require-unattended")
+        self.assertEqual(calls[3:5], [["access", "release", "binding_observed"],
+                                      ["access", "release", "binding_fixture"]])
+        self.assertEqual(calls[5][-1], "--require-unattended")
+        self.assertEqual(journey.bindings, [])
+        again = run_task("release", journey.release)  # nothing is held now
+        self.assertEqual((again["success"], again["calls"]), (False, 0))
         requests = [args[7] for args in calls if args[:2] == ["access", "ensure"]]
         self.assertEqual(len(requests), len(set(requests)))
         self.assertEqual(results[-1]["detail"], "CAPABILITY_UNAVAILABLE (effect none)")
@@ -174,6 +211,24 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(result["human_handoffs"], 1)
         self.assertEqual(result["wall_time_ms"], 50)
         self.assertEqual(self.calls()[2][-3:], ["--max-events", "1", "--cursor=cursor-fixture"])
+
+    def test_release_drops_the_binding_of_an_approved_or_observed_operation(self):
+        # M07-W3-R01 in H1: `approval` and `timeout` each end holding their operation's
+        # binding, with no `covered` task before them.
+        for task, args in (("timeout", ("slow",)),
+                           ("approval", ("wider", "destination:account", lambda *_: True))):
+            with self.subTest(task=task):
+                journey = self.journey()
+                self.assertTrue(run_task(task, getattr(journey, task), *args)["success"])
+                released = run_task("release", journey.release)
+                self.assertEqual((released["success"], released["calls"]), (True, 1), released)
+                self.assertEqual(self.calls()[-1], ["access", "release", "binding_observed"])
+                self.assertEqual(journey.bindings, [])
+        # A release answered for another binding fails, and that binding stays held.
+        journey = self.journey("other-binding")
+        self.assertTrue(run_task("timeout", journey.timeout, "slow")["success"])
+        self.assertFalse(run_task("release", journey.release)["success"])
+        self.assertEqual(journey.bindings, ["binding_observed"])
 
     def test_bind_run_requires_child_marker(self):
         child = [str(self.stub), "fixture-argument"]
