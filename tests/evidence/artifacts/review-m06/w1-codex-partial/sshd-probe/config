@@ -1,0 +1,11 @@
+AuthorizedKeysFile .ssh/authorized_keys ".ssh/alternate keys"
+AuthorizedKeysCommand none
+AuthorizedPrincipalsCommand none
+PermitUserEnvironment no
+AcceptEnv LANG LC_*
+AuthenticationMethods any
+PubkeyAuthentication yes
+Match LocalPort 2222
+    AcceptEnv *
+
+UnrecognizedHeimdallFixtureDirective yes

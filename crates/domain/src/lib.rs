@@ -33,6 +33,8 @@ pub mod projection;
 pub mod reissue;
 pub mod resource;
 pub mod revocation;
+// ⟨M06 U5a⟩ ADR-0012 §5.1, §5.3, §9 item 9: a destination's ordered approved routes.
+pub mod routes;
 pub mod scope;
 pub mod time;
 pub mod verification;

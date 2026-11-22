@@ -89,6 +89,7 @@ fn ctx(uid: u32, role: ClientRole) -> CallerContext {
     CallerContext {
         principal: PrincipalRef::UnixUser { uid },
         role,
+        remote_client: None,
     }
 }
 
@@ -473,6 +474,7 @@ fn ensure_req(request_id: &str, work: &str, pairs: &[(&str, &str)]) -> EnsureReq
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     }
 }
 
@@ -15411,6 +15413,7 @@ mod wave0_fail_closed {
                 capabilities,
                 required: BTreeSet::new(),
                 interaction: InteractionMode::NonInteractive,
+                remote_client: None,
             });
             stream
                 .write_all(&encode_frame(&hello, CONTROL_LIMIT).unwrap())

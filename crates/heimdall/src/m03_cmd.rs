@@ -26,7 +26,7 @@ use heimdall_contract::request::{InspectSubject, PolicyAction, Request};
 
 use crate::cli::{
     ConnectionPolicyArgs, DestinationPreferArgs, Done, ExistingArg, InternalCommand,
-    LockBehaviorArg, LockBehaviorArgs, MechanismArg, MultiplexingArg, parse,
+    LockBehaviorArg, LockBehaviorArgs, MechanismArg, MultiplexingArg, Session, parse,
 };
 use crate::client::{Ctx, error};
 use crate::output;
@@ -143,22 +143,39 @@ pub(crate) async fn destination_prefer(ctx: &Ctx, args: DestinationPreferArgs) -
         Ok(p) => p,
         Err(o) => return o,
     };
+    set_preference(
+        &mut client,
+        &args.alias,
+        destination,
+        &account,
+        match args.mechanism {
+            MechanismArg::Managed => PreferredMechanism::ManagedCertificate,
+            MechanismArg::Existing => PreferredMechanism::Existing,
+        },
+    )
+    .await
+}
+
+pub(crate) async fn set_preference<S: Session>(
+    s: &mut S,
+    alias: &str,
+    destination: DestinationId,
+    account: &AccountName,
+    mechanism: PreferredMechanism,
+) -> Outcome {
     let request_id = match setup_cmd::request_id(None) {
         Ok(r) => r,
         Err(o) => return o,
     };
-    let env = client
+    let env = s
         .request(Request::Catalog(CatalogRequest::SetPreference {
             destination,
             account: account.clone(),
-            mechanism: match args.mechanism {
-                MechanismArg::Managed => PreferredMechanism::ManagedCertificate,
-                MechanismArg::Existing => PreferredMechanism::Existing,
-            },
+            mechanism,
             request_id,
         }))
         .await;
-    prefer_outcome(env, &args.alias, &account)
+    prefer_outcome(env, alias, account)
 }
 
 /// `access lock-behavior --policy P continue|revoke-on-lock` as its policy action

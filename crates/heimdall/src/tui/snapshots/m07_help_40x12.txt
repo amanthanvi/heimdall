@@ -1,0 +1,12 @@
+[1 Overview] 1/8 [!!] Needs attention
+[┌Keys────────────────────────────────┐
+R│1-8, Tab, Shift-Tab   switch view: 1│
+S│Overview 2 Destinations 3 Profiles 4│
+W│Activity                            │
+H│                      5 Projects 6  │
+A│Environments 7 Identities 8 Settings│
+L│Up/Down, PgUp/PgDn    move or       │
+>│scroll; Home/End go to the first and│
+ │last row                            │s
+ └────────────────────────────────────┘
+any key closes

@@ -2,7 +2,8 @@
 //! credentials, and never change when routes, addresses, or labels change.
 //!
 //! Wire form: `<prefix>_<32 lowercase hex>` for runtime-generated IDs
-//! (`op_`, `grant_`, `binding_`, `env_`, `evt_`, `res_`, `dev_`, `ws_`, `idn_`, ⟨M03⟩ `enr_`), and a
+//! (`op_`, `grant_`, `binding_`, `env_`, `evt_`, `res_`, `dev_`, `ws_`, `idn_`, ⟨M03⟩ `enr_`,
+//! ⟨M06⟩ `cl_`, `inv_`, `route_`, `eff_`, `cns_`), and a
 //! bounded caller-chosen token for `request_id`, `work_id`, profile, destination
 //! and policy names. Parsing is bounded and rejects control characters.
 
@@ -217,6 +218,134 @@ prefixed_id!(
     ForeignRemovalId, "frm"
 );
 
+prefixed_id!(
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §3.6, §3.7): a paired management client, minted by the
+    /// runner at invitation (`cl_<32 hex>`). It names the enrollment line
+    /// (`heimdall-mgmt:<cid>`) and the bridge's argv; it is never a credential and never a
+    /// request field that sets a caller (ADR-0006 §18).
+    ClientId, "cl"
+);
+prefixed_id!(
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §3.9): an invitation, minted by the runner with its
+    /// pending record. Consumed once by `join`'s compare-and-set.
+    InvitationId, "inv"
+);
+prefixed_id!(
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §5.1): one approved route of a destination. Reachability
+    /// data only; a route grants nothing and never changes host identity.
+    RouteId, "route"
+);
+prefixed_id!(
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §7.2): a narrowing effect, minted by its producing
+    /// controller. Keyed with the authenticated producer, the typed target and its
+    /// generation.
+    EffectId, "eff"
+);
+prefixed_id!(
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §2.1, §2.8): a recorded exposure consent (a runner-local
+    /// or controller-local attended decision bound to the exact exposure delta).
+    ConsentId, "cns"
+);
+
+/// ⟨M06⟩ Revision 6 (ADR-0012 §3.9 item 1, §5.1, §9 items 5 and 9): an SSH public key's
+/// fingerprint, `SHA256:` followed by exactly 43 characters of unpadded standard base64,
+/// as `ssh-keygen -l` prints it (the same form as [`CaFingerprint`]). Used for pinned
+/// host keys and for an invitation's receiving key. Validated on parse and on decode;
+/// compared exactly.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(try_from = "String", into = "String")]
+pub struct KeyFingerprint(String);
+
+impl KeyFingerprint {
+    /// Parse and validate a wire string (the [`CaFingerprint`] rule).
+    pub fn parse(s: &str) -> Result<Self, CaFingerprintError> {
+        CaFingerprint::parse(s).map(|f| Self(f.0))
+    }
+
+    /// The wire string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for KeyFingerprint {
+    type Error = CaFingerprintError;
+    fn try_from(s: String) -> Result<Self, CaFingerprintError> {
+        Self::parse(&s)
+    }
+}
+
+impl From<KeyFingerprint> for String {
+    fn from(f: KeyFingerprint) -> String {
+        f.0
+    }
+}
+
+impl std::fmt::Display for KeyFingerprint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// ⟨M06⟩ Revision 6 (ADR-0012 §1, §5.1): an Iroh endpoint ID, the endpoint's public key
+/// as 64 lowercase hex characters. Reachability identity only: it grants nothing (spec
+/// §8.6) and is distinct from every SSH and management key (ADR-0012 §0).
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(try_from = "String", into = "String")]
+pub struct IrohEndpointId(String);
+
+/// A malformed [`IrohEndpointId`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("an Iroh endpoint ID is 64 lowercase hex characters")]
+pub struct IrohEndpointIdError;
+
+impl IrohEndpointId {
+    /// The number of hex characters (a 32-byte public key).
+    pub const HEX_CHARS: usize = 64;
+
+    /// Parse and validate a wire string.
+    pub fn parse(s: &str) -> Result<Self, IrohEndpointIdError> {
+        let ok = s.len() == Self::HEX_CHARS
+            && s.bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        if ok {
+            Ok(Self(s.to_owned()))
+        } else {
+            Err(IrohEndpointIdError)
+        }
+    }
+
+    /// The wire string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for IrohEndpointId {
+    type Error = IrohEndpointIdError;
+    fn try_from(s: String) -> Result<Self, IrohEndpointIdError> {
+        Self::parse(&s)
+    }
+}
+
+impl From<IrohEndpointId> for String {
+    fn from(id: IrohEndpointId) -> String {
+        id.0
+    }
+}
+
+impl std::fmt::Display for IrohEndpointId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// ⟨M03⟩ A CA public key's fingerprint: `SHA256:` followed by exactly 43 characters
 /// of unpadded standard base64 (`A-Za-z0-9+/`), as `ssh-keygen -l` prints it
 /// (m03-plan §5 item 1). Validated on parse and on decode; compared exactly.
@@ -356,6 +485,46 @@ mod tests {
             assert_eq!(CaFingerprint::parse(&bad), Err(CaFingerprintError), "{bad}");
         }
         let r: Result<CaFingerprint, _> = serde_json::from_str("\"SHA256:short\"");
+        assert!(r.is_err());
+    }
+
+    /// ⟨M06⟩ Revision 6 identifiers: the prefixed kinds take their prefix, a key
+    /// fingerprint follows the CA fingerprint rule, an endpoint ID is exactly 64 lowercase
+    /// hex characters, and each is refused on decode when malformed.
+    #[test]
+    fn m06_ids_validate() {
+        let c = ClientId::from_random_bytes([0x0c; 16]);
+        assert!(c.as_str().starts_with("cl_"));
+        assert_eq!(ClientId::parse(c.as_str()).unwrap(), c);
+        assert_eq!(
+            ClientId::parse("inv_00"),
+            Err(IdError::WrongPrefix { expected: "cl" })
+        );
+        assert!(InvitationId::parse("inv_01").is_ok());
+        assert!(RouteId::parse("route_01").is_ok());
+        assert!(EffectId::parse("eff_01").is_ok());
+        assert!(ConsentId::parse("cns_01").is_ok());
+        let fp = format!("SHA256:{}", "b".repeat(43));
+        assert_eq!(KeyFingerprint::parse(&fp).unwrap().as_str(), fp);
+        assert!(KeyFingerprint::parse("SHA256:short").is_err());
+        let r: Result<KeyFingerprint, _> = serde_json::from_str("\"MD5:aa\"");
+        assert!(r.is_err());
+        let hex = "0123456789abcdef".repeat(4);
+        assert_eq!(IrohEndpointId::parse(&hex).unwrap().as_str(), hex);
+        for bad in [
+            String::new(),
+            hex[..63].to_owned(),
+            format!("{hex}0"),
+            hex.to_uppercase(),
+            format!("{}g", &hex[..63]),
+        ] {
+            assert_eq!(
+                IrohEndpointId::parse(&bad),
+                Err(IrohEndpointIdError),
+                "{bad}"
+            );
+        }
+        let r: Result<IrohEndpointId, _> = serde_json::from_str("\"zz\"");
         assert!(r.is_err());
     }
 

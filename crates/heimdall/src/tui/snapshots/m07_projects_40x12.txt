@@ -1,0 +1,12 @@
+[5 Projects] 5/8 [!!] Needs attention
+Workspace status
+Directory: /work/example
+Workspace root: /work/example
+[OK] trusted: this checkout is the one
+you approved (same path, same directory
+identity)
+Manifest access digest:
+abababababababab... (what a review is
+checked against)
+The directory is a same-user claim: any
+w project · h history · ? help · q quit

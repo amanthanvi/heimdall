@@ -108,6 +108,28 @@ run_step clippy-windows clippy_windows
 # product-store rule for custody claims). Cheap, so before the tests.
 run_step crate-graph env PYTHONDONTWRITEBYTECODE=1 \
     python3 -I tools/validation/crate_graph.py
+# M06 (m06-plan U0; ADR-0012 sections 1 and 13): the feature-gated iroh build and the vendored
+# netdev patch (third_party/netdev-0.47.0, [patch.crates-io]) must keep compiling, so neither
+# rots between the milestones that exercise them. Compile check only: nothing is bound.
+# ⟨M06 W1⟩ The iroh feature's own tests (loopback only, in process) and its clippy, which the
+# workspace-wide steps above do not see because the feature is off by default.
+iroh_check() {
+    cargo check --locked -p heimdall-transport-iroh --features iroh &&
+        cargo clippy --locked -p heimdall-transport-iroh --features iroh --all-targets -- -D warnings &&
+        cargo test --locked -p heimdall-transport-iroh --features iroh
+}
+run_step iroh-check iroh_check
+# RustSec audit of the whole Cargo.lock (ADR-0012 section 1 item 4; M06-W0-R01/R04 and the
+# orchestrator rulings of 2026-11-21): tools/validation/audit_gate.py runs its self-tests,
+# then cargo-audit 0.22.1 with the checked-in .cargo/audit.toml and an empty scratch
+# CARGO_HOME (no ambient configuration). Any vulnerability fails unless listed in
+# tools/validation/audit-ignore.txt; a missing or unreadable database, a tool error or an
+# invalid report fails closed; a missing tool fails (exit 3) unless HM_SKIP_AUDIT=1, which
+# prints "SKIPPED (not merge evidence)". The database fetch needs the network.
+audit_step() {
+    PYTHONDONTWRITEBYTECODE=1 python3 -I tools/validation/audit_gate.py
+}
+run_step audit audit_step
 run_step claims-table env PYTHONDONTWRITEBYTECODE=1 \
     python3 -I tools/validation/claims_table.py
 run_step test    test_step
@@ -160,6 +182,38 @@ run_step evidence-selftest env PYTHONDONTWRITEBYTECODE=1 \
 # the returned list and self-checks that a bad record is rejected.
 run_step evidence-records env PYTHONDONTWRITEBYTECODE=1 \
     python3 -I tools/validation/validate-records.py
+
+# ⟨M07 U4⟩ m07-plan §5: the optional agent skill names only commands the CLI has (the
+# debug binary the test step built answers `<path> --help`, in a scratch home), and never
+# an approval, a boundary escape or real data. Self-checks against a known-bad skill first.
+run_step skill-lint env PYTHONDONTWRITEBYTECODE=1 \
+    python3 -I -B tools/validation/skill_lint.py --heimdall target/debug/heimdall
+
+# ⟨M07 U5a⟩ m07-plan §4: the reference wrapper's own tests (Python standard library; a fake
+# server on an owner-only Unix socket in a temp directory), plus its real-binary smoke against
+# the debug binary the test step built (one scratch root holding HOME, HEIMDALL_HOME and
+# HEIMDALL_TEST_SSH_HOME, checked before launch; the runtime it starts is stopped and the
+# root removed by the test).
+run_step wrapper-tests env PYTHONDONTWRITEBYTECODE=1 \
+    HEIMDALL_WRAPPER_SMOKE_BIN="$(pwd)/target/debug/heimdall" \
+    python3 -I -B -m unittest discover -s examples/reference-wrapper/tests
+
+# ⟨M07 U5h⟩ m07-plan §5a: harness H1's own tests (Python standard library; a stub `heimdall`
+# in a temp directory), plus its discovery smoke against the debug binary in a scratch home.
+run_step harness-h1-tests env PYTHONDONTWRITEBYTECODE=1 \
+    HEIMDALL_HARNESS_SMOKE_BIN="$(pwd)/target/debug/heimdall" \
+    python3 -I -B -m unittest discover -s examples/harnesses/cli/tests
+
+# ⟨M07 U5h⟩ m07-plan §5a: harness H2's own tests (Python standard library; a stub `heimdall`
+# in a temp directory), plus its discovery smoke against the debug binary in a scratch home.
+run_step harness-h2-tests env PYTHONDONTWRITEBYTECODE=1 \
+    HEIMDALL_HARNESS_SMOKE_BIN="$(pwd)/target/debug/heimdall" \
+    python3 -I -B -m unittest discover -s examples/harnesses/goal-loop/tests
+
+# ⟨M07 U6⟩ m07-plan U6: the user-facing adapter page claims nothing beyond the claims table
+# and the compatibility matrix (self-checks against over-claiming pages first).
+run_step adapter-page env PYTHONDONTWRITEBYTECODE=1 \
+    python3 -I -B tools/validation/adapter_page_check.py
 
 echo "== overall: exit ${status}"
 exit "${status}"

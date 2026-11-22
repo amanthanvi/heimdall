@@ -1,12 +1,12 @@
-[1 Over] 2 Dest  3 Prof  4 Acti  [??]
+[1 Overview] 1/8 [??] Checking
 [??] Checking
 Runtime: not running (S starts it)
 Static pass: running
-  Nothing needs you; nothing is running.
+s: pause or stop access
+  Not known yet: nothing read so far.
 
 
 
 
 
-
-Enter open · r retry · k keep · R refres
+Enter open · s stop · ? help · q quit

@@ -163,7 +163,7 @@ fn instance_holds_lock(state_dir: &std::path::Path) -> bool {
 }
 
 /// `service run [--detach] [--login]`.
-pub fn run(ctx: &Ctx, detach: bool, login: bool) -> ExitCode {
+pub fn run(ctx: &Ctx, detach: bool, login: bool, runner: bool) -> ExitCode {
     // ⟨M04, the Windows readiness failures⟩ The start's own clock, for the runtime log's
     // start-up timings (`serve`, `Service::start_with`).
     let begun = std::time::Instant::now();
@@ -239,18 +239,59 @@ pub fn run(ctx: &Ctx, detach: bool, login: bool) -> ExitCode {
             );
         }
     };
-    match rt.block_on(serve(ctx, paths, config, detach, login, begun)) {
+    // ⟨M06⟩ `--runner`: the forced command's paths need this executable and an explicit,
+    // absolute home (the management line names both).
+    let runner_command = if runner {
+        match runner_serve_command(ctx) {
+            Ok(c) => Some(c),
+            Err(env) => return fail(ctx, env),
+        }
+    } else {
+        None
+    };
+    match rt.block_on(serve(
+        ctx,
+        paths,
+        config,
+        detach,
+        login,
+        runner_command,
+        begun,
+    )) {
         Ok(()) => ExitCode::Success,
         Err(env) => fail(ctx, *env),
     }
 }
 
+/// ⟨M06⟩ The forced command's paths for `service run --runner` (ADR-0012 §3.2
+/// "Rendering"): this executable and the explicit home, both absolute and validated.
+fn runner_serve_command(
+    ctx: &Ctx,
+) -> Result<heimdall_runtime::paired::RunnerServeCommand, Envelope<ErrorData>> {
+    let usage = |m: &str| error(Code::UsageError, m);
+    let home = ctx
+        .home
+        .as_ref()
+        .filter(|h| h.is_absolute())
+        .ok_or_else(|| usage("service run --runner needs an explicit, absolute --home"))?;
+    let exe = std::env::current_exe()
+        .map_err(|_| usage("cannot locate this executable for the runner's forced command"))?;
+    let (Some(exe), Some(home)) = (exe.to_str(), home.to_str()) else {
+        return Err(usage("the runner's forced command needs UTF-8 paths"));
+    };
+    heimdall_runtime::paired::RunnerServeCommand::new(exe, home).map_err(|_| {
+        usage("the runner's forced command paths are not from the permitted character set")
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn serve(
     ctx: &Ctx,
     paths: Paths,
     config: Config,
     detach: bool,
     login: bool,
+    runner_command: Option<heimdall_runtime::paired::RunnerServeCommand>,
     begun: std::time::Instant,
 ) -> Result<(), Box<Envelope<ErrorData>>> {
     #[allow(unused_mut)]
@@ -260,6 +301,24 @@ async fn serve(
             &format!("platform clock sources unavailable: {}", e.kind()),
         ))
     })?;
+    // ⟨M06⟩ A runner's paired-session ports (used only when the home is runner-initialized;
+    // no file-backed management-line writer exists in this build, so `lines` stays `None`).
+    if let Some(command) = runner_command {
+        options.runner.command = Some(command);
+    }
+    // ⟨rev6.3; ADR-0006 §18.7 item 10⟩ `transport.rotate` tells this device's recorded
+    // runners the new endpoint over their management sessions (the CLI's own wiring).
+    if let Some(t) = options.transport.as_mut() {
+        t.announcer = Some(std::sync::Arc::new(
+            crate::m06_cmd::ManagementAnnouncer::new(ctx, &paths),
+        ));
+    }
+    // ⟨M06 W3 host⟩ The controller's hosted driver opens its management sessions through
+    // the CLI's own wiring (K_mgmt, the recorded pins, never a prompt). A runner hosts none.
+    options.controller = Some(heimdall_runtime::controller_host::ControllerHostWiring {
+        sessions: std::sync::Arc::new(crate::m06_cmd::DriverSessions::new(ctx, &paths)),
+        interval: heimdall_runtime::controller_host::DEFAULT_INTERVAL,
+    });
     #[cfg(debug_assertions)]
     let setup = crate::testcfg::prepare(&mut options, &paths, ctx.home.is_some(), &|n| {
         std::env::var_os(n)

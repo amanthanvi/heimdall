@@ -1,0 +1,40 @@
+[1 Overview] 2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
+[!!] Needs attention
+Runtime: connected; listings read 09:00:25Z (just now)
+Static pass: 09:00:20Z (just now); 2 destinations, 1 profiles, 3 identities
+Workspace: trusted (w details · s stop · h history)
+Environment: this computer (native session) · 1 running
+Access: this computer uses dev automatically in this project; paused: dev
+Desktop lock: saved personal setting "continue" · project settings, observed effect: not known here · 8 Settings
+Pause or stop access: press s (pause automatic access, stop work, a cutoff) · 8 Settings
+> [!!] held: setup op_held1 is held for you (a file it manages changed; nothing was moved). r retry · k keep
+  [!!] decision waiting: using access automatically for a project (dec_trust1; Enter to review)
+  [!!┌Keys────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  [..│1-8, Tab, Shift-Tab   switch view: 1 Overview 2 Destinations 3 Profiles 4 Activity                          │
+  [ !│                      5 Projects 6 Environments 7 Identities 8 Settings                                     │
+     │Up/Down, PgUp/PgDn    move or scroll; Home/End go to the first and last row                                 │
+  r r│Enter                 open the selected item; on Settings, change it                                        │
+  k k│/                     search Destinations or Profiles (in memory; never probes)                             │
+     │c                     connect: hand the terminal to ssh <alias> (Destinations)                              │
+     │p                     explicit probes, each labelled by its level (Destinations)                            │
+     │r / k                 retry or keep a held setup operation                                                  │
+     │x                     cancel the open operation                                                             │
+     │w / h / s             project status, policy history, pause or stop access                                  │
+     │R                     refresh, re-running the passive static pass                                           │
+     │S                     start the runtime (the TUI never starts it itself)                                    │
+     │Esc, q                back; q on a view quits; Ctrl-C quits                                                 │
+     │?                     this key help                                                                         │
+     │Confirmations need a typed yes once their last row has been on screen;                                      │
+     │anything else is No and sends nothing.                                                                      │
+     └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+
+
+
+
+any key closes

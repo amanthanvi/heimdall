@@ -175,6 +175,10 @@
       "description": "Work binding ID (spec §4.1 \"Work binding\").",
       "type": "string"
     },
+    "ClientId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §3.6, §3.7): a paired management client, minted by the\nrunner at invitation (`cl_<32 hex>`). It names the enrollment line\n(`heimdall-mgmt:<cid>`) and the bridge's argv; it is never a credential and never a\nrequest field that sets a caller (ADR-0006 §18).",
+      "type": "string"
+    },
     "Code": {
       "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
       "oneOf": [
@@ -691,6 +695,31 @@
           "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 8): a background activation was activated,\nblocked or not covered (payload [`crate::trust::ActivationEventPayload`]). Not\nemitted by joint wave 0.",
           "type": "string",
           "const": "activation"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6 (ADR-0012 §9 item 8): `environment.connectivity_changed` (payload\n[`crate::remote::EnvironmentEventPayload`]). Declared, not emitted by wave 0.",
+          "type": "string",
+          "const": "environment"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: `client.enrolled`, `client.revoked` (payload\n[`crate::remote::ClientEventPayload`]). Declared, not emitted by wave 0.",
+          "type": "string",
+          "const": "client"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: `device.retired` (payload [`crate::remote::DeviceEventPayload`]).\nDeclared, not emitted by wave 0.",
+          "type": "string",
+          "const": "device"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: `remote_effect.pending`, `remote_effect.acknowledged` (payload\n[`crate::remote::RemoteEffectEventPayload`]). Declared, not emitted by wave 0.",
+          "type": "string",
+          "const": "remote_effect"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: `route.health` for every attempt, `route.failed_over` its subtype\n(payload [`crate::route::RouteHealthPayload`]). Declared, not emitted by wave 0.",
+          "type": "string",
+          "const": "route"
         }
       ]
     },
@@ -1225,6 +1254,26 @@
         "kind"
       ]
     },
+    "Role": {
+      "description": "A paired client's role on a runner (ADR-0012 §3.8). The local same-user caller is\nalways `owner` (ADR-0006 §2.1); `requester` and `viewer` are defined here and unused\nuntil the role table lands (m06-plan U1).",
+      "oneOf": [
+        {
+          "description": "Every permission.",
+          "type": "string",
+          "const": "owner"
+        },
+        {
+          "description": "`view` and `request`.",
+          "type": "string",
+          "const": "requester"
+        },
+        {
+          "description": "`view` only.",
+          "type": "string",
+          "const": "viewer"
+        }
+      ]
+    },
     "SchemaVersion": {
       "description": "A `schema_version` value as received from a peer.",
       "type": "string"
@@ -1255,6 +1304,28 @@
           "format": "uint16",
           "maximum": 65535,
           "minimum": 0
+        },
+        "remote_client": {
+          "description": "⟨M06, rev6.2⟩ The paired client the session is bound to, as the runner resolved it in\nits role table (the bridge's argv client; ADR-0012 §3.6), reported back so the\ncontroller can check it against its own record. Omitted when absent: the local\nsame-user session names no client, and its hello stays byte-identical.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClientId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "role": {
+          "description": "⟨M06⟩ Revision 6 (ADR-0012 §6.2, §9 item 4): the role the session was negotiated\nfor, when the runtime reports one (a paired client's session). Omitted when absent:\nthe local same-user session is the owner (ADR-0006 §2.1) and its hello is\nbyte-identical to revision 5's.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Role"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "schema_version": {
           "description": "Schema major the server emits.",

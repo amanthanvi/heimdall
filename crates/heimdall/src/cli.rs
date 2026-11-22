@@ -29,6 +29,15 @@
 //! The shell hook (`activate --hook`) never attends, prompts or decides (ADR-0011 §10
 //! item 3).
 //!
+//! **⟨M06⟩ M06 commands (m06-plan U0, U2; ADR-0006 §18; the G08 naming ruling).**
+//! `environment` (op `remote_environment`; no `env` alias) and `device` are answered by
+//! `m06_cmd` through the controller operations (`heimdall_app::remote_env`); ⟨M06 W3⟩ `route
+//! add|remove|prefer` and `transport enable|disable|adopt-roost` are sent to the runtime
+//! (`route.*`, `transport.*`), and `transport rotate` rotates K_iroh and announces it to the
+//! recorded runners. `route connect` (the `ProxyCommand` helper rendered configuration
+//! names) and `transport serve` (the supervised serve child) are hidden and frozen. There is
+//! no top-level `roost`.
+//!
 //! **A bare `heimdall`** (no subcommand) opens the TUI when stdin and stdout are
 //! terminals and neither `--json` nor `--non-interactive` is given (overview §3; ADR-0007
 //! §12.30 item 5); otherwise it is `status`, which never starts the runtime.
@@ -82,8 +91,8 @@ use crate::output::{self, error_value};
 use crate::prompt::{self, Answer};
 use crate::{
     activate_cmd, catalog_cmd, connect_cmd, connections_cmd, container_cmd, delegate_cmd,
-    doctor_cmd, enroll_cmd, issuer_cmd, m03_cmd, m05_cmd, portable_cmd, run_cmd, service_cmd,
-    setup_cmd, tui, uninstall_cmd, wsl_cmd,
+    doctor_cmd, enroll_cmd, issuer_cmd, m03_cmd, m05_cmd, m06_cmd, portable_cmd, run_cmd,
+    service_cmd, setup_cmd, tui, uninstall_cmd, wsl_cmd,
 };
 
 /// Heimdall: set up access once; your terminals, tools, and agents work across
@@ -176,6 +185,24 @@ pub enum Command {
     /// Import portable intent from an exported bundle; it grants no access (M05;
     /// ADR-0011 §2.4).
     Import(ImportArgs),
+    /// Remote runner environments: add, invite, join, revoke-client, remove, update,
+    /// status (M06; ADR-0012 §3, §7).
+    #[command(subcommand)]
+    Environment(m06_cmd::EnvironmentCommand),
+    /// This controller device: retire (M06; ADR-0012 §3.4).
+    #[command(subcommand)]
+    Device(m06_cmd::DeviceCommand),
+    /// A destination's approved routes: add, remove, prefer (M06; ADR-0012 §5).
+    #[command(subcommand)]
+    Route(m06_cmd::RouteCommand),
+    /// The Iroh transport: enable, disable, adopt-roost (M06; ADR-0012 §1, §2, §2.8).
+    #[command(subcommand)]
+    Transport(m06_cmd::TransportCommand),
+    /// The runner's side of a paired environment: `init` (the bootstrap's runner-local
+    /// enrollment) and `serve` (the forced command's bridge). Hidden and frozen: the
+    /// bootstrap session and rendered management lines name them (M06; ADR-0012 §3.3, §3.6).
+    #[command(subcommand, hide = true)]
+    Remote(m06_cmd::RemoteCommand),
     /// Read-only inspection of runtime state. Never starts the runtime.
     Inspect {
         /// Subject: capabilities|environments|profiles|destinations|bindings|grants|operations|decisions
@@ -1225,6 +1252,11 @@ pub enum ServiceCommand {
         /// §6).
         #[arg(long)]
         login: bool,
+        /// ⟨M06⟩ Serve as a remote runner with the forced command's paths (this executable
+        /// and the explicit home): `ServiceOptions::runner`. Hidden: started by the runner's
+        /// own wiring (ADR-0012 §3.2, §4).
+        #[arg(long, hide = true)]
+        runner: bool,
     },
     /// Report whether a runtime is serving (exit 5 when none is).
     Status,
@@ -1338,6 +1370,20 @@ pub struct ProjectTrustArgs {
     pub profile: Option<String>,
 }
 
+/// ⟨M06⟩ The arguments of a registered M06 subcommand not built yet (`m06_cmd`): accepted
+/// and ignored, the command is refused before anything else happens.
+#[derive(Debug, Args)]
+pub struct PlannedArgs {
+    /// The command's arguments (defined by the unit that builds it).
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        hide = true,
+        value_name = "ARGS"
+    )]
+    pub args: Vec<OsString>,
+}
+
 /// `activate` arguments (M05; ADR-0011 §3.2, §10 item 3).
 #[derive(Debug, Args)]
 pub struct ActivateArgs {
@@ -1369,7 +1415,7 @@ pub struct ActivateArgs {
 /// `shell` subcommands (M05; ADR-0011 §3.2).
 #[derive(Debug, Subcommand)]
 pub enum ShellCommand {
-    /// Print the shell integration script for `zsh` or `bash`.
+    /// Print the shell integration script for `zsh`, `bash` or `powershell`.
     Init {
         /// The shell.
         #[arg(value_enum)]
@@ -1384,6 +1430,8 @@ pub enum ShellArg {
     Zsh,
     /// Bash.
     Bash,
+    /// PowerShell (Windows PowerShell 5.1 and PowerShell 7).
+    Powershell,
 }
 
 /// `export` arguments (M05; ADR-0011 §2.4).
@@ -1547,8 +1595,12 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Service(ServiceCommand::Autostart(c))) => {
             return service_cmd::autostart(&ctx, c);
         }
-        Some(Command::Service(ServiceCommand::Run { detach, login })) => {
-            return service_cmd::run(&ctx, detach, login);
+        Some(Command::Service(ServiceCommand::Run {
+            detach,
+            login,
+            runner,
+        })) => {
+            return service_cmd::run(&ctx, detach, login, runner);
         }
         Some(Command::Service(ServiceCommand::Status)) => return service_cmd::status(&ctx),
         Some(Command::Service(ServiceCommand::Stop)) => return service_cmd::stop(&ctx),
@@ -1596,6 +1648,13 @@ pub fn dispatch(cli: Cli) -> ExitCode {
             | AccessCommand::Resume { .. }
             | AccessCommand::Cutoff { .. }),
         )) if m05_cmd::is_targeted(&command) => return m05_cmd::targeted(&ctx, command),
+        // ⟨M06⟩ U2 (ADR-0012 §3): the controller's environment management; `route` and
+        // `transport` stay refused before any runtime contact until U56 lands.
+        Some(Command::Environment(c)) => return m06_cmd::environment(&ctx, c),
+        Some(Command::Device(c)) => return m06_cmd::device(&ctx, c),
+        Some(Command::Route(c)) => return m06_cmd::route(&ctx, c),
+        Some(Command::Transport(c)) => return m06_cmd::transport(&ctx, c),
+        Some(Command::Remote(c)) => return m06_cmd::remote(&ctx, c),
         Some(Command::Destination(c)) => return catalog_cmd::destination(&ctx, c),
         Some(Command::Identity(c)) => return catalog_cmd::identity(&ctx, c),
         Some(Command::Profile(c)) => return catalog_cmd::profile(&ctx, c),
@@ -1810,6 +1869,37 @@ async fn status(ctx: &Ctx) -> Result<Done, Done> {
         "pending_decisions": count(&decisions.data, "decisions"),
     }));
     env.warnings = ops.warnings;
+    if !ctx.json {
+        // Use the expiry flag computed by the runtime.
+        env.data["pending_decisions"] = decisions.data["decisions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|decision| decision["state"] == "pending" && decision["expired"] == false)
+            .count()
+            .into();
+        let mut listings = serde_json::Map::new();
+        for (key, subject) in [
+            ("environments", InspectSubject::Environments),
+            ("bindings", InspectSubject::Bindings),
+            ("grants", InspectSubject::Grants),
+            ("capabilities", InspectSubject::Capabilities),
+            ("policies", InspectSubject::Policies),
+        ] {
+            let request = inspect(subject);
+            if request
+                .required_capability()
+                .is_some_and(|needed| !client.server().capabilities.contains(needed))
+            {
+                continue;
+            }
+            let answer = client.request(request).await;
+            if answer.code.is_success() {
+                listings.insert(key.to_owned(), answer.data);
+            }
+        }
+        env.data[output::STATUS_LISTINGS] = listings.into();
+    }
     Ok(Done::of(env))
 }
 
@@ -1949,6 +2039,7 @@ async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
         connection: a.strict.then(m03_cmd::strict_connection),
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     };
     let is_async = a.r#async;
     let mut client = session(ctx, true).await?;
@@ -1961,6 +2052,38 @@ async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
 pub(crate) trait Session {
     /// Send one request; a transport failure is an error envelope.
     async fn request(&mut self, request: Request) -> Envelope<serde_json::Value>;
+    /// Explain a wait without changing the request or polling the runtime separately.
+    async fn request_with_wait(
+        &mut self,
+        ctx: &Ctx,
+        request: Request,
+        operation: Option<&OperationId>,
+    ) -> Envelope<serde_json::Value> {
+        use heimdall_contract::enrollment::EnrollmentRequest;
+
+        let (what, operation) = match &request {
+            Request::Ensure(EnsureRequest {
+                wait: WaitMode::Sync { .. },
+                ..
+            }) => ("access to be ready", operation),
+            Request::Observe(ObserveRequest::Operation {
+                operation_id,
+                wait_ms: Some(_),
+            }) => ("the operation to finish", Some(operation_id)),
+            Request::Setup(setup) if setup.request_id().is_some() => ("setup to finish", operation),
+            Request::Enrollment(EnrollmentRequest::Reconcile { operation_id, .. }) => {
+                ("enrollment recovery", Some(operation_id))
+            }
+            Request::Enrollment(
+                EnrollmentRequest::Apply { .. }
+                | EnrollmentRequest::Verify { .. }
+                | EnrollmentRequest::Remove { .. },
+            ) => ("the enrollment change", operation),
+            _ => return self.request(request).await,
+        };
+        let operation = operation.cloned();
+        output::explain_wait(!ctx.json, what, operation.as_ref(), self.request(request)).await
+    }
     /// Send `Attend` for this session.
     async fn attend(&mut self) -> Envelope<serde_json::Value>;
 }
@@ -2007,6 +2130,75 @@ pub(crate) async fn attend_first<S: Session>(s: &mut S, ctx: &Ctx) -> Result<(),
     }
 }
 
+/// Complete a pending approval, or return the request's latest answer. Each stale
+/// decision needs the original request and a fresh confirmation of its replacement.
+pub(crate) async fn retry_stale_decision<S: Session, P: Prompter>(
+    s: &mut S,
+    p: &mut P,
+    ctx: &Ctx,
+    request: &Request,
+    mut env: Envelope<serde_json::Value>,
+    stale_retries: &mut usize,
+    mut confirm: impl AsyncFnMut(
+        &mut S,
+        &mut P,
+        &str,
+        &Envelope<serde_json::Value>,
+    ) -> Envelope<serde_json::Value>,
+) -> Result<Envelope<serde_json::Value>, Envelope<serde_json::Value>> {
+    loop {
+        let Some(decision) = pending_decision(&env) else {
+            return Err(env);
+        };
+        let decided = confirm(s, p, &decision, &env).await;
+        match decided.code {
+            Code::Ok => return Ok(decided),
+            Code::DecisionStale if *stale_retries > 0 => {
+                *stale_retries -= 1;
+                env = s.request_with_wait(ctx, request.clone(), None).await;
+                if pending_decision(&env).as_deref() == Some(decision.as_str()) {
+                    return Err(decided);
+                }
+            }
+            _ => return Err(decided),
+        }
+    }
+}
+
+pub(crate) async fn approve_request<S: Session, P: Prompter>(
+    s: &mut S,
+    p: &mut P,
+    ctx: &Ctx,
+    request: &Request,
+    env: Envelope<serde_json::Value>,
+    stale_retries: &mut usize,
+) -> Result<Envelope<serde_json::Value>, Envelope<serde_json::Value>> {
+    if !ctx.interactive() {
+        return Err(env);
+    }
+    retry_stale_decision(
+        s,
+        p,
+        ctx,
+        request,
+        env,
+        stale_retries,
+        async |s, p, decision, pending| {
+            confirm_and_decide(
+                s,
+                p,
+                ctx,
+                decision,
+                Verdict::Approve,
+                pending.operation_id.clone(),
+                Some(&pending.code),
+            )
+            .await
+        },
+    )
+    .await
+}
+
 /// `access ensure` on a connected session: `Attend` first when interactive, the
 /// request, and on a pending decision the owner prompt, `Decide` on `yes`, then
 /// the same request again (same request ID: the runtime replays the approved
@@ -2021,27 +2213,15 @@ pub(crate) async fn ensure_flow<S: Session, P: Prompter>(
     if let Err(refused) = attend_first(s, ctx).await {
         return refused;
     }
-    let env = s.request(Request::Ensure(request.clone())).await;
-    if let Some(decision) = pending_decision(&env)
-        && ctx.interactive()
-    {
-        let decided = confirm_and_decide(
-            s,
-            p,
-            ctx,
-            &decision,
-            Verdict::Approve,
-            env.operation_id.clone(),
-            Some(&env.code),
-        )
-        .await;
-        if decided.code != Code::Ok {
-            return Done::of(decided);
+    let request = Request::Ensure(request);
+    let env = s.request_with_wait(ctx, request.clone(), None).await;
+    let env = match approve_request(s, p, ctx, &request, env, &mut 2).await {
+        Ok(decided) => {
+            s.request_with_wait(ctx, request, decided.operation_id.as_ref())
+                .await
         }
-        let again = s.request(Request::Ensure(request)).await;
-        let exit = output::exit_code_for(again.code.clone(), is_async);
-        return Done { env: again, exit };
-    }
+        Err(env) => env,
+    };
     let exit = output::exit_code_for(env.code.clone(), is_async);
     Done { env, exit }
 }
@@ -2077,24 +2257,15 @@ pub(crate) async fn policy_flow<S: Session, P: Prompter>(
     if owner_present && let Err(refused) = attend_first(s, ctx).await {
         return refused;
     }
-    let env = s.request(Request::Policy(action)).await;
-    if owner_present
-        && let Some(decision) = pending_decision(&env)
-        && ctx.interactive()
-    {
-        return Done::of(
-            confirm_and_decide(
-                s,
-                p,
-                ctx,
-                &decision,
-                Verdict::Approve,
-                None,
-                Some(&env.code),
-            )
-            .await,
-        );
-    }
+    let request = Request::Policy(action);
+    let env = s.request(request.clone()).await;
+    let env = if owner_present {
+        approve_request(s, p, ctx, &request, env, &mut 2)
+            .await
+            .unwrap_or_else(|env| env)
+    } else {
+        env
+    };
     Done::of(env)
 }
 
@@ -2117,15 +2288,17 @@ async fn operation(ctx: &Ctx, command: OperationCommand) -> Result<Done, Done> {
             timeout_ms,
         } => {
             let operation_id = parse("operation ID", OperationId::parse, &operation_id)?;
-            let Done { env, .. } = one(
-                ctx,
-                false,
-                Request::Observe(ObserveRequest::Operation {
-                    operation_id,
-                    wait_ms: Some(timeout_ms),
-                }),
-            )
-            .await?;
+            let mut client = session(ctx, false).await?;
+            let env = client
+                .request_with_wait(
+                    ctx,
+                    Request::Observe(ObserveRequest::Operation {
+                        operation_id,
+                        wait_ms: Some(timeout_ms),
+                    }),
+                    None,
+                )
+                .await;
             let op_code = env
                 .data
                 .get("code")
@@ -2232,6 +2405,18 @@ pub(crate) async fn confirm_and_decide<S: Session, P: Prompter>(
                 .find(|d| d.get("decision_id").and_then(|v| v.as_str()) == Some(decision))
                 .cloned()
         });
+    if answered.is_some()
+        && record
+            .as_ref()
+            .and_then(|r| r.get("request"))
+            .is_none_or(serde_json::Value::is_null)
+    {
+        return not_confirmed(
+            Some(decision),
+            operation,
+            "the recorded request could not be read",
+        );
+    }
     // ⟨M05⟩ Review M05-W3-R01: a `create` whose recorded scope is missing cannot show what
     // approval applies, so it is never approved here (it can still be denied).
     if verdict == Verdict::Approve
@@ -2311,10 +2496,16 @@ pub(crate) async fn confirm_and_decide<S: Session, P: Prompter>(
     if answer != Answer::Yes {
         return not_confirmed(Some(decision), operation, answer.reason());
     }
-    s.request(Request::Decide(DecideRequest {
+    let request = s.request(Request::Decide(DecideRequest {
         decision_id,
         verdict,
-    }))
+    }));
+    output::explain_wait(
+        !ctx.json && verdict == Verdict::Approve && operation.is_some(),
+        "the approved request",
+        operation.as_ref(),
+        request,
+    )
     .await
 }
 
@@ -2369,7 +2560,17 @@ pub(crate) async fn decide_flow<S: Session, P: Prompter>(
     if let Err(refused) = attend_first(s, ctx).await {
         return refused;
     }
-    Done::of(confirm_and_decide(s, p, ctx, decision, verdict, None, None).await)
+    let mut env = confirm_and_decide(s, p, ctx, decision, verdict, None, None).await;
+    if verdict == Verdict::Approve
+        && env.code == Code::DecisionStale
+        && !ctx.json
+        && let Some(serde_json::Value::String(message)) = env.data.pointer_mut("/error/message")
+    {
+        message.push_str(
+            ". This request changed. Ask the requester to retry it for a fresh approval.",
+        );
+    }
+    Done::of(env)
 }
 
 async fn confirm_time(ctx: &Ctx) -> Result<Done, Done> {
@@ -2990,6 +3191,7 @@ mod tests {
     /// scripted answer per request kind.
     struct Recorder {
         sent: Vec<String>,
+        requests: Vec<Request>,
         answers: std::collections::HashMap<&'static str, Vec<Envelope<serde_json::Value>>>,
         attended: bool,
     }
@@ -2998,6 +3200,7 @@ mod tests {
         fn new() -> Self {
             Self {
                 sent: Vec::new(),
+                requests: Vec::new(),
                 answers: std::collections::HashMap::new(),
                 attended: false,
             }
@@ -3012,6 +3215,7 @@ mod tests {
         async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
             self.sent.push(request.kind().to_owned());
             let queue = self.answers.entry(request.kind()).or_default();
+            self.requests.push(request);
             if queue.is_empty() {
                 Envelope::ok(serde_json::json!({}))
             } else {
@@ -3047,6 +3251,123 @@ mod tests {
     }
 
     const DEC: &str = "dec_00112233445566778899aabbccddeeff";
+
+    #[test]
+    fn decision_stale_retries_with_the_same_key_and_resets_the_confirmation() {
+        const FRESH: &str = "dec_10112233445566778899aabbccddeeff";
+        const LAST: &str = "dec_20112233445566778899aabbccddeeff";
+        let pending = |id: &str| {
+            let mut env = approval_required();
+            if let Some(next) = &mut env.next {
+                next.decision_ref = Some(id.to_owned());
+            }
+            env
+        };
+        let listed = |id: &str| {
+            let mut env = listing();
+            env.data["decisions"][0]["decision_id"] = id.into();
+            env.data["decisions"][0]["request"]["current_scope"] = id.into();
+            env
+        };
+        for second in [
+            Answer::Yes,
+            Answer::No,
+            Answer::Eof,
+            Answer::TimedOut,
+            Answer::Interrupted,
+        ] {
+            let request = ensure_request();
+            let mut s = Recorder::new()
+                .answer("ensure", pending(DEC))
+                .answer("ensure", pending(FRESH))
+                .answer("inspect", listed(DEC))
+                .answer("inspect", listed(FRESH))
+                .answer("decide", error_value(error(Code::DecisionStale, "moved")));
+            let mut p = script(&[Answer::Yes, second]);
+            let done = block(ensure_flow(&mut s, &mut p, &tty(), request.clone(), false));
+            assert_eq!(p.shown.len(), 2);
+            assert!(p.shown[1].contains(FRESH));
+            assert!(p.shown[1].contains("current_scope"));
+            let decided: Vec<_> = s
+                .requests
+                .iter()
+                .filter_map(|r| match r {
+                    Request::Decide(d) => Some(d.decision_id.as_str()),
+                    _ => None,
+                })
+                .collect();
+            let ensured: Vec<_> = s
+                .requests
+                .iter()
+                .filter_map(|r| match r {
+                    Request::Ensure(r) => Some(r),
+                    _ => None,
+                })
+                .collect();
+            if second == Answer::Yes {
+                assert_eq!(decided, [DEC, FRESH]);
+                assert_eq!(ensured, [&request; 3]);
+                assert_eq!(done.env.code, Code::Ok);
+            } else {
+                assert_eq!(decided, [DEC]);
+                assert_eq!(ensured, [&request; 2]);
+                assert_eq!(done.env.code, Code::InteractionRequired);
+            }
+        }
+
+        let mut s = Recorder::new();
+        for id in [DEC, FRESH, LAST] {
+            s = s
+                .answer("ensure", pending(id))
+                .answer("inspect", listed(id))
+                .answer("decide", error_value(error(Code::DecisionStale, id)));
+        }
+        let done = block(ensure_flow(
+            &mut s,
+            &mut script(&[Answer::Yes; 3]),
+            &tty(),
+            ensure_request(),
+            false,
+        ));
+        assert_eq!(done.env.code, Code::DecisionStale);
+        assert_eq!(done.env.data["error"]["message"], LAST);
+        assert_eq!(
+            s.sent
+                .iter()
+                .filter(|kind| kind.as_str() == "ensure")
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn decision_approve_by_reference_reports_stale_plainly() {
+        let stale = error_value(error(Code::DecisionStale, "moved"));
+        for json in [true, false] {
+            let ctx = Ctx { json, ..tty() };
+            let mut s = Recorder::new()
+                .answer("inspect", listing())
+                .answer("decide", stale.clone());
+            let done = block(decide_flow(
+                &mut s,
+                &mut script(&[Answer::Yes]),
+                &ctx,
+                DEC,
+                Verdict::Approve,
+            ));
+            assert_eq!(s.sent, ["attend", "inspect", "decide"]);
+            assert_eq!(done.env.code, Code::DecisionStale);
+            if json {
+                assert_eq!(done.env.data, stale.data);
+            } else {
+                let message = done.env.data["error"]["message"]
+                    .as_str()
+                    .unwrap_or_default();
+                assert!(message.contains("This request changed"));
+                assert!(message.contains("requester to retry"));
+            }
+        }
+    }
 
     /// What the runtime answers on an attended session (N04): a decision record.
     fn approval_required() -> Envelope<serde_json::Value> {
@@ -3092,6 +3413,7 @@ mod tests {
             connection: None,
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
         }
     }
 

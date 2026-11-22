@@ -1,0 +1,12 @@
+# Authoritative cargo-audit configuration for this repository (M06-W0-R04; orchestrator
+# ruling of 2026-11-21). cargo-audit loads this project file in preference to any
+# `$CARGO_HOME/audit.toml`, and tools/validation/audit_gate.py also runs it with an empty
+# scratch CARGO_HOME, so ambient settings cannot disable fetching, allow a stale database or
+# add ignores. Accepted advisories are NOT listed here: the only ignore list is
+# tools/validation/audit-ignore.txt, applied by audit_gate.py.
+[database]
+fetch = true
+stale = false
+
+[advisories]
+ignore = []

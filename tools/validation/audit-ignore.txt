@@ -1,0 +1,7 @@
+# Advisories the `audit` step of tools/validation/check.sh accepts (orchestrator ruling of
+# 2026-11-21, M06 wave 1). One advisory per line: `<RUSTSEC id> <one-line reason>`. Any other
+# vulnerability in Cargo.lock fails the step. Each entry is an accepted residual carried to
+# the M08 release record (docs/architecture/dependencies.md); a fix is a post-V1 candidate
+# (the ssh-key major bump). Unmaintained/unsound/yanked warnings are reported, not listed here.
+RUSTSEC-2023-0071 rsa 0.9.10 (Marvin): Heimdall never performs an RSA private-key operation; RSA appears only to verify public host-key session-bind signatures (credential::session_bind), which have no secret operand.
+RUSTSEC-2026-0387 crypto-bigint 0.5.5 (timing): reached only through ECDSA verification of public host-key session-bind signatures (credential::session_bind); Heimdall's private-key operations are Ed25519 only (credential::vault, credential::cert).

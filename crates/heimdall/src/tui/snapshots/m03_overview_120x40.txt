@@ -1,17 +1,21 @@
-Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+[1 Overview] 2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
 [!!] Needs attention
-Runtime: connected; listings read 09:00:25Z (5s ago)
-Static pass: 09:00:20Z (10s ago); 2 destinations, 1 profiles, 1 identities
+Runtime: connected; listings read 09:00:25Z (just now)
+Static pass: 09:00:20Z (just now); 2 destinations, 1 profiles, 1 identities
+Environment: this environment · 1 running
+Access: this environment's standing access is not listed by this runtime
+Desktop lock: not reported by the runtime
+Pause or stop access: press s (pause automatic access, stop work, a cutoff) · 8 Settings
 > [!!] time_confirmation_after_reboot: run `heimdall time confirm` (safe time cannot be established; activation is stopp
-  [!!] held: setup.apply op_held1 is held for you (a file it manages changed; nothing was moved). r retry · k keep
-  [!!] decision waiting: enroll_account dec_enroll1 (Enter to review)
-  [!!] decision waiting: approve_target_change dec_target1 (Enter to review)
+  [!!] held: setup op_held1 is held for you (a file it manages changed; nothing was moved). r retry · k keep
+  [!!] decision waiting: setting up managed access on a machine (dec_enroll1; Enter to review)
+  [!!] decision waiting: a changed machine address (dec_target1; Enter to review)
   [!!] enrollment enr_01010101010101010101010101010101 is held (Enter for its reason and next step)
-  [..] working: ensure op_run1 running
-  [ !] possible_late_write: enrollment enr_02020202020202020202020202020202 (Enter for the residual and its command)
-  [ !] managed_projection_pending (alpha): run `heimdall setup apply` (the managed projection is not applied yet)
-  [ !] identity_selection_not_exclusive (beta): identity_selection_not_exclusive message
-  [ i] slot_free (alpha): hold the slot with `heimdall run --profile <profile> -- ssh alpha` (ordinary `ssh alpha` needs
+  [..] working: access request op_run1 running
+  [ !] enrollment enr_02020202020202020202020202020202 may have a late write (Enter for the residual and its command)
+  [ !] alpha: run `heimdall setup apply` (its managed setup is not applied yet)
+  [ !] beta: ssh may offer other identities than the adopted key for this alias
+  [ i] alpha: hold the slot with `heimdall run --profile <profile> -- ssh alpha` (ordinary `ssh alpha` needs a held slot
 
 
 
@@ -33,8 +37,4 @@ Static pass: 09:00:20Z (10s ago); 2 destinations, 1 profiles, 1 identities
 
 
 
-
-
-
-
-Enter open · r retry · k keep · R refresh · 1-4 views · ? help · q quit
+Enter open · s pause or stop · R refresh · 1-8 views · ? help · q quit

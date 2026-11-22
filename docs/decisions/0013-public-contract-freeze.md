@@ -440,6 +440,7 @@ ADR-0006 §2.1, as amended through revision 6, is adopted as G08's IPC authentic
   - a filter is needed in the (unreached) case of oversized snapshot sections;
   - write-time item bounds at every ingress;
   - the in-tree resolution callers migrate to point lookups.
+- **A named limit of the TUI's reading guard (ruled 2026-11-22; not a wire shape):** a terminal resize away and back whose signals are both undelivered when the worker settle completes is not counted, with the live size read at action time as the backstop for any resize whose size still differs.
 
 ## 11. Proposed ADR-0006 revision 7 (layered on revision 6.1; nothing applied)
 
@@ -513,6 +514,10 @@ Each lands as one change, with its emitters, every in-tree reader and its golden
 - **RC09:** one change per live shape; real prior-version rows.
 - **RC10:** the ratification exceptions; A30 stated once, in the plan's controlling exit section.
 - **RC11:** the reviewer's fix.
+
+**Open for U0 (recorded 2026-11-22, from M07 W3's real-binary journeys; the contract owner decides):**
+- **U0-Q1, the code for missing access asked for without a person:** today's build answers a non-interactive `ensure` that needs approval with `INTERACTION_REQUIRED`, state `awaiting_approval` and a `next.decision_ref`, while §9's skill wording and the M07 plan's journeys pair `decision_ref` with `APPROVAL_REQUIRED` only. **Recommended:** freeze what the build serves (`APPROVAL_REQUIRED` for a session that can attend, `INTERACTION_REQUIRED` with the same `decision_ref` for one that cannot), and have every reader take `decision_ref` under either code; U4b aligns the skill with the frozen answer. Until then the wrapper and both harnesses accept either.
+- **U0-Q2, a binding adopted through a shared request ID:** today a `run` that reuses the request ID of the `ensure` for the same work is accepted (exit 0, no conflict) and binds the binding that `ensure` prepared; with a new request ID it makes a second binding on the same grant (ADR-0011 §10 item 12, I-1), and the `ensure` binding stays active until released. The idempotency key includes the operation kind, so the adoption is an implicit coupling across kinds. **Recommended (the contract owner's):** a binding is reused only by explicit reference, never through a shared request ID.
 
 ## 14. Reopen conditions
 

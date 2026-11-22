@@ -1,0 +1,12 @@
+[6 Environments] 6/8 [!!] - s stop
+WSL Ubuntu
+Source: the runtime's environment list
+(inspect environments), read 09:00:25Z
+(just now)
+  [runtime] ID
+env_33333333333333333333333333333333
+  [runtime] kind wsl distribution
+  [runtime] state [ !] not running
+  [runtime] label none
+  [runtime] realized as wsl
+Up/Down scroll · Esc back

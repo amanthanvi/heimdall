@@ -71,6 +71,7 @@ fn owner_ctx() -> CallerContext {
     CallerContext {
         principal: owner_principal_ref(),
         role: ClientRole::Owner,
+        remote_client: None,
     }
 }
 
@@ -493,6 +494,7 @@ impl RawClient {
             capabilities,
             required: BTreeSet::new(),
             interaction: InteractionMode::NonInteractive,
+            remote_client: None,
         });
         stream
             .write_all(&encode_frame(&hello, CONTROL_LIMIT).unwrap())
@@ -878,6 +880,7 @@ fn ensure(request: &str, work: &str, interaction: InteractionMode) -> Request {
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     })
 }
 

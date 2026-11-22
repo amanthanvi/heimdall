@@ -100,6 +100,7 @@ fn owner() -> Caller {
     Caller::unattended(CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::Owner,
+        remote_client: None,
     })
 }
 
@@ -364,6 +365,7 @@ impl World {
                     connection: None,
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 },
             )
             .await

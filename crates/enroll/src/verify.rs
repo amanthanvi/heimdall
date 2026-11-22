@@ -794,7 +794,7 @@ fn known_hosts_line(alias: &str, target: &ApprovedTarget) -> Option<String> {
 /// A path as a quoted `ssh_config` argument, or `None` when it cannot be written
 /// literally: a quote, `%` (a token), `$` (an environment reference) or a control
 /// character. Windows separators are written as `/`.
-fn config_path(path: &Path) -> Option<String> {
+pub(crate) fn config_path(path: &Path) -> Option<String> {
     let text = path.to_str()?;
     let text = if cfg!(windows) {
         text.replace('\\', "/")

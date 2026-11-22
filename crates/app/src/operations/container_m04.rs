@@ -204,13 +204,13 @@ pub fn environment_view(
             RealizationView::Native,
         ),
     };
-    Ok(EnvironmentView {
-        environment_id: row.environment.clone(),
+    Ok(EnvironmentView::new(
+        row.environment.clone(),
         kind,
         label,
-        state: state_view(row.state),
+        state_view(row.state),
         realization,
-    })
+    ))
 }
 
 /// `inspect environments` for the owner (design §3): the native entry first, then every
@@ -224,13 +224,13 @@ pub fn environments_view(
     directory_of: &dyn Fn(&str) -> Option<PathBuf>,
 ) -> heimdall_store::Result<EnvironmentsView> {
     let label = tx.environment(own)?.and_then(|e| e.label);
-    let mut items = vec![EnvironmentView {
-        environment_id: own.clone(),
-        kind: EnvironmentKindView::NativeSession,
+    let mut items = vec![EnvironmentView::new(
+        own.clone(),
+        EnvironmentKindView::NativeSession,
         label,
-        state: EnvironmentState::Active,
-        realization: RealizationView::Native,
-    }];
+        EnvironmentState::Active,
+        RealizationView::Native,
+    )];
     for row in tx.managed_environments()? {
         if row.controller != *own {
             continue;

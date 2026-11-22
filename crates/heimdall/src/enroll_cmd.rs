@@ -5,7 +5,7 @@
 //!   to be written, or the system form's lines the owner installs, and every
 //!   disclosure); then `Apply` with that plan's digest, on a session attended first;
 //!   the owner's typed `yes` on the recorded `EnrollAccount` / `EnrollSystemForm`
-//!   decision (`setup_cmd::confirm_and_decide`, which refuses a recorded digest other
+//!   decision (`setup_cmd::approve_request`, which refuses a recorded digest other
 //!   than the one shown); then the **client-executed loop** of [`drive`]. End of input,
 //!   Ctrl-C, the prompt timeout, a non-TTY stdin and `--non-interactive` send nothing
 //!   more and exit 3 with `next.decision_ref`. Nothing skips the decision.
@@ -45,22 +45,24 @@ mod render;
 #[allow(unused_imports)] // offered to the TUI (T-R1); the preview uses it in place
 pub(crate) use render::disclosure_text;
 /// ⟨§17.27 items 3 and 4⟩ A recorded decision request's disclosures and human form, for
-/// every approval prompt (`setup_cmd::confirm_and_decide`, `cli::confirm_and_decide`).
+/// every approval prompt (`setup_cmd::approve_request`, `cli::confirm_and_decide`).
 pub(crate) use render::{carries_lock_disclosure, recorded_disclosure_prose, recorded_preview};
 
 use std::path::Path;
 
 use heimdall_contract::enrollment::{
-    EnrollmentForm, EnrollmentPlan, EnrollmentRequest, EnrollmentResult, EnrollmentSpec,
-    ForeignRemovalTarget, RemovalTarget, TargetSummary, VerifyMode,
+    EnrollmentForm, EnrollmentNext, EnrollmentPlan, EnrollmentRequest, EnrollmentResult,
+    EnrollmentSpec, EnrollmentState, ForeignRemovalTarget, RemovalTarget, TargetSummary,
+    VerifyMode,
 };
 use heimdall_contract::envelope::{Envelope, reason};
 use heimdall_contract::ids::{
     AccountName, CaFingerprint, DestinationId, EnrollmentId, OperationId, RequestId,
 };
 use heimdall_contract::ipc::capability;
-use heimdall_contract::issuer::{RECOVERY_BUNDLE_SCHEMA, RecoveryBundle};
+use heimdall_contract::issuer::{IssuerStatus, RECOVERY_BUNDLE_SCHEMA, RecoveryBundle};
 use heimdall_contract::request::{InspectSubject, Request, WaitMode};
+use heimdall_contract::setup::{ConsentNeed, ConsentReasonKind, PreviewIntent, SetupRequest};
 use heimdall_contract::{Code, ExitCode};
 
 use crate::cli::{
@@ -222,30 +224,32 @@ async fn decided<S: Session, P: Prompter>(
     let Some(decision) = setup_cmd::pending_decision(&env) else {
         return Ok(env);
     };
-    let recorded = decision_request(s, &decision).await;
-    let text = preface(recorded.as_ref());
     if !ctx.interactive() {
-        show(ctx, &text);
+        let recorded = decision_request(s, &decision).await;
+        show(ctx, &preface(recorded.as_ref()));
         let env = match recorded {
             Some(r) => with_data(env, "decision_request", r),
             None => env,
         };
         return Err(env);
     }
-    let answer = setup_cmd::confirm_and_decide(
+    match setup_cmd::approve_request(
         s,
         p,
         ctx,
-        &decision,
-        &text,
+        request,
+        env,
+        |record| Ok(preface(record.get("request"))),
         expect_digest,
-        env.operation_id.clone(),
     )
-    .await;
-    if answer.code != Code::Ok {
-        return Err(answer);
+    .await
+    {
+        Ok(decided) => Ok(s
+            .request_with_wait(ctx, request.clone(), decided.operation_id.as_ref())
+            .await),
+        Err(env) if env.code.is_success() => Ok(env),
+        Err(env) => Err(env),
     }
-    Ok(s.request(request.clone()).await)
 }
 
 /// After the (decided) request: drive the operation when it waits on client steps,
@@ -259,7 +263,12 @@ async fn settle<S: Session>(
         && (env.next.as_ref().is_some_and(|n| n.action == "step")
             || env.data.get("next").and_then(|v| v.as_str()) == Some("step"));
     if wants_steps && let Some(op) = env.operation_id.clone() {
-        return drive::drive(s, &op, mode).await;
+        return output::explain_slow_wait(!mode.json, drive::drive(s, &op, mode), || {
+            format!(
+                "Waiting for the enrollment steps to finish (operation {op}). Ctrl-C interrupts the step. You may need to check its outcome with `heimdall enroll reconcile {op}`."
+            )
+        })
+        .await;
     }
     if env.code.is_success()
         && let Ok(result) = serde_json::from_value::<EnrollmentResult>(env.data.clone())
@@ -366,7 +375,7 @@ pub(crate) async fn enroll_flow<S: Session, P: Prompter>(
     let plan_value = preview.data.clone();
     // ⟨§17.27 item 4⟩ The runtime's conditional lock text, when the plan discloses lock
     // continuity: the preview shows it (never the general sentence). Without it the
-    // preview says so, and the approval prompt refuses (`setup_cmd::confirm_and_decide`).
+    // preview says so, and the approval prompt refuses (`setup_cmd::approve_request`).
     let lock = if plan
         .disclosures
         .contains(&heimdall_contract::enrollment::DisclosureKind::LockContinuityOnce)
@@ -403,7 +412,7 @@ pub(crate) async fn enroll_flow<S: Session, P: Prompter>(
     if let Err(refused) = setup_cmd::attend_first(s, ctx).await {
         return Outcome::of(refused);
     }
-    let env = s.request(request.clone()).await;
+    let env = s.request_with_wait(ctx, request.clone(), None).await;
     let digest = plan.plan_digest.to_string();
     let form = plan.form;
     let preface = |recorded: Option<&serde_json::Value>| {
@@ -449,7 +458,7 @@ pub(crate) async fn enroll_flow<S: Session, P: Prompter>(
         Ok(env) => env,
         Err(stopped) => return Outcome::of(with_data(stopped, "plan", plan_value)),
     };
-    settle(
+    let mut outcome = settle(
         s,
         env,
         drive::DriveMode {
@@ -458,7 +467,86 @@ pub(crate) async fn enroll_flow<S: Session, P: Prompter>(
             ..drive::DriveMode::default()
         },
     )
-    .await
+    .await;
+    if outcome.env.code.is_success()
+        && let Ok(mut result) = serde_json::from_value::<EnrollmentResult>(outcome.env.data.clone())
+        && result.state == EnrollmentState::Verified
+        && result.next == Some(EnrollmentNext::SetupApply)
+    {
+        let guidance = offer_projection(s, p, ctx, &plan.alias, &plan.account).await;
+        if ctx.json {
+            output::diagnostic(&guidance);
+        } else {
+            result.next = None;
+            outcome.human = render::result(&result, Some(form));
+            outcome.human.push_str(&guidance);
+        }
+    }
+    outcome
+}
+
+/// Verification selected the managed preference in the catalog. Preview its
+/// effect on SSH before offering to publish it there.
+async fn offer_projection<S: Session, P: Prompter>(
+    s: &mut S,
+    p: &mut P,
+    ctx: &Ctx,
+    alias: &str,
+    account: &AccountName,
+) -> String {
+    let later = "\nTo review and apply SSH setup later, run:\n  heimdall setup apply\n";
+    if !ctx.interactive() {
+        return later.to_owned();
+    }
+    let intent = PreviewIntent::Apply {
+        include_git: false,
+        items: Default::default(),
+        distribution: None,
+    };
+    let preview = s
+        .request(Request::Setup(SetupRequest::Preview {
+            intent: intent.clone(),
+        }))
+        .await;
+    let stopped = |env| {
+        format!(
+            "\nSSH setup did not finish. {}\n{later}",
+            setup_cmd::refusal_text(env)
+        )
+    };
+    if !preview.code.is_success() {
+        return stopped(&preview);
+    }
+    let Ok(consent) = serde_json::from_value::<ConsentNeed>(preview.data["consent"].clone()) else {
+        return format!(
+            "\nSSH setup did not finish. The preview did not describe its approval requirements.\n{later}"
+        );
+    };
+    // Setup prompts on the recorded request when an owner decision is required.
+    if !consent.decision_required
+        && !consent
+            .reasons
+            .iter()
+            .any(|r| r.kind == ConsentReasonKind::UndeterminedState)
+    {
+        let text = format!(
+            "Enrollment verified for {alias} ({account}).\n{}\nApply this SSH setup plan?\n",
+            output::render_plan(&preview.data),
+        );
+        if p.ask(&text).await != Answer::Yes {
+            return later.to_owned();
+        }
+    }
+    let rid = match setup_cmd::request_id(None) {
+        Ok(r) => r,
+        Err(o) => return stopped(&o.env),
+    };
+    let applied = setup_cmd::setup_from_preview(s, p, ctx, &intent, rid, preview).await;
+    if applied.exit == ExitCode::Success {
+        format!("\nSSH setup for {alias} is ready.\n{}", applied.human)
+    } else {
+        stopped(&applied.env)
+    }
 }
 
 // --- enroll status -------------------------------------------------------------------
@@ -486,7 +574,13 @@ async fn status(ctx: &Ctx) -> Outcome {
             })
             .and_then(|d| d.get("alias").and_then(|v| v.as_str()).map(str::to_owned))
     };
-    let human = render::status(&view, &alias_of);
+    let mut human = render::status(&view, &alias_of);
+    if !ctx.json
+        && let Ok(data) = setup_cmd::inspect(&mut s, InspectSubject::Issuer).await
+        && let Ok(st) = serde_json::from_value::<IssuerStatus>(data)
+    {
+        human.push_str(crate::issuer_cmd::recovery_status_guidance(&mut s, &st).await);
+    }
     // The machine form: the runtime's view, and per record what the human form adds
     // (the alias, the `slot_free` command, a held record's next commands).
     let guidance: Vec<serde_json::Value> = view
@@ -554,7 +648,7 @@ pub(crate) async fn verify_flow<S: Session, P: Prompter>(
     if let Err(refused) = setup_cmd::attend_first(s, ctx).await {
         return Outcome::of(refused);
     }
-    let env = s.request(request.clone()).await;
+    let env = s.request_with_wait(ctx, request.clone(), None).await;
     let preface = |recorded: Option<&serde_json::Value>| {
         let target = |k: &str| {
             recorded.and_then(|r| r.get(k)).and_then(|t| {
@@ -710,7 +804,7 @@ pub(crate) async fn remove_flow<S: Session, P: Prompter>(
     if let Err(refused) = setup_cmd::attend_first(s, ctx).await {
         return Outcome::of(refused);
     }
-    let env = s.request(request.clone()).await;
+    let env = s.request_with_wait(ctx, request.clone(), None).await;
     let preface = |recorded: Option<&serde_json::Value>| {
         let mut t = format!("You are deciding the removal of {what}.\n");
         let Some(r) = recorded else {
@@ -911,11 +1005,15 @@ pub(crate) async fn reconcile_flow<S: Session>(
         );
     }
     let env = s
-        .request(Request::Enrollment(EnrollmentRequest::Reconcile {
-            operation_id: op,
-            interaction: ctx.interaction(),
-            after_manual_recovery,
-        }))
+        .request_with_wait(
+            ctx,
+            Request::Enrollment(EnrollmentRequest::Reconcile {
+                operation_id: op,
+                interaction: ctx.interaction(),
+                after_manual_recovery,
+            }),
+            None,
+        )
         .await;
     settle(
         s,
@@ -1027,6 +1125,232 @@ mod tests {
     }
 
     const DEC: &str = "dec_00112233445566778899aabbccddeeff";
+
+    #[test]
+    fn enroll_then_projection_needs_two_confirmations() {
+        enroll_then_projection(true);
+    }
+
+    #[test]
+    fn enroll_then_projection_preserves_a_preference_changed_during_confirmation() {
+        enroll_then_projection(false);
+    }
+
+    fn enroll_then_projection(decision_required: bool) {
+        use heimdall_contract::catalog::CatalogRequest;
+        use heimdall_contract::managed::PreferredMechanism;
+        use std::cell::Cell;
+        use std::collections::VecDeque;
+
+        struct Script<'a> {
+            answers: VecDeque<Answer>,
+            prompts: Vec<String>,
+            change_preference: Option<&'a Cell<PreferredMechanism>>,
+        }
+        impl Prompter for Script<'_> {
+            async fn ask(&mut self, text: &str) -> Answer {
+                self.prompts.push(text.to_owned());
+                if self.prompts.len() == 2
+                    && let Some(preference) = self.change_preference
+                {
+                    preference.set(PreferredMechanism::Existing);
+                }
+                self.answers.pop_front().expect("unexpected prompt")
+            }
+        }
+        struct Fake<'a> {
+            steps: VecDeque<(&'static str, Envelope<serde_json::Value>)>,
+            sent: Vec<Request>,
+            preference: &'a Cell<PreferredMechanism>,
+        }
+        impl Session for Fake<'_> {
+            async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+                if let Request::Catalog(CatalogRequest::SetPreference { mechanism, .. }) = &request
+                {
+                    self.preference.set(*mechanism);
+                    self.sent.push(request);
+                    return Envelope::ok(serde_json::Value::Null);
+                }
+                let (kind, result) = self.steps.pop_front().expect("unexpected request");
+                assert_eq!(request.kind(), kind);
+                let result = if kind == "setup.apply"
+                    && self.preference.get() == PreferredMechanism::Existing
+                {
+                    setup_cmd::failure(
+                        Code::ConfigConflict,
+                        "preview is stale; no files were written",
+                        None,
+                    )
+                } else {
+                    result
+                };
+                self.sent.push(request);
+                result
+            }
+            async fn attend(&mut self) -> Envelope<serde_json::Value> {
+                Envelope::ok(serde_json::Value::Null)
+            }
+        }
+
+        let enroll_digest = "ab".repeat(32);
+        let setup_digest = "cd".repeat(32);
+        let preview = serde_json::json!({
+            "plan_digest": enroll_digest, "destination_id": "dst_lab", "alias": "lab",
+            "account": "deploy", "form": "account", "line": "fixture public line",
+            "line_sha256": "ab".repeat(32), "ca_fingerprint": format!("SHA256:{}", "A".repeat(43)),
+            "registry": {"path_display": "fixture registry", "resolved_by": "remote_home"},
+            "existing_access": {"identity_id": "idn_00112233445566778899aabbccddeeff", "mechanism": "native_agent",
+                "endpoint": "/fixture.sock", "endpoint_source": "catalog_record",
+                "invocation": ["IdentityAgent=/fixture.sock", "IdentitiesOnly=yes"]},
+            "host_trust": [], "approved_target": {"hostname": "lab.invalid", "port": 22,
+                "user": "deploy", "host_key": {"algorithm": "ssh-ed25519", "key": "fixture", "fingerprint": "fixture"}},
+            "verification": {"positive_principal": "fixture", "negative": true, "max_validity_seconds": 60},
+            "rollback": "compare_then_rename_by_marker", "disclosures": [],
+        });
+        let pending = output::error_value(
+            heimdall_app::OpError::new(Code::ApprovalRequired, "confirm enrollment")
+                .with_decision(DEC.to_owned())
+                .into_envelope(),
+        );
+        const PROJECTION_DECISION: &str = "dec_ffeeddccbbaa99887766554433221100";
+        let projection_pending = output::error_value(
+            heimdall_app::OpError::new(Code::ApprovalRequired, "confirm projection")
+                .with_decision(PROJECTION_DECISION.to_owned())
+                .into_envelope(),
+        );
+        for second in [Answer::No, Answer::Yes] {
+            let mut steps = VecDeque::from([
+                ("enrollment.preview", Envelope::ok(preview.clone())),
+                ("enrollment.apply", pending.clone()),
+                (
+                    "inspect",
+                    Envelope::ok(serde_json::json!({"decisions": [{
+                        "decision_id": DEC, "kind": "enroll_account", "request": {"plan_digest": enroll_digest},
+                    }]})),
+                ),
+                ("decide", Envelope::ok(serde_json::Value::Null)),
+                (
+                    "enrollment.apply",
+                    Envelope::ok(serde_json::json!({
+                        "enrollment_id": "enr_00112233445566778899aabbccddeeff", "state": "verified", "next": "setup_apply",
+                    })),
+                ),
+                (
+                    "setup.preview",
+                    Envelope::ok(serde_json::json!({
+                        "plan_digest": setup_digest, "intent": {"kind": "apply"}, "mode": "automatic",
+                        "aliases": [{"alias": "lab", "kind": "managed"}],
+                        "files": [{"path_display": "managed SSH config", "diff": "+Host lab"}],
+                        "consent": {"decision_required": decision_required},
+                    })),
+                ),
+            ]);
+            if decision_required {
+                steps.extend([
+                    ("setup.apply", projection_pending.clone()),
+                    ("inspect", Envelope::ok(serde_json::json!({"decisions": [{
+                        "decision_id": PROJECTION_DECISION, "kind": "apply_projection", "state": "pending",
+                        "request": {"plan_digest": setup_digest, "diff_text": "+Host lab"},
+                    }]}))),
+                ]);
+                if second == Answer::Yes {
+                    steps.push_back(("decide", Envelope::ok(serde_json::Value::Null)));
+                }
+            }
+            if second == Answer::Yes {
+                steps.push_back(("setup.apply", Envelope::ok(serde_json::Value::Null)));
+            }
+            let preference = Cell::new(PreferredMechanism::ManagedCertificate);
+            let mut s = Fake {
+                steps,
+                sent: Vec::new(),
+                preference: &preference,
+            };
+            let mut p = Script {
+                answers: [Answer::Yes, second].into(),
+                prompts: Vec::new(),
+                change_preference: (!decision_required).then_some(&preference),
+            };
+            let destination = DestinationId::parse("dst_lab").unwrap();
+            let account = AccountName::parse("deploy").unwrap();
+            let out = block_on(enroll_flow(
+                &mut s,
+                &mut p,
+                &interactive(false),
+                EnrollmentSpec {
+                    destination,
+                    account: Some(account),
+                    form: EnrollmentForm::Account,
+                    registry_path: None,
+                    ca_fingerprint: None,
+                },
+            ));
+            assert_eq!(out.env.data["state"], "verified");
+            assert!(s.steps.is_empty());
+            assert_eq!(p.prompts.len(), 2);
+            assert!(p.prompts[0].contains("fixture public line"));
+            assert!(p.prompts[1].contains("+Host lab"));
+            if decision_required {
+                assert!(p.prompts[1].contains(PROJECTION_DECISION));
+            } else {
+                assert!(p.prompts[1].contains("Apply this SSH setup plan?"));
+                assert_eq!(preference.get(), PreferredMechanism::Existing);
+                if second == Answer::Yes {
+                    assert!(
+                        out.human
+                            .contains("preview is stale; no files were written")
+                    );
+                }
+            }
+            assert!(
+                !s.sent.iter().any(|request| matches!(
+                    request,
+                    Request::Catalog(CatalogRequest::SetPreference { .. })
+                )),
+                "guided projection sent SetPreference"
+            );
+            let applies: Vec<_> = s
+                .sent
+                .iter()
+                .filter_map(|request| match request {
+                    Request::Setup(SetupRequest::Apply { plan_digest, .. }) => {
+                        Some(plan_digest.as_str())
+                    }
+                    _ => None,
+                })
+                .collect();
+            let expected_applies =
+                usize::from(decision_required) + usize::from(second == Answer::Yes);
+            assert_eq!(applies, vec![setup_digest.as_str(); expected_applies]);
+            if second == Answer::No {
+                assert!(out.human.contains("heimdall setup apply"));
+            }
+        }
+
+        let preference = Cell::new(PreferredMechanism::ManagedCertificate);
+        let mut s = Fake {
+            steps: VecDeque::new(),
+            sent: Vec::new(),
+            preference: &preference,
+        };
+        let mut p = Script {
+            answers: VecDeque::new(),
+            prompts: Vec::new(),
+            change_preference: None,
+        };
+        let text = block_on(offer_projection(
+            &mut s,
+            &mut p,
+            &Ctx {
+                non_interactive: true,
+                ..interactive(false)
+            },
+            "lab",
+            &AccountName::parse("deploy").unwrap(),
+        ));
+        assert!(text.contains("heimdall setup apply"));
+        assert!(s.sent.is_empty() && p.prompts.is_empty());
+    }
 
     impl Session for Recorder {
         async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {

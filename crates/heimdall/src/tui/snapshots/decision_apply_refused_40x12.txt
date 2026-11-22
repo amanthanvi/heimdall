@@ -1,7 +1,7 @@
- 1 Over  2 Dest  3 Prof [4 Acti] [!!]
+[4 Activity] 4/8 [!!] Needs attention
 P┌Owner decision dec_apply1 (apply_pro┐
->│Recorded 09:00:00Z (30s ago) ·      │p
- │expires 09:15:00Z (in 14m)          │n
+>│Recorded 09:00:00Z (just now) ·     │p
+ │expires 09:15:00Z (in 14 min)       │n
 O│Exactly what approve applies to:    │
  │Intent apply · aliases 1 added, 0   │n
  │changed, 0 removed · 2 file(s) · Git│

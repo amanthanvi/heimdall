@@ -1,0 +1,22 @@
+   Compiling heimdall-remote v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/remote)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.60s
+     Running unittests src/lib.rs (target/debug/deps/heimdall_remote-2397fc1c32e1f1ae)
+
+running 1 test
+test sshd_policy::tests::each_failing_field_is_refused_by_name ... FAILED
+
+failures:
+
+---- sshd_policy::tests::each_failing_field_is_refused_by_name stdout ----
+
+thread 'sshd_policy::tests::each_failing_field_is_refused_by_name' (91080485) panicked at crates/remote/src/sshd_policy.rs:941:43:
+refusal expected
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sshd_policy::tests::each_failing_field_is_refused_by_name
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 24 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p heimdall-remote --lib`

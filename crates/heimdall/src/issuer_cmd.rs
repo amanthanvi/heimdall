@@ -330,8 +330,37 @@ async fn status(ctx: &Ctx) -> Outcome {
     if let Ok(data) = serde_json::to_value(&st) {
         env.data = data;
     }
-    let human = render::status(&st, &notes);
+    let mut human = render::status(&st, &notes);
+    if !ctx.json {
+        human.push_str(recovery_status_guidance(&mut client, &st).await);
+    }
     Outcome::of(env).with_human(human)
+}
+
+/// The status record does not keep the location of an exported bundle. Only
+/// inspect the public descriptors of unfinished foreign removals when needed.
+pub(crate) async fn recovery_status_guidance<S: Session>(
+    s: &mut S,
+    st: &IssuerStatus,
+) -> &'static str {
+    let env = s
+        .request(Request::Issuer(IssuerRequest::Bundle {
+            redact_hostnames: true,
+        }))
+        .await;
+    let foreign = env.code.is_success()
+        && env.data["foreign_removals"].as_array().is_some_and(|rows| {
+            rows.iter()
+                .filter_map(|row| row["ca_public_key"].as_str())
+                .filter_map(heimdall_app::issuer::ca_public_key_fingerprint)
+                .any(|fingerprint| {
+                    !st.cas.iter().any(|ca| {
+                        ca.fingerprint == fingerprint
+                            && matches!(ca.state, CaState::Active | CaState::Pending)
+                    })
+                })
+        });
+    render::lost_device_guidance(st, foreign)
 }
 
 // --- bundle -----------------------------------------------------------------------------
@@ -479,23 +508,23 @@ pub(crate) async fn retire_to_retired<S: Session, P: Prompter>(
     if let Err(refused) = setup_cmd::attend_first(s, ctx).await {
         return Outcome::of(refused);
     }
-    let env = s
-        .request(Request::Issuer(IssuerRequest::Retire {
-            ca_fingerprint: ca.clone(),
-            deleted_locator: None,
-        }))
-        .await;
-    if let Some(decision) = setup_cmd::pending_decision(&env) {
-        if !ctx.interactive() {
-            // The pending decision stays pending; nothing more is sent (exit 3).
-            return Outcome::of(env);
-        }
-        let decided =
-            setup_cmd::confirm_and_decide(s, p, ctx, &decision, RETIRE_PREFACE, None, None).await;
-        if decided.code != Code::Ok {
-            return Outcome::of(decided);
-        }
-    } else if !env.code.is_success() {
+    let request = Request::Issuer(IssuerRequest::Retire {
+        ca_fingerprint: ca.clone(),
+        deleted_locator: None,
+    });
+    let env = s.request(request.clone()).await;
+    let env = setup_cmd::approve_request(
+        s,
+        p,
+        ctx,
+        &request,
+        env,
+        |_| Ok(RETIRE_PREFACE.to_owned()),
+        None,
+    )
+    .await
+    .unwrap_or_else(|env| env);
+    if !env.code.is_success() {
         return Outcome::of(env);
     }
     let (env, st) = match wait_unloaded(s, ca).await {

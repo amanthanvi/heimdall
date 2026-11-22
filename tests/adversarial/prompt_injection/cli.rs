@@ -256,6 +256,40 @@ impl Rt {
         out
     }
 
+    /// The launch bindings whose holder the runtime has not released yet (the store): a
+    /// `run` leaves one until the runtime's holder pass observes that its program exited.
+    fn held_launches(&self) -> usize {
+        self.store()
+            .transaction(|tx| {
+                let mut held = 0;
+                for (binding, _) in tx.binding_holders()? {
+                    if tx
+                        .binding(&binding)?
+                        .is_some_and(|b| b.state == heimdall_domain::binding::BindingState::Active)
+                    {
+                        held += 1;
+                    }
+                }
+                Ok(held)
+            })
+            .unwrap()
+    }
+
+    /// Wait until the runtime has released every launch binding whose program has exited
+    /// (its holder pass runs every few seconds), so that two installations are compared in
+    /// the same settled state and not at different ages: the `run`'s own grant ends with
+    /// that release, a few seconds after the program, whatever the names were.
+    fn settle(&self) {
+        let deadline = Instant::now() + Duration::from_secs(120);
+        while self.held_launches() > 0 {
+            assert!(
+                Instant::now() < deadline,
+                "the runtime did not release an exited program's launch binding"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
     /// `inspect policies`, reduced to what authority depends on and does not differ between
     /// installations by chance (the environment ID is random): each policy's ID, revision,
     /// profile, workspace (present or not), environment count, default flag, pause, cutoff
@@ -820,6 +854,11 @@ fn names_journey(n: &Names) -> Rt {
 fn a29_cli_names_claiming_approval_change_nothing() {
     let control = names_journey(&PLAIN);
     let hostile = names_journey(&CLAIMS);
+    // Each journey's `run` program has exited. Its launch binding, and the grant of its own
+    // work ID, end at that runtime's next holder pass: compare after both have, not while
+    // the older installation has passed and the newer has not.
+    control.settle();
+    hostile.settle();
     assert_eq!(hostile.decisions(), control.decisions());
     assert_eq!(hostile.pending().len(), control.pending().len());
     assert_eq!(hostile.grants(), control.grants());

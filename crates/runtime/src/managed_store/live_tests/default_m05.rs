@@ -574,6 +574,7 @@ async fn unslotted_work_one(w: &World) -> heimdall_contract::request::EnsureData
                 connection: None,
                 context: None,
                 covered_only: false,
+                pair_issuers: Vec::new(),
             },
         )
         .await
@@ -1102,6 +1103,7 @@ async fn approved_default_sets_an_empty_preference_and_keeps_an_existing_one() {
                 connection: None,
                 context: None,
                 covered_only: false,
+                pair_issuers: Vec::new(),
             },
         )
         .await

@@ -1,4 +1,4 @@
- 1 Over  2 Dest  3 Prof [4 Acti] [!!]
+[4 Activity] 4/8 [!!] Needs attention
 Pending decisions
 > [!!] dec_enroll1  enroll_account  expi
   [!!] dec_target1  approve_target_chang

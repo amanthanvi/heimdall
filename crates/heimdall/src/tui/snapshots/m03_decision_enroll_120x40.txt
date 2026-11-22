@@ -1,21 +1,21 @@
-Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+[1 Overview] 2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
 [!!] ┌Owner decision dec_enroll1 (enroll_account, read-only)──────────────────────────────────────────────────────┐
-Runti│Recorded 09:00:00Z (30s ago) · expires 09:15:00Z (in 14m)                                                   │
+Runti│Recorded 09:00:00Z (just now) · expires 09:15:00Z (in 14 min)                                               │
 Stati│Exactly what deny applies to:                                                                               │
-> [!!│Plan: enroll fixture at alpha (dst-alpha), account form, under CA                                           │stopp
-  [!!│SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA                                                          │
-  [!!│Registry ~/.ssh/authorized_keys (resolved by remote_home) · line SHA-256                                    │
-  [!!│abababababababababababababababababababababababababababababababab                                            │
-  [!!│Plan digest bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb                                │
-  [..│Approved target: alpha.example.invalid:22 as fixture (proxy none)                                           │
-  [ !│  host key ssh-ed25519 SHA256:hostOld                                                                       │)
-  [ !│  key AAAAC3NzaC1lZDI1NTE5AAAAIhostOld                                                                      │
-  [ !│Existing access: ssh alpha                                                                                  │
-  [ i│Host trust: ~/.ssh/known_hosts:3                                                                            │needs
-     │Bootstrap step: none                                                                                        │
-     │Disclosures:                                                                                                │
-     │  * ca_trust_blast_radius: Every account you enroll will trust this CA: whoever holds its key can reach all │
-     │    of them.                                                                                                │
+Envir│Plan: enroll fixture at alpha (dst-alpha), account form, under CA                                           │
+Acces│SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA                                                          │
+Deskt│Registry ~/.ssh/authorized_keys (resolved by remote_home) · line SHA-256                                    │
+Pause│abababababababababababababababababababababababababababababababab                                            │
+> [!!│Plan digest bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb                                │stopp
+  [!!│Approved target: alpha.example.invalid:22 as fixture (proxy none)                                           │
+  [!!│  host key ssh-ed25519 SHA256:hostOld                                                                       │
+  [!!│  key AAAAC3NzaC1lZDI1NTE5AAAAIhostOld                                                                      │
+  [!!│Existing access: ssh alpha                                                                                  │
+  [..│Host trust: ~/.ssh/known_hosts:3                                                                            │
+  [ !│Bootstrap step: none                                                                                        │d)
+  [ !│Disclosures:                                                                                                │
+  [ !│  * ca_trust_blast_radius: Every account you enroll will trust this CA: whoever holds its key can reach all │
+  [ i│    of them.                                                                                                │ slot
      │  * Lock disclosure (shown once; recorded when the decision is approved):                                   │
      │    Managed signing continues while your desktop is locked, within each grant's deadline, unless a policy or│
      │      your configuration ends work at a lock.                                                               │

@@ -31,6 +31,8 @@ pub mod check;
 pub mod child;
 pub mod client;
 pub mod protocol;
+// ⟨M06 U3⟩ The paired-environment request path (ADR-0012 §4.2).
+pub mod remote;
 pub mod retire;
 pub mod store;
 // M03-U4: the one `unsafe` module (keychain access lists, DPAPI, DACLs, console mode).

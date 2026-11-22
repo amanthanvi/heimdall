@@ -1,0 +1,40 @@
+ 1 Overview  2 Destinations  3 Profiles  4 Activity  5 Projects [6 Environments] 7 Identities  8 Settings  [!!] - s stop
+3 environment(s) the runtime knows, its own first · Enter for detail
+> [OK] this computer                active · this runtime's own  env_22222222222222222222222222222222
+  [ !] WSL Ubuntu                   not running  env_33333333333333333333333333333333
+  [--] builder                      removed  env_44444444444444444444444444444444
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter detail · Up/Down move · ? help · q quit

@@ -791,6 +791,12 @@ pub struct RouteCatalogView {
         crate::scope::AccessPair,
         heimdall_contract::managed::PreferredMechanism,
     >,
+    /// ⟨M06 U5a⟩ The stored approved route lists (ADR-0012 §5.1, §9 item 9), by destination.
+    /// A destination absent here (or with an empty list) has the one-element list of its
+    /// definition ([`crate::routes::approved_routes`]), so an empty map is exactly M04's
+    /// reading.
+    pub routes:
+        std::collections::BTreeMap<DestinationId, Vec<heimdall_contract::route::DestinationRoute>>,
 }
 
 impl RouteCatalogView {
@@ -826,10 +832,19 @@ impl RouteCatalogView {
         };
         match &record.definition {
             DestinationDefinition::Observed => Err(RouteRefusal::OutOfScope),
-            DestinationDefinition::Managed { jump: Some(_), .. } => {
-                Err(RouteRefusal::ChainUnsupported)
-            }
-            DestinationDefinition::Managed { jump: None, .. } => {
+            DestinationDefinition::Managed { .. } => {
+                // ⟨M06 U5a⟩ The jump's own approved routes are exactly one direct route
+                // (M04: no jump of its own); anything else would need a second hop.
+                let own = self.approved_routes(jump);
+                if !matches!(
+                    own.as_slice(),
+                    [heimdall_contract::route::DestinationRoute {
+                        route: heimdall_contract::route::RouteSpec::Direct { .. },
+                        ..
+                    }]
+                ) {
+                    return Err(RouteRefusal::ChainUnsupported);
+                }
                 if self
                     .used_as_jump_by(destination)
                     .iter()
@@ -842,15 +857,36 @@ impl RouteCatalogView {
         }
     }
 
+    /// ⟨M06 U5a⟩ The approved routes of `id`, most preferred first: its stored list, or the
+    /// one-element list of its definition ([`crate::routes::approved_routes`]); none for an
+    /// unknown destination.
+    #[must_use]
+    pub fn approved_routes(
+        &self,
+        id: &DestinationId,
+    ) -> Vec<heimdall_contract::route::DestinationRoute> {
+        self.destinations.get(id).map_or_else(Vec::new, |record| {
+            crate::routes::approved_routes(record, self.routes.get(id).map(Vec::as_slice))
+        })
+    }
+
+    /// ⟨M06 U5a⟩ The jump destinations of `id`'s approved jump routes, in route order.
+    fn jump_vias(&self, id: &DestinationId) -> Vec<DestinationId> {
+        self.approved_routes(id)
+            .into_iter()
+            .filter_map(|r| match r.route {
+                heimdall_contract::route::RouteSpec::Jump { via } => Some(via),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The destinations whose stored definition names `id` as their jump.
     #[must_use]
     pub fn used_as_jump_by(&self, id: &DestinationId) -> Vec<&DestinationId> {
         self.destinations
             .values()
-            .filter(|d| {
-                matches!(&d.definition,
-                    DestinationDefinition::Managed { jump: Some(j), .. } if j == id)
-            })
+            .filter(|d| self.jump_vias(&d.id).iter().any(|j| j == id))
             .map(|d| &d.id)
             .collect()
     }
@@ -863,13 +899,45 @@ impl RouteCatalogView {
         &self,
         pair: &crate::scope::AccessPair,
     ) -> Option<Result<ApprovedRoute, RouteRefusal>> {
-        let record = self.destinations.get(&pair.destination)?;
-        let DestinationDefinition::Managed {
-            account,
-            jump: Some(jump),
-            ..
-        } = &record.definition
+        // ⟨M06 U5a⟩ The native route: a list of exactly one jump route (the definition's
+        // `jump`, or a stored one-element list). Several routes render the helper, whose jump
+        // routes are [`Self::jump_routes_of`].
+        let routes = self.approved_routes(&pair.destination);
+        let [
+            heimdall_contract::route::DestinationRoute {
+                route: heimdall_contract::route::RouteSpec::Jump { via },
+                ..
+            },
+        ] = routes.as_slice()
         else {
+            return None;
+        };
+        self.approved_jump(pair, via)
+    }
+
+    /// ⟨M06 U5a⟩ Every approved jump route of the pair `pair` (its destination's managed pair
+    /// only), in route order, each as [`Self::route_of`] states one: the routes a helper
+    /// alias may take, and the jump pairs whose certificates need `permit-port-forwarding`.
+    #[must_use]
+    pub fn jump_routes_of(
+        &self,
+        pair: &crate::scope::AccessPair,
+    ) -> Vec<Result<ApprovedRoute, RouteRefusal>> {
+        self.jump_vias(&pair.destination)
+            .iter()
+            .filter_map(|via| self.approved_jump(pair, via))
+            .collect()
+    }
+
+    /// `via` as `pair`'s approved jump: `None` for another account than the destination's
+    /// managed one; `Some(Err(..))` when `via` no longer resolves to a valid jump.
+    fn approved_jump(
+        &self,
+        pair: &crate::scope::AccessPair,
+        jump: &DestinationId,
+    ) -> Option<Result<ApprovedRoute, RouteRefusal>> {
+        let record = self.destinations.get(&pair.destination)?;
+        let DestinationDefinition::Managed { account, .. } = &record.definition else {
             return None;
         };
         if account != &pair.account {
@@ -926,9 +994,12 @@ pub fn jump_pairs_in_scope(
     scope: &std::collections::BTreeSet<crate::scope::AccessPair>,
     view: &RouteCatalogView,
 ) -> std::collections::BTreeSet<crate::scope::AccessPair> {
+    // ⟨M06 U5a⟩ Every approved jump route of an in-scope pair, not only the native one: a
+    // helper alias's jump leg is the same single-hop dependency (ADR-0012 §5.4).
     scope
         .iter()
-        .filter_map(|p| view.route_of(p)?.ok())
+        .flat_map(|p| view.jump_routes_of(p))
+        .filter_map(Result::ok)
         .filter(|route| {
             scope.contains(&route.jump_pair)
                 && view.jump_access(route, Some(scope))

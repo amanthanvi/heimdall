@@ -1,8 +1,9 @@
-Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [??] Checking
+[1 Overview] 2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [??] - s stop
 [??] Checking
 Runtime: not running (ordinary ssh still works; S starts it)
 Static pass: running (reads your configuration; executes nothing)
-  Nothing needs you; nothing is running.
+Pause or stop access: press s (pause automatic access, stop work, a cutoff) · 8 Settings
+  Nothing is read from the runtime yet: what needs you there is not known.
 
 
 
@@ -36,5 +37,4 @@ Static pass: running (reads your configuration; executes nothing)
 
 
 
-
-Enter open · r retry · k keep · R refresh · 1-4 views · ? help · q quit
+Enter open · s pause or stop · R refresh · 1-8 views · ? help · q quit

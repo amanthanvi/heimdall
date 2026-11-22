@@ -58,3 +58,9 @@ path = "../../tests/integration/enroll_registry.rs"
 [[test]]
 name = "integration_enroll_verify"
 path = "../../tests/integration/enroll_verify.rs"
+
+# ⟨M06 U5a⟩ Verification through an approved single-hop jump with the jump's own catalog pin,
+# and the final-key rule through it (ADR-0012 §5.7; ADR-0010 §10 item 6).
+[[test]]
+name = "integration_route_enroll_m06"
+path = "../../tests/integration/route_enroll_m06.rs"

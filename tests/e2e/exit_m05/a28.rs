@@ -109,6 +109,7 @@ fn hello_body() -> Vec<u8> {
         capabilities: heimdall_ipc::session::server_capabilities(),
         required: Default::default(),
         interaction: heimdall_contract::request::InteractionMode::NonInteractive,
+        remote_client: None,
     });
     serde_json::to_vec(&hello).unwrap()
 }

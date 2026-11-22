@@ -244,7 +244,14 @@ impl Child<'_> {
         if !self.rate.admits(&subject_key, now) {
             return Err(IssuerRefusal::RateLimited);
         }
-        let bounds = verify_reservation(&self.db, &self.gate, entry, subject)?;
+        // ⟨M06 W3; ADR-0005 §3.5 "Remote reservations"⟩ A reservation of kind `remote` is
+        // judged by its own conditions; every other kind by D3 item 4 steps 1–3.
+        let bounds = match entry.table {
+            crate::protocol::IssuanceTable::Remote => {
+                crate::check::verify_remote_reservation(&self.db, &self.gate, entry, subject)?
+            }
+            _ => verify_reservation(&self.db, &self.gate, entry, subject)?,
+        };
         let public = ssh_key::PublicKey::from_openssh(subject)
             .map_err(|_| IssuerRefusal::SubjectMismatch)?;
         let certificate = self.cas.sign(entry.table, &bounds, &public)?;

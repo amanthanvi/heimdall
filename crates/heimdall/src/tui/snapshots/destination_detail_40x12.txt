@@ -1,12 +1,12 @@
- 1 Over [2 Dest] 3 Prof  4 Acti  [!!]
+[2 Destinations] 2/8 [!!] - s stop
 alpha: managed destination
 Catalog: dst-alpha rev 2, updated
 2026-11-02T08:00:00Z; listing read
-09:00:25Z (5s ago)
+09:00:25Z (just now)
   [managed] rendered: HostName
 alpha.example.invalid Port 22 User
 fixture
 Effective values (static pass at
-09:00:20Z, 10s ago; nothing executed):
+09:00:20Z, just now; nothing executed):
   [managed]      HostName
-c connect · p probes · Up/Down scroll ·
+c connect · p probes · Esc back

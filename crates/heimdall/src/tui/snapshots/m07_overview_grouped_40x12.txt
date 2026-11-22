@@ -1,0 +1,12 @@
+[1 Overview] 1/8 [OK] Ready
+[OK] Ready
+Runtime: connected, read just now
+Static pass: just now
+Here: this environment · no work running
+Access: not listed
+Lock setting: not reported · s stop
+> [ !] HOME differs from the account's h
+  [ !] 100 destinations: ssh may offer o
+
+
+Enter open · s stop · ? help · q quit

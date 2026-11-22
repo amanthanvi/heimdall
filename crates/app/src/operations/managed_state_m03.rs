@@ -26,6 +26,9 @@ pub(super) struct ManagedOpsState {
     wiring: RwLock<Option<Arc<ManagedWiring>>>,
     /// ⟨wave 4⟩ The enrollment driver's in-memory state (host port, previews).
     pub(super) enrollment: super::enrollment_m03::EnrollmentProcessState,
+    /// ⟨M06 W3 grant-path⟩ A remote runner's own signer view (`super::runner_m06`);
+    /// `None` on every other installation.
+    pub(super) runner: RwLock<Option<Arc<dyn super::runner_m06::RunnerGrants>>>,
 }
 
 impl std::fmt::Debug for ManagedOpsState {

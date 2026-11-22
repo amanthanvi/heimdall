@@ -1,0 +1,21 @@
+   Compiling heimdall-remote v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/remote)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.75s
+     Running ../../tests/model/remote_roles.rs (target/debug/deps/model_remote_roles-1baf03586b952af5)
+
+running 13 tests
+test focused_fault_crash_between_commit_and_line_rewrite ... ok
+test t_ra3_terminal_result_replay ... ok
+test t_ra1_owner_widening_stays_pending_including_exposure ... ok
+test focused_fault_wall_clock_rollback_between_authentication_and_join ... ok
+test pending_key_reaches_only_probe_and_join ... ok
+test t_ra2_decide_and_attend_refused_before_dispatch ... ok
+test focused_fault_delayed_join_past_expiry ... ok
+test invitation_gates ... ok
+test retried_join_checks_identity_before_the_recorded_result ... ok
+test invite_decision_binds_the_exact_key_and_role ... ok
+test t_ra4_limited_widening_is_role_insufficient ... ok
+test key_uniqueness_is_per_runner_and_role_table ... ok
+test no_sequence_activates_a_dead_invitation ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.32s
+

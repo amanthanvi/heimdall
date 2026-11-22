@@ -367,6 +367,77 @@ pub(crate) struct Catalog {
     pub m03: super::m03::Listings,
     /// ⟨M05⟩ The trusted-work listings of the same refresh (workspace status, policies).
     pub m05: super::m05::Listings,
+    /// ⟨M07⟩ `inspect environments` of the same refresh (the runtime's own first).
+    pub environments: super::m07::Environments,
+    /// ⟨M07⟩ The listings whose last read failed, by subject wire name
+    /// (`destinations`, `profiles`, ...). A failed subject keeps its last good data
+    /// above, which is then stale (Q4: a failed listing is never shown as empty).
+    pub failures: std::collections::BTreeMap<String, ListingFailure>,
+}
+
+/// ⟨M07⟩ Why a listing's last read failed (m07-plan U1; ruling Q4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ListingFailure {
+    /// The answer's code (for example `INTERNAL_ERROR`).
+    pub code: String,
+    /// The answer's message, cleaned.
+    pub message: String,
+    /// Since when the reads have failed with this code and message (the first failed
+    /// read; a repeat of the same failure keeps it, so an unchanged failure redraws
+    /// nothing).
+    pub since: Timestamp,
+    /// When the data still shown was read (the last good read), if there was one.
+    pub stale_from: Option<Timestamp>,
+}
+
+/// ⟨M07⟩ The wire names of the listings the views name in their error state.
+pub(crate) mod subject {
+    /// `inspect destinations`.
+    pub(crate) const DESTINATIONS: &str = "destinations";
+    /// `inspect profiles`.
+    pub(crate) const PROFILES: &str = "profiles";
+    /// `inspect operations`.
+    pub(crate) const OPERATIONS: &str = "operations";
+    /// `inspect decisions`.
+    pub(crate) const DECISIONS: &str = "decisions";
+    /// `inspect enrollments`.
+    pub(crate) const ENROLLMENTS: &str = "enrollments";
+    /// ⟨M07⟩ `inspect environments`.
+    pub(crate) const ENVIRONMENTS: &str = "environments";
+    /// ⟨M07⟩ `inspect identities`.
+    pub(crate) const IDENTITIES: &str = "identities";
+    /// ⟨M07⟩ `inspect connections`.
+    pub(crate) const CONNECTIONS: &str = "connections";
+    /// ⟨M07⟩ `inspect capabilities` (the lock report).
+    pub(crate) const CAPABILITIES: &str = "capabilities";
+    /// ⟨M07⟩ `inspect policies` (standing access and the default profiles).
+    pub(crate) const POLICIES: &str = "policies";
+    /// ⟨M07⟩ `inspect workspace` (the working directory's project).
+    pub(crate) const WORKSPACE: &str = "workspace";
+}
+
+/// ⟨M07⟩ How far a value read from some listings can be claimed (M07-W0-R03): a view
+/// states a value, or its absence, only for a listing that was read; otherwise it says
+/// what is not known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Known {
+    /// Every listing was read in the latest refresh.
+    Fresh,
+    /// A listing's latest read failed: its last good data is shown and may have changed.
+    Stale,
+    /// A listing has never been read: nothing can be said from it.
+    Unread,
+}
+
+impl Known {
+    /// ` (stale)` after a value that may have changed, nothing after a fresh one.
+    #[must_use]
+    pub(crate) fn suffix(self) -> &'static str {
+        match self {
+            Known::Stale => " (stale)",
+            _ => "",
+        }
+    }
 }
 
 impl Catalog {
@@ -417,7 +488,78 @@ impl Catalog {
             read_at: Some(read_at),
             m03: super::m03::Listings::default(),
             m05: super::m05::Listings::default(),
+            environments: super::m07::Environments::default(),
+            failures: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// ⟨M07⟩ Whether `other` lists the same things: every field but the read times
+    /// (`read_at`, each identity's `checked_at`): a poll whose answers change nothing
+    /// draws nothing (m07-plan U1).
+    #[must_use]
+    pub(crate) fn same_listings(&self, other: &Self) -> bool {
+        // Destructured, so a new field cannot be forgotten here.
+        let Self {
+            destinations,
+            profiles,
+            identities,
+            operations,
+            decisions,
+            projection_generation,
+            read_at: _,
+            m03,
+            m05,
+            environments,
+            failures,
+        } = self;
+        // An identity's `checked_at` is the time of the read (the runtime checks
+        // eligibility as it answers), so, like `read_at`, it is not a change.
+        let same_identities = identities.len() == other.identities.len()
+            && identities.iter().zip(&other.identities).all(|(a, b)| {
+                Identity {
+                    checked_at: None,
+                    ..a.clone()
+                } == Identity {
+                    checked_at: None,
+                    ..b.clone()
+                }
+            });
+        *destinations == other.destinations
+            && *profiles == other.profiles
+            && same_identities
+            && *operations == other.operations
+            && *decisions == other.decisions
+            && *projection_generation == other.projection_generation
+            && *m03 == other.m03
+            && *m05 == other.m05
+            && *environments == other.environments
+            && *failures == other.failures
+    }
+
+    /// ⟨M07⟩ How far values read from the listings `subjects` can be claimed: not at
+    /// all before the first refresh or when one of them was never read, as stale when one
+    /// of their latest reads failed.
+    #[must_use]
+    pub(crate) fn known(&self, subjects: &[&str]) -> Known {
+        let failed = |s: &&str| self.failures.get(*s);
+        if self.read_at.is_none()
+            || subjects
+                .iter()
+                .filter_map(failed)
+                .any(|f| f.stale_from.is_none())
+        {
+            Known::Unread
+        } else if subjects.iter().any(|s| failed(s).is_some()) {
+            Known::Stale
+        } else {
+            Known::Fresh
+        }
+    }
+
+    /// ⟨M07⟩ The failure of the listing `subject` ([`subject`]), if its last read failed.
+    #[must_use]
+    pub(crate) fn failure(&self, subject: &str) -> Option<&ListingFailure> {
+        self.failures.get(subject)
     }
 
     /// The destination with this alias.

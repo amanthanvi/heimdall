@@ -148,6 +148,7 @@ impl World {
                     connection: None,
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 },
             )
             .await
@@ -538,6 +539,7 @@ async fn a28_child_handle_has_no_owner_functions() {
         capabilities: heimdall_ipc::session::server_capabilities(),
         required: Default::default(),
         interaction: InteractionMode::NonInteractive,
+        remote_client: None,
     });
     let control =
         heimdall_ipc::frame::encode_frame(&hello, heimdall_contract::ipc::MAX_CONTROL_FRAME_BYTES)
@@ -592,6 +594,7 @@ async fn a28_child_handle_has_no_owner_functions() {
         context: CallerContext {
             principal: PrincipalRef::UnixUser { uid: 777 },
             role: ClientRole::LimitedConsumer,
+            remote_client: None,
         },
         attendance: heimdall_app::Attendance::Attended { since: t0() },
         interaction: InteractionMode::Interactive,
@@ -688,6 +691,7 @@ async fn a28_child_handle_has_no_owner_functions() {
     let child_side = Caller::unattended(CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::LimitedConsumer,
+        remote_client: None,
     });
     let e = w
         .delegate_as(&child_side, "own-wider", &child.binding_id, &w.pairs, None)
@@ -957,6 +961,7 @@ async fn a28_existing_access_child_labelled_convenience() {
                 connection: None,
                 context: None,
                 covered_only: false,
+                pair_issuers: Vec::new(),
             },
         )
         .await

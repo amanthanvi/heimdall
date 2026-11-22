@@ -280,25 +280,13 @@ pub(crate) async fn owner_request<S: Session, P: Prompter>(
         return refused.env;
     }
     let env = s.request(request.clone()).await;
-    let Some(decision) = crate::cli::pending_decision(&env) else {
+    if !widening {
         return env;
+    }
+    let decided = match crate::cli::approve_request(s, p, ctx, &request, env, &mut 2).await {
+        Ok(decided) => decided,
+        Err(env) => return env,
     };
-    if !widening || !ctx.interactive() {
-        return env;
-    }
-    let decided = crate::cli::confirm_and_decide(
-        s,
-        p,
-        ctx,
-        &decision,
-        Verdict::Approve,
-        env.operation_id.clone(),
-        Some(&env.code),
-    )
-    .await;
-    if decided.code != Code::Ok {
-        return decided;
-    }
     if matches!(
         request,
         Request::Policy(PolicyAction::Create { .. } | PolicyAction::ReconcileWorkspace { .. })
@@ -1170,6 +1158,26 @@ pub(crate) fn render_target_result(v: &serde_json::Value) -> String {
             out.push_str(&format!(" {g}"));
         }
         out.push('\n');
+    }
+    // ⟨M06 W3 host⟩ A cutoff of every policy also went to every runner this controller owns.
+    for (key, line) in [
+        ("delivered", "delivered to runner"),
+        ("pending", "pending on runner"),
+    ] {
+        for runner in v
+            .get("runners")
+            .and_then(|r| r.get(key))
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(environment) = runner.get("environment").and_then(|e| e.as_str()) {
+                out.push_str(&format!(
+                    "{line} {}\n",
+                    crate::output::sanitize_for_terminal(environment)
+                ));
+            }
+        }
     }
     out
 }

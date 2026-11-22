@@ -1,0 +1,40 @@
+ 1 Overview  2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments [7 Identities] 8 Settings  [!!] - s stop
+Identity idn_alpha
+Source: the runtime's identity list (inspect identities), read 09:00:25Z (just now)
+  [adopted]  fingerprint SHA256:fixtureAlphaKey
+  [adopted]  key type ssh-ed25519
+  [adopted]  held by SSH agent at /scratch/agent.sock
+  [declared] asks for confirmation: none (basis declared)
+  [declared] declared 2026-11-01T10:00:00Z · expires 2026-12-01T10:00:00Z
+  [runtime]  background use: allowed (checked 09:00:25Z (just now))
+  [catalog]  destinations using it: alpha
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Up/Down scroll · Esc back

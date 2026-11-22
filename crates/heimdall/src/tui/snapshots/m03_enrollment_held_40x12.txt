@@ -1,4 +1,4 @@
- 1 Over  2 Dest  3 Prof [4 Acti] [!!]
+[4 Activity] 4/8 [!!] Needs attention
 enr_01010101010101010101010101010101:
 fixture at alpha (account form)
 [!!] State: held (needs you)

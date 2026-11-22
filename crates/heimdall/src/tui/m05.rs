@@ -23,6 +23,9 @@
 //! `decide` of the record shown (the decision modal; the typed `yes` after the last row has
 //! been on screen), so the TUI never builds a widening. The stop menu only narrows: each of
 //! its actions is the request the CLI sends for the same command ([`StopAction::request`]).
+//! ⟨M07⟩ Its actions are persistent changes all the same, so each is sent only after a
+//! typed `yes` to a confirmation the frames have drawn in full and the latest frame drew
+//! ([`StopMenu::unseen`]; M07-W0-R01's rule for a Settings change).
 //!
 //! **Repository text is quoted, bounded data** (ADR-0011 I5): the manifest's project label
 //! appears in the first-trust view as one quoted line of its own ([`quoted`]); it is never a
@@ -42,6 +45,7 @@ use serde_json::Value;
 
 use super::data::{Catalog, Decision, clean, items, text, time};
 use super::keys::Key;
+use super::model::Seen;
 
 /// The first-trust question's opening, with the profile's ID (spec §5.2's `<profile>`; ruling
 /// I-21: never its label, which any same-user program can set).
@@ -302,7 +306,9 @@ impl Listings {
         }
     }
 
-    fn policy(&self, id: &str) -> Option<&Policy> {
+    /// The policy with this ID, when listed.
+    #[must_use]
+    pub(crate) fn policy(&self, id: &str) -> Option<&Policy> {
         self.policies.as_ref()?.iter().find(|p| p.id == id)
     }
 
@@ -517,7 +523,7 @@ pub(crate) fn workspace_lines(catalog: &Catalog, now: Timestamp) -> Vec<Line<'st
 /// The overview's one line about the working directory's workspace (only when the runtime
 /// served it).
 #[must_use]
-pub(crate) fn overview_line(catalog: &Catalog) -> Option<String> {
+pub(crate) fn overview_line(catalog: &Catalog, narrow: bool) -> Option<String> {
     let w = catalog.m05.workspace.as_ref()?;
     let state = match &w.matched {
         Match::Trusted => "trusted",
@@ -527,9 +533,12 @@ pub(crate) fn overview_line(catalog: &Catalog) -> Option<String> {
         Match::None => "no workspace here",
         Match::Other(_) => "unknown",
     };
-    Some(format!(
-        "Workspace: {state} (w details · s stop · h history)"
-    ))
+    // ⟨M07⟩ Narrow: the state and the key that shows it.
+    Some(if narrow {
+        format!("Workspace: {state} (w)")
+    } else {
+        format!("Workspace: {state} (w details · s stop · h history)")
+    })
 }
 
 // ---- policy history ------------------------------------------------------------------
@@ -659,7 +668,7 @@ fn trust_lines(catalog: &Catalog, d: &Decision) -> Vec<Line<'static>> {
         lines.push(plain(format!("  {}", quoted(&label))));
         lines.push(plain(""));
     }
-    lines.push(bold("Detail: what approving grants"));
+    lines.push(bold("Detail: what approving allows"));
     lines.push(plain(format!(
         "  Profile: {}",
         profile_detail(catalog, &profile)
@@ -708,7 +717,12 @@ fn trust_lines(catalog: &Catalog, d: &Decision) -> Vec<Line<'static>> {
         lines.push(plain("  Capabilities: those the profile holds"));
     } else {
         lines.push(plain("  Capabilities:"));
-        lines.extend(list_lines(p, "capabilities", "-"));
+        // ⟨M07⟩ U2: first trust is a default surface: each capability in words.
+        lines.extend(
+            names(p, "capabilities")
+                .iter()
+                .map(|n| plain(format!("    - {}", super::m07::capability_words(n)))),
+        );
     }
     lines.push(plain(if background {
         "  Lock continuity: the project asks for background work: access continues while your desktop is locked"
@@ -741,7 +755,7 @@ fn delta_lines(catalog: &Catalog, a: &Value) -> Vec<Line<'static>> {
         bold("Review: more access for a workspace you already trust"),
         plain(format!("Policy {policy}")),
         plain(
-            "Only what would be ADDED is listed. Access the policy already grants stays as it is and is not repeated here.",
+            "Only what would be ADDED is listed. Access the policy already allows stays as it is and is not repeated here.",
         ),
         plain(""),
     ];
@@ -1004,7 +1018,7 @@ impl StopKind {
                 "No new work starts automatically for this workspace. Work already running continues. Resuming needs your decision."
             }
             StopKind::Work => {
-                "Ends one piece of work, named by its work ID: grants only it uses are revoked now and the work ID cannot start again. Other work, and grants it shares with other work, stay."
+                "Ends one piece of work, named by its work ID: access only it uses ends now and the work ID cannot start again. Other work, and access it shares with other work, stay."
             }
             StopKind::Profile => {
                 "Pauses every policy of a profile and ends its active access now, including work already running. Starting again needs your decision."
@@ -1067,7 +1081,7 @@ impl StopAction {
                 "Pause automatic access for workspace {workspace}: no new work starts automatically; running work continues."
             ),
             StopAction::Work { work_id } => format!(
-                "Stop work {work_id}: grants only it uses are revoked now and the work ID cannot start again; other work and shared grants stay."
+                "Stop work {work_id}: access only it uses ends now and the work ID cannot start again; other work and shared access stay."
             ),
             StopAction::Profile { profile } => format!(
                 "Stop everything for profile {profile}: every policy of it is paused and its active access ends now."
@@ -1154,6 +1168,10 @@ pub(crate) struct StopMenu {
     pub input: String,
     /// Why the last step was refused.
     pub notice: Option<String>,
+    /// ⟨M07⟩ What the frames have shown of the confirmation: which of its rows they have
+    /// drawn, and what the latest one showed (a fresh one for every confirmation; the
+    /// marker a Settings confirmation uses, [`Seen`]).
+    pub seen: Seen,
 }
 
 /// What a key did to the menu.
@@ -1163,6 +1181,9 @@ pub(crate) enum StopStep {
     Stay,
     /// The menu closes; the text is the status line.
     Close(String),
+    /// ⟨M07⟩ A typed yes was refused because the action was not on screen: the menu
+    /// stays open on its confirmation and the text says why.
+    Refused(&'static str),
     /// The menu closes and the action is sent.
     Send(StopAction),
 }
@@ -1174,6 +1195,7 @@ impl Default for StopMenu {
             phase: StopPhase::Choose,
             input: String::new(),
             notice: None,
+            seen: Seen::default(),
         }
     }
 }
@@ -1196,7 +1218,7 @@ impl StopMenu {
         self.notice = None;
         match (kind, &ctx.workspace) {
             (StopKind::Pause, Some(workspace)) => {
-                self.phase = StopPhase::Confirm(StopAction::Pause {
+                self.confirm(StopAction::Pause {
                     workspace: workspace.clone(),
                 });
             }
@@ -1229,17 +1251,34 @@ impl StopMenu {
             _ => Err("needs a trusted workspace in this directory"),
         };
         match built {
-            Ok(action) => {
-                self.input.clear();
-                self.notice = None;
-                self.phase = StopPhase::Confirm(action);
-            }
+            Ok(action) => self.confirm(action),
             Err(why) => self.notice = Some(why.to_owned()),
         }
     }
 
-    /// Fold one key in.
-    pub(crate) fn key(&mut self, key: Key, ctx: &StopContext) -> StopStep {
+    /// ⟨M07⟩ Ask for the confirmation of `action`: nothing typed, and nothing of it shown
+    /// yet (what a frame showed of anything else never counts for it).
+    fn confirm(&mut self, action: StopAction) {
+        self.input.clear();
+        self.notice = None;
+        self.seen = Seen::default();
+        self.phase = StopPhase::Confirm(action);
+    }
+
+    /// ⟨M07⟩ Why a typed yes cannot be accepted now, if it cannot; `frame` is the number
+    /// of the latest frame. The stop menu only narrows, but a pause, a stop and a cutoff
+    /// are persistent changes, so the rule of a Settings change holds (M07-W0-R01): the
+    /// action and its target ([`stop_confirm_lines`]) must have been drawn in full, and
+    /// the latest frame must have drawn the confirmation ([`Seen::unseen`]). Keys handled
+    /// before any frame (a batch such as `s`, Enter, `yes`, Enter) confirm nothing, and
+    /// neither does a terminal too small to show it.
+    #[must_use]
+    pub(crate) fn unseen(&self, frame: u64) -> Option<&'static str> {
+        self.seen.unseen(frame)
+    }
+
+    /// Fold one key in; ⟨M07⟩ `frame` is the number of the latest frame drawn.
+    pub(crate) fn key(&mut self, key: Key, ctx: &StopContext, frame: u64) -> StopStep {
         let cancel = |what: &str| StopStep::Close(format!("{what}: nothing was sent"));
         if matches!(key, Key::Esc | Key::CtrlC) {
             return cancel("cancelled");
@@ -1264,18 +1303,27 @@ impl StopMenu {
                 _ => {}
             },
             StopPhase::Confirm(action) => match key {
+                // ⟨M07⟩ The content scrolls above the fixed prompt, as a decision's does.
+                Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
+                    self.seen.reading.scroll_key(key);
+                }
                 Key::Enter => {
-                    return if super::model::typed_yes(&self.input) {
-                        StopStep::Send(action)
-                    } else {
-                        cancel("not confirmed")
-                    };
+                    if !super::model::typed_yes(&self.input) {
+                        return cancel("not confirmed");
+                    }
+                    // ⟨M07⟩ Never a pause, a stop or a cutoff the owner has not seen.
+                    if let Some(why) = self.unseen(frame) {
+                        return StopStep::Refused(self.seen.refuse(why, &mut self.input));
+                    }
+                    return StopStep::Send(action);
                 }
                 Key::Backspace => {
                     self.input.pop();
+                    self.seen.reading.refused = false;
                 }
                 Key::Char(c) if self.input.chars().count() < super::model::MAX_TYPED => {
                     self.input.push(c);
+                    self.seen.reading.refused = false;
                 }
                 _ => {}
             },
@@ -1322,11 +1370,12 @@ pub(crate) fn stop_menu_lines(menu: &StopMenu, ctx: &StopContext) -> (Vec<Line<'
             lines.push(plain(""));
             lines.push(plain(format!("{}: {}_", kind.value_prompt(), menu.input)));
         }
+        // ⟨M07⟩ The view draws the confirmation itself, behind the reading guard
+        // ([`stop_confirm_lines`], [`stop_confirm_ask`]); these are the same lines.
         StopPhase::Confirm(action) => {
-            lines.push(bold(menu.kind().name()));
-            lines.push(plain(action.sentence()));
+            lines.extend(stop_confirm_lines(menu, action));
             lines.push(plain(""));
-            lines.push(plain(format!("Type yes to confirm [y/N]: {}_", menu.input)));
+            lines.push(stop_confirm_ask(&menu.input));
         }
     }
     if let Some(n) = &menu.notice {
@@ -1334,6 +1383,22 @@ pub(crate) fn stop_menu_lines(menu: &StopMenu, ctx: &StopContext) -> (Vec<Line<'
         lines.push(bold(format!("[!!] {n}")));
     }
     (lines, at)
+}
+
+/// ⟨M07⟩ What a stop-menu confirmation asks the owner to confirm: which of the four
+/// actions, and its sentence, which names the target (the workspace, the work ID or the
+/// profile) and, for a cutoff, the instant (date and time). The view wraps and scrolls these
+/// lines; a typed `yes` counts only once every row of them has been drawn
+/// ([`StopMenu::unseen`]).
+#[must_use]
+pub(crate) fn stop_confirm_lines(menu: &StopMenu, action: &StopAction) -> Vec<Line<'static>> {
+    vec![bold(menu.kind().name()), plain(action.sentence())]
+}
+
+/// ⟨M07⟩ The confirmation's fixed prompt line, with what was typed.
+#[must_use]
+pub(crate) fn stop_confirm_ask(input: &str) -> Line<'static> {
+    plain(format!("Type yes to confirm [y/N]: {input}_"))
 }
 
 #[cfg(test)]
@@ -1557,7 +1622,8 @@ mod tests {
             text.contains("alpha:fixture") && text.contains(ENV),
             "{text}"
         );
-        assert!(text.contains("ssh-authentication"), "{text}");
+        // ⟨M07⟩ U2: the first-trust view names the capability in words.
+        assert!(text.contains("SSH sign-in"), "{text}");
         assert!(text.contains("Lock disclosure"), "{text}");
         let d = extend_decision("dec_e1", "pol-ws1");
         let text = flat(&decision_lines(&catalog, &d).unwrap());
@@ -1692,58 +1758,75 @@ mod tests {
         assert_eq!(ctx.profile.as_deref(), Some("dev"));
         let type_all = |m: &mut StopMenu, s: &str| {
             for c in s.chars() {
-                m.key(Key::Char(c), &ctx);
+                m.key(Key::Char(c), &ctx, 0);
             }
         };
         // Pause: choose, confirm.
         let mut m = StopMenu::default();
-        assert_eq!(m.key(Key::Enter, &ctx), StopStep::Stay);
+        assert_eq!(m.key(Key::Enter, &ctx, 0), StopStep::Stay);
         assert!(matches!(
             m.phase,
             StopPhase::Confirm(StopAction::Pause { .. })
         ));
         assert!(
-            matches!(m.key(Key::Enter, &ctx), StopStep::Close(_)),
+            matches!(m.key(Key::Enter, &ctx, 0), StopStep::Close(_)),
             "default No"
         );
+        // ⟨M07⟩ A yes before any frame has drawn the confirmation sends nothing; the menu
+        // stays on it with the answer discarded (the frames themselves:
+        // `view::tests::stop_menu_batched_input_cannot_confirm_before_a_frame_is_drawn`).
         let mut m = StopMenu::default();
-        m.key(Key::Enter, &ctx);
+        m.key(Key::Enter, &ctx, 0);
         type_all(&mut m, "yes");
+        assert_eq!(
+            m.key(Key::Enter, &ctx, 0),
+            StopStep::Refused(crate::tui::model::REFUSED_NOT_DRAWN)
+        );
+        assert!(m.input.is_empty() && matches!(m.phase, StopPhase::Confirm(_)));
+        // Frame 1 drew the prompt and both content rows: then the yes is accepted, but
+        // not once a later frame (2) has drawn something else.
+        m.seen.reading.record(7, 2, 2, 0);
+        m.seen.report(1, crate::tui::model::Shown::Drawn);
+        type_all(&mut m, "yes");
+        assert_eq!(
+            m.clone().key(Key::Enter, &ctx, 2),
+            StopStep::Refused(crate::tui::model::REFUSED_NOT_DRAWN)
+        );
         assert!(matches!(
-            m.key(Key::Enter, &ctx),
+            m.key(Key::Enter, &ctx, 1),
             StopStep::Send(StopAction::Pause { .. })
         ));
         // Stop this work: a bad value is refused in place, a good one is confirmed.
         let mut m = StopMenu::default();
-        m.key(Key::Char('2'), &ctx);
-        m.key(Key::Enter, &ctx);
+        m.key(Key::Char('2'), &ctx, 0);
+        m.key(Key::Enter, &ctx, 0);
         type_all(&mut m, "bad id");
-        m.key(Key::Enter, &ctx);
+        m.key(Key::Enter, &ctx, 0);
         assert_eq!(m.phase, StopPhase::Value);
         assert!(m.notice.is_some());
         for _ in 0..6 {
-            m.key(Key::Backspace, &ctx);
+            m.key(Key::Backspace, &ctx, 0);
         }
         type_all(&mut m, "job-7");
-        m.key(Key::Enter, &ctx);
+        m.key(Key::Enter, &ctx, 0);
         assert!(
             matches!(&m.phase, StopPhase::Confirm(StopAction::Work { work_id }) if work_id.as_str() == "job-7")
         );
         // The profile is offered, not forced.
         let mut m = StopMenu::default();
-        m.key(Key::Char('3'), &ctx);
-        m.key(Key::Enter, &ctx);
+        m.key(Key::Char('3'), &ctx, 0);
+        m.key(Key::Enter, &ctx, 0);
         assert_eq!(m.input, "dev");
         // Esc sends nothing, from any phase.
         assert!(
-            matches!(m.key(Key::Esc, &ctx), StopStep::Close(s) if s.contains("nothing was sent"))
+            matches!(m.key(Key::Esc, &ctx, 0), StopStep::Close(s) if s.contains("nothing was sent"))
         );
         // Without a trusted workspace, pause and cutoff are refused with the way out.
         let none = StopContext::default();
         for key in ['1', '4'] {
             let mut m = StopMenu::default();
-            m.key(Key::Char(key), &none);
-            assert_eq!(m.key(Key::Enter, &none), StopStep::Stay);
+            m.key(Key::Char(key), &none, 0);
+            assert_eq!(m.key(Key::Enter, &none, 0), StopStep::Stay);
             assert_eq!(m.phase, StopPhase::Choose);
             assert!(m.notice.as_deref().unwrap().contains("trusted workspace"));
         }
@@ -1757,7 +1840,7 @@ mod tests {
         assert!(catalog.m05.workspace.is_none() && catalog.m05.policies.is_none());
         assert!(flat(&workspace_lines(&catalog, now())).contains("Not available"));
         assert!(flat(&policy_history_lines(&catalog, now())).contains("Not available"));
-        assert!(overview_line(&catalog).is_none());
+        assert!(overview_line(&catalog, false).is_none());
         let l = Listings::of(&Value::Null, &Value::Null);
         assert_eq!(l, Listings::default());
     }

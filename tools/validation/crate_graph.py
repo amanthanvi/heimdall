@@ -24,21 +24,30 @@ is allowed (Cargo allows it, and `heimdall-ipc` already has one).
 What it rejects (exit 1, with the reason):
   * any production cycle among workspace crates;
   * an edge `heimdall-app` -> {heimdall-credential, heimdall-issuer, heimdall-enroll,
-    heimdall-adapters, heimdall-localenv, heimdall-runtime, heimdall-wsl} (wsl implements
-    app ports and the runtime wires it; ADR-0010 section 9 item 9);
+    heimdall-adapters, heimdall-localenv, heimdall-runtime, heimdall-wsl, heimdall-remote,
+    heimdall-transport-iroh} (wsl implements app ports and the runtime wires it, ADR-0010
+    section 9 item 9; remote and the transport are wired by the runtime, ADR-0012 section 13);
   * an edge `heimdall-ipc` -> any workspace crate but `heimdall-contract`
     (third-party dependencies are fine);
   * an edge `heimdall-registry` or `heimdall-project` -> any workspace crate but
-    `heimdall-contract` and `heimdall-domain` (both are pure; ADR-0011 section 2).
+    `heimdall-contract` and `heimdall-domain` (both are pure; ADR-0011 section 2);
+  * an edge `heimdall-transport-iroh` -> any workspace crate but `heimdall-contract`
+    (ADR-0012 section 13: the transport is feature-gated and pure of controller logic);
+  * an edge `heimdall-remote` -> any workspace crate but `heimdall-contract`, `heimdall-domain`,
+    `heimdall-store`, `heimdall-app` and `heimdall-ipc` (never the runtime or the transport:
+    the runtime wires remote; ADR-0012 section 13, m06-plan U0);
   * an edge `heimdall-support` -> any workspace crate but `heimdall-contract` (pure; m08-plan U6a).
 The rules are vacuous for a crate that does not exist yet, so the check works whether
-or not the M03 crates (registry, credential, issuer, enroll) or the M04/M05 crates (wsl,
-project) exist.
+or not the M03 crates (registry, credential, issuer, enroll), the M04/M05 crates (wsl,
+project) or the M06 crates (remote, transport-iroh) exist.
 
 Self-tests build mutant fixture workspaces in a `tempfile.mkdtemp()` directory that is
 removed afterwards (never a glob; the exact path):
   crate_graph_step_rejects_app_edge_to_enroll
   crate_graph_step_rejects_app_edge_to_wsl
+  crate_graph_step_rejects_app_edge_to_remote
+  crate_graph_step_rejects_transport_iroh_edge_to_app
+  crate_graph_step_rejects_remote_edge_to_runtime_and_transport
   crate_graph_step_rejects_cycle_and_ipc_to_app_edge
   crate_graph_reads_package_names_optional_and_target_dependencies
   crate_graph_positive_control (the clean fixture and the real workspace pass)
@@ -68,12 +77,22 @@ APP_FORBIDDEN = {
     "heimdall-localenv",
     "heimdall-runtime",
     "heimdall-wsl",
+    "heimdall-remote",
+    "heimdall-transport-iroh",
 }
 # crate -> the only workspace crates it may depend on (production).
 ONLY_ALLOWED = {
     "heimdall-ipc": {"heimdall-contract"},
     "heimdall-registry": {"heimdall-contract", "heimdall-domain"},
     "heimdall-project": {"heimdall-contract", "heimdall-domain"},
+    "heimdall-transport-iroh": {"heimdall-contract"},
+    "heimdall-remote": {
+        "heimdall-contract",
+        "heimdall-domain",
+        "heimdall-store",
+        "heimdall-app",
+        "heimdall-ipc",
+    },
     "heimdall-support": {"heimdall-contract"},
 }
 
@@ -254,6 +273,8 @@ CLEAN = {
     "registry": ["contract", "domain"],
     "project": ["contract", "domain"],
     "wsl": ["contract", "domain"],
+    "remote": ["contract", "domain"],
+    "transport-iroh": ["contract"],
     "app": ["contract", "domain", "store", "registry", "project"],
     "ipc": ["contract"],
     "localenv": ["contract", "domain", "app", "ipc"],
@@ -337,6 +358,45 @@ def _t_app_edge_to_wsl():
     return _expect(bad, "forbidden edge: heimdall-app -> heimdall-wsl"), bad
 
 
+def _t_app_edge_to_remote():
+    def m(specs):
+        specs["app"]["deps"].append("remote")
+    bad = _run_fixture(m)
+    return _expect(bad, "forbidden edge: heimdall-app -> heimdall-remote"), bad
+
+
+def _t_transport_iroh_edge_to_app():
+    def m(specs):
+        specs["transport-iroh"]["deps"].append("app")
+    bad = _run_fixture(m)
+    ok = _expect(bad, "forbidden edge: heimdall-transport-iroh -> heimdall-app")
+
+    # An app edge to the transport is rejected too (the runtime wires it).
+    def app_transport(specs):
+        specs["app"]["deps"].append("transport-iroh")
+    bad2 = _run_fixture(app_transport)
+    ok2 = _expect(bad2, "forbidden edge: heimdall-app -> heimdall-transport-iroh")
+    return ok and ok2, bad + bad2
+
+
+def _t_remote_edge_to_runtime_and_transport():
+    def rt(specs):
+        specs["remote"]["deps"].append("runtime")
+    bad1 = _run_fixture(rt)
+    ok1 = _expect(bad1, "forbidden edge: heimdall-remote -> heimdall-runtime")
+
+    def tr(specs):
+        specs["remote"]["deps"].append("transport-iroh")
+    bad2 = _run_fixture(tr)
+    ok2 = _expect(bad2, "forbidden edge: heimdall-remote -> heimdall-transport-iroh")
+
+    # Negative control: the allowed edges (store, app, ipc) are accepted.
+    def allowed(specs):
+        specs["remote"]["deps"].extend(["store", "app", "ipc"])
+    bad3 = _run_fixture(allowed)
+    return ok1 and ok2 and not bad3, bad1 + bad2 + bad3
+
+
 def _t_cycle_and_ipc_to_app():
     def cyc(specs):
         specs["store"]["deps"].append("app")  # store -> app -> store
@@ -406,6 +466,9 @@ def _t_positive():
 SELF_TESTS = [
     ("crate_graph_step_rejects_app_edge_to_enroll", _t_app_edge_to_enroll),
     ("crate_graph_step_rejects_app_edge_to_wsl", _t_app_edge_to_wsl),
+    ("crate_graph_step_rejects_app_edge_to_remote", _t_app_edge_to_remote),
+    ("crate_graph_step_rejects_transport_iroh_edge_to_app", _t_transport_iroh_edge_to_app),
+    ("crate_graph_step_rejects_remote_edge_to_runtime_and_transport", _t_remote_edge_to_runtime_and_transport),
     ("crate_graph_step_rejects_cycle_and_ipc_to_app_edge", _t_cycle_and_ipc_to_app),
     ("crate_graph_reads_package_names_optional_and_target_dependencies", _t_package_names_optional_target),
     ("crate_graph_positive_control", _t_positive),

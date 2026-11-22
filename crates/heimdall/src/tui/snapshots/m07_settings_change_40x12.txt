@@ -1,0 +1,12 @@
+[8 Settings] 8/8 [!!] Needs attention
+> [OK] pol-ws1 · profile dev · project ·
+┌Change a setting──────────────────────┐
+│Change (each is what the CLI sends for│
+│the same command):                    │
+│> 1. Pause automatic access (applies  │
+│at once)                              │
+│  2. Lock setting: revoke on lock     │
+│(applies at once)                     │
+│  3. Lock setting: continue (needs    │
+└──────────────────────────────────────┘
+Enter select · Esc close

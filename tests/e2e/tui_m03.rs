@@ -188,7 +188,6 @@ fn tui_refuses_a_non_terminal_with_m03_state_present() {
 #[cfg(unix)]
 mod pty {
     use std::ffi::{OsStr, OsString};
-    use std::io::Write as _;
     use std::os::fd::OwnedFd;
     use std::os::unix::ffi::OsStrExt as _;
     use std::os::unix::process::CommandExt as _;
@@ -264,6 +263,15 @@ mod pty {
         fn open(rows: u16, cols: u16) -> Pty {
             let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
             rustix::io::fcntl_setfd(&master, rustix::io::FdFlags::CLOEXEC).unwrap();
+            // Non-blocking, so the drain thread can never sit in `read`: the terminal
+            // may discard its output between `poll` saying "readable" and the read (the
+            // session leader exiting flushes it), and a blocked reader would hang this
+            // test's teardown without a bound.
+            rustix::fs::fcntl_setfl(
+                &master,
+                rustix::fs::fcntl_getfl(&master).unwrap() | rustix::fs::OFlags::NONBLOCK,
+            )
+            .unwrap();
             grantpt(&master).unwrap();
             unlockpt(&master).unwrap();
             let name = ptsname(&master, Vec::new()).unwrap();
@@ -340,9 +348,25 @@ mod pty {
             tcgetattr(self.held_slave()).unwrap()
         }
 
+        /// Type `bytes` at the terminal. The master is non-blocking, so a full input
+        /// queue is waited out, for at most ten seconds.
         fn write(&self, bytes: &[u8]) {
-            let fd = self.master.as_ref().unwrap().try_clone().unwrap();
-            std::fs::File::from(fd).write_all(bytes).unwrap();
+            let fd = self.master.as_ref().unwrap();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut rest = bytes;
+            while !rest.is_empty() {
+                match rustix::io::write(fd, rest) {
+                    Ok(n) => rest = &rest[n..],
+                    Err(rustix::io::Errno::AGAIN | rustix::io::Errno::INTR) => {
+                        assert!(
+                            Instant::now() < deadline,
+                            "the terminal took no input for ten seconds"
+                        );
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(e) => panic!("writing to the terminal failed: {e}"),
+                }
+            }
         }
 
         fn transcript(&self) -> String {
@@ -575,6 +599,7 @@ mod pty {
                 context: CallerContext {
                     principal: PrincipalRef::UnixUser { uid: self.uid },
                     role: ClientRole::Owner,
+                    remote_client: None,
                 },
                 attendance: Attendance::Attended {
                     since: heimdall_contract::Timestamp::now(),

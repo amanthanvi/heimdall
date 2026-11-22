@@ -509,6 +509,26 @@ pub struct EnsureRequest {
     /// triggers; ADR-0011 §3.2). Omitted when false.
     #[serde(default, skip_serializing_if = "is_false")]
     pub covered_only: bool,
+    /// ⟨rev6.4; ADR-0006 §18.8 item 1; ADR-0012 §4 item 2 ⟨2026-11-21⟩⟩ Per
+    /// destination/account pair, the fingerprint of the CA the controller will issue from.
+    /// Set by the forwarding controller, or by the runner's local owner for a CA already in
+    /// the runner's `issuer_trust` (that admits a pending grant only). A runner resolves a
+    /// named pair to `managed_certificate` only when that CA is in its `issuer_trust` for
+    /// the party that named it, and refuses `issuer_untrusted` otherwise; nothing about
+    /// such a pair comes from the runner's own catalog. Omitted when empty, so every
+    /// earlier request and its canonical hash are unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pair_issuers: Vec<PairIssuer>,
+}
+
+/// ⟨rev6.4; ADR-0006 §18.8 item 1⟩ One entry of [`EnsureRequest::pair_issuers`]: the CA a
+/// controller will issue `pair`'s certificate from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PairIssuer {
+    /// The destination/account pair.
+    pub pair: AccessPairRef,
+    /// The issuing CA's fingerprint.
+    pub ca_fingerprint: crate::ids::CaFingerprint,
 }
 
 impl EnsureRequest {
@@ -579,6 +599,13 @@ pub struct EnsureData {
     /// ⟨M05⟩ Revision 5: the requested pairs a `covered_only` request did not activate.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub uncovered: Vec<AccessPairRef>,
+    /// ⟨M06⟩ Revision 6.2 (ADR-0012 §7.3, §9 item 10; ADR-0006 §18.2 reading 14, §18.5):
+    /// a revocation's residuals, per component, beside the readiness fields above. The
+    /// authentication residual always names its destination-clock error (`unmeasured` when
+    /// none is measured), never a bare deadline. Omitted when absent, so every M01–M06 W1
+    /// result is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub residuals: Option<crate::managed::RevocationResiduals>,
 }
 
 impl EnsureData {
@@ -1360,6 +1387,30 @@ pub enum Request {
     /// environment ([`EnvironmentRequest`]; owner role, needs `environments/1`, not
     /// offered until M04 wires it).
     Environment(EnvironmentRequest),
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §3, §9 item 6): the controller's management of remote
+    /// runner environments ([`crate::remote::RemoteEnvironmentRequest`]; needs
+    /// `remote-control/1`, declared and not offered).
+    RemoteEnvironment(crate::remote::RemoteEnvironmentRequest),
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §3.4): retire this controller device
+    /// ([`crate::remote::DeviceRequest`]; needs `remote-control/1`).
+    Device(crate::remote::DeviceRequest),
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §5): a destination's approved routes and the route
+    /// helper's binding lookup ([`crate::route::RouteRequest`]; needs `routes/1`).
+    Route(crate::route::RouteRequest),
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §2): the Iroh transport and roost adoption
+    /// ([`crate::route::TransportRequest`]; needs `transport-iroh/1`).
+    Transport(crate::route::TransportRequest),
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §4, §7): the runner-internal requests
+    /// ([`crate::remote::RunnerRequest`]; needs `runner/1`).
+    Runner(crate::remote::RunnerRequest),
+    /// ⟨M06⟩ Revision 6.3 (ADR-0006 §18.7 item 7): the runner's own `issuer_trust` and
+    /// time-source designation ([`crate::remote::RunnerLocalRequest`]; local owner only,
+    /// the widening forms attended; needs `remote-control/1`).
+    RunnerLocal(crate::remote::RunnerLocalRequest),
+    /// ⟨M06⟩ Revision 6.3 (ADR-0006 §18.7 item 6): the controller's records of its runners,
+    /// written through its runtime ([`crate::controller_record::ControllerRecordRequest`];
+    /// local owner only, a paired session is refused).
+    ControllerRecord(crate::controller_record::ControllerRecordRequest),
 }
 
 /// How the application admits a request (m02-plan U0 "journaled kinds"; ADR-0006
@@ -1401,6 +1452,13 @@ impl Request {
             Request::Connections(r) => r.kind(),
             Request::UninstallFence(r) => r.kind(),
             Request::Environment(r) => r.kind(),
+            Request::RemoteEnvironment(r) => r.kind(),
+            Request::Device(r) => r.kind(),
+            Request::Route(r) => r.kind(),
+            Request::Transport(r) => r.kind(),
+            Request::Runner(r) => r.kind(),
+            Request::RunnerLocal(r) => r.kind(),
+            Request::ControllerRecord(r) => r.kind(),
         }
     }
 
@@ -1469,6 +1527,61 @@ impl Request {
                 | EnvironmentRequest::ContainerAdd { .. }
                 | EnvironmentRequest::ContainerRemove { .. },
             ) => Admission::Synchronous,
+            // ⟨M06⟩ Revision 6 (ADR-0006 §18): no operation row. The effectful forms are
+            // decision-recorded, compare-and-set or narrowing, settled synchronously (the
+            // revision-5 environment pattern); the lookups are read-only.
+            Request::RemoteEnvironment(crate::remote::RemoteEnvironmentRequest::Status {
+                ..
+            })
+            | Request::Route(crate::route::RouteRequest::ResolveBinding { .. })
+            | Request::Runner(crate::remote::RunnerRequest::AuthorityReport) => {
+                Admission::ReadOnly
+            }
+            Request::RemoteEnvironment(
+                crate::remote::RemoteEnvironmentRequest::Add { .. }
+                | crate::remote::RemoteEnvironmentRequest::Invite { .. }
+                | crate::remote::RemoteEnvironmentRequest::Join { .. }
+                | crate::remote::RemoteEnvironmentRequest::ActivationProbe { .. }
+                | crate::remote::RemoteEnvironmentRequest::RotateEndpoint { .. }
+                | crate::remote::RemoteEnvironmentRequest::RunnerPolicyRecheck { .. }
+                | crate::remote::RemoteEnvironmentRequest::RevokeClient { .. }
+                | crate::remote::RemoteEnvironmentRequest::Remove { .. }
+                | crate::remote::RemoteEnvironmentRequest::Update { .. },
+            )
+            | Request::Device(crate::remote::DeviceRequest::Retire)
+            | Request::Route(
+                crate::route::RouteRequest::Add { .. }
+                | crate::route::RouteRequest::Remove { .. }
+                | crate::route::RouteRequest::Prefer { .. },
+            )
+            | Request::Transport(
+                crate::route::TransportRequest::Enable { .. }
+                | crate::route::TransportRequest::Disable
+                | crate::route::TransportRequest::AdoptRoost { .. }
+                | crate::route::TransportRequest::Rotate,
+            )
+            | Request::Runner(
+                crate::remote::RunnerRequest::PrepareRemoteGrant { .. }
+                | crate::remote::RunnerRequest::InstallCertificate { .. }
+                | crate::remote::RunnerRequest::TimeChallenge
+                | crate::remote::RunnerRequest::TimeResponse { .. }
+                | crate::remote::RunnerRequest::DeliverEffect { .. },
+            )
+            // ⟨rev6.3⟩ Runner-local decisions on `meta` keys, settled synchronously.
+            | Request::RunnerLocal(
+                crate::remote::RunnerLocalRequest::TrustIssuer { .. }
+                | crate::remote::RunnerLocalRequest::DesignateTimeSource { .. }
+                | crate::remote::RunnerLocalRequest::DistrustIssuer { .. }
+                | crate::remote::RunnerLocalRequest::ClearTimeSource
+                | crate::remote::RunnerLocalRequest::EnrollOwner { .. }
+                | crate::remote::RunnerLocalRequest::PolicyRecheck { .. },
+            )
+            // ⟨rev6.3⟩ The controller's own records, settled synchronously.
+            | Request::ControllerRecord(
+                crate::controller_record::ControllerRecordRequest::PutEnvironment { .. }
+                | crate::controller_record::ControllerRecordRequest::RemoveEnvironment { .. }
+                | crate::controller_record::ControllerRecordRequest::ResumeIssuance { .. },
+            ) => Admission::Synchronous,
         }
     }
 
@@ -1506,6 +1619,18 @@ impl Request {
             Request::Enrollment(_) => Some(crate::ipc::capability::ENROLLMENT_V1),
             Request::Connections(_) => Some(crate::ipc::capability::CONNECTIONS_V1),
             Request::Environment(_) => Some(crate::ipc::capability::ENVIRONMENTS_V1),
+            // ⟨M06⟩ Revision 6 (ADR-0006 §18): each form names its capability, none offered
+            // in wave 0, so a session gets `SCHEMA_UNSUPPORTED` before dispatch.
+            Request::RemoteEnvironment(_) | Request::Device(_) | Request::RunnerLocal(_) => {
+                Some(crate::ipc::capability::REMOTE_CONTROL_V1)
+            }
+            Request::Route(_) => Some(crate::ipc::capability::ROUTES_V1),
+            Request::Transport(_) => Some(crate::ipc::capability::TRANSPORT_IROH_V1),
+            // ⟨rev6.3⟩ The controller's own records: no capability beyond `operations/1`
+            // (a controller offers no `remote-control/1`); the runtime serves them to the
+            // local owner only.
+            Request::ControllerRecord(_) => None,
+            Request::Runner(_) => Some(crate::ipc::capability::RUNNER_V1),
             // ⟨M05⟩ Revision 5: the trusted-work forms need `trusted-work/1`, so a runtime
             // that does not offer it refuses them explicitly (`SCHEMA_UNSUPPORTED`)
             // instead of ignoring a field it does not know (ADR-0006 §9, §17 item 2).
@@ -1563,6 +1688,23 @@ impl Request {
             Request::Policy(action) => action.is_widening(),
             _ => false,
         }
+    }
+
+    /// ⟨M06⟩ Whether the request is one of revision 6's forms (ADR-0006 §18): every one
+    /// answers `CAPABILITY_UNAVAILABLE` / `driver_unavailable` in process before any record
+    /// is written, in wave 0.
+    #[must_use]
+    pub fn is_revision_6(&self) -> bool {
+        matches!(
+            self,
+            Request::RemoteEnvironment(_)
+                | Request::Device(_)
+                | Request::Route(_)
+                | Request::Transport(_)
+                | Request::Runner(_)
+                | Request::RunnerLocal(_)
+                | Request::ControllerRecord(_)
+        )
     }
 
     /// Whether the request can have external effects. `Shutdown` is a runtime

@@ -86,7 +86,6 @@ fn tui_refuses_json_non_interactive_and_a_non_terminal_before_touching_anything(
 #[cfg(unix)]
 mod pty {
     use std::ffi::{OsStr, OsString};
-    use std::io::Write as _;
     use std::os::fd::OwnedFd;
     use std::os::unix::ffi::OsStrExt as _;
     use std::os::unix::process::CommandExt as _;
@@ -177,6 +176,15 @@ mod pty {
             // Close-on-exec, so no child inherits the master and a hang-up is a real
             // one when this test closes it.
             rustix::io::fcntl_setfd(&master, rustix::io::FdFlags::CLOEXEC).unwrap();
+            // Non-blocking, so the drain thread can never sit in `read`: the terminal
+            // may discard its output between `poll` saying "readable" and the read (the
+            // session leader exiting flushes it), and a blocked reader would hang this
+            // test's teardown without a bound.
+            rustix::fs::fcntl_setfl(
+                &master,
+                rustix::fs::fcntl_getfl(&master).unwrap() | rustix::fs::OFlags::NONBLOCK,
+            )
+            .unwrap();
             grantpt(&master).unwrap();
             unlockpt(&master).unwrap();
             let name = ptsname(&master, Vec::new()).unwrap();
@@ -266,9 +274,25 @@ mod pty {
             tcgetattr(self.held_slave()).unwrap()
         }
 
+        /// Type `bytes` at the terminal. The master is non-blocking, so a full input
+        /// queue is waited out, for at most ten seconds.
         fn write(&self, bytes: &[u8]) {
-            let fd = self.master.as_ref().unwrap().try_clone().unwrap();
-            std::fs::File::from(fd).write_all(bytes).unwrap();
+            let fd = self.master.as_ref().unwrap();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut rest = bytes;
+            while !rest.is_empty() {
+                match rustix::io::write(fd, rest) {
+                    Ok(n) => rest = &rest[n..],
+                    Err(rustix::io::Errno::AGAIN | rustix::io::Errno::INTR) => {
+                        assert!(
+                            Instant::now() < deadline,
+                            "the terminal took no input for ten seconds"
+                        );
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(e) => panic!("writing to the terminal failed: {e}"),
+                }
+            }
         }
 
         fn transcript(&self) -> String {
@@ -508,6 +532,7 @@ mod pty {
                 context: CallerContext {
                     principal: PrincipalRef::UnixUser { uid: self.uid },
                     role: ClientRole::Owner,
+                    remote_client: None,
                 },
                 attendance: Attendance::Attended {
                     since: heimdall_contract::Timestamp::now(),
@@ -1058,12 +1083,28 @@ mod pty {
         w.wait_screen("the narrow layout", LONG, |s| s.lines().count() == 12);
         pty.resize(40, 120);
         w.wait_screen("the wide layout", LONG, |s| s.lines().count() == 40);
-        pty.write(b"2c");
         // The re-entry after the handoff is where `Terminal::clear` would ask: stop
         // waiting as soon as a query shows up, so the failure names it.
-        wait_for("the handoff's end or a cursor query", LONG, || {
+        //
+        // The keys are typed again while neither shows: a frame can reach the screen at
+        // the new size before the TUI has counted the resize's signal, and keys typed at
+        // that frame are refused once, by design (review M07-W2-R01; m07-plan U1).
+        let done = || {
             w.screen().contains("exited with status 0") || pty.transcript().contains("\u{1b}[6n")
-        });
+        };
+        let deadline = Instant::now() + LONG;
+        while !done() {
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for the handoff's end or a cursor query; the last frame:\n{}",
+                w.screen()
+            );
+            pty.write(b"2c");
+            let retry = Instant::now() + Duration::from_secs(2);
+            while !done() && Instant::now() < retry {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
         assert!(
             !pty.transcript().contains("\u{1b}[6n"),
             "a cursor-position query was emitted"

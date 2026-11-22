@@ -292,6 +292,9 @@ struct TableState {
     grants: HashMap<GrantId, GrantKey>,
     /// Binding endpoint → its grant.
     bindings: HashMap<BindingId, GrantId>,
+    /// ⟨M06 W4; ADR-0012 §4 item 2 "Attach"⟩ Binding endpoint → the pairs of its grant it
+    /// is limited to ([`SignerTable::attach_binding_pairs`]). Absent: every pair.
+    binding_pairs: HashMap<BindingId, BTreeSet<AccessPair>>,
     /// The environment listing: pair → the binding that holds it and the slot
     /// generation it was listed at (ADR-0008 §17.20 item 2: withdrawn per binding, pair
     /// and generation).
@@ -664,7 +667,24 @@ impl SignerTable {
     /// Attach binding `binding` (its endpoint) to `grant`: the binding endpoint lists
     /// and signs for that grant only. Re-attaching moves it.
     pub fn attach_binding(&self, binding: &BindingId, grant: &GrantId) {
-        self.lock().bindings.insert(binding.clone(), grant.clone());
+        let mut s = self.lock();
+        s.bindings.insert(binding.clone(), grant.clone());
+        s.binding_pairs.remove(binding);
+    }
+
+    /// ⟨M06 W4; ADR-0012 §4 item 2 "Attach"⟩ [`Self::attach_binding`] limited to `pairs`:
+    /// the binding endpoint lists, and signs for, only the grant's certificates for those
+    /// pairs (a further binding on a runner grant holds its own subset of the grant's
+    /// pairs, never the whole grant). A pair outside the grant lists nothing.
+    pub fn attach_binding_pairs(
+        &self,
+        binding: &BindingId,
+        grant: &GrantId,
+        pairs: &BTreeSet<AccessPair>,
+    ) {
+        let mut s = self.lock();
+        s.bindings.insert(binding.clone(), grant.clone());
+        s.binding_pairs.insert(binding.clone(), pairs.clone());
     }
 
     /// Detach a binding: its endpoint lists nothing and signs nothing; it is also
@@ -672,6 +692,7 @@ impl SignerTable {
     pub fn detach_binding(&self, binding: &BindingId) {
         let mut s = self.lock();
         s.bindings.remove(binding);
+        s.binding_pairs.remove(binding);
         s.retain_listed(|b| b != binding);
     }
 
@@ -895,6 +916,7 @@ impl SignerTable {
                 .collect();
             s.retain_listed(|b| !bindings.contains(b));
             s.bindings.retain(|_, g| g != grant);
+            s.binding_pairs.retain(|b, _| !bindings.contains(b));
             removed
         };
         match removed {
@@ -1075,8 +1097,11 @@ impl SignerTable {
             }
             SignerEndpoint::Binding(b) => {
                 if let Some(key) = s.bindings.get(b).and_then(|g| s.grants.get(g)) {
-                    for i in key.installed.values() {
-                        out.push((i.blob.clone(), key.comment.clone()));
+                    let only = s.binding_pairs.get(b);
+                    for (pair, i) in &key.installed {
+                        if only.is_none_or(|pairs| pairs.contains(pair)) {
+                            out.push((i.blob.clone(), key.comment.clone()));
+                        }
                     }
                 }
             }
@@ -1129,10 +1154,21 @@ impl SignerTable {
             SignerEndpoint::Binding(b) => {
                 let grant = s.bindings.get(b)?;
                 let key = s.grants.get(grant)?;
+                let only = s.binding_pairs.get(b);
+                let within = |pair: &AccessPair| only.is_none_or(|pairs| pairs.contains(pair));
                 key.installed
-                    .values()
-                    .any(|i| i.blob == key_blob)
-                    .then(|| grant_target(grant, key))
+                    .iter()
+                    .any(|(pair, i)| within(pair) && i.blob == key_blob)
+                    .then(|| {
+                        // ⟨M06 W4⟩ A limited binding signs for its own pairs only: the
+                        // purpose check and the forwarding set see no other certificate.
+                        let mut target = grant_target(grant, key);
+                        for pair in key.installed.keys().filter(|p| !within(p)) {
+                            target.certs.remove(pair);
+                            target.forwarding.remove(pair);
+                        }
+                        target
+                    })
             }
             SignerEndpoint::Verification(op) => {
                 let key = s.verifications.get(op)?;
