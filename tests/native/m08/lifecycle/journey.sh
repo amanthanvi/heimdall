@@ -13,6 +13,11 @@
 #                    and verified before anything is started: HOME, HEIMDALL_HOME,
 #                    HEIMDALL_TEST_SSH_HOME, HEIMDALL_TEST_SECRET_STORE,
 #                    HEIMDALL_TEST_MGMT_STORE, HEIMDALL_TEST_IROH_KEY_STORE.
+#   --kill-before-update  the older runtime is ended with SIGKILL instead of `service stop`,
+#                    so its write-ahead log is never checkpointed; the journey then checks
+#                    that the pre-migration backup the newer build makes still holds the
+#                    work done before the kill (a backup must go through SQLite, never copy
+#                    the main database file alone).
 #   --old and --new may name the same archive: the update and rollback steps are then
 #   reported as `skipped (one archive)`, never as passed.
 # Output: `test <step> ... ok|FAILED|skipped (...)` and `fact <name>=<value>` lines.
@@ -22,13 +27,14 @@
 # account's ~/.ssh/config, as a user's install would, and checks that uninstall puts it
 # back byte for byte.
 set -u
-build=""; index=""; old=""; new=""
+build=""; index=""; old=""; new=""; killfirst=no
 while [ $# -gt 0 ]; do
     case "$1" in
         --build) build=${2:-}; shift 2 ;;
         --index) index=${2:-}; shift 2 ;;
         --old) old=${2:-}; shift 2 ;;
         --new) new=${2:-}; shift 2 ;;
+        --kill-before-update) killfirst=yes; shift ;;
         *) echo "journey: unknown argument" >&2; exit 2 ;;
     esac
 done
@@ -160,7 +166,21 @@ if [ "$same" = no ]; then
     sh "$NEW/install.sh" >"$S/update-refused.out" 2>&1; rc=$?
     [ "$rc" = 1 ] && grep -q 'service stop' "$S/update-refused.out" && [ "$(sha "$HM")" = "$(sha "$OLD/heimdall")" ]
     step a31_update_is_refused_while_the_runtime_runs "$?"
-    hmcli "$S/stop.json" service stop; step a31_service_stop "$?"
+    if [ "$killfirst" = yes ]; then
+        # The destination was added and used; nothing has checkpointed it into the main file.
+        st=$HOME/.local/state/heimdall
+        echo "fact before-kill-db-bytes=$(stat -c %s "$st/state.db") wal-bytes=$(stat -c %s "$st/state.db-wal" 2>/dev/null || echo 0)"
+        python3 -I -c 'import sys; sys.exit(0 if b"hmjourney" not in open(sys.argv[1],"rb").read() else 1)' "$st/state.db"
+        echo "fact before-kill-alias-in-main-db-file=$([ $? = 0 ] && echo no || echo yes)"
+        python3 -I -c 'import sys; sys.exit(0 if b"hmjourney" in open(sys.argv[1],"rb").read() else 1)' "$st/state.db-wal"
+        echo "fact before-kill-alias-in-wal-file=$([ $? = 0 ] && echo yes || echo no)"
+        rt=$(pgrep -u "$(id -u)" -x heimdall | head -1)
+        [ -n "$rt" ] && kill -9 "$rt"; step a31_runtime_killed_without_a_clean_close "$?"
+        sleep 1
+        echo "fact after-kill-db-bytes=$(stat -c %s "$st/state.db") wal-bytes=$(stat -c %s "$st/state.db-wal" 2>/dev/null || echo 0)"
+    else
+        hmcli "$S/stop.json" service stop; step a31_service_stop "$?"
+    fi
     sh "$NEW/install.sh" >"$S/update.out" 2>&1; rc=$?
     [ "$rc" = 0 ] && [ "$(sha "$HM")" = "$(sha "$NEW/heimdall")" ] && [ "$(sha "$BIN/heimdall.previous")" = "$(sha "$OLD/heimdall")" ]
     step a31_update_keeps_the_previous_executable "$?"
@@ -168,6 +188,26 @@ if [ "$same" = no ]; then
     ssh -o BatchMode=yes hmjourney true </dev/null >/dev/null 2>&1; step a31_login_after_update "$?"
     "$HM" --json --non-interactive connect hmjourney --allow-provider-interaction </dev/null >/dev/null 2>&1; step a31_connect_after_update "$?"
     [ "$(env_id)" = "$id_before" ]; step a31_update_keeps_the_environment_identity "$?"
+    # The pre-migration backup, read through SQLite: does it hold the work done before the stop?
+    bk=$(ls "$HOME/.local/state/heimdall"/state.db.v*.backup 2>/dev/null | head -1)
+    [ -n "$bk" ]; step a31_a_pre_migration_backup_exists "$?"
+    python3 -I - "$bk" >"$S/backup-check.txt" 2>&1 <<'PY'
+import sqlite3, sys
+con = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro&immutable=1", uri=True)
+print("integrity", con.execute("PRAGMA integrity_check").fetchone()[0])
+print("user_version", con.execute("PRAGMA user_version").fetchone()[0])
+hit = 0
+for (name,) in con.execute("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'"):
+    cols = [r[1] for r in con.execute(f'PRAGMA table_info("{name}")')]
+    for row in con.execute(f'SELECT * FROM "{name}"'):
+        if any(isinstance(v, (str, bytes)) and ("hmjourney" in (v if isinstance(v, str) else v.decode("utf-8", "replace"))) for v in row):
+            hit += 1
+print("rows_naming_the_destination", hit)
+sys.exit(0 if hit > 0 else 1)
+PY
+    rc=$?
+    echo "fact backup=$(basename "$bk") bytes=$(stat -c %s "$bk") $(tr '\n' ' ' <"$S/backup-check.txt")"
+    step a31_the_pre_migration_backup_holds_the_work_done_before_the_stop "$rc"
     # 6. Rollback, same store.
     hmcli "$S/stop2.json" service stop
     sh "$NEW/install.sh" --rollback >"$S/rollback.out" 2>&1; rc=$?

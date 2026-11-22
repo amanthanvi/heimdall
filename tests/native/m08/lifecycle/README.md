@@ -15,7 +15,9 @@ Install, update, roll back and uninstall from release archives (m08-plan §7.2, 
 |---|---|---|
 | 2026-11-22 | **Older:** Linux arm64, `m08/w0` at `c1a398cd` (product code = `main` at `de097dac`; newest state migration `0008_trusted_work`), sha256 `eb557652…2941f`. **Newer:** Linux arm64, the `m08/w0` tree at `8f1295f4` plus the uncommitted U2a files (newest migration `0012_remote_lift_acks`), sha256 `f60f72df…0e71a`. Both built with `--allow-dirty` (the older side with the current packaging scripts copied in), so both are rehearsal builds | **26 steps ok, 0 failed.** The update crosses migrations `0009_remote`, `0010_remote_widening`, `0011_remote_client_endpoints` and `0012_remote_lift_acks` |
 
-What that run showed:
+| 2026-11-22 | the same two archives, with `--kill-before-update` | **28 steps ok, 0 failed.** Before the kill: main database file 4,096 bytes, the destination absent from it and present in the 1,462,632-byte write-ahead log. The runtime was ended with `SIGKILL`; the files were unchanged. After the update: `state.db.v8.backup`, 532,480 bytes, integrity ok, schema 8, 7 rows naming the destination. **The pre-migration backup held the work done before the unclean stop** |
+
+What the first run showed:
 - Both archives matched the external index before unpacking; the install used the archive's
   own script and edited no shell profile.
 - An update was refused while the runtime ran and named `heimdall service stop`.

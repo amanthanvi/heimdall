@@ -75,6 +75,19 @@ most one such container (soak or fuzz) at a time.
   that copies the database file alone (a backup or a support tool must take the family, or
   go through SQLite).
 
+**The first rehearsal's leftover-process result is unreliable.** `rehearsal1` and the smoke
+runs before it ran without an init process in the container, so a runtime that exited after
+a stop or a kill could stay as a zombie, and a zombie could also have hidden a real leftover.
+Nothing about leftover processes may be concluded from them. `laneS-v2` and every later run
+use `--init`.
+
+**Is the write-ahead log a backup hazard? Checked, and no defect found** (2026-11-22, the
+lifecycle journey's `--kill-before-update` variant, `tests/native/m08/lifecycle/README.md`).
+The migration backup is made with `VACUUM INTO` through an open connection, not by copying
+the file: with the main file at 4,096 bytes, the destination only in a 1.46 MB write-ahead
+log, and the runtime ended by `SIGKILL`, the backup the update made was 532,480 bytes,
+passed its integrity check at schema 8, and held 7 rows naming the destination.
+
 Two earlier smoke runs failed on harness defects, not on the product: the lane read a
 pseudo-terminal transcript as one JSON document, and it identified processes through
 `/proc/<pid>/exe`, which is unreadable for `ssh-agent` and for the non-dumpable runtime, so
