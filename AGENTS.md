@@ -51,6 +51,15 @@ Before planning, reviewing, testing or recording a wave, read
   only). Without it, the process reads the owner's real SSH configuration. Release
   builds have no redirect: run their TUI, `doctor`, `setup` or runtime only in a
   disposable account, container or VM.
+- A debug `heimdall` that reaches a key store uses the account's real one (the macOS
+  login keychain, Windows DPAPI or Credential Manager, the Secret Service) unless a
+  fixture store is set. So every `heimdall` you run by hand or from a script also
+  exports `HEIMDALL_TEST_SECRET_STORE=scratch`,
+  `HEIMDALL_TEST_MGMT_STORE=fixture-file:<scratch path>` and
+  `HEIMDALL_TEST_IROH_KEY_STORE` (a scratch path) before it starts. Never run
+  anything that writes to the owner's keychain or credential store. If it happens,
+  stop, delete exactly the item you created (identified by non-secret attributes),
+  verify it is gone, and report it.
 - The owner's SSH config, keys and agent may be used to reach the owner's own
   machines (the Windows PC, devbox, vps1-edge) for authorized work, such as
   copying files or running tests in a scratch directory. Never print, copy or
