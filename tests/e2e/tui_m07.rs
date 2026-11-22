@@ -8,8 +8,8 @@
 //! separate `HOME`, `HEIMDALL_HOME` and `HEIMDALL_TEST_SSH_HOME` (with an empty
 //! `etc-ssh`) directories, and every `heimdall` this test starts (the runtime, `import`,
 //! `access ensure`, the TUI, `service stop`) gets a cleared environment naming only
-//! those, plus the debug-build test variables the case needs. The harness checks all
-//! three point inside its own root before it starts anything. `SSH_AUTH_SOCK` is never
+//! those, the two fixture store paths, and the debug-build test variables the case
+//! needs. The harness checks the homes and stores are inside its root. `SSH_AUTH_SOCK` is never
 //! set; the verified client `ssh` on `PATH` is a stub script that answers `-V` and
 //! contacts nothing. The imported destinations use reserved `.invalid` host names and
 //! are never contacted. Only processes this test started are stopped: the runtime by
@@ -57,6 +57,36 @@ fn latency_test() -> std::sync::RwLockWriteGuard<'static, ()> {
     TEST_EXECUTION
         .write()
         .unwrap_or_else(PoisonError::into_inner)
+}
+
+#[cfg(any(unix, windows))]
+fn fixture_stores(root: &std::path::Path) -> [std::path::PathBuf; 2] {
+    assert!(root.is_absolute() && root.is_dir());
+    [root.join("mgmt-store"), root.join("iroh-key-store")]
+}
+
+#[cfg(any(unix, windows))]
+fn checked_fixture_stores(root: &std::path::Path) -> [std::path::PathBuf; 2] {
+    let paths = fixture_stores(root);
+    for path in &paths {
+        match path.symlink_metadata() {
+            Ok(meta) => assert!(meta.is_file(), "redirected fixture store"),
+            Err(err) => assert_eq!(err.kind(), std::io::ErrorKind::NotFound),
+        }
+    }
+    paths
+}
+
+#[cfg(any(unix, windows))]
+fn assert_no_fixture_stores(root: &std::path::Path) {
+    for store in fixture_stores(root) {
+        assert!(
+            store
+                .symlink_metadata()
+                .is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound),
+            "unexpected fixture store"
+        );
+    }
 }
 
 fn diagnostic_tail(bytes: &[u8], root: &std::path::Path) -> String {
@@ -581,6 +611,7 @@ mod pty {
 
         /// The launch environment every `heimdall` of this test gets (rule 4).
         fn env(&self) -> Vec<(OsString, OsString)> {
+            let [mgmt, iroh] = super::checked_fixture_stores(self.root.path());
             let mut path = self.stubs.clone().into_os_string();
             path.push(":/usr/bin:/bin:/usr/sbin:/sbin");
             vec![
@@ -597,6 +628,11 @@ mod pty {
                     self.ssh_home.clone().into_os_string(),
                 ),
                 ("HEIMDALL_TEST_SECRET_STORE".into(), "scratch".into()),
+                (
+                    "HEIMDALL_TEST_MGMT_STORE".into(),
+                    format!("fixture-file:{}", mgmt.to_str().unwrap()).into(),
+                ),
+                ("HEIMDALL_TEST_IROH_KEY_STORE".into(), iroh.into()),
                 // A first start writes without an attended `time confirm`.
                 ("HEIMDALL_TEST_TIME_SYNC".into(), "synchronized".into()),
                 ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
@@ -761,6 +797,7 @@ mod pty {
             }
             if !std::thread::panicking() {
                 let _ = self.service_log();
+                super::assert_no_fixture_stores(self.root.path());
             }
         }
     }
@@ -2688,6 +2725,14 @@ mod windows_console {
     /// one root).
     fn env(root: &Path, screen: &Path) -> Vec<(String, String)> {
         let text = |p: &Path| p.to_string_lossy().into_owned();
+        let base = root.canonicalize().unwrap();
+        let mut homes = std::collections::BTreeSet::new();
+        for name in ["hh", "home", "sshhome"] {
+            let path = root.join(name).canonicalize().unwrap();
+            assert!(path.is_dir() && path != base && path.starts_with(&base));
+            assert!(homes.insert(path));
+        }
+        let [mgmt, iroh] = super::checked_fixture_stores(root);
         let system = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_owned());
         let mut env = vec![
             ("HEIMDALL_HOME".to_owned(), text(&root.join("hh"))),
@@ -2709,6 +2754,15 @@ mod windows_console {
                 "HEIMDALL_TEST_SSH_HOME".to_owned(),
                 text(&root.join("sshhome")),
             ),
+            (
+                "HEIMDALL_TEST_SECRET_STORE".to_owned(),
+                "scratch".to_owned(),
+            ),
+            (
+                "HEIMDALL_TEST_MGMT_STORE".to_owned(),
+                format!("fixture-file:{}", mgmt.to_str().unwrap()),
+            ),
+            ("HEIMDALL_TEST_IROH_KEY_STORE".to_owned(), text(&iroh)),
             ("HEIMDALL_TEST_TUI_SCREEN".to_owned(), text(screen)),
             (
                 "HEIMDALL_TEST_TIME_SYNC".to_owned(),
@@ -2727,7 +2781,7 @@ mod windows_console {
 
     /// Runs `heimdall service stop` in the scratch home when dropped (a no-op when no
     /// runtime runs there).
-    struct StopRuntime(Vec<(String, String)>);
+    struct StopRuntime(Vec<(String, String)>, PathBuf);
 
     impl Drop for StopRuntime {
         fn drop(&mut self) {
@@ -2737,6 +2791,9 @@ mod windows_console {
                 .envs(self.0.iter().map(|(k, v)| (k, v)))
                 .stdin(Stdio::null())
                 .output();
+            if !std::thread::panicking() {
+                super::assert_no_fixture_stores(&self.1);
+            }
         }
     }
 
@@ -2794,7 +2851,7 @@ mod windows_console {
         let screen = root.join("screen.txt");
         let resize = root.join("resize");
         let vars = env(root, &screen);
-        let _stop = StopRuntime(vars.clone());
+        let _stop = StopRuntime(vars.clone(), root.to_owned());
         let argv = vec![bin(), "tui".to_owned()];
         let mut command = TerminalCommand::new(std::env::current_exe().unwrap())
             .args([

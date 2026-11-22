@@ -4,7 +4,7 @@ import argparse
 from dataclasses import asdict, dataclass
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import subprocess
 import sys
@@ -60,6 +60,18 @@ def check_reply(status, envelope, expected_exit, *codes):
     return envelope
 
 
+def windows_environment(system_root, home):
+    windows = PureWindowsPath(system_root)
+    require(windows.is_absolute(), "SystemRoot must name an absolute Windows directory")
+    system = windows / "System32"
+    return {
+        "SystemRoot": system_root,
+        "PATH": ";".join(map(str, (system / "OpenSSH", system, windows))),
+        **dict.fromkeys(("USERPROFILE", "ProgramData", "ALLUSERSPROFILE",
+                         "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"), home),
+    }
+
+
 def scratch_environment(root):
     require(root.is_absolute() and root.is_dir(), "expected an absolute fixture scratch root")
     real = root.resolve(strict=True)
@@ -72,16 +84,27 @@ def scratch_environment(root):
         require(directory.is_dir() and directory.resolve(strict=True) == directory,
                 "missing or redirected fixture home directory")
     require(not any(etc.iterdir()), "expected an empty fixture etc-ssh directory")
+    for name in ("mgmt-store", "iroh-key-store"):
+        store = real / name
+        require(not store.is_symlink() and (not store.exists() or store.is_file())
+                and store.resolve() == store, "missing or redirected fixture store path")
     # Checked by real path, passed under the root as given: a runtime is found under the
     # spelling of the Heimdall home it was started with.
-    return {
-        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+    env = {
         "LANG": "C",
         "TERM": "dumb",
         "HOME": str(root / "home"),
         "HEIMDALL_HOME": str(root / "heimdall-home"),
         "HEIMDALL_TEST_SSH_HOME": str(root / "ssh-home"),
+        "HEIMDALL_TEST_SECRET_STORE": "scratch",
+        "HEIMDALL_TEST_MGMT_STORE": f"fixture-file:{root / 'mgmt-store'}",
+        "HEIMDALL_TEST_IROH_KEY_STORE": str(root / "iroh-key-store"),
     }
+    if os.name == "nt":
+        env.update(windows_environment(os.environ.get("SystemRoot", ""), env["HOME"]))
+    else:
+        env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+    return env
 
 
 @dataclass
@@ -101,7 +124,8 @@ class Journey:
         require(Path(command[0]).is_absolute(), "expected an absolute Heimdall executable path")
         self.command = command
         self.root = root
-        self.binding = None
+        # Every binding a task of this run was given and has not released, oldest first.
+        self.bindings = []
 
     def call(self, metrics, *args):
         env = scratch_environment(self.root)
@@ -139,18 +163,21 @@ class Journey:
             require(isinstance(data.get(field), list) and bool(data[field]),
                     f"expected nonempty capability discovery field {field}")
 
+    def hold(self, binding):
+        if binding not in self.bindings:
+            self.bindings.append(binding)
+
     def ensure(self, metrics, profile, *options):
         return self.reply(metrics, "access", "ensure", *work_args(profile), *options)
 
     def covered(self, metrics, profile):
-        self.binding = None
         ready = check_reply(*self.ensure(metrics, profile), 0, "ACCESS_READY")
         next_action = object_field(ready, "next")
         binding = id_field(next_action, "binding_id", "binding")
         require(ready.get("state") == "succeeded" and next_action.get("action") == "use_binding"
                 and object_field(ready, "data").get("binding_id") == binding,
                 "expected a successful ensure with a matching binding")
-        self.binding = binding
+        self.hold(binding)
 
     def wait_ready(self, metrics, operation):
         observed = check_reply(*self.reply(
@@ -161,7 +188,8 @@ class Journey:
                 and observed.get("state") == result.get("state") == "succeeded"
                 and result.get("code") == "ACCESS_READY",
                 "operation wait did not observe the requested operation reach ACCESS_READY")
-        return id_field(object_field(result, "result"), "binding_id", "binding")
+        # The operation's binding is this run's to release, like the one `covered` is given.
+        self.hold(id_field(object_field(result, "result"), "binding_id", "binding"))
 
     def timeout(self, metrics, profile):
         pending = check_reply(*self.ensure(metrics, profile, "--timeout-ms", "1"), 5, "ACCEPTED")
@@ -226,13 +254,15 @@ class Journey:
                 "fixture child did not return the expected marker and exit 0")
 
     def release(self, metrics):
-        require(self.binding is not None, "release needs a covered binding from this run")
-        released = check_reply(*self.reply(metrics, "access", "release", self.binding), 0, "OK")
-        data = object_field(released, "data")
-        require(data.get("binding_id") == self.binding
-                and object_field(data, "outcome").get("outcome") == "released",
-                "expected this run's binding to be released")
-        self.binding = None
+        require(bool(self.bindings), "release needs a binding from an earlier task of this run")
+        while self.bindings:  # one call for each, the newest first
+            binding = self.bindings[-1]
+            released = check_reply(*self.reply(metrics, "access", "release", binding), 0, "OK")
+            data = object_field(released, "data")
+            require(data.get("binding_id") == binding
+                    and object_field(data, "outcome").get("outcome") == "released",
+                    "expected this run's binding to be released")
+            self.bindings.pop()
 
     def capability_refusal(self, metrics, profile):
         refused = check_reply(*self.ensure(metrics, profile, "--require-unattended"),

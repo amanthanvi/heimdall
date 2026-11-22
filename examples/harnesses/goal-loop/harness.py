@@ -3,14 +3,15 @@
 A task is a goal (data). The planner holds one typed state, and the list of bindings
 it was given and has not released. The goal names the first call; after that every
 step is one row of TRANSITIONS, chosen from the state and the last answer's `code`
-and `next.action`. Nothing here reads an answer's prose.
+and `next.action`. Every answer is checked against the exit class of its process
+(EXIT_CLASSES). Nothing here reads an answer's prose.
 """
 
 import argparse
 from collections import namedtuple
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import queue
 import re
 import subprocess
@@ -74,12 +75,14 @@ def load_call_set(command):
 # Typed state
 # --------------------------------------------------------------------------------------
 
-# Four states more than m07-plan §5a lists. Three hold what the next call needs:
+# Five states more than m07-plan §5a lists. Three hold what the next call needs:
 # `observing`, an accepted operation that is neither an approval nor a provider wait;
 # `reconciling`, the operation of an uncertain outcome, observed until it ends;
-# `releasing`, the next binding to release when a stop holds more than one.
-# The fourth ends a goal: `unresolved`, an uncertain outcome whose operation was
-# still unfinished at the step limit. It names that operation.
+# `releasing`, the next binding to release: a stop that holds more than one binding,
+# or one that begins where the state itself holds none.
+# Two end a goal: `unresolved`, an uncertain outcome whose operation was still
+# unfinished at the step limit (it names that operation); and `inconsistent`, an answer
+# whose process ended in another exit class than the one documented for its code.
 STATES = {
     "start": (),
     "discovered": (),
@@ -92,8 +95,12 @@ STATES = {
     "releasing": ("binding_id",),
     "stopped": (),
     "failed": ("code",),
+    "inconsistent": ("code", "exit_code"),
     "unresolved": ("code", "operation_id"),
 }
+# A field a state may carry beside its own. `failed` names the operation of an
+# uncertain outcome whenever one is known.
+OPTIONAL = {"failed": ("operation_id",)}
 
 
 def _identifier(prefix):
@@ -113,16 +120,18 @@ FIELD_CHECKS = {
     "kind": _word,
     "code": _word,
     "pid": lambda value: type(value) is int and value > 0,
+    "exit_code": lambda value: type(value) is int,
 }
 
 
 class State:
-    """One state of STATES with exactly its fields, each checked."""
+    """One state of STATES with its fields (and any of its OPTIONAL ones), each checked."""
 
     __slots__ = ("name", "fields")
 
     def __init__(self, name, **fields):
-        require(name in STATES and set(fields) == set(STATES[name]),
+        require(name in STATES and set(STATES[name]) <= set(fields)
+                and set(fields) <= set(STATES[name]) | set(OPTIONAL.get(name, ())),
                 f"state {name} was given the wrong fields")
         for field, value in fields.items():
             require(FIELD_CHECKS[field](value), f"state {name} was given an invalid {field}")
@@ -148,21 +157,28 @@ class State:
 # --------------------------------------------------------------------------------------
 
 # One answer, reduced to what a transition may use. `facts` holds the answer's typed
-# parts (`next`, `data`, a run record); a row names the paths its new state is built from.
-# A path written "=VALUE" is that fixed value, not a part of the answer.
-Reading = namedtuple("Reading", "code action effect facts")
+# parts (`next`, `data`, the envelope's `operation_id`, a run record); a row names the
+# paths its new state is built from. `state.*` is the current state's own fields, and a
+# path written "=VALUE" is that fixed value: neither is a part of the answer.
+# `exit` is the exit status of the answer's process (None while that process still runs).
+Reading = namedtuple("Reading", "code action effect facts exit", defaults=(None,))
 Row = namedtuple("Row", "states code action to takes")
 
 STAY = "(same state)"
-# The step limit running out is read as an answer of the planner's own: this stands
-# where the code would, and the facts hold the state's own fields as `state.*`. No
-# envelope can carry it: it is not a word.
+# Two answers are the planner's own. Each stands where the code would, and no envelope
+# can carry either: they are not words.
+# The step limit ran out:
 BOUND = "(the step limit)"
+# The process ended in another exit class than the one documented for its answer. The
+# facts hold that answer's code and the exit status:
+MISMATCH = "(the exit class)"
 ORIGIN = ("start", "discovered")
 REQUESTING = ORIGIN + ("pending_provider",)
 SENDING = REQUESTING + ("ready",)  # every state a request is sent from
 IN_FLIGHT = ("observing", "pending_approval")
 HELD = ("ready", "running")
+RELEASABLE = HELD + ("releasing",)  # every state a release is sent from
+CALLING = SENDING + IN_FLIGHT + ("reconciling", "running", "releasing")  # every state that calls
 DECISION = (("decision_ref", "next.decision_ref"), ("operation_id", "next.operation_id"))
 PROVIDER = (("provider", "next.provider_interaction.provider"),
             ("kind", "next.provider_interaction.kind"))
@@ -187,10 +203,12 @@ TRANSITIONS = (
     Row(REQUESTING, "POLICY_PAUSED", "owner_decision", "failed", CODE),
     Row(REQUESTING, "POLICY_CUTOFF", "owner_decision", "failed", CODE),
     Row(REQUESTING, "REQUEST_CONFLICT", "new_request_id", "failed", CODE),
-    # an uncertain outcome: the request is never sent again. The operation the answer
-    # names is observed until it ends; an answer that names none is reported as it is
+    # an uncertain outcome: the request is never sent again. The operation the answer's
+    # `next` names is observed until it ends; an answer whose `next` names none is
+    # reported as it is, with the envelope's own operation when it carries one
     Row(SENDING, "OUTCOME_UNKNOWN", "reconcile", "reconciling",
         (("operation_id", "next.operation_id"),)),
+    Row(SENDING, "OUTCOME_UNKNOWN", "reconcile", "failed", CODE + (("operation_id", "operation_id"),)),
     Row(SENDING, "OUTCOME_UNKNOWN", "reconcile", "failed", CODE),
     # observing the same operation: unfinished, so observe it again
     Row(("observing",), "OK", "observe", STAY, ()),
@@ -200,7 +218,9 @@ TRANSITIONS = (
         (("binding_id", "data.result.binding_id"),)),
     Row(IN_FLIGHT + ("reconciling",), "CAPABILITY_UNAVAILABLE", "none", "failed", CODE),
     Row(IN_FLIGHT + ("reconciling",), "OPERATION_CANCELLED", "none", "failed", CODE),
-    Row(IN_FLIGHT + ("reconciling",), "OUTCOME_UNKNOWN", "none", "failed", CODE),
+    # the operation's own outcome is unknown: the report names the operation
+    Row(IN_FLIGHT + ("reconciling",), "OUTCOME_UNKNOWN", "none", "failed",
+        CODE + (("operation_id", "state.operation_id"),)),
     # the step limit ran out with the operation of an uncertain outcome unfinished:
     # the outcome is still unknown, and the report names the operation
     Row(("reconciling",), BOUND, "none", "unresolved", STILL_UNKNOWN),
@@ -208,9 +228,34 @@ TRANSITIONS = (
     Row(SENDING, "launching", "none", "running",
         (("pid", "record.pid"), ("binding_id", "record.binding_id"))),
     # release: one binding for each call, until the planner holds no other
-    Row(HELD + ("releasing",), "OK", "none", "releasing", (("binding_id", "held.binding_id"),)),
-    Row(HELD + ("releasing",), "OK", "none", "stopped", ()),
+    Row(RELEASABLE, "OK", "none", "releasing", (("binding_id", "held.binding_id"),)),
+    Row(RELEASABLE, "OK", "none", "stopped", ()),
+    # the exit class did not fit the answer, whatever the call was: stop and report both
+    Row(CALLING, MISMATCH, "none", "inconsistent", CODE + (("exit_code", "exit_code"),)),
 )
+
+# The exit class the CLI documents for each answer the table acts on
+# (docs/api/local-protocol.md, "Exit classes": 0 success, 1 internal, 2 usage, 3 needs a
+# person, 4 not allowed, 5 unavailable for now, 6 conflict, 7 uncertain). A key is a
+# code, or a (code, next.action) pair where the class is not the code's own.
+EXIT_CLASSES = {
+    "OK": 0,
+    "ACCESS_READY": 0,
+    "APPROVAL_REQUIRED": 3,
+    "INTERACTION_REQUIRED": 3,
+    "PROVIDER_LOCKED": 3,
+    "CAPABILITY_UNAVAILABLE": 4,
+    "POLICY_PAUSED": 4,
+    "POLICY_CUTOFF": 4,
+    "OPERATION_CANCELLED": 4,
+    "REQUEST_CONFLICT": 6,
+    "OUTCOME_UNKNOWN": 7,
+    # Still pending after a bounded wait. H2 never asks asynchronously, so `ACCEPTED` is
+    # never the success it is for a caller that does; and an observation that found its
+    # operation unfinished answers `OK` with `next.action` `observe`.
+    "ACCEPTED": 5,
+    ("OK", "observe"): 5,
+}
 
 # Actions with which Heimdall says the request itself was wrong or wrongly repeated.
 INVALID_REQUEST_ACTIONS = ("fix_request", "new_request_id")
@@ -258,13 +303,38 @@ def lookup(facts, path):
 def transition(state, reading):
     """Choose the next state: the first row for this state, code and action whose typed
     fields the answer carries. Returns (state, row), or (failed, None) when no row applies."""
+    facts = dict(reading.facts, state=state.fields)
     for row in TRANSITIONS:
         if state.name in row.states and (row.code, row.action) == (reading.code, reading.action):
-            fields = {field: path[1:] if path.startswith("=") else lookup(reading.facts, path)
+            fields = {field: path[1:] if path.startswith("=") else lookup(facts, path)
                       for field, path in row.takes}
             if all(value is not None for value in fields.values()):
                 return (state if row.to == STAY else State(row.to, **fields)), row
-    return State("failed", code=reading.code), None
+    return unmatched(state, reading), None
+
+
+def unmatched(state, reading):
+    """No row applied: `failed` with the answer's code. An uncertain outcome still names
+    its operation when one is known: the one being observed, else the one the answer names."""
+    if reading.code == "OUTCOME_UNKNOWN":
+        for operation in (state.fields.get("operation_id"), lookup(reading.facts, "next.operation_id"),
+                          lookup(reading.facts, "operation_id")):
+            if FIELD_CHECKS["operation_id"](operation):
+                return State("failed", code=reading.code, operation_id=operation)
+    return State("failed", code=reading.code)
+
+
+def check_exit(reading):
+    """Check the exit status of an answer's process against the class documented for the
+    answer. Returns (reading, None) when they agree, and otherwise the planner's own
+    reading of the mismatch with its account. An answer whose process still runs has no
+    exit status yet, and a code EXIT_CLASSES lacks has no row in TRANSITIONS either."""
+    documented = EXIT_CLASSES.get((reading.code, reading.action), EXIT_CLASSES.get(reading.code))
+    if reading.exit is None or documented is None or reading.exit == documented:
+        return reading, None
+    facts = {"code": reading.code, "exit_code": reading.exit}
+    return (Reading(MISMATCH, "none", None, facts, reading.exit),
+            f"exit {reading.exit} does not fit {reading.code}: its documented exit class is {documented}")
 
 
 def known_codes():
@@ -302,7 +372,8 @@ def read_envelope(envelope):
     action = "none" if following is None else following.get("action")
     require(_word(action), "the envelope's next has no usable action")
     data = envelope.get("data")
-    facts = {"code": code, "next": following or {}, "data": data if isinstance(data, dict) else {}}
+    facts = {"code": code, "next": following or {}, "data": data if isinstance(data, dict) else {},
+             "operation_id": envelope.get("operation_id")}
     return Reading(code, action, lookup(facts, "data.error.effect_status"), facts)
 
 
@@ -317,7 +388,8 @@ def read_operation(envelope, operation_id):
     if code is None:
         return reading
     require(_word(code), "the operation has no usable code")
-    return Reading(code, reading.action, view.get("effect_status"), dict(reading.facts, code=code))
+    return reading._replace(code=code, effect=view.get("effect_status"),
+                            facts=dict(reading.facts, code=code))
 
 
 def read_codes(envelope):
@@ -326,10 +398,10 @@ def read_codes(envelope):
         return reading, None
     rows = reading.facts["data"].get("codes")
     require(isinstance(rows, list) and rows, "the code table is empty")
-    installed = set()
+    installed = {}  # each installed code, with the exit class its row gives
     for row in rows:
         require(isinstance(row, dict) and _word(row.get("code")), "a code table row has no code")
-        installed.add(row["code"])
+        installed[row["code"]] = row.get("exit_code")
     missing = sorted(code for code in known_codes() if code.isupper() and code not in installed)
     require(not missing, "the installed code table lacks " + ", ".join(missing))
     return reading, installed
@@ -353,19 +425,50 @@ def read_run_records(text):
 # --------------------------------------------------------------------------------------
 
 HOMES = ("HOME", "HEIMDALL_HOME", "HEIMDALL_TEST_SSH_HOME")
+STORES = {"HEIMDALL_TEST_MGMT_STORE": "fixture-file:", "HEIMDALL_TEST_IROH_KEY_STORE": ""}
 
 
-def launch_environment(root, given):
-    """The exact environment of every child: the three homes, each a separate directory
-    inside the scratch root, and fixed PATH, LANG and TERM. Nothing else is passed on.
+def windows_launch_variables(system_root, fixture_home):
+    windows = PureWindowsPath(system_root)
+    require(windows.is_absolute(), "SystemRoot is not an absolute Windows directory")
+    system = windows / "System32"
+    variables = {"SystemRoot": system_root,
+                 "PATH": ";".join(str(p) for p in (system / "OpenSSH", system, windows))}
+    for name in ("USERPROFILE", "ProgramData", "ALLUSERSPROFILE",
+                 "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"):
+        variables[name] = fixture_home
+    return variables
+
+
+def given_value(given, name, windows):
+    """`name` in the environment this harness was given. Windows names its variables
+    without regard to case, and Python's `os.environ` there holds them upper-cased
+    (`SYSTEMROOT`), so a copy of it has no `SystemRoot` key: on Windows any spelling
+    of the name is the variable."""
+    value = given.get(name)
+    if value is None and windows:
+        wanted = name.upper()
+        for key, candidate in given.items():
+            if key.upper() == wanted:
+                return candidate
+    return value
+
+
+def launch_environment(root, given, windows=None):
+    """The three separate homes and fixture stores inside the scratch root, fixed
+    PATH, LANG and TERM, and Windows system and scratch paths.
+
+    `windows` says which platform's variables to build (the running one when omitted).
 
     The homes are checked by their real paths and passed on as they were given: a
     runtime is found under the spelling of the Heimdall home it was started with."""
+    if windows is None:
+        windows = os.name == "nt"
     require(root.is_absolute() and root.is_dir(), "the scratch root is not an absolute directory")
     real_root = Path(os.path.realpath(root))
     homes = {}
     for name in HOMES:
-        value = given.get(name)
+        value = given_value(given, name, windows)
         require(bool(value) and Path(value).is_absolute() and Path(value).is_dir(),
                 f"{name} is not set to an existing absolute directory")
         real = Path(os.path.realpath(value))
@@ -377,15 +480,23 @@ def launch_environment(root, given):
             require(name == other_name or (home != other and home not in other.parents),
                     f"{name} and {other_name} are not separate directories")
     env = {"LANG": "C", "TERM": "dumb"}
-    env.update((name, given[name]) for name in HOMES)
-    if os.name == "nt":  # not run natively yet: see the README
-        system_root = given.get("SystemRoot", "")
-        require(Path(system_root).is_absolute(), "SystemRoot is not set")
-        system = str(Path(system_root) / "System32")
-        env.update(SystemRoot=system_root, USERPROFILE=env["HOME"],
-                   PATH=os.pathsep.join((str(Path(system) / "OpenSSH"), system, system_root)))
-        for name in ("ProgramData", "ALLUSERSPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"):
-            env[name] = env["HOME"]
+    env.update((name, given_value(given, name, windows)) for name in HOMES)
+    for name, prefix in STORES.items():
+        value = given_value(given, name, windows) or ""
+        path = Path(value[len(prefix):])
+        require(value.startswith(prefix) and path.is_absolute(),
+                f"{name} is not set to {prefix}<absolute path>")
+        try:
+            real = path.resolve()
+        except (OSError, RuntimeError):
+            raise PlannerError(f"{name} could not be resolved") from None
+        require(real_root in real.parents and (not real.exists() or real.is_file()),
+                f"{name} is not a file path inside the scratch root")
+        env[name] = value
+    env["HEIMDALL_TEST_SECRET_STORE"] = "scratch"
+    if windows:
+        env.update(windows_launch_variables(
+            given_value(given, "SystemRoot", windows) or "", env["HOME"]))
     else:
         env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
     return env
@@ -495,7 +606,7 @@ class Planner:
         return argv
 
     def invoke(self, name, goal, metrics):
-        """Make one call and reduce its answer to a Reading."""
+        """Make one call and reduce its answer to a Reading that carries its exit status."""
         env = launch_environment(self.root, self.given)
         values = dict(self.work or {}, observe_ms=OBSERVE_MS, **self.state.fields)
         kind = self.calls[name]["answer"]
@@ -517,24 +628,30 @@ class Planner:
             reading, installed = read_codes(envelope)
             if installed is not None:
                 self.installed_codes = installed
-            return reading
-        if kind == "operation":
-            return read_operation(envelope, values["operation_id"])
-        if kind == "release":
-            return self.read_release(envelope, values["binding_id"])
-        return read_envelope(envelope)
+        elif kind == "operation":
+            reading = read_operation(envelope, values["operation_id"])
+        elif kind == "release":
+            reading = self.read_release(envelope, values["binding_id"])
+        else:
+            reading = read_envelope(envelope)
+        return reading._replace(exit=done.returncode)
 
     def read_release(self, envelope, binding_id):
-        """A release: once it is done that binding is no longer held, and the answer's
-        facts name the binding held next (`held.binding_id`), when there is one."""
+        """A release: the answer's facts name the binding held next (`held.binding_id`),
+        when there is one beside the binding this answer is about."""
         reading = read_envelope(envelope)
         if reading.code != "OK":
             return reading
         require(lookup(reading.facts, "data.binding_id") == binding_id,
                 "the answer is about another binding")
-        self.held = [held for held in self.held if held != binding_id]
-        still = {"binding_id": self.held[-1]} if self.held else {}
+        others = [held for held in self.held if held != binding_id]
+        still = {"binding_id": others[-1]} if others else {}
         return reading._replace(facts=dict(reading.facts, held=still))
+
+    def hold(self, binding_id):
+        """Add a binding this planner was given to the list, once."""
+        if binding_id not in self.held:
+            self.held.append(binding_id)
 
     def launch(self, name, values, goal, env, metrics):
         """`run`: start the child and read the launch's run record, or its refusal."""
@@ -558,6 +675,9 @@ class Planner:
         try:
             records = read_run_records(meta.read_text(encoding="utf-8")) if meta.is_file() else []
             types = [record["type"] for record in records]
+            for record in records:  # a binding a record names is held, whatever became of the launch
+                if FIELD_CHECKS["binding_id"](record.get("binding_id")):
+                    self.hold(record["binding_id"])
             if up and types == ["launching"]:
                 require(records[0].get("pid") == process.pid, "the run record names another process")
                 self.child = child
@@ -572,13 +692,19 @@ class Planner:
         # Not launched, or the child ended without a word. A refusal is one envelope on stderr.
         require("launching" not in types or "prelaunch_failed" in types,
                 f"the child wrote no line (exit {status})")
-        return read_envelope(one_envelope(bytes(child.errors)))
+        return read_envelope(one_envelope(bytes(child.errors)))._replace(exit=status)
 
     # ---- goals ----
 
     def begin(self, goal, spec):
         if spec["begin"] == "held":
-            require(self.state.name in HELD, f"nothing is held to stop in state {self.state.name}")
+            # A stop begins wherever a binding is held. It goes on from a state that holds
+            # one. From any other state (a goal that failed, a stop the step limit cut
+            # short and whose binding is gone) it begins at the newest binding on the list.
+            require(self.held, f"nothing is held to stop in state {self.state.name}")
+            if (self.state.name not in RELEASABLE
+                    or self.state.fields["binding_id"] not in self.held):
+                self.state = State("releasing", binding_id=self.held[-1])
             return
         require(self.child is None, "a child is still running: stop it first")
         if spec["begin"] == "start":
@@ -602,23 +728,31 @@ class Planner:
         expected = goal.get("expect_refusal")
         call = spec["first"]
         for _ in range(MAX_STEPS):
-            reading = self.invoke(call, goal, metrics)
+            answer = self.invoke(call, goal, metrics)
             before = self.state
-            if reading.action in INVALID_REQUEST_ACTIONS:
+            if answer.action in INVALID_REQUEST_ACTIONS:
                 metrics["invalid_retries"] += 1
-            problem = None
+            reading, problem = check_exit(answer)
             try:
-                after, row = transition(before, reading)
+                after, row = transition(before, answer)
+                # A binding the answer names is held from here on, whatever the exit
+                # class of its process: a later stop releases it.
+                if after.name in HELD:
+                    self.hold(after.fields["binding_id"])
+                if reading is not answer:
+                    after, row = transition(before, reading)
             except PlannerError as error:  # the code's typed fields are present but invalid
-                after, row, problem = State("failed", code=reading.code), None, str(error)
+                reading = answer
+                after, row, problem = State("failed", code=answer.code), None, str(error)
             metrics["transitions"].append(
                 {"from": before.name, "code": reading.code, "action": reading.action,
                  "to": after.name, "by_table": row is not None})
             if row is None and problem is None:
                 problem = no_row(before, reading)
             self.state = after
-            if after.name in HELD and after.fields["binding_id"] not in self.held:
-                self.held.append(after.fields["binding_id"])
+            if call == "release" and after.name in ("releasing", "stopped"):
+                # The release was answered, in its documented exit class: no longer held.
+                self.held = [held for held in self.held if held != before.fields["binding_id"]]
             if after.name == "stopped" and self.child is not None:
                 child, self.child = self.child, None
                 status = child.end()
@@ -630,6 +764,7 @@ class Planner:
                         f"failed: {after.fields['code']}")
                 require(reading.effect == "none", "the refusal reports an effect")
                 return f"{expected} (effect none)"
+            require(problem is None, problem)  # `inconsistent`: the exit class did not fit
             if after.name in spec["accept"]:
                 require(expected is None, f"expected {expected}, reached {after.name}")
                 return after.name
@@ -650,7 +785,7 @@ class Planner:
         # row gives the state the goal ends in. No call is made for it.
         before = self.state
         if any(before.name in row.states and row.code == BOUND for row in TRANSITIONS):
-            reading = Reading(BOUND, "none", None, {"state": dict(before.fields)})
+            reading = Reading(BOUND, "none", None, {})
             self.state, row = transition(before, reading)
             metrics["transitions"].append(
                 {"from": before.name, "code": BOUND, "action": reading.action,
@@ -659,10 +794,25 @@ class Planner:
         raise PlannerError("the goal was not met within the step limit")
 
     def close(self):
-        """End a child that is still held, by its own handle."""
+        """Release every binding still held, then end a child that is still held, by its
+        own handle. Returns what was released here and what is still held.
+
+        Each round is one stop, bounded like any goal. A round that releases nothing
+        ends the attempt, so the whole of it is bounded too."""
+        before = list(self.held)
+        while self.held:
+            count = len(self.held)
+            try:
+                self.pursue({"goal": "stop"}, new_metrics())
+            except (PlannerError, OSError):
+                pass
+            if len(self.held) >= count:
+                break
         if self.child is not None:
             child, self.child = self.child, None
             child.end(1)
+        return {"released": [binding for binding in before if binding not in self.held],
+                "held": list(self.held)}
 
 
 # --------------------------------------------------------------------------------------
@@ -702,10 +852,14 @@ def check_goal(goal):
     return goal
 
 
+def new_metrics():
+    return {"calls": 0, "human_handoffs": 0, "invalid_retries": 0, "discovery_bytes": 0,
+            "human_ms": 0.0, "transitions": []}
+
+
 def run_goal(planner, goal):
     """Pursue one goal and return its record (the fields H1's records have, and the path taken)."""
-    metrics = {"calls": 0, "human_handoffs": 0, "invalid_retries": 0, "discovery_bytes": 0,
-               "human_ms": 0.0, "transitions": []}
+    metrics = new_metrics()
     success, started = False, time.monotonic()
     try:
         detail = planner.pursue(check_goal(goal), metrics)
@@ -737,9 +891,10 @@ def main(argv=None):
     try:
         tasks = [run_goal(planner, goal) for goal in args.goal]
     finally:
-        planner.close()
-    print(json.dumps({"harness": "H2", "call_set": CALL_SET_SOURCE, "tasks": tasks}))
-    return int(any(not task["success"] for task in tasks))
+        closing = planner.close()  # whatever the goals left held is released here
+    print(json.dumps({"harness": "H2", "call_set": CALL_SET_SOURCE, "tasks": tasks,
+                      "close": closing}))
+    return int(any(not task["success"] for task in tasks) or bool(closing["held"]))
 
 
 if __name__ == "__main__":

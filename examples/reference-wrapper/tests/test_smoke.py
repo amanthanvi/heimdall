@@ -29,10 +29,15 @@ class RealBinarySmoke(unittest.TestCase):
         root = Path(tempfile.mkdtemp(prefix="hm-u5a-", dir=None if WINDOWS else "/tmp"))
         self.addCleanup(shutil.rmtree, root)
         root = root.resolve()
+        mgmt_store = root / "mgmt-store"
+        iroh_store = root / "iroh-key-store"
         env = {
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "LANG": "C",
             "HEIMDALL_TEST_TIME_SYNC": "synchronized",
+            "HEIMDALL_TEST_SECRET_STORE": "scratch",
+            "HEIMDALL_TEST_MGMT_STORE": f"fixture-file:{mgmt_store}",
+            "HEIMDALL_TEST_IROH_KEY_STORE": str(iroh_store),
         }
         for key, name in zip(HOME_KEYS, ("home", "heimdall", "ssh")):
             directory = root / name
@@ -55,6 +60,9 @@ class RealBinarySmoke(unittest.TestCase):
         homes = [Path(env[key]).resolve(strict=True) for key in HOME_KEYS]
         self.assertEqual(len(set(homes)), len(HOME_KEYS))
         self.assertTrue(all(root in Path(env[key]).resolve(strict=True).parents for key in inside))
+        for store in (mgmt_store, iroh_store):
+            self.assertEqual(store.resolve().parent, root)
+            self.assertFalse(os.path.lexists(store))
         self.assertTrue(all(path.is_dir() for path in homes))
         self.assertFalse(list((homes[-1] / "etc-ssh").iterdir()))
         self.assertNotIn("SSH_AUTH_SOCK", env)
@@ -105,6 +113,8 @@ class RealBinarySmoke(unittest.TestCase):
                 print(f"smoke child exit codes: status={status_codes}, stop={stop_code}, run={runtime.returncode}")
         self.assertEqual(stop_code, 0, "service stop failed")
         self.assertEqual(runtime.returncode, 0, "runtime did not exit cleanly")
+        for store in (mgmt_store, iroh_store):
+            self.assertFalse(os.path.lexists(store), store.name)
 
     def wait_for_status(self, binary, env, runtime, status_codes):
         deadline = time.monotonic() + 10

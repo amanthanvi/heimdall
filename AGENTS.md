@@ -60,6 +60,11 @@ Before planning, reviewing, testing or recording a wave, read
   anything that writes to the owner's keychain or credential store. If it happens,
   stop, delete exactly the item you created (identified by non-secret attributes),
   verify it is gone, and report it.
+- Work that `heimdall run` or `connect` launches on a runner gets the account's real
+  `HOME`, `USER` and `SHELL` from the account database (ADR-0012 §4), with no debug
+  redirect; on the devbox that is the owner's account. So in tests, every `ssh` inside
+  runner work passes `-F <scratch config>` and the isolated option set above, and
+  never relies on the default `~/.ssh`.
 - The owner's SSH config, keys and agent may be used to reach the owner's own
   machines (the Windows PC, devbox, vps1-edge) for authorized work, such as
   copying files or running tests in a scratch directory. Never print, copy or

@@ -97,8 +97,8 @@ HEIMDALL_WRAPPER_SMOKE_BIN="$PWD/target/debug/heimdall" \
   python3 -I -B -m unittest discover -s examples/reference-wrapper/tests
 ```
 
-The smoke test starts its own scratch runtime. Supply a debug executable with
-the test SSH-home redirect enabled.
+The smoke test starts its own runtime with scratch homes and scratch key stores.
+Supply a debug executable with the test SSH-home redirect enabled.
 
 On Windows, from the repository root in PowerShell:
 

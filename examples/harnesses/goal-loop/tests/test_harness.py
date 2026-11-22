@@ -20,11 +20,14 @@ _spec.loader.exec_module(h2)
 SAMPLES = {
     "operation_id": "op_sample", "decision_ref": "dec_sample", "binding_id": "binding_sample",
     "provider": "fixture_provider", "kind": "provider_unlock", "pid": 4242, "code": "SAMPLE",
+    "exit_code": 9,
 }
 
 # A stand-in `heimdall`: `stub.py [MODE] --json --non-interactive <command...>`. It checks
 # the launch environment, logs each command, and answers from fixed data. For `run` it is
 # the child itself: it writes the run record, prints one line and waits for its input to end.
+# Mode `exit:CODE=N` ends every answer whose envelope code is CODE with exit N instead of
+# the documented class, the envelope unchanged.
 STUB = r'''
 import json
 import os
@@ -40,8 +43,22 @@ root = Path.cwd()
 for key, directory in (("HOME", "acct"), ("HEIMDALL_HOME", "hm"), ("HEIMDALL_TEST_SSH_HOME", "sshh")):
     assert Path(os.environ[key]).resolve() == root / directory, key
 assert "SSH_AUTH_SOCK" not in os.environ and "H2_TEST_FOREIGN_ENV" not in os.environ
-assert [key for key in os.environ if key.startswith("HEIMDALL_")] == ["HEIMDALL_HOME", "HEIMDALL_TEST_SSH_HOME"]
-if os.name == "posix":
+assert os.environ["HEIMDALL_TEST_SECRET_STORE"] == "scratch"
+assert os.environ["HEIMDALL_TEST_MGMT_STORE"].startswith("fixture-file:")
+assert Path(os.environ["HEIMDALL_TEST_MGMT_STORE"][len("fixture-file:"):]).resolve() == root / "mgmt-store"
+assert Path(os.environ["HEIMDALL_TEST_IROH_KEY_STORE"]).resolve() == root / "iroh-key-store"
+assert sorted(key for key in os.environ if key.startswith("HEIMDALL_")) == [
+    "HEIMDALL_HOME", "HEIMDALL_TEST_IROH_KEY_STORE", "HEIMDALL_TEST_MGMT_STORE",
+    "HEIMDALL_TEST_SECRET_STORE", "HEIMDALL_TEST_SSH_HOME",
+]
+if os.name == "nt":
+    windows = Path(os.environ["SystemRoot"])
+    system = windows / "System32"
+    assert os.environ["PATH"].split(";") == list(map(str, (system / "OpenSSH", system, windows)))
+    for name in ("USERPROFILE", "ProgramData", "ALLUSERSPROFILE",
+                 "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"):
+        assert os.environ[name] == os.environ["HOME"]
+else:
     assert os.environ["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin"
 with (root / "calls.jsonl").open("a", encoding="utf-8") as log:
     print(json.dumps(args), file=log)
@@ -73,6 +90,8 @@ def emit(code, exit_code=0, data=None, next=None, stream=sys.stdout, **fields):
         if isinstance(data, dict) and "error" in data:
             data["error"]["message"] = record["message"]
     print(json.dumps(record), file=stream, flush=True)
+    if mode.startswith("exit:") and mode[5:].split("=")[0] == code:
+        exit_code = int(mode.split("=")[1])
     sys.exit(exit_code)
 
 
@@ -111,10 +130,17 @@ elif args[:2] == ["access", "ensure"]:
         refuse("NOT_FOUND", "fix_request", 2)
     if profile == "uncertain":
         refuse("OUTCOME_UNKNOWN", "reconcile", 7, effect="unknown", operation_id=OP)
-    if profile == "uncertain-unnamed":
+    if profile in ("uncertain-unnamed", "uncertain-unlinked"):
+        # `next` names no operation; the second envelope still carries its own.
         following = {"action": "reconcile"}
+        own = {} if profile == "uncertain-unnamed" else {"operation_id": OP}
         emit("OUTCOME_UNKNOWN", 7, {"error": {"code": "OUTCOME_UNKNOWN", "effect_status": "unknown",
-                                              "next": following}}, following, state="outcome_unknown")
+                                              "next": following}}, following, state="outcome_unknown",
+             **own)
+    if profile == "many":  # a binding of its own for every request
+        binding = "binding_many_%d" % count("many")
+        emit("ACCESS_READY", 0, {"binding_id": binding}, {"action": "use_binding", "binding_id": binding},
+             state="succeeded", operation_id=OP)
     if profile == "locked":
         if count("locked") == 0 or mode == "locked-twice":
             refuse("PROVIDER_LOCKED", "interact", 3,
@@ -144,14 +170,15 @@ elif args[:2] == ["operation", "wait"]:
         view(None, "awaiting_approval", "none", None, {"action": "observe", "operation_id": OP}, 5)
     view("ACCESS_READY", "succeeded", "applied", {"binding_id": BINDING})
 elif args[:2] == ["access", "release"]:
-    assert len(args) == 3 and args[2] in (BINDING, SECOND), args
+    assert len(args) == 3 and (args[2] in (BINDING, SECOND) or args[2].startswith("binding_many_")), args
     answered = "binding_other" if mode == "other-binding" else args[2]
     emit("OK", 0, {"binding_id": answered, "outcome": {"outcome": "released"}}, state="succeeded")
 elif args[0] == "run":
     assert args[1] == "--profile" and args[3] == "--work-id" and args[5] == "--request-id", args
     assert args[7] == "--meta-file" and args[9] == "--" and Path(args[10]).is_absolute(), args
-    if mode == "refused-launch":
-        refuse("CAPABILITY_UNAVAILABLE", "narrow_request", 4, stream=sys.stderr)
+    if mode in ("refused-launch", "refused-launch-exit-0"):
+        refuse("CAPABILITY_UNAVAILABLE", "narrow_request", 4 if mode == "refused-launch" else 0,
+               stream=sys.stderr)
     with open(args[8], "x", encoding="utf-8") as meta:
         print(json.dumps({"type": "launching", "schema_version": "1", "attempt": 1,
                           "executable": args[10], "operation_id": OP,
@@ -186,10 +213,11 @@ class TableTests(unittest.TestCase):
         for row in h2.TRANSITIONS:
             for name in row.states:
                 with self.subTest(state=name, code=row.code, action=row.action, to=row.to):
-                    facts = {"code": row.code}
+                    # An answer of the planner's own carries the code of the answer it is about.
+                    facts = {"code": row.code if h2._word(row.code) else SAMPLES["code"]}
                     for field, path in row.takes:
                         if not path.startswith("="):
-                            plant(facts, path, SAMPLES[field] if field != "code" else row.code)
+                            plant(facts, path, SAMPLES[field] if field != "code" else facts["code"])
                     before = sample_state(name)
                     after, chosen = h2.transition(before, h2.Reading(row.code, row.action, None, facts))
                     self.assertIs(chosen, row)
@@ -202,7 +230,7 @@ class TableTests(unittest.TestCase):
                         self.assertEqual(after, h2.State(row.to, **expected))
                     cases += 1
         self.assertEqual(cases, sum(len(row.states) for row in h2.TRANSITIONS))
-        self.assertGreaterEqual(cases, 40)
+        self.assertGreaterEqual(cases, 50)
 
     def test_the_table_is_well_formed(self):
         targets = set()
@@ -213,9 +241,22 @@ class TableTests(unittest.TestCase):
             self.assertNotIn(key, seen)
             seen.add(key)
             if row.to != h2.STAY:
-                self.assertEqual({field for field, _ in row.takes}, set(h2.STATES[row.to]), row)
+                self.assertEqual({field for field, _ in row.takes} - set(h2.OPTIONAL.get(row.to, ())),
+                                 set(h2.STATES[row.to]), row)
                 targets.add(row.to)
         self.assertEqual(targets, set(h2.STATES) - {"start"})
+        # Every state a goal can make a call from has a row for an exit class that does
+        # not fit, and every code a row acts on has a documented exit class.
+        self.assertEqual(set(h2.CALLING), set(h2.STATES) - {"stopped", "failed", "inconsistent",
+                                                              "unresolved"})
+        self.assertEqual([row.states for row in h2.TRANSITIONS if row.code == h2.MISMATCH],
+                         [h2.CALLING])
+        self.assertEqual({row.code for row in h2.TRANSITIONS if row.code.isupper()},
+                         {key for key in h2.EXIT_CLASSES if isinstance(key, str)})
+        for key, exit_class in h2.EXIT_CLASSES.items():
+            self.assertIn(exit_class, range(8), key)
+            if not isinstance(key, str):
+                self.assertTrue(any((row.code, row.action) == key for row in h2.TRANSITIONS), key)
         for state, (call, handoff) in h2.FOLLOW.items():
             self.assertIn(state, h2.STATES)
             self.assertTrue(call == h2.REQUEST or call in h2.LOCAL_CALL_SET)
@@ -260,7 +301,7 @@ class TableTests(unittest.TestCase):
         self.assertEqual(h2.FOLLOW["reconciling"], ("observe", None))
         leaving = [row for row in h2.TRANSITIONS if "reconciling" in row.states]
         self.assertEqual(sorted({row.to for row in leaving}),
-                         sorted([h2.STAY, "ready", "failed", "unresolved"]))
+                         sorted([h2.STAY, "ready", "failed", "inconsistent", "unresolved"]))
         for row in leaving:
             if row.to != h2.STAY:
                 self.assertNotIn(row.to, h2.FOLLOW, row)
@@ -272,6 +313,58 @@ class TableTests(unittest.TestCase):
         before = h2.State("reconciling", operation_id="op_sample")
         after, row = h2.transition(before, h2.Reading("OK", "observe", "unknown", {"code": "OK"}))
         self.assertEqual((after, row.to), (before, h2.STAY))
+
+    def test_a_failed_uncertain_outcome_names_its_operation_whenever_one_is_known(self):
+        known = h2.State("failed", code="OUTCOME_UNKNOWN", operation_id="op_sample")
+        # The operation's own outcome is unknown: the one being observed.
+        for name in h2.IN_FLIGHT + ("reconciling",):
+            with self.subTest(state=name):
+                ended = h2.Reading("OUTCOME_UNKNOWN", "none", "unknown", {"code": "OUTCOME_UNKNOWN"})
+                after, row = h2.transition(sample_state(name), ended)
+                self.assertIsNotNone(row)
+                self.assertEqual(after, known)
+                self.assertEqual(after.record(), {"state": "failed", "code": "OUTCOME_UNKNOWN",
+                                                  "operation_id": "op_sample"})
+                # With an action no row pairs it with, there is no row, and it is still named.
+                odd = ended._replace(action="report")
+                self.assertEqual(h2.transition(sample_state(name), odd), (known, None))
+        # The answer to a request whose `next` names none: the envelope's own, when it has one.
+        own = {"code": "OUTCOME_UNKNOWN", "next": {"action": "reconcile"}, "operation_id": "op_sample"}
+        after, row = h2.transition(h2.State("start"), h2.Reading("OUTCOME_UNKNOWN", "reconcile", None, own))
+        self.assertIsNotNone(row)
+        self.assertEqual(after, known)
+        # Only this code carries one, and only when it is a well-formed operation ID.
+        other = h2.Reading("POLICY_PAUSED", "report", None, dict(own, code="POLICY_PAUSED"))
+        self.assertEqual(h2.transition(sample_state("observing"), other),
+                         (h2.State("failed", code="POLICY_PAUSED"), None))
+        with self.assertRaises(h2.PlannerError):
+            h2.State("failed", code="OUTCOME_UNKNOWN", operation_id="not an operation")
+        with self.assertRaises(h2.PlannerError):
+            h2.State("ready", binding_id="binding_sample", operation_id="op_sample")
+
+    def test_the_exit_class_is_checked_with_the_answer(self):
+        fits = (("ACCESS_READY", "use_binding", 0), ("ACCEPTED", "observe", 5), ("OK", "observe", 5),
+                ("OK", "none", 0), ("CAPABILITY_UNAVAILABLE", "narrow_request", 4),
+                ("INTERACTION_REQUIRED", "interact", 3), ("OUTCOME_UNKNOWN", "reconcile", 7),
+                ("launching", "none", None), ("BRAND_NEW_CODE", "none", 1))
+        for code, action, status in fits:
+            with self.subTest(code=code, action=action):
+                reading = h2.Reading(code, action, None, {"code": code}, status)
+                self.assertEqual(h2.check_exit(reading), (reading, None))
+        for code, action, status in (("ACCESS_READY", "use_binding", 1), ("ACCEPTED", "observe", 0),
+                                     ("OK", "observe", 0), ("OK", "none", 5),
+                                     ("CAPABILITY_UNAVAILABLE", "narrow_request", 0),
+                                     ("OUTCOME_UNKNOWN", "reconcile", -9)):
+            with self.subTest(code=code, action=action, status=status):
+                reading, problem = h2.check_exit(h2.Reading(code, action, None, {"code": code}, status))
+                self.assertEqual((reading.code, reading.action, reading.exit), (h2.MISMATCH, "none", status))
+                self.assertIn(f"exit {status} does not fit {code}", problem)
+                after, row = h2.transition(h2.State("discovered"), reading)
+                self.assertIsNotNone(row)
+                self.assertEqual(after.record(), {"state": "inconsistent", "code": code,
+                                                  "exit_code": status})
+        self.assertNotIn("inconsistent", h2.FOLLOW)
+        self.assertFalse(any("inconsistent" in goal["accept"] for goal in h2.GOALS.values()))
 
     def test_the_step_limit_while_reconciling_reports_the_operation(self):
         before = h2.State("reconciling", operation_id="op_sample")
@@ -351,6 +444,27 @@ class SourceTests(unittest.TestCase):
             self.assertNotIn(word, text)
 
 
+class WindowsEnvironmentTests(unittest.TestCase):
+    def test_windows_environment_uses_only_system_and_fixture_paths(self):
+        windows = r"D:\Windows"
+        home = r"C:\fixture root\acct"
+        inherited = {"PATH": r"C:\extra", "SSH_AUTH_SOCK": "parent-agent"}
+        with patch.dict(os.environ, inherited):
+            self.assertEqual(h2.windows_launch_variables(windows, home), {
+                "SystemRoot": windows,
+                "PATH": r"D:\Windows\System32\OpenSSH;D:\Windows\System32;D:\Windows",
+                "USERPROFILE": home,
+                "ProgramData": home,
+                "ALLUSERSPROFILE": home,
+                "APPDATA": home,
+                "LOCALAPPDATA": home,
+                "TEMP": home,
+                "TMP": home,
+            })
+        with self.assertRaisesRegex(h2.PlannerError, "SystemRoot"):
+            h2.windows_launch_variables(r"D:Windows", home)
+
+
 class PlannerTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="heimdall-h2-",
@@ -363,6 +477,8 @@ class PlannerTests(unittest.TestCase):
         self.stub.write_text(STUB, encoding="utf-8")
         self.environment = {"HOME": str(self.root / "acct"), "HEIMDALL_HOME": str(self.root / "hm"),
                             "HEIMDALL_TEST_SSH_HOME": str(self.root / "sshh"),
+                            "HEIMDALL_TEST_MGMT_STORE": f"fixture-file:{self.root / 'mgmt-store'}",
+                            "HEIMDALL_TEST_IROH_KEY_STORE": str(self.root / "iroh-key-store"),
                             "SSH_AUTH_SOCK": "/nonexistent/parent-agent", "H2_TEST_FOREIGN_ENV": "x"}
         if os.name == "nt":
             self.environment["SystemRoot"] = os.environ["SystemRoot"]
@@ -557,8 +673,9 @@ class PlannerTests(unittest.TestCase):
             # the operation ends at the last observation the step limit allows
             (f"unfinished-{h2.MAX_STEPS - 2}", h2.MAX_STEPS - 1,
              ("reconciling", "ACCESS_READY", "none", "ready"), ready),
+            # the operation's own outcome is unknown: the failure names that operation
             ("still-unknown", 1, ("reconciling", "OUTCOME_UNKNOWN", "none", "failed"),
-             {"state": "failed", "code": "OUTCOME_UNKNOWN"}),
+             {"state": "failed", "code": "OUTCOME_UNKNOWN", "operation_id": "op_fixture"}),
             ("denied", 1, ("reconciling", "CAPABILITY_UNAVAILABLE", "none", "failed"),
              {"state": "failed", "code": "CAPABILITY_UNAVAILABLE"}),
         )
@@ -620,6 +737,74 @@ class PlannerTests(unittest.TestCase):
         self.assertTrue(record["transitions"][0]["by_table"])
         self.assertEqual(record["final_state"], {"state": "failed", "code": "OUTCOME_UNKNOWN"})
         self.assertEqual(len(self.calls()), 1)
+        # Its `next` names none but the envelope carries its own: reported with it, and
+        # still without another call.
+        record = h2.run_goal(self.planner(), self.access("uncertain-unlinked"))
+        self.assertFalse(record["success"])
+        self.assertEqual(self.path(record), [("start", "OUTCOME_UNKNOWN", "reconcile", "failed")])
+        self.assertTrue(record["transitions"][0]["by_table"])
+        self.assertEqual(record["final_state"], {"state": "failed", "code": "OUTCOME_UNKNOWN",
+                                                 "operation_id": "op_fixture"})
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_an_observed_operation_whose_outcome_is_unknown_is_reported_with_its_id(self):
+        # Not an uncertain answer to the request: the accepted operation itself ends unknown.
+        record = h2.run_goal(self.planner("still-unknown"), self.access(timeout_ms=1))
+        self.assertFalse(record["success"])
+        self.assertEqual(self.path(record), [("start", "ACCEPTED", "observe", "observing"),
+                                             ("observing", "OUTCOME_UNKNOWN", "none", "failed")])
+        self.assertEqual(record["final_state"], {"state": "failed", "code": "OUTCOME_UNKNOWN",
+                                                 "operation_id": "op_fixture"})
+        self.assertEqual(record["detail"], "failed: OUTCOME_UNKNOWN")
+
+    def test_an_exit_class_that_does_not_fit_its_answer_fails_the_goal(self):
+        inconsistent = lambda code, status: {"state": "inconsistent", "code": code, "exit_code": status}
+        # M07-W3-R03's probe: the successful ensure, its usual envelope, exit 1.
+        planner = self.planner("exit:ACCESS_READY=1")
+        record = h2.run_goal(planner, self.access())
+        self.assertFalse(record["success"], record)
+        self.assertEqual(record["final_state"], inconsistent("ACCESS_READY", 1))
+        self.assertEqual(self.path(record), [("start", h2.MISMATCH, "none", "inconsistent")])
+        self.assertTrue(record["transitions"][0]["by_table"])
+        self.assertEqual(record["detail"], "exit 1 does not fit ACCESS_READY: its documented exit class is 0")
+        self.assertEqual((record["calls"], len(self.calls())), (1, 1))  # nothing is tried again
+        # The binding that answer named is held all the same, so a stop releases it.
+        self.assertEqual(record["held"], ["binding_fixture"])
+        stopped = h2.run_goal(planner, {"goal": "stop"})
+        self.assertTrue(stopped["success"], stopped)
+        self.assertEqual(self.path(stopped), [("releasing", "OK", "none", "stopped")])
+        self.assertEqual((stopped["held"], self.calls()[1:]), ([], [["access", "release", "binding_fixture"]]))
+        # Every other kind of call:
+        # (mode, goal, the code whose exit is wrong, that exit, calls made, what is held after)
+        refusal = self.access(require_unattended=True, expect_refusal="CAPABILITY_UNAVAILABLE")
+        cases = (
+            ("exit:OK=1", {"goal": "discover"}, "OK", 1, 1, []),
+            ("exit:ACCEPTED=0", self.access(timeout_ms=1), "ACCEPTED", 0, 1, []),  # the bounded wait
+            # the observation: it found the operation ended, and its binding is held
+            ("exit:OK=5", self.access(timeout_ms=1), "ACCESS_READY", 5, 2, ["binding_fixture"]),
+            ("exit:OUTCOME_UNKNOWN=0", self.access("uncertain"), "OUTCOME_UNKNOWN", 0, 1, []),
+            ("exit:CAPABILITY_UNAVAILABLE=0", refusal, "CAPABILITY_UNAVAILABLE", 0, 1, []),
+            ("exit:INTERACTION_REQUIRED=4", self.access("wider", pairs=["h3:deploy"]),
+             "INTERACTION_REQUIRED", 4, 1, []),
+            ("refused-launch-exit-0", {"goal": "run", "profile": "covered", "work_id": "work-8",
+                                       "argv": [str(self.stub)]}, "CAPABILITY_UNAVAILABLE", 0, 1, []),
+        )
+        for mode, goal, code, status, calls, held in cases:
+            with self.subTest(mode=mode, goal=goal["goal"]):
+                self.handoffs.clear()
+                record = h2.run_goal(self.planner(mode), goal)
+                self.assertFalse(record["success"], record)
+                self.assertEqual(record["final_state"], inconsistent(code, status))
+                self.assertEqual(record["transitions"][-1]["code"], h2.MISMATCH)
+                self.assertTrue(all(step["by_table"] for step in record["transitions"]))
+                self.assertEqual((record["calls"], self.handoffs, record["held"]), (calls, [], held))
+        # A release in the wrong exit class leaves its binding held: a later stop asks again.
+        planner = self.planner("exit:OK=1")
+        self.assertTrue(h2.run_goal(planner, self.access())["success"])
+        stopped = h2.run_goal(planner, {"goal": "stop"})
+        self.assertFalse(stopped["success"])
+        self.assertEqual((stopped["final_state"], stopped["held"]),
+                         (inconsistent("OK", 1), ["binding_fixture"]))
 
     def test_prose_never_changes_a_transition(self):
         goals = [{"goal": "discover"}, self.access(), self.access(timeout_ms=1),
@@ -689,6 +874,68 @@ class PlannerTests(unittest.TestCase):
         self.assertFalse(h2.run_goal(planner, {"goal": "stop"})["success"])  # nothing held now
         self.assertEqual(len(self.calls()), 4)
 
+    def test_a_stop_after_a_failed_goal_releases_what_is_held(self):
+        # M07-W3-R01, first probe: access is given, a later goal fails, then stop.
+        planner = self.planner()
+        self.assertTrue(h2.run_goal(planner, self.access())["success"])
+        failed = h2.run_goal(planner, self.access("novel"))
+        self.assertEqual((failed["success"], failed["final_state"]["state"], failed["held"]),
+                         (False, "failed", ["binding_fixture"]))
+        stopped = h2.run_goal(planner, {"goal": "stop"})
+        self.assertTrue(stopped["success"], stopped)
+        self.assertEqual(self.path(stopped), [("releasing", "OK", "none", "stopped")])
+        self.assertTrue(stopped["transitions"][0]["by_table"])
+        self.assertEqual((stopped["calls"], stopped["held"]), (1, []))
+        self.assertEqual(self.calls()[2:], [["access", "release", "binding_fixture"]])
+        self.assertFalse(h2.run_goal(planner, {"goal": "stop"})["success"])  # nothing held now
+        self.assertEqual(len(self.calls()), 3)
+
+    def test_close_releases_what_is_held_and_ends_the_child(self):
+        # M07-W3-R01, second probe: close() with held bindings, here two and a running child.
+        planner = self.planner("second-binding")
+        self.assertTrue(h2.run_goal(planner, self.access())["success"])
+        self.assertTrue(h2.run_goal(planner, {"goal": "run", "profile": "covered", "work_id": "work-1",
+                                              "argv": [str(self.stub)]})["success"])
+        process = planner.child.process
+        closing = planner.close()
+        self.assertEqual(self.calls()[2:], [["access", "release", "binding_second"],
+                                            ["access", "release", "binding_fixture"]])
+        self.assertEqual((planner.held, planner.child, process.returncode), ([], None, 0))
+        self.assertEqual(closing, {"released": ["binding_fixture", "binding_second"], "held": []})
+        self.assertEqual(planner.close(), {"released": [], "held": []})  # and nothing more is sent
+        self.assertEqual(len(self.calls()), 4)
+        # After a failed goal too. A release that is not answered as asked ends the attempt
+        # with the binding still reported: close never loops.
+        for mode, left in (("normal", []), ("other-binding", ["binding_fixture"])):
+            with self.subTest(mode=mode):
+                planner = self.planner(mode)
+                self.assertTrue(h2.run_goal(planner, self.access())["success"])
+                self.assertFalse(h2.run_goal(planner, self.access("novel"))["success"])
+                seen = len(self.calls())
+                self.assertEqual(planner.close()["held"], left)
+                self.assertEqual(self.calls()[seen:], [["access", "release", "binding_fixture"]])
+
+    def test_a_stop_the_step_limit_cut_short_is_finished_by_the_next_stop(self):
+        # M07-W3-R01, third probe: one binding more than a stop can release within its limit.
+        planner = self.planner()
+        held = [f"binding_many_{index}" for index in range(h2.MAX_STEPS + 1)]
+        for index in range(len(held)):
+            record = h2.run_goal(planner, self.access("many"))
+            self.assertTrue(record["success"], record)
+        self.assertEqual(record["held"], held)
+        first = h2.run_goal(planner, {"goal": "stop"})
+        self.assertFalse(first["success"])
+        self.assertIn("step limit", first["detail"])
+        self.assertEqual((first["calls"], first["held"]), (h2.MAX_STEPS, held[:1]))
+        self.assertEqual(first["final_state"], {"state": "releasing", "binding_id": held[0]})
+        second = h2.run_goal(planner, {"goal": "stop"})
+        self.assertTrue(second["success"], second)
+        self.assertEqual(self.path(second), [("releasing", "OK", "none", "stopped")])
+        self.assertEqual((second["calls"], second["held"]), (1, []))
+        # Each binding was released once, the newest first.
+        self.assertEqual(self.calls()[len(held):], [["access", "release", binding]
+                                                    for binding in reversed(held)])
+
     def test_a_binding_of_earlier_work_is_released_by_the_stop_too(self):
         planner = self.planner("second-binding")
         self.assertTrue(h2.run_goal(planner, self.access())["success"])
@@ -743,6 +990,12 @@ class PlannerTests(unittest.TestCase):
                 self.assertIn(expected, record["detail"])
                 self.assertIsNone(planner.child)
                 self.assertEqual(list(self.root.glob("h2-run-*")), [])
+                # The binding its run record named is held all the same, and a stop releases it.
+                self.assertEqual(record["held"], ["binding_fixture"])
+                seen = len(self.calls())
+                stopped = h2.run_goal(planner, {"goal": "stop"})
+                self.assertEqual((stopped["success"], stopped["held"]), (True, []), stopped)
+                self.assertEqual(self.calls()[seen:], [["access", "release", "binding_fixture"]])
 
     def test_a_child_outside_the_scratch_root_is_never_started(self):
         record = h2.run_goal(self.planner(), {"goal": "run", "profile": "covered",
@@ -782,6 +1035,19 @@ class PlannerTests(unittest.TestCase):
             "shared": dict(self.environment, HEIMDALL_HOME=self.environment["HOME"]),
             "nested": dict(self.environment, HEIMDALL_HOME=str(self.root / "acct" / "nested")),
             "root": dict(self.environment, HOME=str(self.root)),
+            "missing management store": {key: value for key, value in self.environment.items()
+                                         if key != "HEIMDALL_TEST_MGMT_STORE"},
+            "missing transport store": {key: value for key, value in self.environment.items()
+                                        if key != "HEIMDALL_TEST_IROH_KEY_STORE"},
+            "bare management path": dict(self.environment,
+                                         HEIMDALL_TEST_MGMT_STORE=str(self.root / "mgmt-store")),
+            "relative management store": dict(self.environment,
+                                              HEIMDALL_TEST_MGMT_STORE="fixture-file:mgmt-store"),
+            "relative transport store": dict(self.environment, HEIMDALL_TEST_IROH_KEY_STORE="iroh"),
+            "foreign management store": dict(self.environment,
+                                             HEIMDALL_TEST_MGMT_STORE=f"fixture-file:{elsewhere.name}/mgmt"),
+            "foreign transport store": dict(self.environment,
+                                            HEIMDALL_TEST_IROH_KEY_STORE=f"{elsewhere.name}/iroh"),
         }
         for name, environment in cases.items():
             with self.subTest(case=name):
@@ -798,13 +1064,50 @@ class PlannerTests(unittest.TestCase):
                              {"goal": "discover"})
         self.assertFalse(record["success"])
         self.assertEqual(self.calls(), [])
+        for key, prefix in h2.STORES.items():
+            with self.subTest(store=key):
+                record = h2.run_goal(self.planner(environment=dict(self.environment, **{
+                    key: f"{prefix}{link / 'missing'}",
+                })), {"goal": "discover"})
+                self.assertFalse(record["success"])
+                self.assertEqual(record["calls"], 0)
+                self.assertEqual(self.calls(), [])
         # A home reached through a link that stays inside the root is passed as it was given.
         inside = self.root / "alias"
         inside.symlink_to(self.root / "hm", target_is_directory=True)
         env = h2.launch_environment(self.root, dict(self.environment, HEIMDALL_HOME=str(inside)))
         self.assertEqual(env["HEIMDALL_HOME"], str(inside))
-        self.assertEqual(sorted(env), ["HEIMDALL_HOME", "HEIMDALL_TEST_SSH_HOME", "HOME", "LANG",
-                                       "PATH", "TERM"])
+        self.assertEqual(sorted(env), ["HEIMDALL_HOME", "HEIMDALL_TEST_IROH_KEY_STORE",
+                                       "HEIMDALL_TEST_MGMT_STORE", "HEIMDALL_TEST_SECRET_STORE",
+                                       "HEIMDALL_TEST_SSH_HOME", "HOME", "LANG", "PATH", "TERM"])
+
+    def test_windows_variables_are_found_under_any_spelling_of_their_names(self):
+        # On Windows `os.environ` holds its names upper-cased, so the copy H2 is given has
+        # `SYSTEMROOT` and no `SystemRoot` (the native run of 2026-11-22: every task ended
+        # "SystemRoot is not an absolute Windows directory" with no call made).
+        given = {key.upper(): value for key, value in self.environment.items()}
+        given["SYSTEMROOT"] = r"C:\Windows"
+        self.assertNotIn("SystemRoot", given)
+        env = h2.launch_environment(self.root, given, windows=True)
+        self.assertEqual(env["SystemRoot"], r"C:\Windows")
+        self.assertEqual(env["PATH"],
+                         r"C:\Windows\System32\OpenSSH;C:\Windows\System32;C:\Windows")
+        for name in h2.HOMES:
+            self.assertEqual(env[name], self.environment[name])
+        self.assertEqual(env["USERPROFILE"], self.environment["HOME"])
+        # Off Windows a name is its exact spelling: nothing is taken from another one.
+        with self.assertRaises(h2.PlannerError):
+            h2.launch_environment(self.root, {key.lower(): value
+                                              for key, value in self.environment.items()},
+                                  windows=False)
+
+    def test_a_store_path_that_cannot_be_resolved_is_refused_as_a_planner_error(self):
+        # Whether a looping link raises depends on the Python version, so the failure is
+        # injected: the point is that it comes out as this harness's own error.
+        with patch.object(h2.Path, "resolve", side_effect=OSError("unreadable")), \
+                self.assertRaises(h2.PlannerError) as refused:
+            h2.launch_environment(self.root, self.environment)
+        self.assertIn("could not be resolved", str(refused.exception))
 
     def test_goals_are_checked_before_any_call(self):
         bad = [[], {"goal": "approve"}, {"goal": ["access"]}, {"goal": "access", "profile": "covered"},
@@ -850,6 +1153,9 @@ class PlannerTests(unittest.TestCase):
         self.assertIn("held for U4b", summary["call_set"])
         self.assertEqual([task["task"] for task in summary["tasks"]], ["discover", "access", "novel"])
         self.assertEqual([task["success"] for task in summary["tasks"]], [True, True, False])
+        # The binding the goals left held was released before the process ended.
+        self.assertEqual(summary["close"], {"released": ["binding_fixture"], "held": []})
+        self.assertEqual(self.calls()[-1], ["access", "release", "binding_fixture"])
         for task in summary["tasks"]:
             for field in ("calls", "round_trips", "human_handoffs", "invalid_retries",
                           "wall_time_ms", "discovery_bytes", "detail", "skipped", "final_state",
@@ -870,6 +1176,8 @@ class DiscoverySmoke(unittest.TestCase):
             (root / name).mkdir()
             environment[key] = str(root / name)
         (root / "sshh" / "etc-ssh").mkdir()
+        environment["HEIMDALL_TEST_MGMT_STORE"] = f"fixture-file:{root / 'mgmt-store'}"
+        environment["HEIMDALL_TEST_IROH_KEY_STORE"] = str(root / "iroh-key-store")
         if os.name == "nt":
             environment["SystemRoot"] = os.environ["SystemRoot"]
         planner = h2.Planner([os.environ["HEIMDALL_HARNESS_SMOKE_BIN"]], root, environment)
@@ -877,8 +1185,17 @@ class DiscoverySmoke(unittest.TestCase):
         self.assertTrue(record["success"], record)
         self.assertGreater(record["discovery_bytes"], 0)
         self.assertTrue({row.code for row in h2.TRANSITIONS if row.code.isupper()}
-                        <= planner.installed_codes)
+                        <= planner.installed_codes.keys())
+        # The exit classes H2 checks are the installed table's own. One differs, as
+        # documented: `ACCEPTED` is a success (0) only for a caller that asked
+        # asynchronously, which H2 never does.
+        ours = {code: exit_class for code, exit_class in h2.EXIT_CLASSES.items() if isinstance(code, str)}
+        theirs = {code: planner.installed_codes[code] for code in ours}
+        self.assertEqual((ours.pop("ACCEPTED"), theirs.pop("ACCEPTED")), (5, 0))
+        self.assertEqual(ours, theirs)
         self.assertEqual(sorted(path.name for path in (root / "hm").iterdir()), [])
+        for name in ("mgmt-store", "iroh-key-store"):
+            self.assertFalse(os.path.lexists(root / name), name)
 
 
 if __name__ == "__main__":
