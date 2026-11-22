@@ -73,6 +73,8 @@ Any goal may carry a `task` label for its record.
     `releasing` with the newest binding on the list.
   - A stop the step limit cuts short fails and leaves the rest held. The next stop
     goes on from there: seven bindings take two stops.
+  - A release Heimdall refuses is recorded, and the stop goes on with the other
+    bindings. The stop then fails. See "Refused releases" below.
   - With nothing held, a stop fails without a call.
 
 ## States and transitions
@@ -87,7 +89,8 @@ Any goal may carry a `task` label for its record.
 - `reconciling` holds the operation of an uncertain outcome while H2 observes it.
 - `releasing` holds the next binding to release.
 - `failed` also carries `operation_id` when its code is `OUTCOME_UNKNOWN` and an
-  operation is known.
+  operation is known. When a stop ends because a release was refused, it carries the
+  refusal's code, its `binding_id` and its `exit_code`.
 - `inconsistent` ends a goal: an answer's process ended in another exit class than
   the one documented for its code. It carries that code and the exit status.
 - `unresolved` ends a goal: the operation of an uncertain outcome was still unfinished
@@ -95,7 +98,8 @@ Any goal may carry a `task` label for its record.
 
 Beside the state, H2 keeps the list of bindings it holds: every binding it was given
 and has not released. A binding leaves the list when its release is answered `OK`
-with exit 0. It joins the list when:
+with exit 0, and only then: a binding Heimdall refused to release stays on it. A
+binding joins the list when:
 
 - an answer leads to `ready` or `running` with it;
 - an answer names it and then fails its exit-class check;
@@ -138,9 +142,45 @@ field written `=VALUE` is that fixed value.
   state's own fields as `state.*`. Only `reconciling` has a row for that. In any other
   state the goal fails where it stands, as before.
 - **A release** answers for one binding. H2 checks that the answer names the binding
-  it asked about, takes that binding off its list, and puts the next held binding
-  into the answer's facts as `held.binding_id`. The table then moves to `releasing`
-  with it, or to `stopped` when none is left.
+  it asked about, takes that binding off its list, and puts the next binding to ask
+  for into the answer's facts as `held.binding_id`. The table then moves to
+  `releasing` with it, or to `stopped` when none is left.
+
+## Refused releases
+
+A release answered with any code other than `OK` is a refusal, once its exit class
+has been checked. H2 decides this from the code and the exit status alone.
+
+- **It is recorded.** The record has three typed fields: `binding_id`, the refusal's
+  `code`, and the `exit_code` of its process.
+- **The stop goes on.** The refused binding is set aside, and the stop asks for the
+  next binding it holds, the newest first, within the same step limit. It asks for
+  each binding once: a refused binding is not asked for again in the same stop.
+- **The binding stays held.** It stays on the list of held bindings and is reported
+  in `held`. H2 never reports it as released.
+- **The stop fails.** When no binding is left to ask for, the stop ends in
+  `failed(code, binding_id, exit_code)`, which names the first refusal of that stop.
+  Its record has `success` false. This holds even when every later release was
+  answered `OK`.
+- **The run exits 1.**
+
+In the table the refusal is an answer of the planner's own, as the step limit and the
+exit-class mismatch are. Its step in `transitions` has the code `(a refused release)`.
+The facts carry `held.binding_id`, and `refused.*` for the first refusal of the stop.
+
+Three limits apply:
+
+- **The exit class comes first.** A refusal whose exit status is not the class
+  documented for its code ends the stop in `inconsistent`, as for any other answer.
+  It is not recorded as a refusal, and its binding stays held. A code `EXIT_CLASSES`
+  lacks has no documented class to check, so it is recorded with the exit status it
+  came with.
+- **A stop cut short keeps what it set aside.** A stop that begins in `releasing`
+  goes on with the stop the step limit cut short, and does not ask again for a
+  binding that stop was refused. It still fails, naming that refusal. A stop that
+  begins in any other state is a new one and asks for every held binding again.
+- **A running child is left to the close.** A stop ends its child only when it
+  reaches `stopped`.
 
 ## Exit classes
 
@@ -150,6 +190,7 @@ code the transition table acts on (`docs/api/local-protocol.md`, "Exit classes")
 | Class | Meaning | Codes |
 | --- | --- | --- |
 | 0 | success | `OK`, `ACCESS_READY` |
+| 2 | usage, schema or lookup | `NOT_FOUND`: checked for a refused release only, and it has no row |
 | 3 | needs a person | `APPROVAL_REQUIRED`, `INTERACTION_REQUIRED`, `PROVIDER_LOCKED` |
 | 4 | not allowed | `CAPABILITY_UNAVAILABLE`, `POLICY_PAUSED`, `POLICY_CUTOFF`, `OPERATION_CANCELLED` |
 | 5 | unavailable for now | `ACCEPTED`; an observation that found its operation unfinished (`OK` with `next.action` `observe`) |
@@ -194,25 +235,39 @@ Stdout is one JSON summary: `harness`, `call_set`, one record per goal in `tasks
 and `close`. A record has the fields H1's records have (`task`, `success`, `calls`,
 `round_trips`, `human_handoffs`, `invalid_retries`, `wall_time_ms`,
 `discovery_bytes`, `detail`, `skipped`) and adds `goal`, `final_state`,
-`transitions` (the path it took) and `held` (the bindings H2 still holds after the
-goal).
+`transitions` (the path it took), `held` (the bindings H2 still holds after the
+goal) and `refused_releases` (the releases Heimdall refused during the goal).
 
 Before it exits, H2 releases whatever the goals left held and ends a child that is
 still running. `close` reports that: `released` lists the bindings released then,
-and `held` lists any it could not release. Each round of it is one stop, and a
-round that releases nothing ends it.
+and `held` lists any it could not release. The close is one stop, made in rounds
+that are each bounded by the step limit. It follows the same rule as a stop goal: a
+refused binding is recorded and set aside, and the rest are still released. A round
+that neither releases a binding nor is refused one ends it.
+
+The summary's own `refused_releases` lists every refused release of the run, in
+order: those of the goals, then those of the close. Each entry is one refused call:
+
+```json
+{"binding_id": "<binding>", "code": "<code>", "exit_code": 4}
+```
+
+A binding a stop goal was refused is asked for once more when H2 closes, so it has
+two entries if Heimdall refuses it again.
 
 - Calls and round trips count CLI subprocesses.
 - A goal that ends in `unresolved` has one last step in `transitions` that is not a
   call: its `code` is `(the step limit)`.
+- A refused release is a call, and it is counted. Its step in `transitions` has the
+  code `(a refused release)`.
 - The releases H2 makes when it closes are in no record's counts.
 - Wall time excludes the time spent in a handoff.
 - Discovery bytes are the stdout bytes of the discovery call.
 - Invalid retries count answers whose `next.action` is `fix_request` or
   `new_request_id`: Heimdall saying the request was wrong or wrongly repeated.
 
-The process exits 0 when every goal was met and nothing is left held, and 1
-otherwise.
+The process exits 0 when every goal was met, no release was refused and nothing is
+left held. It exits 1 otherwise.
 
 ## Held
 
@@ -222,10 +277,11 @@ otherwise.
   changes when it is served. Held for U4b.
 - **Native Windows.** The launch environment awaits native verification. The
   `run` goal still needs to handle the Windows `spawned` record.
-- **Provider waits, `APPROVAL_REQUIRED` and `OUTCOME_UNKNOWN`.** These rows are
-  covered by the stub tests only: no fixture of the real-binary run produces them.
-- **A release Heimdall refuses.** A stop ends at the first release that is not
-  answered `OK`. That binding and any older one stay held and are reported in
+- **Provider waits, `APPROVAL_REQUIRED`, `OUTCOME_UNKNOWN` and a refused release.**
+  These rows are covered by the stub tests only: no fixture of the real-binary run
+  produces them.
+- **A release answered in the wrong exit class.** The stop ends there, in
+  `inconsistent`. That binding and any older one stay held and are reported in
   `held`. H2 does not skip it to release the others.
 
 ## Tests
@@ -240,6 +296,9 @@ The tests use a stub `heimdall` in a temporary directory. They cover:
 - that message text changes no transition;
 - cleanup: a stop after a failed goal, a close with bindings held and a child
   running, and seven bindings released by two stops;
+- refused releases: with three bindings held, a refusal of the first, the middle or
+  the last one asked for, and of all three, in a stop goal and in the close; more
+  refusals than one stop may ask for; and the exit status of the run;
 - exit classes: the stub ends an answer in the wrong class for each kind of call,
   and the goal fails;
 - an uncertain outcome: its operation is observed until it ends, the request is

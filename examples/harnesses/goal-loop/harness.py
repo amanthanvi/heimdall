@@ -4,7 +4,8 @@ A task is a goal (data). The planner holds one typed state, and the list of bind
 it was given and has not released. The goal names the first call; after that every
 step is one row of TRANSITIONS, chosen from the state and the last answer's `code`
 and `next.action`. Every answer is checked against the exit class of its process
-(EXIT_CLASSES). Nothing here reads an answer's prose.
+(EXIT_CLASSES). A release Heimdall refuses is recorded, and the stop goes on with the
+other bindings it holds. Nothing here reads an answer's prose.
 """
 
 import argparse
@@ -99,8 +100,9 @@ STATES = {
     "unresolved": ("code", "operation_id"),
 }
 # A field a state may carry beside its own. `failed` names the operation of an
-# uncertain outcome whenever one is known.
-OPTIONAL = {"failed": ("operation_id",)}
+# uncertain outcome whenever one is known. Where a stop ends because Heimdall refused
+# a release, it names that binding and the exit status of the refusal.
+OPTIONAL = {"failed": ("operation_id", "binding_id", "exit_code")}
 
 
 def _identifier(prefix):
@@ -165,13 +167,17 @@ Reading = namedtuple("Reading", "code action effect facts exit", defaults=(None,
 Row = namedtuple("Row", "states code action to takes")
 
 STAY = "(same state)"
-# Two answers are the planner's own. Each stands where the code would, and no envelope
-# can carry either: they are not words.
+# Three answers are the planner's own. Each stands where the code would, and no envelope
+# can carry any of them: they are not words.
 # The step limit ran out:
 BOUND = "(the step limit)"
 # The process ended in another exit class than the one documented for its answer. The
 # facts hold that answer's code and the exit status:
 MISMATCH = "(the exit class)"
+# A release was answered with another code than `OK`, and its exit class fits that
+# code: Heimdall refused it. The planner has recorded the binding, the code and the
+# exit status, and set the binding aside for this stop:
+REFUSED = "(a refused release)"
 ORIGIN = ("start", "discovered")
 REQUESTING = ORIGIN + ("pending_provider",)
 SENDING = REQUESTING + ("ready",)  # every state a request is sent from
@@ -184,6 +190,11 @@ PROVIDER = (("provider", "next.provider_interaction.provider"),
             ("kind", "next.provider_interaction.kind"))
 CODE = (("code", "code"),)
 STILL_UNKNOWN = (("code", "=OUTCOME_UNKNOWN"), ("operation_id", "state.operation_id"))
+# The planner's own facts about a release (Planner.release_facts). `held.binding_id` is
+# the next binding to ask for. `refused.*` is the first release this stop was refused.
+NEXT_HELD = (("binding_id", "held.binding_id"),)
+REFUSAL = (("code", "refused.code"), ("binding_id", "refused.binding_id"),
+           ("exit_code", "refused.exit_code"))
 
 TRANSITIONS = (
     # discovery
@@ -227,9 +238,15 @@ TRANSITIONS = (
     # a launch has no envelope: its run record's `type` stands where the code would
     Row(SENDING, "launching", "none", "running",
         (("pid", "record.pid"), ("binding_id", "record.binding_id"))),
-    # release: one binding for each call, until the planner holds no other
-    Row(RELEASABLE, "OK", "none", "releasing", (("binding_id", "held.binding_id"),)),
+    # release: one binding for each call, until the planner holds no other to ask for
+    Row(RELEASABLE, "OK", "none", "releasing", NEXT_HELD),
+    # none is left to ask for, but a release of this stop was refused: the stop fails,
+    # and names the first refusal
+    Row(RELEASABLE, "OK", "none", "failed", REFUSAL),
     Row(RELEASABLE, "OK", "none", "stopped", ()),
+    # a release Heimdall refused: the stop goes on with the next binding, or ends here
+    Row(RELEASABLE, REFUSED, "none", "releasing", NEXT_HELD),
+    Row(RELEASABLE, REFUSED, "none", "failed", REFUSAL),
     # the exit class did not fit the answer, whatever the call was: stop and report both
     Row(CALLING, MISMATCH, "none", "inconsistent", CODE + (("exit_code", "exit_code"),)),
 )
@@ -238,6 +255,8 @@ TRANSITIONS = (
 # (docs/api/local-protocol.md, "Exit classes": 0 success, 1 internal, 2 usage, 3 needs a
 # person, 4 not allowed, 5 unavailable for now, 6 conflict, 7 uncertain). A key is a
 # code, or a (code, next.action) pair where the class is not the code's own.
+# `NOT_FOUND` has no row of its own: it is here for a release of a binding Heimdall
+# does not know, so that refusal is checked like the others.
 EXIT_CLASSES = {
     "OK": 0,
     "ACCESS_READY": 0,
@@ -250,6 +269,7 @@ EXIT_CLASSES = {
     "OPERATION_CANCELLED": 4,
     "REQUEST_CONFLICT": 6,
     "OUTCOME_UNKNOWN": 7,
+    "NOT_FOUND": 2,
     # Still pending after a bounded wait. H2 never asks asynchronously, so `ACCEPTED` is
     # never the success it is for a caller that does; and an observation that found its
     # operation unfinished answers `OK` with `next.action` `observe`.
@@ -328,7 +348,9 @@ def check_exit(reading):
     """Check the exit status of an answer's process against the class documented for the
     answer. Returns (reading, None) when they agree, and otherwise the planner's own
     reading of the mismatch with its account. An answer whose process still runs has no
-    exit status yet, and a code EXIT_CLASSES lacks has no row in TRANSITIONS either."""
+    exit status yet. A code EXIT_CLASSES lacks has no row in TRANSITIONS either, and
+    has no documented class here to check: as a refused release it is recorded with
+    the exit status it came with."""
     documented = EXIT_CLASSES.get((reading.code, reading.action), EXIT_CLASSES.get(reading.code))
     if reading.exit is None or documented is None or reading.exit == documented:
         return reading, None
@@ -586,6 +608,12 @@ class Planner:
         self.child = None
         # Every binding an answer gave this planner that it has not released, oldest first.
         self.held = []
+        # Every release Heimdall refused, oldest first: the binding, the refusal's code
+        # and the exit status of its process. A refused binding stays on `held`.
+        self.refusals = []
+        # How many of them came before the stop in progress. A binding that stop was
+        # refused is set aside: the stop does not ask for it again.
+        self.stop_began = 0
 
     # ---- calls ----
 
@@ -637,16 +665,43 @@ class Planner:
         return reading._replace(exit=done.returncode)
 
     def read_release(self, envelope, binding_id):
-        """A release: the answer's facts name the binding held next (`held.binding_id`),
-        when there is one beside the binding this answer is about."""
+        """A release that was answered `OK` is about the binding asked for, and its
+        facts gain the planner's own (`release_facts`). Any other answer is returned as
+        it is: `refusal` reads it once its exit class has been checked."""
         reading = read_envelope(envelope)
         if reading.code != "OK":
             return reading
         require(lookup(reading.facts, "data.binding_id") == binding_id,
                 "the answer is about another binding")
-        others = [held for held in self.held if held != binding_id]
-        still = {"binding_id": others[-1]} if others else {}
-        return reading._replace(facts=dict(reading.facts, held=still))
+        return reading._replace(facts=dict(reading.facts, **self.release_facts(binding_id)))
+
+    def releasable(self):
+        """The bindings the stop in progress may still ask for, oldest first: those held,
+        without the ones it has been refused."""
+        aside = {refusal["binding_id"] for refusal in self.refusals[self.stop_began:]}
+        return [held for held in self.held if held not in aside]
+
+    def release_facts(self, binding_id):
+        """The planner's own facts for the answer to a release of `binding_id`: the
+        binding to ask for next (`held.binding_id`), when the stop may still ask for one
+        beside this; and the first release this stop was refused (`refused.*`), when
+        there is one."""
+        others = [held for held in self.releasable() if held != binding_id]
+        refused = self.refusals[self.stop_began:]
+        return {"held": {"binding_id": others[-1]} if others else {},
+                "refused": dict(refused[0]) if refused else {}}
+
+    def refusal(self, answer, binding_id):
+        """Read the answer to a release of `binding_id` whose exit class fits its code.
+        `OK` is returned as it is. Any other code is a refusal: it is recorded with its
+        typed fields, the binding is set aside for this stop, and the planner's own
+        reading of it (REFUSED) is returned for the table."""
+        if answer.code == "OK":
+            return answer
+        self.refusals.append({"binding_id": binding_id, "code": answer.code,
+                              "exit_code": answer.exit})
+        return Reading(REFUSED, "none", answer.effect,
+                       dict(answer.facts, **self.release_facts(binding_id)), answer.exit)
 
     def hold(self, binding_id):
         """Add a binding this planner was given to the list, once."""
@@ -696,15 +751,23 @@ class Planner:
 
     # ---- goals ----
 
-    def begin(self, goal, spec):
+    def begin(self, goal, spec, resume=False):
         if spec["begin"] == "held":
             # A stop begins wherever a binding is held. It goes on from a state that holds
             # one. From any other state (a goal that failed, a stop the step limit cut
             # short and whose binding is gone) it begins at the newest binding on the list.
-            require(self.held, f"nothing is held to stop in state {self.state.name}")
+            # Only `releasing`, with a binding still to ask for, is a stop cut short: this
+            # one goes on with it, and what that one was refused stays set aside. From
+            # any other state the stop is a new one and asks for everything held, unless
+            # the caller says it resumes (`close`).
+            if not (resume or (self.state.name == "releasing"
+                               and self.state.fields["binding_id"] in self.releasable())):
+                self.stop_began = len(self.refusals)
+            candidates = self.releasable()
+            require(candidates, f"nothing is held to stop in state {self.state.name}")
             if (self.state.name not in RELEASABLE
-                    or self.state.fields["binding_id"] not in self.held):
-                self.state = State("releasing", binding_id=self.held[-1])
+                    or self.state.fields["binding_id"] not in candidates):
+                self.state = State("releasing", binding_id=candidates[-1])
             return
         require(self.child is None, "a child is still running: stop it first")
         if spec["begin"] == "start":
@@ -721,10 +784,10 @@ class Planner:
         self.work = {"profile": goal["profile"], "work_id": goal["work_id"],
                      "request_id": uuid.uuid4().hex}
 
-    def pursue(self, goal, metrics):
+    def pursue(self, goal, metrics, resume=False):
         """Work toward one goal. Returns a short account of how it was met."""
         spec = GOALS[goal["goal"]]
-        self.begin(goal, spec)
+        self.begin(goal, spec, resume)
         expected = goal.get("expect_refusal")
         call = spec["first"]
         for _ in range(MAX_STEPS):
@@ -733,6 +796,10 @@ class Planner:
             if answer.action in INVALID_REQUEST_ACTIONS:
                 metrics["invalid_retries"] += 1
             reading, problem = check_exit(answer)
+            if call == "release" and reading is answer:
+                # The exit class fits: a release not answered `OK` was refused, and the
+                # table gets the planner's own reading of that.
+                answer = reading = self.refusal(answer, before.fields["binding_id"])
             try:
                 after, row = transition(before, answer)
                 # A binding the answer names is held from here on, whatever the exit
@@ -750,7 +817,7 @@ class Planner:
             if row is None and problem is None:
                 problem = no_row(before, reading)
             self.state = after
-            if call == "release" and after.name in ("releasing", "stopped"):
+            if call == "release" and row is not None and reading.code == "OK":
                 # The release was answered, in its documented exit class: no longer held.
                 self.held = [held for held in self.held if held != before.fields["binding_id"]]
             if after.name == "stopped" and self.child is not None:
@@ -795,18 +862,21 @@ class Planner:
 
     def close(self):
         """Release every binding still held, then end a child that is still held, by its
-        own handle. Returns what was released here and what is still held.
+        own handle. Returns what was released here and what is still held. A binding
+        Heimdall refused to release is still held, and `refusals` names it.
 
-        Each round is one stop, bounded like any goal. A round that releases nothing
-        ends the attempt, so the whole of it is bounded too."""
+        The whole of it is one stop, made in rounds that are each bounded like any goal:
+        a binding it is refused is not asked for again in a later round. A round that
+        neither releases nor is refused ends the attempt, so each round but the last
+        leaves fewer bindings to ask for, and the whole is bounded too."""
         before = list(self.held)
-        while self.held:
-            count = len(self.held)
+        for round_ in range(len(before)):
+            left = (len(self.held), len(self.refusals))
             try:
-                self.pursue({"goal": "stop"}, new_metrics())
+                self.pursue({"goal": "stop"}, new_metrics(), resume=round_ > 0)
             except (PlannerError, OSError):
                 pass
-            if len(self.held) >= count:
+            if left == (len(self.held), len(self.refusals)) or not self.releasable():
                 break
         if self.child is not None:
             child, self.child = self.child, None
@@ -860,7 +930,7 @@ def new_metrics():
 def run_goal(planner, goal):
     """Pursue one goal and return its record (the fields H1's records have, and the path taken)."""
     metrics = new_metrics()
-    success, started = False, time.monotonic()
+    success, started, refused = False, time.monotonic(), len(planner.refusals)
     try:
         detail = planner.pursue(check_goal(goal), metrics)
         success = True
@@ -873,7 +943,7 @@ def run_goal(planner, goal):
                   goal=goal.get("goal") if isinstance(goal, dict) else None,
                   success=success, round_trips=metrics["calls"], wall_time_ms=round(max(wall, 0), 3),
                   detail=detail, skipped=False, final_state=planner.state.record(),
-                  held=list(planner.held))
+                  held=list(planner.held), refused_releases=planner.refusals[refused:])
     return record
 
 
@@ -892,9 +962,11 @@ def main(argv=None):
         tasks = [run_goal(planner, goal) for goal in args.goal]
     finally:
         closing = planner.close()  # whatever the goals left held is released here
+    # Every release Heimdall refused, in the goals and then in the close: each fails the run.
     print(json.dumps({"harness": "H2", "call_set": CALL_SET_SOURCE, "tasks": tasks,
-                      "close": closing}))
-    return int(any(not task["success"] for task in tasks) or bool(closing["held"]))
+                      "close": closing, "refused_releases": planner.refusals}))
+    return int(any(not task["success"] for task in tasks) or bool(closing["held"])
+               or bool(planner.refusals))
 
 
 if __name__ == "__main__":

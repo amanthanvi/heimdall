@@ -28,6 +28,10 @@ SAMPLES = {
 # the child itself: it writes the run record, prints one line and waits for its input to end.
 # Mode `exit:CODE=N` ends every answer whose envelope code is CODE with exit N instead of
 # the documented class, the envelope unchanged.
+# Mode `refuse:A,B` refuses the release of bindings A and B, and `refuse:*` every release:
+# the caller does not own the binding. `refuse-unknown:` answers that there is no such
+# binding, `refuse-novel:` with a code no table has, and `refuse-exit-0:` as `refuse:`
+# does but in the wrong exit class.
 STUB = r'''
 import json
 import os
@@ -171,6 +175,13 @@ elif args[:2] == ["operation", "wait"]:
     view("ACCESS_READY", "succeeded", "applied", {"binding_id": BINDING})
 elif args[:2] == ["access", "release"]:
     assert len(args) == 3 and (args[2] in (BINDING, SECOND) or args[2].startswith("binding_many_")), args
+    kind, _, named = mode.partition(":")
+    if kind.startswith("refuse") and (named == "*" or args[2] in named.split(",")):
+        if kind == "refuse-unknown":
+            refuse("NOT_FOUND", "fix_request", 2)
+        if kind == "refuse-novel":
+            refuse("SOMETHING_NEW", "report", 1)
+        refuse("CAPABILITY_UNAVAILABLE", "narrow_request", 0 if kind == "refuse-exit-0" else 4)
     answered = "binding_other" if mode == "other-binding" else args[2]
     emit("OK", 0, {"binding_id": answered, "outcome": {"outcome": "released"}}, state="succeeded")
 elif args[0] == "run":
@@ -251,7 +262,8 @@ class TableTests(unittest.TestCase):
                                                               "unresolved"})
         self.assertEqual([row.states for row in h2.TRANSITIONS if row.code == h2.MISMATCH],
                          [h2.CALLING])
-        self.assertEqual({row.code for row in h2.TRANSITIONS if row.code.isupper()},
+        # `NOT_FOUND` alone has a class and no row: it is checked as a refused release.
+        self.assertEqual({row.code for row in h2.TRANSITIONS if row.code.isupper()} | {"NOT_FOUND"},
                          {key for key in h2.EXIT_CLASSES if isinstance(key, str)})
         for key, exit_class in h2.EXIT_CLASSES.items():
             self.assertIn(exit_class, range(8), key)
@@ -395,6 +407,34 @@ class TableTests(unittest.TestCase):
                 self.assertEqual(after, h2.State("stopped"))
         self.assertEqual(h2.FOLLOW["releasing"], ("release", None))
 
+    def test_a_refused_release_goes_on_to_the_next_binding_and_fails_the_stop(self):
+        refused = {"binding_id": "binding_refused", "code": "CAPABILITY_UNAVAILABLE", "exit_code": 4}
+        failed = h2.State("failed", **refused)
+        self.assertEqual(failed.record(), dict(refused, state="failed"))
+        for name in h2.RELEASABLE:
+            with self.subTest(state=name):
+                before = sample_state(name)
+                more = {"held": {"binding_id": "binding_older"}, "refused": refused}
+                last = {"held": {}, "refused": refused}
+                # The refusal itself: on to the next binding, or the end of the stop.
+                after, row = h2.transition(before, h2.Reading(h2.REFUSED, "none", None, more))
+                self.assertEqual((after, row.to), (h2.State("releasing", binding_id="binding_older"),
+                                                   "releasing"))
+                after, row = h2.transition(before, h2.Reading(h2.REFUSED, "none", None, last))
+                self.assertEqual((after, row.to), (failed, "failed"))
+                # A later release that is answered: the stop still fails once none is left.
+                after, row = h2.transition(before, h2.Reading("OK", "none", None, dict(more, code="OK")))
+                self.assertEqual(after, h2.State("releasing", binding_id="binding_older"))
+                after, row = h2.transition(before, h2.Reading("OK", "none", None, dict(last, code="OK")))
+                self.assertEqual((after, row.to), (failed, "failed"))
+        # Only a release leads there, and no envelope can stand in for the planner's reading.
+        self.assertEqual({row.states for row in h2.TRANSITIONS if row.code == h2.REFUSED},
+                         {h2.RELEASABLE})
+        self.assertNotIn("failed", h2.FOLLOW)
+        self.assertNotIn("failed", h2.GOALS["stop"]["accept"])
+        with self.assertRaises(h2.PlannerError):
+            h2.read_envelope({"schema_version": "1", "code": h2.REFUSED})
+
     def test_a_code_without_its_typed_fields_has_no_row(self):
         reading = h2.Reading("ACCESS_READY", "use_binding", None, {"code": "ACCESS_READY", "next": {}})
         after, row = h2.transition(h2.State("start"), reading)
@@ -504,6 +544,15 @@ class PlannerTests(unittest.TestCase):
 
     def access(self, profile="covered", **fields):
         return dict({"goal": "access", "profile": profile, "work_id": "work-1"}, **fields)
+
+    def holding(self, mode, count):
+        """A planner that was given `count` bindings (`binding_many_0` and so on), and
+        the release calls it has made since."""
+        planner = self.planner(mode)
+        for _ in range(count):
+            self.assertTrue(h2.run_goal(planner, self.access("many"))["success"])
+        self.assertEqual(planner.held, [f"binding_many_{index}" for index in range(count)])
+        return planner, lambda: [call[2] for call in self.calls()[count:]]
 
     def test_discover_reads_the_installed_code_table(self):
         planner = self.planner()
@@ -936,6 +985,110 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(self.calls()[len(held):], [["access", "release", binding]
                                                     for binding in reversed(held)])
 
+    def test_a_refused_release_is_recorded_and_the_rest_are_still_released(self):
+        many = "binding_many_{}".format
+        refusal = lambda index, code="CAPABILITY_UNAVAILABLE", status=4: {
+            "binding_id": many(index), "code": code, "exit_code": status}
+        # (the bindings refused, the refusal the stop's final state names)
+        for named, first in (("1", 1),    # the middle one
+                             ("0", 0),    # the last one asked for
+                             ("2", 2),    # the first one asked for
+                             ("*", 2)):   # every one
+            with self.subTest(refused=named):
+                for name in ("calls.jsonl", "count-many"):
+                    (self.root / name).unlink(missing_ok=True)
+                refused = [2, 1, 0] if named == "*" else [int(named)]
+                mode = "refuse:" + ("*" if named == "*" else many(named))
+                planner, released = self.holding(mode, 3)
+                stopped = h2.run_goal(planner, {"goal": "stop"})
+                # Each binding was asked for once, the newest first, whatever was refused.
+                self.assertEqual(released(), [many(2), many(1), many(0)])
+                # One step for each: the stop goes on after a refusal, and fails at its end.
+                path = [("ready" if asked == 2 else "releasing",
+                         *((h2.REFUSED, "none") if asked in refused else ("OK", "none")),
+                         "releasing" if asked else "failed") for asked in (2, 1, 0)]
+                self.assertEqual(self.path(stopped), path)
+                self.assertTrue(all(step["by_table"] for step in stopped["transitions"]))
+                self.assertEqual(stopped["refused_releases"], [refusal(index) for index in refused])
+                self.assertEqual(stopped["held"], [many(index) for index in sorted(refused)])
+                self.assertEqual(stopped["final_state"], dict(refusal(first), state="failed"))
+                self.assertEqual((stopped["success"], stopped["calls"], stopped["detail"]),
+                                 (False, 3, "failed: CAPABILITY_UNAVAILABLE"))
+                self.assertEqual(planner.refusals, stopped["refused_releases"])
+        # Whatever the code of the refusal: a binding Heimdall does not know (counted as a
+        # wrong request too), and a code no table has.
+        for kind, code, status, invalid in (("refuse-unknown", "NOT_FOUND", 2, 1),
+                                            ("refuse-novel", "SOMETHING_NEW", 1, 0)):
+            with self.subTest(kind=kind):
+                for name in ("calls.jsonl", "count-many"):
+                    (self.root / name).unlink(missing_ok=True)
+                planner, released = self.holding(f"{kind}:{many(1)}", 3)
+                stopped = h2.run_goal(planner, {"goal": "stop"})
+                self.assertEqual(released(), [many(2), many(1), many(0)])
+                self.assertEqual(stopped["refused_releases"], [refusal(1, code, status)])
+                self.assertEqual((stopped["success"], stopped["held"], stopped["invalid_retries"]),
+                                 (False, [many(1)], invalid))
+
+    def test_a_refusal_in_the_wrong_exit_class_is_inconsistent_and_not_recorded(self):
+        planner, released = self.holding("refuse-exit-0:binding_many_1", 3)
+        stopped = h2.run_goal(planner, {"goal": "stop"})
+        self.assertFalse(stopped["success"])
+        self.assertEqual(stopped["final_state"], {"state": "inconsistent",
+                                                  "code": "CAPABILITY_UNAVAILABLE", "exit_code": 0})
+        self.assertEqual((stopped["refused_releases"], planner.refusals), ([], []))
+        self.assertEqual((released(), stopped["held"]),
+                         (["binding_many_2", "binding_many_1"], ["binding_many_0", "binding_many_1"]))
+
+    def test_close_records_a_refused_release_and_still_releases_the_rest(self):
+        many = "binding_many_{}".format
+        planner, released = self.holding("refuse:" + many(1), 3)
+        closing = planner.close()
+        self.assertEqual(released(), [many(2), many(1), many(0)])
+        self.assertEqual(closing, {"released": [many(0), many(2)], "held": [many(1)]})
+        self.assertEqual(planner.refusals, [{"binding_id": many(1), "code": "CAPABILITY_UNAVAILABLE",
+                                             "exit_code": 4}])
+        self.assertEqual(planner.state.record(), dict(planner.refusals[0], state="failed"))
+
+    def test_refused_releases_never_make_a_stop_or_a_close_spin(self):
+        many = "binding_many_{}".format
+        count = h2.MAX_STEPS + 2
+        newest_first = [many(index) for index in reversed(range(count))]
+        # Every release refused, and more bindings than one stop may ask for: the close
+        # asks for each once, in two rounds, and ends with all of them held.
+        planner, released = self.holding("refuse:*", count)
+        closing = planner.close()
+        self.assertEqual(released(), newest_first)
+        self.assertEqual(closing, {"released": [], "held": newest_first[::-1]})
+        self.assertEqual([refusal["binding_id"] for refusal in planner.refusals], newest_first)
+        # A stop of its own is a new one: it asks again, within its limit, and fails.
+        again = h2.run_goal(planner, {"goal": "stop"})
+        self.assertEqual((again["success"], again["calls"], len(again["refused_releases"])),
+                         (False, h2.MAX_STEPS, h2.MAX_STEPS))
+        self.assertEqual(len(released()), count + h2.MAX_STEPS)
+
+    def test_a_stop_cut_short_after_a_refusal_is_finished_without_asking_again(self):
+        many = "binding_many_{}".format
+        count = h2.MAX_STEPS + 2
+        for name in ("calls.jsonl", "count-many"):
+            (self.root / name).unlink(missing_ok=True)
+        planner, released = self.holding("refuse:" + many(count - 1), count)
+        refused = {"binding_id": many(count - 1), "code": "CAPABILITY_UNAVAILABLE", "exit_code": 4}
+        first = h2.run_goal(planner, {"goal": "stop"})
+        self.assertFalse(first["success"])
+        self.assertIn("step limit", first["detail"])
+        self.assertEqual((first["calls"], first["held"], first["refused_releases"]),
+                         (h2.MAX_STEPS, [many(0), many(1), many(count - 1)], [refused]))
+        self.assertEqual(first["final_state"], {"state": "releasing", "binding_id": many(1)})
+        # The next stop goes on from there: the refused binding stays set aside and held,
+        # and the stop fails naming it though this part of it was refused nothing.
+        second = h2.run_goal(planner, {"goal": "stop"})
+        self.assertEqual(self.path(second), [("releasing", "OK", "none", "releasing"),
+                                             ("releasing", "OK", "none", "failed")])
+        self.assertEqual((second["success"], second["calls"], second["held"],
+                          second["refused_releases"]), (False, 2, [many(count - 1)], []))
+        self.assertEqual(second["final_state"], dict(refused, state="failed"))
+        self.assertEqual(released(), [many(index) for index in reversed(range(count))])
+
     def test_a_binding_of_earlier_work_is_released_by_the_stop_too(self):
         planner = self.planner("second-binding")
         self.assertTrue(h2.run_goal(planner, self.access())["success"])
@@ -1156,11 +1309,46 @@ class PlannerTests(unittest.TestCase):
         # The binding the goals left held was released before the process ended.
         self.assertEqual(summary["close"], {"released": ["binding_fixture"], "held": []})
         self.assertEqual(self.calls()[-1], ["access", "release", "binding_fixture"])
+        self.assertEqual(summary["refused_releases"], [])
         for task in summary["tasks"]:
             for field in ("calls", "round_trips", "human_handoffs", "invalid_retries",
                           "wall_time_ms", "discovery_bytes", "detail", "skipped", "final_state",
-                          "held"):
+                          "held", "refused_releases"):
                 self.assertIn(field, task)
+
+    @unittest.skipUnless(os.name == "posix", "the stub is started through its interpreter line")
+    def test_main_exits_1_when_a_release_was_refused_and_names_it(self):
+        many = "binding_many_{}".format
+        refused = {"binding_id": many(1), "code": "CAPABILITY_UNAVAILABLE", "exit_code": 4}
+        default = 'mode = "normal" if'
+        self.assertEqual(STUB.count(default), 1)
+        stub = STUB.replace(default, f'mode = "refuse:{many(1)}" if')
+        self.stub.write_text(f"#!{sys.executable} -IB\n{stub}", encoding="utf-8")
+        self.stub.chmod(0o700)
+        access = [json.dumps(self.access("many", task=f"access-{index}")) for index in range(3)]
+        # The refusal meets a stop goal, or only the close that ends the run.
+        for last, close in (([json.dumps({"goal": "stop"})], {"released": [], "held": [many(1)]}),
+                            ([], {"released": [many(0), many(2)], "held": [many(1)]})):
+            with self.subTest(stop_goal=bool(last)):
+                for name in ("calls.jsonl", "count-many"):
+                    (self.root / name).unlink(missing_ok=True)
+                argv = ["--heimdall-bin", str(self.stub), "--scratch-root", str(self.root)]
+                for goal in access + last:
+                    argv += ["--goal", goal]
+                stdout = io.StringIO()
+                with patch.dict(os.environ, self.environment), contextlib.redirect_stdout(stdout):
+                    status = h2.main(argv)
+                self.assertEqual(status, 1)
+                summary = json.loads(stdout.getvalue())
+                self.assertEqual([task["success"] for task in summary["tasks"]],
+                                 [True, True, True] + [False] * len(last))
+                self.assertEqual(summary["close"], close)
+                # A stop goal's refusal is in its record, and the close then asks once more.
+                self.assertEqual(summary["refused_releases"], [refused] * (1 + len(last)))
+                self.assertEqual([task["refused_releases"] for task in summary["tasks"]],
+                                 [[], [], []] + [[refused]] * len(last))
+                self.assertEqual([call[2] for call in self.calls()[3:]],
+                                 [many(2), many(1), many(0)] + [many(1)] * len(last))
 
 
 @unittest.skipUnless(os.environ.get("HEIMDALL_HARNESS_SMOKE_BIN"), "fixture debug binary not supplied")
