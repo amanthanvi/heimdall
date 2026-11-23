@@ -1,0 +1,185 @@
+{
+  "description": "M07 case index, GROUNDWORK (wave 8; m07-plan §6 \"Exit mapping\"): the M07 rows that exist today mapped to their Cargo test targets and tests, per platform, in the M02 format (tests/native/m02/case-index.json description). No generator reads this file yet: U9 adds tests/native/m07/m07-evidence.py (as m05 and m06 did) and the records. Rows that depend on revision 7 (U3's A19 contract tests, U4b, the U5b and U5h remainders, U6, U7) are not listed until they exist. Platform names: macos (the build host), linux (the devbox), windows (Windows 11 native).",
+  "platforms": {
+    "macos": {
+      "runs": "cargo"
+    },
+    "linux": {
+      "runs": "cargo"
+    },
+    "windows": {
+      "runs": "cargo"
+    }
+  },
+  "platform_only": {
+    "e2e_tui_m07::pty::": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "rustix pty cases (#[cfg(unix)]). A20's Windows row is e2e_tui_m07 windows_console::windows_tui_walkthrough, on a pseudoconsole (A20 platform_required)."
+    },
+    "e2e_wrapper_m07": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#![cfg(all(unix, debug_assertions))]: the wrapper's journey uses a Unix socket endpoint; its Windows journey over the named pipe needs verified-hello discovery (D12, U3, revision 7) and is blocked until then."
+    },
+    "e2e_harness_m07::journey::both_harnesses_complete_the_deterministic_tasks": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)]: the seven tasks with the Unix fixtures. Windows runs tasks 1-7 as journey::both_harnesses_use_existing_access_on_windows (1, 2, 5, 6, 7) and journey::both_harnesses_use_the_fixture_adapter_on_windows (3, 4) (A32 platform_required)."
+    }
+  },
+  "groups": {
+    "A20": {
+      "title": "A20: the TUI is keyboard-only, responsive and restored: every view, focus, controls and results at 40x12 and 120x40, a key answered within 100 ms, a resize, no key acting on a frame not drawn (R-UX-05, R-UX-07)",
+      "requirement_ids": [
+        "R-UX-05",
+        "R-UX-07"
+      ],
+      "tests": {
+        "e2e_tui_m07": [
+          "pty::a20_*",
+          "pty::resize_then_yes_before_redraw_stops_nothing",
+          "pty::roundtrip_resize_before_redraw_triggers_nothing::*",
+          "pty::idle_tui_writes_nothing_between_minute_ticks",
+          "pty::a_stopped_runtime_is_shown_as_stale_not_ready"
+        ]
+      },
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_tui_m07": [
+            "windows_console::windows_tui_walkthrough"
+          ]
+        }
+      },
+      "note": "By reference, the M02, M03 and M05 TUI tests (their own indexes). U6's stale-page test arrives with U3 (revision 7)."
+    },
+    "A27-M07": {
+      "title": "A27 (M07 rows): the PowerShell hook writes nothing to the shell's stdout, bounds its child, and starts safely with no runtime, an unreachable runtime or a hostile state (R-SS-04)",
+      "requirement_ids": [
+        "R-SS-04"
+      ],
+      "tests": {
+        "e2e_m07_powershell_hook": [
+          "powershell_hook_*"
+        ]
+      },
+      "declared_platforms": [
+        "macos",
+        "windows"
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_m07_powershell_hook": [
+            "powershell_hook_writes_nothing_to_stdout",
+            "powershell_hook_bounds_child_exit_and_inherited_stdout",
+            "powershell_hook_startup_with_an_unreachable_runtime",
+            "powershell_hook_activates_and_warms_the_default"
+          ]
+        }
+      },
+      "note": "Windows PowerShell 5.1 and 7 (both editions per run). macOS runs the 7 edition through pwsh. U7's rendered route-helper rows (A27's M06 consolidation) are not listed yet."
+    },
+    "A32": {
+      "title": "A32: third-party composition: harnesses H1 and H2 each complete the seven deterministic tasks over the CLI, and the reference wrapper completes its journey over the local protocol, with no private file, database or state path read (R-AP-07, R-AP-08, R-UX-04, R-QU-05)",
+      "requirement_ids": [
+        "R-AP-07",
+        "R-AP-08",
+        "R-UX-04",
+        "R-QU-05"
+      ],
+      "tests": {
+        "e2e_harness_m07": "*",
+        "e2e_wrapper_m07": "*"
+      },
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_harness_m07": [
+            "journey::both_harnesses_use_existing_access_on_windows",
+            "journey::both_harnesses_use_the_fixture_adapter_on_windows",
+            "journey::every_windows_goal_starting_the_in_box_client_carries_the_isolation",
+            "journey::an_unsafe_home_or_store_fails_before_any_launch",
+            "harnesses_are_independent_and_use_only_the_standard_library"
+          ]
+        }
+      },
+      "blocked_rows": [
+        {
+          "platform": "windows-11 reference wrapper journey over the named pipe",
+          "status": "blocked",
+          "blocked_on": "verified-hello discovery (ADR-0013 D12, U3, revision 7)"
+        },
+        {
+          "platform": "windows-11 task 5's login through the binding's own signing endpoint",
+          "status": "blocked",
+          "blocked_on": "by ruling (2026-11-23): on Windows nothing between `run` and the in-box ssh.exe can check that SSH_AUTH_SOCK names the disposable agent, so the isolated set uses IdentityAgent=none; proven on Unix only (WINDOWS_HELD in tests/e2e/harness_m07.rs)"
+        }
+      ],
+      "note": "The Python suites of examples/reference-wrapper, examples/harnesses/cli and examples/harnesses/goal-loop run through tools/validation/check.sh and on Windows in the PC job. Held for revision 7: the wrapper's skew run against the M06 exit build, H2's call set from `schema show primitives` (U4b, U5h), pages and the A19 contract rows (U3). A32's LLM metrics are M09-T02."
+    },
+    "CLI-standalone": {
+      "title": "CLI standalone: access and stop through the CLI only",
+      "requirement_ids": [
+        "R-UX-05"
+      ],
+      "tests": {
+        "e2e_cli_m07": [
+          "cli_standalone_access_and_stop",
+          "cli_sync_wait_explains_itself",
+          "enrollment_wait_explains_an_interrupted_step",
+          "status_counts_only_live_approvals_in_human_output"
+        ]
+      },
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_cli_m07": [
+            "cli_standalone_access_and_stop"
+          ]
+        }
+      }
+    },
+    "TUI-standalone": {
+      "title": "TUI standalone: access and stop through the TUI only",
+      "requirement_ids": [
+        "R-UX-05"
+      ],
+      "tests": {
+        "e2e_tui_m07": [
+          "pty::tui_standalone_access_and_stop"
+        ]
+      },
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "blocked_rows": [
+        {
+          "platform": "windows-11 TUI standalone (ConPTY variant)",
+          "status": "blocked",
+          "blocked_on": "the ConPTY variant of tui_standalone_access_and_stop is not written yet (m07-plan §6, U1); a later M07 wave"
+        }
+      ]
+    }
+  }
+}
