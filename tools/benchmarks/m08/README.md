@@ -92,3 +92,29 @@ Two earlier smoke runs failed on harness defects, not on the product: the lane r
 pseudo-terminal transcript as one JSON document, and it identified processes through
 `/proc/<pid>/exe`, which is unreadable for `ssh-agent` and for the non-dumpable runtime, so
 an agent it believed stopped was still running.
+
+## The A34 benchmark harness (W2-3)
+
+`bash tools/benchmarks/m08/run-bench.sh --stage <staged Linux archive dir> [--id NAME]` runs the
+benchmarks of spec §15.1 on a release archive in the same container (network none, 2 CPUs,
+2 GiB), one capped container at a time, and writes `target/m08-bench/<id>/` (never committed).
+The world: 100 loopback fixture destinations, the projection applied, a profile `bench`, a
+standing personal policy for it (`heimdall access allow --profile bench`, one attended `yes` on
+a pty), and a trusted fixture project for the informational hook row. The host's model, CPU,
+memory, OS build and power source are recorded, and its load is sampled every 30 s.
+
+| Metric | Definition (ruled 2026-11-23 where marked) |
+|---|---|
+| `inspect_warm` | `inspect destinations` on one open control session, after 20 warm-up requests (spec "warm status or inspect"; process start excluded) |
+| `inspect_session` | the same on a new session each time (connect, hello, request) |
+| `ensure_warm` | **the spec "warm already-authorized ensure"** (ruled): one open session, the profile the standing personal policy covers, a new request ID each time, after 20 warm-up requests |
+| `ensure_replay` | informational: the approved request ID replayed (answered from its record) |
+| `activate_covered` | informational: `heimdall activate --hook --cwd <trusted project>` end to end, including process start |
+| `cli_status`, `cli_inspect` | informational: the CLI end to end, including process start |
+| `tui_first_frame` | spawn of `heimdall tui` on a 120x40 pty to the first frame drawn from the runtime's listings (the Overview's "N destinations," line) (ruled) |
+| `key_to_frame` | in one TUI, a view key (`2`, then `1`, in turn) to the last byte before 20 ms of quiet (ruled); **no background work** in this version (M05 U0b's delaying proxy is not wired) |
+| `idle` | after a settle (600 s), three 300 s windows: the runtime's CPU time as a share of one core, and its RSS |
+
+Every latency metric has at least 200 samples (a floor) and reports P50 and P95. A run on any
+build but the candidate's is a rehearsal and is labelled with its executable's digest.
+

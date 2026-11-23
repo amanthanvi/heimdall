@@ -14,13 +14,23 @@ What it measures, each with at least SAMPLES samples (a floor) and P50/P95:
                      request): the runtime is warm, the session is cold.
   inspect_first      the first wrapper request after the world was built (one sample; the
                      world's own CLI calls ran before it, so it is not a fresh-start figure).
-  ensure_warm        `ensure` of the already-authorized profile on one open session, a new
-                     request ID each time, after 20 warm-up requests.
+  ensure_warm        THE spec 15.1 row: `ensure` of the profile a standing personal policy covers
+                     (`access allow`, as M07's harness task 2 "covered" sets up), on one open
+                     session, a NEW request ID each time, after 20 warm-up requests.
+  ensure_replay      (informational) `ensure` of the approved request: the same request ID,
+                     answered from its record (idempotent replay), after 20 warm-up requests.
+                     A NEW request ID on the same profile and work needs a new owner decision
+                     (observed), so a plain ensure is never "already authorized".
+  activate_covered   (informational) `heimdall activate --hook --cwd <trusted project>` end to end: the path a
+                     trusted project's standing authority covers without a decision. It includes
+                     process start; the control protocol has no covered ensure for this caller.
   cli_status, cli_inspect   `heimdall --json status` and `--json inspect destinations` end to
                      end, including process start: printed beside, for information only.
-  tui_first_frame    from spawn of `heimdall tui` on a 120x40 pseudo-terminal to the first
-                     output that shows the first destination's alias (the first useful frame).
-  key_to_frame       in one TUI, from writing a Down key to the end of the frame it causes:
+  tui_first_frame    from spawn of `heimdall tui` on a 120x40 pseudo-terminal to the first frame
+                     drawn from the runtime's listings (the Overview's "N destinations," line:
+                     before it, the screen says "Nothing is read from the runtime yet").
+  key_to_frame       in one TUI, from writing a view key ("2" Destinations, "1" Overview, in
+                     turn) to the end of the frame it causes:
                      the last byte before 20 ms of quiet (the quiet itself is not counted).
                      NO background work runs in this version: ADR-0014 section 6.1 asks for
                      M05 U0b's delaying agent proxy, which is not wired yet. The record says so.
@@ -76,8 +86,12 @@ class Bench:
         items = (r.get("data") or {}).get("items")
         return self.code_defaults(r).success and isinstance(items, list) and len(items) >= self.a.destinations
 
-    def ensure_ok(self, client, n):
+    def ensure_new(self, client, n):
         r = client.request("ensure", profile=self.a.profile, work_id=self.a.work_id, request_id=f"bench-w{n}")
+        return self.code_defaults(r).success
+
+    def ensure_ok(self, client, n):
+        r = client.request("ensure", profile=self.a.profile, work_id=self.a.work_id, request_id=self.a.request_id)
         return self.code_defaults(r).success
 
     def timed(self, fn):
@@ -116,17 +130,17 @@ class Bench:
             return self.inspect_ok(c)
 
     # ---- CLI, for information
-    def cli(self, name, argv, n=50):
+    def cli(self, name, argv, n=50, cwd=None, conditions="end to end including process start; for information, not the budget"):
         ms, errors = [], 0
         for _ in range(n):
             t = time.perf_counter()
             p = subprocess.run([self.a.heimdall, "--json", "--non-interactive", *argv],
-                               stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+                               stdin=subprocess.DEVNULL, capture_output=True, timeout=60, cwd=cwd)
             if p.returncode == 0:
                 ms.append((time.perf_counter() - t) * 1000)
             else:
                 errors += 1
-        self.result[name] = summary(ms, errors, "end to end including process start; for information, not the budget")
+        self.result[name] = summary(ms, errors, conditions)
 
     # ---- TUI on a pseudo-terminal
     def spawn_tui(self):
@@ -172,7 +186,7 @@ class Bench:
 
     def tui_first_frame(self):
         ms, errors = [], 0
-        marker = b"hmb000"
+        marker = b"destinations, "
         for _ in range(self.a.samples):
             t = time.perf_counter()
             pid, fd = self.spawn_tui()
@@ -187,19 +201,23 @@ class Bench:
                 ms.append((time.perf_counter() - t) * 1000)
             else:
                 errors += 1
+                if errors == 1:
+                    # The first failure's screen bytes, for the diagnosis (fixture names only).
+                    with open(os.path.join(self.a.out, "tui-first-failure.bin"), "wb") as fh:
+                        fh.write(seen[-65536:])
             self.stop_tui(pid, fd)
-        self.result["tui_first_frame"] = summary(ms, errors, "spawn to the first output showing the first destination's alias; 120x40 pty")
+        self.result["tui_first_frame"] = summary(ms, errors, "spawn to the first frame drawn from the runtime's listings (the Overview's 'N destinations,' line); 120x40 pty")
 
     def key_to_frame(self):
         pid, fd = self.spawn_tui()
         seen = b""
         deadline = time.monotonic() + 10
-        while b"hmb000" not in seen and time.monotonic() < deadline:
+        while b"destinations, " not in seen and time.monotonic() < deadline:
             seen += self.drain(fd, 0.5)
         self.drain(fd, 0.5)
         first, frame, errors = [], [], 0
         for i in range(WARMUP + self.a.samples):
-            key = b"\x1b[B" if (i // 50) % 2 == 0 else b"\x1b[A"
+            key = b"2" if i % 2 == 0 else b"1"
             t = time.perf_counter()
             os.write(fd, key)
             r, _, _ = select.select([fd], [], [], 2)
@@ -220,7 +238,7 @@ class Bench:
                 first.append((t_first - t) * 1000)
                 frame.append((t_last - t) * 1000)
         self.stop_tui(pid, fd)
-        cond = "one TUI on a 120x40 pty, Down and Up keys; NO background work (the delaying agent proxy is not wired in this version)"
+        cond = "one TUI on a 120x40 pty, view keys 2 and 1 in turn; NO background work (the delaying agent proxy is not wired in this version)"
         self.result["key_to_first_byte"] = summary(first, errors, cond)
         self.result["key_to_frame"] = summary(frame, errors, cond + "; the frame ends at the last byte before 20 ms of quiet")
 
@@ -277,8 +295,12 @@ class Bench:
         self.first_and_session()
         self.session_metric("inspect_warm", lambda c, i: self.inspect_ok(c),
                             "one open control session, 20 warm-up requests first; process start excluded")
-        self.session_metric("ensure_warm", self.ensure_ok,
-                            "one open control session, the profile already authorized, a new request ID each time, 20 warm-up requests first")
+        self.session_metric("ensure_warm", self.ensure_new,
+                            "THE spec 15.1 row: one open control session; the profile covered by a standing personal policy (access allow); a new request ID each time; 20 warm-up requests first")
+        self.session_metric("ensure_replay", self.ensure_ok,
+                            "one open control session; the approved request ID replayed (answered from its record); 20 warm-up requests first")
+        self.cli("activate_covered", ["activate", "--hook", "--cwd", self.a.project], n=self.a.samples, cwd=self.a.project,
+                 conditions="end to end including process start: the trusted project's hook, covered by its standing authority")
         self.cli("cli_status", ["status"])
         self.cli("cli_inspect", ["inspect", "destinations"])
         self.tui_first_frame()
@@ -296,7 +318,7 @@ def iso():
 
 def main():
     p = argparse.ArgumentParser()
-    for name in ("--heimdall", "--control", "--environment", "--profile", "--work-id", "--out"):
+    for name in ("--heimdall", "--control", "--environment", "--profile", "--work-id", "--request-id", "--project", "--out"):
         p.add_argument(name, required=True)
     p.add_argument("--samples", type=int, default=200)
     p.add_argument("--destinations", type=int, default=100)
