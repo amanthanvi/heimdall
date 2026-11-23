@@ -146,3 +146,24 @@ account's own cargo home and refreshed only its sparse-index cache (reported by 
 Job 40's install steps (install, repeat, update to a marked copy, `-Rollback`, all with
 `-AssumeStopped`) exited 0, and showed finding M08-W1-F1, fixed in `1ea93bf2`
 (`tests/native/m08/lifecycle/README.md`).
+
+## Two builds of one commit (W2-6, 2026-11-23)
+
+Commit `9e0ff073`, built by `build-release.sh` from two checkouts at different paths (the
+gated worktree and a second worktree, `m08-repro`, each with its own `./target`), on the Mac,
+one after the other. Nothing was executed from the archives.
+
+| Target | Executable | Archive | What differs |
+|---|---|---|---|
+| `x86_64-unknown-linux-gnu` | **identical** (`3b90dfc9…`, also equal to `c3abefbf`'s: the product code is unchanged) | differs | Only `BUILD-RECORD.json` (its `started_at` and `finished_at`, the build's wall-clock times) and so `MANIFEST.sha256` |
+| `aarch64-unknown-linux-gnu` | **identical** (`c5ebf788…`) | differs | The same two files, for the same reason |
+| `aarch64-apple-darwin` | differs: 47 bytes in two places, same size (15,903,984 bytes) | differs | The Mach-O `LC_UUID` (16 bytes at offset 1944: `2AC12813-…` and `BAAFDA7F-…`), and the one 32-byte page hash of the ad-hoc code signature that covers it (at offset 15,780,688, inside the signature at 15,780,544). Then `BUILD-RECORD.json` and `MANIFEST.sha256` as on Linux |
+
+So no archive is reproducible today, and the word is not used. The two Linux executables are
+byte-identical across checkout paths. Two causes remain:
+- **the build record's two wall-clock fields,** packed into every archive;
+- **on macOS, the linker's UUID,** which depends on something that differs between the two
+  checkouts (to be found; the path remap already covers Rust and C sources).
+
+The Windows half is part B of PC job 47 (two clones after `/Brepro`).
+
