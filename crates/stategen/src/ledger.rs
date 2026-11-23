@@ -142,14 +142,27 @@ impl<F: Fs> Ledger<F> {
     /// Every entry. A missing ledger is an empty one.
     pub fn read(&self) -> Result<LedgerRead, LedgerError> {
         let bytes = self.bytes()?;
+        Self::parse(&bytes)
+    }
+
+    /// M08-W1-R03: a final record that is all zero bytes is a torn tail too. A stop during
+    /// an append, before its sync, can leave the file extended by a full record of zeros
+    /// (some file systems do this after a crash). That append never returned, so its request
+    /// made no store write. Only the last record, and only all zeros: any other record that
+    /// does not decode is damage.
+    fn parse(bytes: &[u8]) -> Result<LedgerRead, LedgerError> {
         let (records, tail) = bytes.as_chunks::<RECORD_LEN>();
+        let (records, torn_record) = match records.split_last() {
+            Some((last, rest)) if last.iter().all(|b| *b == 0) => (rest, RECORD_LEN),
+            _ => (records, 0),
+        };
         let mut entries = Vec::with_capacity(records.len());
         for (index, record) in records.iter().enumerate() {
             entries.push(Entry::decode(record).ok_or(LedgerError::Damaged(index))?);
         }
         Ok(LedgerRead {
             entries,
-            torn_tail: tail.len(),
+            torn_tail: torn_record + tail.len(),
         })
     }
 
@@ -158,8 +171,14 @@ impl<F: Fs> Ledger<F> {
     /// records stay aligned.
     pub fn append(&self, entry: Entry) -> Result<(), LedgerError> {
         let path = self.root.join(LEDGER);
-        let len = self.bytes()?.len();
-        let aligned = len - len % RECORD_LEN;
+        let bytes = self.bytes()?;
+        let len = bytes.len();
+        // Cut a torn tail (a short one, or a final record of zeros) before appending, so
+        // records stay aligned and the ledger stays readable. A damaged ledger is not
+        // repaired here and does not stop the append (as before): only its short tail is
+        // cut, and a restore treats the ledger as unreadable, behind the epoch fence.
+        let torn = Self::parse(&bytes).map_or(len % RECORD_LEN, |r| r.torn_tail);
+        let aligned = len - torn;
         if aligned != len {
             self.fs
                 .truncate_sync(Point::LedgerRepair, &path, aligned as u64)
@@ -309,6 +328,44 @@ mod tests {
             (read.entries, read.torn_tail),
             (vec![entry(1, b"a"), entry(1, b"b"), entry(2, b"d")], 0)
         );
+    }
+
+    #[test]
+    fn a_final_record_of_zeros_is_a_torn_tail() {
+        // Review M08-W1-R03: a stop during an append, before its sync, can leave the file
+        // extended by a whole record of zeros.
+        let dir = tempfile::tempdir().expect("a scratch directory");
+        let ledger = Ledger::new(RealFs, dir.path());
+        ledger.append(entry(1, b"a")).expect("append");
+        ledger.append(entry(1, b"b")).expect("append");
+        let path = dir.path().join(LEDGER);
+        let mut bytes = std::fs::read(&path).expect("read");
+        bytes.extend_from_slice(&[0u8; RECORD_LEN]);
+        std::fs::write(&path, &bytes).expect("write");
+        let read = ledger
+            .read()
+            .expect("a zero record at the end is not damage");
+        assert_eq!((read.entries.len(), read.torn_tail), (2, RECORD_LEN));
+        // The next append cuts it off; the ledger stays readable and can be trimmed.
+        ledger.append(entry(2, b"c")).expect("append");
+        let read = ledger.read().expect("read");
+        assert_eq!(
+            (read.entries, read.torn_tail),
+            (vec![entry(1, b"a"), entry(1, b"b"), entry(2, b"c")], 0)
+        );
+        assert_eq!(ledger.trim(|e| e.digest == key_digest(b"a")), Ok(1));
+        // A zero record that is not the last one is damage, and so is a final record that
+        // is not all zeros.
+        let mut bytes = std::fs::read(&path).expect("read");
+        bytes.splice(0..0, [0u8; RECORD_LEN]);
+        std::fs::write(&path, &bytes).expect("write");
+        assert_eq!(ledger.read(), Err(LedgerError::Damaged(0)));
+        let mut bytes = std::fs::read(&path).expect("read")[RECORD_LEN..].to_vec();
+        let mut last = [0u8; RECORD_LEN];
+        last[RECORD_LEN - 1] = 1;
+        bytes.extend_from_slice(&last);
+        std::fs::write(&path, &bytes).expect("write");
+        assert_eq!(ledger.read(), Err(LedgerError::Damaged(2)));
     }
 
     #[test]

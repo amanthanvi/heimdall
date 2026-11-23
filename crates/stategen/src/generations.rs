@@ -339,7 +339,7 @@ impl<F: Fs> StateDir<F> {
                 IntentFile::Read(_) => Err(StateError::Corrupt(CorruptReason::PointerMissing)),
                 IntentFile::Unreadable => Err(StateError::Corrupt(CorruptReason::IntentDamaged)),
                 IntentFile::None => {
-                    if !self.generation_names()?.is_empty() {
+                    if self.has_generation()? {
                         return Err(StateError::Corrupt(CorruptReason::PointerMissing));
                     }
                     if repair {
@@ -600,8 +600,14 @@ impl<F: Fs> StateDir<F> {
     /// goes, and the temporary pointer stays if that failed. A switching intent with no
     /// temporary pointer and no pointer would otherwise read as a removed pointer.
     fn abandon(&self, staged: Option<&GenerationName>, keep: Option<&Intent>) {
-        if let Some(name) = staged {
-            let _ = self.discard_staged(name);
+        // M08-W1-R01: when the staged generation cannot be removed, the intent and the
+        // temporaries stay exactly as they are. The intent is the only evidence that the
+        // directory is a leftover; the next start-up discards a generation an unfinished
+        // intent names, and nothing else.
+        if let Some(name) = staged
+            && self.discard_staged(name).is_err()
+        {
+            return;
         }
         let settled = match keep {
             Some(intent) => self
@@ -696,6 +702,26 @@ impl<F: Fs> StateDir<F> {
                 Residue { name, record }
             })
             .collect())
+    }
+
+    /// Whether `generations/` holds at least one directory with a generation's name
+    /// (M08-W1-R02). An empty `generations/`, left by a first install that failed cleanly, or
+    /// one holding only files or other names (`.DS_Store`, an editor's backup), shows no
+    /// pointer ever existed. This selects no generation; it only tells "never installed"
+    /// from "the pointer is gone".
+    fn has_generation(&self) -> Result<bool, StateError> {
+        for name in self.generation_names()? {
+            if let Some(name) = GenerationName::parse(&name)
+                && self
+                    .fs
+                    .kind(&self.generation_dir(&name))
+                    .map_err(plain_io(Point::Cleanup))?
+                    == Kind::Dir
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn generation_names(&self) -> Result<Vec<String>, StateError> {
