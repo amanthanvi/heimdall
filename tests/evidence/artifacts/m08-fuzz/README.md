@@ -6,7 +6,7 @@ binary is kept here.
 
 | File | What it is |
 |---|---|
-| `results.txt` | Every run's line as `run-campaign.sh` wrote it: target, exit code, end time (UTC), requested seconds. The runs do not record their tree (W2 adds that) |
+| `results.txt` | Every run's line as `run-campaign.sh` wrote it: target, exit code, end time (UTC), requested seconds. Runs before W2 do not record their build; from W2 each line ends with `build=<id>` (`fuzz/accounting.txt` says which earlier runs count) |
 | `fuzz-lock.sha256` | The fuzz crate's `Cargo.lock` digest the campaign was built from |
 | `artifacts-count.txt` | Files in each target's artifact (crash) directory: 0 for all 17 |
 | `<target>.closing-extract.txt` | From the target's log of its closing run (1800 s): the `INITED` line (coverage when the corpus was loaded), the last three coverage lines, and libFuzzer's final statistics |

@@ -16,6 +16,17 @@ the `ssh -G` output reader take files and a child process, and have no target.
   with `run-campaign.sh crashes <dir>` into a directory of their own.
 - **The stopping rule** is ADR-0014 §2.3: at least 2 CPU-hours per target, no new coverage in
   the last 30 minutes, no open finding; a ceiling of 8 CPU-hours.
+  - **"No new coverage" means no new edge** (libFuzzer's `cov`), ruled by the orchestrator on
+    2026-11-23 (review M08-W1-R08(b)): the plan's coverage counter. Features (`ft`) and corpus
+    entries are recorded beside it and may still grow.
+  - **CPU-hours are wall-clock seconds of one target.** Two targets run at a time in a
+    container capped at 2 CPUs, so a target's second of `-max_total_time` is about one
+    CPU-second (R08(e)).
+  - **Time counts per build** (R08(a)). Setup records a build identity: a SHA-256 over every
+    file of the workspace crates the fuzz crate links, its manifest, lock file and targets.
+    Every run line carries it (`build=`), and the report counts only the current build's runs,
+    plus earlier unrecorded runs that `fuzz/accounting.txt` declares equivalent, with the
+    reason. It prints the counted time, its two parts and the time of all runs.
 
 | Target | Boundary | Entry points |
 |---|---|---|
@@ -45,6 +56,17 @@ Not reached by any target: the known-hosts file reader and the `ssh -G` output r
 |---|---|---|---|
 | 2026-11-22 | `m08/w0` at `bd1a8c43` (product code = `main` at `de097dac`) | 300 s, all nine | exit 0 each; 0 findings; about 35 million executions in total. Coverage was still growing on most targets, so **the stopping rule is not met**; this run proves the harness |
 | 2026-11-22 | the same | 3600 s more on `sshconf_parse`, `gitedit_scan`, `control_frame`, `project_manifest` (corpus kept from the first run) | exit 0 each; 0 findings; about 67 million executions. A new input was still being found in the last seconds of each, so **the stopping rule is not met** |
+
+**Six runs exited 1 (2026-11-22, 12:08Z to 12:21Z, 300 s requested):** `frame_codec`,
+`sshconf_eval`, `registry_line`, `issuer_protocol`, `issuer_backup`, `known_hosts_match`
+(review M08-W1-R08(c)). They were build failures, not crashes. The setup before them, which
+added these targets, had been killed: the address-sanitizer compile of `heimdall-runtime` ran
+out of the container's 4 GiB (`signal: 9, SIGKILL` in the setup log, read at 12:21Z). So
+`cargo fuzz run` tried to build each target, failed, and exited 1, at about 2.5-minute
+spacing and with no fuzzing. Their artifact directories are empty. Setup was then given
+8 GiB and one compile job, and these targets ran from 12:50Z with exit 0. The setup and run
+logs of that hour were overwritten and are not kept; this rests on the session's record of
+the setup log and on the timing.
 
 **Do not run a campaign while `check.sh` runs.** The second campaign overlapped a `check.sh`
 run, and two timing-sensitive issuer tests in `e2e_cli_m03` failed under the load; they
@@ -78,41 +100,48 @@ prints both.
 
 ### The closing pass (2026-11-23, 09:00Z to 13:31Z)
 
-The fuzz binaries are those built at setup. No crate they link has changed since `ec985922`:
-the only crate W1 changed is `crates/stategen`, which no target links.
+The fuzz binaries are those built at setup (2026-11-23, 00:07Z to 00:21Z), build identity
+`9dd72f8fd9e5c17c`, equal to that of `ec985922` and `b157352e` recomputed from git. W1 changed
+only `crates/stategen`, which no target links.
 
-1800 s on every target, two at a time, after the batches above. Every run exited 0; no
-finding on any target. Fuzz lock sha256 `c330d00e…`. The table is the report's own line for
-each target; `cov` is edge coverage, `ft` libFuzzer's feature count, recorded separately.
+1800 s on every target, two at a time. Every run exited 0; no finding on any target. Fuzz
+lock sha256 `c330d00e…`. The figures come from the raw extracts in
+`tests/evidence/artifacts/m08-fuzz/`. "Counted on this build" excludes the runs on
+`bd1a8c43`'s build (all ending by 2026-11-22T13:05:06Z), per `fuzz/accounting.txt`.
 
-| Target | Cumulative (s) | Closing run: cov at load → end | ft at end | Executions (closing run) | Findings | Stopping rule |
-|---|---|---|---|---|---|---|
-| `sshconf_parse` | 9,000 | 440 → 442 | 3020 | 19,299,535 | 0 | not met |
-| `gitedit_scan` | 9,000 | 817 → 820 | 5248 | 14,638,807 | 0 | not met |
-| `agent_reply` | 8,400 | 1240 → 1245 | 2976 | 325,338,096 | 0 | not met |
-| `control_frame` | 5,700 | 2649 → 2818 | 9938 | 68,628,583 | 0 | not met |
-| `signing_request` | 8,400 | 96 → 96 | 97 | 1,607,369,963 | 0 | met |
-| `userauth_request` | 8,400 | 600 → 712 | 881 | 654,199,887 | 0 | not met |
-| `registry_hm1` | 8,100 | 588 → 588 | 1549 | 515,170,874 | 0 | met |
-| `project_manifest` | 5,700 | 5388 → 5441 | 28931 | 15,987,305 | 0 | not met |
-| `runtime_config` | 8,700 | 5761 → 5932 | 27919 | 14,146,726 | 0 | not met |
-| `sshconf_eval` | 8,700 | 1595 → 1676 | 7119 | 274,919 | 0 | not met |
-| `frame_codec` | 8,700 | 98 → 98 | 423 | 168,492,801 | 0 | met |
-| `registry_line` | 9,000 | 115 → 115 | 723 | 23,270,437 | 0 | met |
-| `issuer_protocol` | 9,000 | 2720 → 2766 | 10621 | 45,918,564 | 0 | not met |
-| `issuer_backup` | 9,000 | 4951 → 4971 | 12984 | 115,144,017 | 0 | not met |
-| `known_hosts_match` | 9,000 | 129 → 129 | 647 | 348,926,304 | 0 | met |
-| `runtime_instance` | 9,000 | 1799 → 1799 | 5231 | 332,768,745 | 0 | met |
-| `registry_script` | 9,000 | 416 → 416 | 1267 | 538,320,109 | 0 | met |
+| Target | All runs (s) | Counted on this build (s) | Closing run: edges (`cov`) load → end | Features (`ft`) load → end | Corpus entries load → end | Findings | Stopping rule |
+|---|---|---|---|---|---|---|---|
+| `sshconf_parse` | 9,000 | 5,100 | 440 → 442 | 3009 → 3020 | 945 → 953 | 0 | not met: edges grew |
+| `gitedit_scan` | 9,000 | 5,100 | 817 → 820 | 5160 → 5248 | 1691 → 1727 | 0 | not met: edges grew |
+| `agent_reply` | 8,400 | 8,100 | 1240 → 1245 | 2552 → 2976 | 307 → 324 | 0 | not met: edges grew |
+| `control_frame` | 5,700 | 1,800 | 2649 → 2818 (report line; extract to follow) | | | 0 | not met: edges grew; under 7200 s on this build |
+| `signing_request` | 8,400 | 8,100 | 96 → 96 | 97 → 97 | 20 → 20 | 0 | met |
+| `userauth_request` | 8,400 | 8,100 | 600 → 712 | 745 → 881 | 171 → 211 | 0 | not met: edges grew |
+| `registry_hm1` | 8,100 | 7,800 | 588 → 588 | 1511 → 1549 | 517 → 547 | 0 | met |
+| `project_manifest` | 5,700 | 1,800 | 5388 → 5441 (report line; extract to follow) | | | 0 | not met: edges grew; under 7200 s on this build |
+| `runtime_config` | 8,700 | 8,400 | 5761 → 5932 | 27110 → 27919 | 6043 → 6350 | 0 | not met: edges grew |
+| `sshconf_eval` | 8,700 | 8,400 | 1595 → 1676 | 6596 → 7119 | 1050 → 1134 | 0 | not met: edges grew |
+| `frame_codec` | 8,700 | 8,400 | 98 → 98 | 423 → 423 | 85 → 85 | 0 | met |
+| `registry_line` | 9,000 | 8,700 | 115 → 115 | 722 → 723 | 251 → 252 | 0 | met |
+| `issuer_protocol` | 9,000 | 8,700 | 2720 → 2766 | 10478 → 10621 | 2632 → 2700 | 0 | not met: edges grew |
+| `issuer_backup` | 9,000 | 8,700 | 4951 → 4971 | 12879 → 12984 | 5135 → 5192 | 0 | not met: edges grew |
+| `known_hosts_match` | 9,000 | 8,700 | 129 → 129 | 646 → 647 | 204 → 205 | 0 | met |
+| `runtime_instance` | 9,000 | 8,700 | 1799 → 1799 | 5224 → 5231 | 2014 → 2018 | 0 | met |
+| `registry_script` | 9,000 | 9,000 | 416 → 416 | 1267 → 1267 | 490 → 490 | 0 | met |
 
-**Met (7):** `signing_request`, `registry_hm1`, `frame_codec`, `registry_line`, `known_hosts_match`, `runtime_instance`, `registry_script`. For each, the whole 1800 s
-closing run found no new edge, the target has at least 7200 s and no finding.
-Their `ft` may still have moved by a few; the rule reads `cov`.
+**Met (7):** `signing_request`, `registry_hm1`, `frame_codec`, `registry_line`, `known_hosts_match`, `runtime_instance`, `registry_script`.
+**Not met (10):** `sshconf_parse`, `gitedit_scan`, `agent_reply`, `control_frame`, `userauth_request`, `project_manifest`, `runtime_config`, `sshconf_eval`, `issuer_protocol`, `issuer_backup`.
 
-**Not met (10):** `sshconf_parse`, `gitedit_scan`, `agent_reply`, `control_frame`, `userauth_request`, `project_manifest`, `runtime_config`, `sshconf_eval`, `issuer_protocol`, `issuer_backup`. Each still gained edges
-in its closing run. `control_frame` and `project_manifest` also lack 7200 s (a Docker client
-disconnect cut their earlier run short) and run a make-up of 3300 s, then 1800 s. The others
-run on, toward the 8 CPU-hour ceiling (28,800 s), and are claimed only from a later closing
-run with no new edge.
- Results recorded before the merge are
-from the older product code; the corpus carries over, the coverage figures do not.
+The seven met targets are the ones the W1 report recorded; counted per build, each still has
+at least 7,800 s. `registry_hm1` added 30 corpus entries in its closing run (517 → 547) and
+38 features, with no new edge: observed, and within the rule as ruled. `runtime_instance`,
+`known_hosts_match` and `registry_line` likewise gained features or corpus entries but no
+edge.
+
+The ten not met run on toward the 8 CPU-hour ceiling (28,800 s counted) and are claimed only
+from a later closing run of the counted build with no new edge. `control_frame` and
+`project_manifest` have 1,800 s on this build: their 3,900 s before the M06 merge ran on
+`bd1a8c43`'s build and do not count (review M08-W1-R08(a)).
+
+Results recorded before the merge are from the older product code; the corpus carries over,
+the coverage figures do not.
