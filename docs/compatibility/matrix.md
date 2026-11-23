@@ -1,6 +1,6 @@
 # Compatibility matrix
 
-**Matrix version:** 1 · **Updated:** 2026-10-09 (M00-T02-fix2) · v0: M00-T06, commit 18bb8df, 2026-10-02
+**Matrix version:** 2 · **Updated:** 2026-11-23 (M08 W2: the header and the floor table; the rows are as before) · v1: 2026-10-09 (M00-T02-fix2) · v0: M00-T06, commit 18bb8df, 2026-10-02
 
 This file is the baseline/support-matrix output of M00-T02 (plan.md M00-T02: "construct the baseline/support
 matrix") and the matrix deliverable of G01 (plan §3). M00-T06 created v0. M00-T02-fix2 refreshed it to v1: every row
@@ -10,8 +10,11 @@ of 2026-10-06. The delegation is recorded in ADR-0003 ("Support matrix") and `do
 Each row carries three separate statuses:
 
 - **Label**: the spec §3.3 product-support label (`verified`, `supported-with-limitations`, `experimental`,
-  `unsupported`, `not-tested`). Every row is `not-tested`. No Heimdall build exists, and ADR-0001 §9 keeps every
-  platform at `not-tested` until ADR-0001 §5 (floors) and §6 (baseline worksheet) close. A row changes from
+  `unsupported`, `not-tested`). Every row is `not-tested`. Heimdall builds exist: milestones M01 to M07 ran
+  their suites natively on these platforms (debug builds on scratch stores: mechanism evidence), and M08 built the
+  first release archives (macOS arm64, Linux x86-64 and arm64, and Windows x86-64 on the PC) and verified them
+  statically. None was run on a clean machine or in a fresh account, and no build is the release candidate. ADR-0001
+  §9 keeps every platform at `not-tested` until ADR-0001 §5 (floors) and §6 (baseline worksheet) close. A row changes from
   `not-tested` only with a cited evidence record in `tests/evidence/` that tests Heimdall itself. Compilation,
   detection of an executable, container emulation, a gate probe and a prototype run never upgrade a label.
 - **Gate evidence**: the plan §1.4 status (`not_started`, `in_progress`, `blocked`, `implemented_unverified`,
@@ -682,13 +685,17 @@ evidence record and do not change any status here.
 
 ## Version floors (ADR-0001 §5)
 
-| Target | Floor | Status | Blocked on | Observed so far (not a floor) |
+ADR-0004 §4 set the floors provisionally; ADR-0001 §5 states them (amended 2026-11-23). A provisional floor is not a
+confirmed one: every status below stays `blocked` until its clean-machine run exists, and no label changes with it.
+
+| Target | Floor (provisional) | Status | Confirmed only by | Observed so far (not a floor) |
 |---|---|---|---|---|
-| macOS arm64 | TBD | blocked | G01 clean-machine install test of a selected-stack build | macOS 27.0 (26A428), OpenSSH_10.3p1 (dev host, 2026-10-03) |
-| Linux x86-64 / arm64 | TBD | blocked | native Linux desktop/user-session and headless hosts; G01 clean-machine tests | none on a native Linux host |
-| Windows x86-64 | TBD (Windows build + Win32-OpenSSH version) | blocked | G01 clean-machine tests; owner item E6 for the Win32-OpenSSH baseline. The owner PC is not a clean machine. | Windows 11 Pro 26300.9550; inbox 9.5p2 (9.5.6.3); MSI 10.0p2 (10.0.0.0); Git for Windows 2.55.0.windows.3 with MSYS 10.3p1 (2026-10-06) |
-| WSL2 x86-64 | TBD (WSL version + distributions) | blocked | G01 clean-machine tests; a disposable distribution | WSL 3.0.1.0, Ubuntu 24.04.5, kernel 6.18.40.1, Linux OpenSSH 9.6p1 (2026-10-06) |
-| 1Password SSH agent | TBD | blocked | owner-authorized disposable account and vault with disposable keys on each OS | none |
+| macOS arm64 | macOS 27 | blocked | a clean macOS VM (B15) | macOS 27.0 (26A428), OpenSSH_10.3p1 (dev host, 2026-10-03) |
+| Linux x86-64 | Ubuntu 24.04 and Debian 13 | blocked | a disposable WSL2 distribution (m08-plan §4.2), awaiting the owner's decision | Ubuntu 24.04 with glibc 2.39 on the devbox (headless; debug test runs); the release archive's highest symbol version is GLIBC_2.30 (PC job 33) |
+| Linux arm64 | pending a native host | blocked | a native Linux arm64 host (B9) | `debian:13-slim` and `ubuntu:24.04` containers on the Mac only (supplementary) |
+| Windows x86-64 | Windows 11 26H2 x64 with the in-box OpenSSH | blocked | a clean Windows VM or Windows Sandbox (B15); owner item E6 for the Win32-OpenSSH baseline. The owner PC is not a clean machine. | Windows 11 Pro 26300.9550; inbox 9.5p2 (9.5.6.3); MSI 10.0p2 (10.0.0.0); Git for Windows 2.55.0.windows.3 with MSYS 10.3p1 (2026-10-06) |
+| WSL2 x86-64 | WSL2 with Ubuntu 24.04 | blocked | the same disposable WSL2 distribution | WSL 3.0.1.0, Ubuntu 24.04.5, kernel 6.18.40.1, Linux OpenSSH 9.6p1 (2026-10-06) |
+| 1Password SSH agent | none set | blocked | an owner-authorized disposable account and vault with disposable keys on each OS (B1) | none |
 
 ADR-0001 §5 (since commit 9b3f665) gives the same reason for Windows and WSL2: the floors stay `blocked` until G01
 clean-machine tests. The owner's Windows 11 PC has been available for gate probes since 2026-10-06, but it is not a clean
