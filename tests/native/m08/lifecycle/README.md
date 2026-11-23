@@ -7,7 +7,7 @@ Install, update, roll back and uninstall from release archives (m08-plan §7.2, 
 |---|---|
 | `install-selftest.sh` | Tests `tools/packaging/install.sh` with fake archives: no real executable is used or run, so it is safe on any host. 41 checks, including the W0 review's cases (a failed backup, symlinks at staging names, an unterminated manifest, a runtime that does not answer, an interrupted rollback) |
 | `journey.sh` | The journey itself. `--build release`: archives, run as a disposable account; it sets no test variable, refuses outside a container and refuses if any `HEIMDALL_TEST_*` is set; there is no override. `--build debug`: two debug executables, on a host; it exports and verifies all six scratch variables first, runs every `ssh` with `-F` on the scratch configuration behind a default-identity guard, and **skips every `heimdall connect` step** (see the incident below) |
-| `install-selftest.ps1` | The Windows counterpart, for `install.ps1`: 53 checks. **Rehearsed under PowerShell 7 on macOS only** (the logic, with symbolic links standing in for junctions); **not yet run on Windows** |
+| `install-selftest.ps1` | The Windows counterpart, for `install.ps1`: 53 checks. Run on the Windows PC under Windows PowerShell 5.1 and PowerShell 7, with real junctions (see Runs) |
 | `install-revert-proofs.ps1` | Takes one fix at a time out of a scratch copy of `install.ps1` (by its marker comments) and shows the self-test then fails in the expected cases. For the PC job |
 | `run-journey.sh` | Starts `journey.sh --build release` in the M08 container (no network, 2 CPUs, 2 GiB, an init process) |
 
@@ -123,3 +123,14 @@ under 5.1 and 7.
   untested.
 - `install-selftest.ps1`: PASS, 53 checks, and `install-revert-proofs.ps1`: PASS, both under
   PowerShell 7 **on macOS only**.
+
+## Windows PC runs
+
+| Run | Result |
+|---|---|
+| Job 31, at `a1bb1a69` (W0.2) | `install-selftest.ps1`: PASS, 43 checks, under Windows PowerShell 5.1 and PowerShell 7, with real junctions. `install-revert-proofs.ps1`: PASS under both. The same job ran the workspace tests (134 test binaries, 3328 passed, 0 failed, 39 ignored) and the six Python self-tests |
+| Job 32, at `153bf6af` (W0.3), the installer files only | `install-selftest.ps1`: PASS, 53 checks, under both. `install-revert-proofs.ps1`: PASS under both: with the W01-R01 fix taken out 11 checks fail, with W01-R02 taken out 3 fail. Nothing was left in the temporary directories and no install directory was created in the account |
+
+These close the paragraph above that calls Windows the open evidence, for the self-test's
+cases. They do not show an install of a real Windows archive: `build-release.ps1` has never
+been run, so no Windows archive exists. The `Kind` access-denied line stays untested.
