@@ -25,6 +25,12 @@ This lists what stopping the runtime interrupts and changes nothing. In short:
 
 1. Verify the new archive against `SHA256SUMS` from the repository (see `install.md`).
 2. Stop the runtime: `heimdall service stop`.
+   The install script refuses while a Heimdall process started from the installed
+   executable is running, and asks the installed executable whether a runtime is running.
+   `-AssumeStopped` (Windows) or `--assume-stopped` (macOS, Linux) skips that question and
+   trusts you that nothing is running. A process started through a `subst` drive letter, an
+   8.3 short name, or a relative or PATH-found name is not matched by the process check and is
+   caught only by that question; use the flag only when you have checked yourself.
 3. Run the new archive's install script. It keeps your current executable as
    `heimdall.previous`. If it is interrupted, run it again: it finishes the update. Until then
    the install path still holds a complete executable, the old one or the new one (macOS and
