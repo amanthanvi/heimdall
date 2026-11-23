@@ -165,5 +165,20 @@ byte-identical across checkout paths. Two causes remain:
 - **on macOS, the linker's UUID,** which depends on something that differs between the two
   checkouts (to be found; the path remap already covers Rust and C sources).
 
-The Windows half is part B of PC job 47 (two clones after `/Brepro`).
+**After the record fix (`a186a293`, the same day): the Linux archives are reproducible.**
+Built again at `a186a293` from two checkouts at different paths (the dev worktree and a fresh
+second worktree, each with its own `./target`), on the Mac, through zig:
+
+| Target | Archive (both checkouts) | Executable |
+|---|---|---|
+| `x86_64-unknown-linux-gnu` | **identical**, sha256 `2ff57e87b0cf8784963efbc09fce73da4a4fb1635144233cdd5c3283f04d3906` | identical, `3b90dfc9…` |
+| `aarch64-unknown-linux-gnu` | **identical**, sha256 `f07ac725db32da48db564388ec064db1608e4f93ab8503cee167f711f0f18214` | identical, `c5ebf788…` |
+
+So the Linux x86-64 and Linux arm64 archives of `a186a293` are **reproducible** across checkout
+paths on this build host, with this toolchain: two builds give byte-identical archives. Not shown:
+a build on another host, or with another zig or Rust release. The external
+`<name>.build-record.json` still carries each build's start and finish, as intended.
+
+macOS still differs in its `LC_UUID`. The Windows half is part B of PC job 47 (two clones after
+`/Brepro`, at `2bcf4dc0`, before the record fix, so only its executables can match).
 
