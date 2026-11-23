@@ -28,6 +28,20 @@ SAMPLES = {
 # the child itself: it writes the run record, prints one line and waits for its input to end.
 # Mode `exit:CODE=N` ends every answer whose envelope code is CODE with exit N instead of
 # the documented class, the envelope unchanged.
+# Mode `refuse:A,B` refuses the release of bindings A and B, and `refuse:*` every release:
+# the caller does not own the binding. `refuse-unknown:` answers that there is no such
+# binding, `refuse-novel:` with a code no table has, and `refuse-exit-0:` as `refuse:`
+# does but in the wrong exit class.
+# Mode `uncertain:NAMES:MEANS:SAYS[:EXIT]` answers the first release of each binding in
+# NAMES with `OUTCOME_UNKNOWN` (exit 7, or EXIT). MEANS is how that answer names its
+# operation: `operation` (in `next`), `own` (the envelope's own only), `bindings` (none).
+# SAYS is what an observation then says. Of the operation: `released`, `never-ran` (it
+# failed with effect `none`), `partial` (it ended with a partial effect), `unknown`,
+# `unfinished`, `missing` (there is no such operation), `wrong-exit` (ended, but in the
+# wrong exit class). Of the list of bindings, for each binding in NAMES: `active`,
+# `released`, `absent` (not listed), `odd` (a state no table has), `twice` (listed in
+# two states), `unknown` (the list cannot be read), `wrong-exit` (as `absent`, in the
+# wrong exit class). The list always names one other binding, `active`.
 STUB = r'''
 import json
 import os
@@ -39,6 +53,8 @@ args = sys.argv[1:]
 mode = "normal" if args[0] == "--json" else args.pop(0)
 assert args[:2] == ["--json", "--non-interactive"], args
 args = args[2:]
+uncertain = (dict(zip(("names", "means", "says", "exit"), mode.split(":")[1:]))
+             if mode.startswith("uncertain:") else None)
 root = Path.cwd()
 for key, directory in (("HOME", "acct"), ("HEIMDALL_HOME", "hm"), ("HEIMDALL_TEST_SSH_HOME", "sshh")):
     assert Path(os.environ[key]).resolve() == root / directory, key
@@ -160,6 +176,20 @@ elif args[:2] == ["access", "ensure"]:
     ready()
 elif args[:2] == ["operation", "wait"]:
     assert args[2:] == [OP, "--timeout-ms", "20000"], args
+    if uncertain:  # the operation of an uncertain release
+        says = uncertain["says"]
+        if says == "missing":
+            refuse("NOT_FOUND", "fix_request", 2)
+        if says == "never-ran":
+            view("CAPABILITY_UNAVAILABLE", "failed", "none", {"error": {}}, exit_code=4)
+        if says == "partial":
+            view("OPERATION_CANCELLED", "cancelled", "partial", {"error": {}}, exit_code=4)
+        if says == "unknown":
+            view("OUTCOME_UNKNOWN", "outcome_unknown", "unknown", {"error": {}}, exit_code=7)
+        if says == "unfinished":
+            view(None, "running", "unknown", None, {"action": "observe", "operation_id": OP}, 5)
+        view("OK", "succeeded", "applied", {"outcome": "released"},
+             exit_code=3 if says == "wrong-exit" else 0)
     if mode == "denied":
         view("CAPABILITY_UNAVAILABLE", "failed", "none", {"error": {}}, exit_code=4)
     if mode == "still-unknown":
@@ -171,8 +201,36 @@ elif args[:2] == ["operation", "wait"]:
     view("ACCESS_READY", "succeeded", "applied", {"binding_id": BINDING})
 elif args[:2] == ["access", "release"]:
     assert len(args) == 3 and (args[2] in (BINDING, SECOND) or args[2].startswith("binding_many_")), args
+    if (uncertain and args[2] in uncertain["names"].split(",")
+            and count("uncertain-" + args[2]) == 0):
+        following, own = {"action": "reconcile"}, {}
+        if uncertain["means"] == "operation":
+            following["operation_id"] = OP
+        if uncertain["means"] == "own":
+            own["operation_id"] = OP
+        emit("OUTCOME_UNKNOWN", int(uncertain.get("exit", 7)),
+             {"error": {"code": "OUTCOME_UNKNOWN", "effect_status": "unknown", "next": following}},
+             following, state="outcome_unknown", **own)
+    kind, _, named = mode.partition(":")
+    if kind.startswith("refuse") and (named == "*" or args[2] in named.split(",")):
+        if kind == "refuse-unknown":
+            refuse("NOT_FOUND", "fix_request", 2)
+        if kind == "refuse-novel":
+            refuse("SOMETHING_NEW", "report", 1)
+        refuse("CAPABILITY_UNAVAILABLE", "narrow_request", 0 if kind == "refuse-exit-0" else 4)
     answered = "binding_other" if mode == "other-binding" else args[2]
     emit("OK", 0, {"binding_id": answered, "outcome": {"outcome": "released"}}, state="succeeded")
+elif args == ["inspect", "bindings"]:
+    says = uncertain["says"] if uncertain else "absent"
+    if says == "unknown":
+        refuse("SERVICE_UNAVAILABLE", "retry_after", 5)
+    states = {"active": ["active"], "released": ["released"], "odd": ["suspended"],
+              "twice": ["active", "released"]}.get(says, [])
+    listed = [{"binding_id": "binding_bystander", "grant_id": "grant_fixture", "state": "active"}]
+    for name in (uncertain["names"].split(",") if uncertain else []):
+        listed += [{"binding_id": name, "grant_id": "grant_fixture", "state": state}
+                   for state in states]
+    emit("OK", 4 if says == "wrong-exit" else 0, {"bindings": listed}, state="succeeded")
 elif args[0] == "run":
     assert args[1] == "--profile" and args[3] == "--work-id" and args[5] == "--request-id", args
     assert args[7] == "--meta-file" and args[9] == "--" and Path(args[10]).is_absolute(), args
@@ -246,12 +304,41 @@ class TableTests(unittest.TestCase):
                 targets.add(row.to)
         self.assertEqual(targets, set(h2.STATES) - {"start"})
         # Every state a goal can make a call from has a row for an exit class that does
-        # not fit, and every code a row acts on has a documented exit class.
-        self.assertEqual(set(h2.CALLING), set(h2.STATES) - {"stopped", "failed", "inconsistent",
-                                                              "unresolved"})
+        # not fit, unless every call it makes is about a release (RELEASE_SAYS reads
+        # those). Every code a row acts on has a documented exit class.
+        ended = {"stopped", "failed", "inconsistent", "unresolved"}
+        self.assertEqual(set(h2.CALLING),
+                         set(h2.STATES) - ended - {"running", "releasing", *h2.OBSERVING})
+        self.assertEqual(set(h2.CALLING) | set(h2.STOPPING), set(h2.STATES) - ended)
         self.assertEqual([row.states for row in h2.TRANSITIONS if row.code == h2.MISMATCH],
                          [h2.CALLING])
-        self.assertEqual({row.code for row in h2.TRANSITIONS if row.code.isupper()},
+        # RELEASE_SAYS reads every answer to each call that is about a release: the
+        # last row for a call applies to any answer. Each reading has a name for the
+        # record and rows in the table, and each observing state makes an observing call.
+        for call in ("release", *h2.OBSERVED_BY):
+            rows = [row for row in h2.RELEASE_SAYS if row.call == call]
+            self.assertEqual(tuple(rows[-1])[1:6], (None,) * 5, call)
+            self.assertIn(call, h2.LOCAL_CALL_SET)
+        self.assertEqual({row.call for row in h2.RELEASE_SAYS}, {"release", *h2.OBSERVED_BY})
+        self.assertEqual({row.reading for row in h2.RELEASE_SAYS}, set(h2.OUTCOMES))
+        self.assertTrue(set(h2.OUTCOMES) <= {row.code for row in h2.TRANSITIONS})
+        self.assertEqual({h2.FOLLOW[name][0] for name in h2.OBSERVING}, set(h2.OBSERVED_BY))
+        self.assertTrue(set(h2.SET_ASIDE) <= set(h2.OUTCOMES.values()))
+        # One reading alone is followed by a new release of the same binding, and one
+        # call alone can give it: the wait on the operation the uncertain answer named.
+        # Nothing read from the list of bindings leads to a release.
+        self.assertEqual({row.call for row in h2.RELEASE_SAYS if row.reading == h2.NOT_RUN},
+                         {"observe"})
+        self.assertEqual({name for row in h2.TRANSITIONS if row.code == h2.NOT_RUN
+                          for name in row.states}, {"observing_release"})
+        # A binding leaves the list of those held by two outcomes, and one is a release.
+        # Every outcome that keeps it held, and `not_listed`, has a list in a goal's record.
+        self.assertEqual(h2.NOT_HELD, ("released", "not_listed"))
+        self.assertFalse(set(h2.NOT_HELD) & set(h2.SET_ASIDE))
+        self.assertEqual(h2.SET_ASIDE, ("refused", *h2.UNKNOWN))
+        self.assertEqual(sorted(h2.RECORDED.values()), sorted(h2.SET_ASIDE + ("not_listed",)))
+        # `NOT_FOUND` alone has a class and no row: it is checked as a refused release.
+        self.assertEqual({row.code for row in h2.TRANSITIONS if row.code.isupper()} | {"NOT_FOUND"},
                          {key for key in h2.EXIT_CLASSES if isinstance(key, str)})
         for key, exit_class in h2.EXIT_CLASSES.items():
             self.assertIn(exit_class, range(8), key)
@@ -395,6 +482,194 @@ class TableTests(unittest.TestCase):
                 self.assertEqual(after, h2.State("stopped"))
         self.assertEqual(h2.FOLLOW["releasing"], ("release", None))
 
+    def test_a_refused_release_goes_on_to_the_next_binding_and_fails_the_stop(self):
+        refused = {"binding_id": "binding_refused", "code": "CAPABILITY_UNAVAILABLE", "exit_code": 4}
+        failed = h2.State("failed", **refused)
+        self.assertEqual(failed.record(), dict(refused, state="failed"))
+        for name in h2.RELEASABLE:
+            with self.subTest(state=name):
+                before = sample_state(name)
+                more = {"held": {"binding_id": "binding_older"}, "unreleased": refused}
+                last = {"held": {}, "unreleased": refused}
+                # The refusal itself: on to the next binding, or the end of the stop.
+                after, row = h2.transition(before, h2.Reading(h2.REFUSED, "none", None, more))
+                self.assertEqual((after, row.to), (h2.State("releasing", binding_id="binding_older"),
+                                                   "releasing"))
+                after, row = h2.transition(before, h2.Reading(h2.REFUSED, "none", None, last))
+                self.assertEqual((after, row.to), (failed, "failed"))
+                # A later release that is answered: the stop still fails once none is left.
+                after, row = h2.transition(before, h2.Reading("OK", "none", None, dict(more, code="OK")))
+                self.assertEqual(after, h2.State("releasing", binding_id="binding_older"))
+                after, row = h2.transition(before, h2.Reading("OK", "none", None, dict(last, code="OK")))
+                self.assertEqual((after, row.to), (failed, "failed"))
+        # Only a release leads there, and no envelope can stand in for the planner's reading.
+        self.assertEqual({row.states for row in h2.TRANSITIONS if row.code == h2.REFUSED},
+                         {h2.RELEASABLE})
+        self.assertNotIn("failed", h2.FOLLOW)
+        self.assertNotIn("failed", h2.GOALS["stop"]["accept"])
+        with self.assertRaises(h2.PlannerError):
+            h2.read_envelope({"schema_version": "1", "code": h2.REFUSED})
+
+    def test_what_an_answer_says_about_a_release(self):
+        view = lambda effect: {"data": {"effect_status": effect}}
+        listed = lambda state: {"binding": {"state": state}}
+        refused, uncertain, observed, not_run = h2.REFUSED, h2.UNCERTAIN, h2.OBSERVED, h2.NOT_RUN
+        # An observation never reads as the release's own uncertain answer, and the
+        # other way about: one that settles nothing is `still`.
+        still, not_listed = h2.STILL_UNCERTAIN, h2.NOT_LISTED
+        # (the call, the code, next.action, whether the exit class fits, typed facts, the reading)
+        rows = (
+            # the release itself
+            ("release", "OK", "none", True, {}, "OK"),
+            ("release", "OK", "none", False, {}, refused),
+            ("release", "OK", "observe", True, {}, refused),
+            ("release", "CAPABILITY_UNAVAILABLE", "narrow_request", True, {}, refused),
+            ("release", "CAPABILITY_UNAVAILABLE", "narrow_request", False, {}, refused),
+            ("release", "NOT_FOUND", "fix_request", True, {}, refused),
+            ("release", "BRAND_NEW_CODE", "report", True, {}, refused),
+            # uncertain whatever its exit status and whatever follows: never a refusal
+            ("release", "OUTCOME_UNKNOWN", "reconcile", True, {}, uncertain),
+            ("release", "OUTCOME_UNKNOWN", "reconcile", False, {}, uncertain),
+            ("release", "OUTCOME_UNKNOWN", "none", True, {}, uncertain),
+            # its operation, waited on
+            ("observe", "OK", "none", True, view("applied"), observed),
+            ("observe", "OK", "none", False, view("applied"), still),
+            ("observe", "OK", "observe", True, view("none"), still),  # unfinished
+            ("observe", "OK", "observe", True, view("unknown"), still),  # unfinished
+            ("observe", "OUTCOME_UNKNOWN", "none", True, view("unknown"), still),
+            ("observe", "OUTCOME_UNKNOWN", "none", True, view("none"), still),
+            # it ended, and its result says the release did not happen
+            ("observe", "CAPABILITY_UNAVAILABLE", "none", True, view("none"), not_run),
+            ("observe", "OPERATION_CANCELLED", "none", True, view("none"), not_run),
+            ("observe", "OPERATION_CANCELLED", "none", True, view("partial"), still),
+            ("observe", "OPERATION_CANCELLED", "none", True, view("applied"), still),
+            ("observe", "OPERATION_CANCELLED", "none", True, view("unknown"), still),
+            ("observe", "OPERATION_CANCELLED", "none", True, {}, still),  # no effect given
+            ("observe", "OPERATION_CANCELLED", "none", False, view("none"), still),
+            ("observe", "OPERATION_CANCELLED", "report", True, view("none"), still),
+            # the observation itself was refused: its effect is not the operation's
+            ("observe", "NOT_FOUND", "fix_request", True,
+             {"data": {"error": {"effect_status": "none"}}}, still),
+            # its binding's own state, in the complete list. `active` alone is not
+            # evidence that the release never ran; a binding the list does not name is
+            # not listed, and is not read as released
+            ("bindings", "OK", "none", True, listed("active"), still),
+            ("bindings", "OK", "none", True, listed("released"), observed),
+            ("bindings", "OK", "none", True, listed(h2.ABSENT), not_listed),
+            ("bindings", "OK", "none", True, listed("suspended"), still),
+            ("bindings", "OK", "none", True, {}, still),  # the list says nothing of it
+            ("bindings", "OK", "none", False, listed("active"), still),
+            ("bindings", "OK", "none", False, listed("released"), still),
+            ("bindings", "OK", "none", False, listed(h2.ABSENT), still),
+            ("bindings", "OK", "observe", True, listed("active"), still),
+            ("bindings", "OK", "observe", True, listed(h2.ABSENT), still),
+            ("bindings", "SERVICE_UNAVAILABLE", "retry_after", True, {}, still),
+        )
+        for call, code, action, fits, facts, reading in rows:
+            with self.subTest(call=call, code=code, action=action, fits=fits, facts=facts):
+                answer = h2.Reading(code, action, None, dict(facts, code=code))
+                self.assertEqual(h2.release_says(call, answer, fits), reading)
+                # Nothing the list of bindings says is followed by a new release.
+                if call == "bindings":
+                    self.assertNotEqual(h2.release_says(call, answer, fits), not_run)
+
+    def test_the_list_of_bindings_is_reduced_to_the_state_of_one(self):
+        entry = lambda binding, state: {"binding_id": binding, "grant_id": "grant_sample",
+                                        "state": state}
+        ok = lambda data: {"schema_version": "1", "code": "OK", "data": data, "next": None}
+        mine, other = "binding_sample", "binding_other"
+        # (the envelope, what it says of `binding_sample`: None when it says nothing)
+        rows = (
+            (ok({"bindings": [entry(mine, "active")]}), "active"),
+            (ok({"bindings": [entry(other, "active"), entry(mine, "released")]}), "released"),
+            (ok({"bindings": [entry(other, "active")]}), h2.ABSENT),
+            (ok({"bindings": []}), h2.ABSENT),
+            (ok({"bindings": [entry(mine, "active"), entry(mine, "released")]}), None),
+            (ok({"bindings": [entry(mine, ["active"])]}), None),
+            (ok({"bindings": [entry(mine, "active"), other]}), None),  # not a list of entries
+            (ok({"items": [], "more": False}), None),  # a page is not the complete list
+            (ok(None), None),
+            ({"schema_version": "1", "code": "SERVICE_UNAVAILABLE", "data": {"bindings": []},
+              "next": {"action": "retry_after"}}, None),
+        )
+        for envelope, state in rows:
+            with self.subTest(envelope=envelope):
+                reading = h2.read_bindings(envelope, mine)
+                self.assertEqual(h2.lookup(reading.facts, "binding.state"), state)
+                self.assertEqual(reading.code, envelope["code"])
+
+    def test_an_uncertain_release_is_observed_and_only_its_ended_operation_leads_to_a_new_release(self):
+        unknown = {"binding_id": "binding_unknown", "code": "OUTCOME_UNKNOWN", "exit_code": 7}
+        named = dict(unknown, operation_id="op_unknown")
+        older = lambda **more: dict({"binding_id": "binding_older"}, **more)
+        # (the planner's own facts, the state a stop goes on to)
+        onward = (
+            ({"held": older()}, h2.State("releasing", binding_id="binding_older")),
+            ({"uncertain": older(operation_id="op_older")},
+             h2.State("observing_release", binding_id="binding_older", operation_id="op_older")),
+            ({"uncertain": older()}, h2.State("inspecting_release", binding_id="binding_older")),
+        )
+        # A release left uncertain by its own answer, and an observation that does not
+        # say what became of it: on to the next binding by what the planner knows of
+        # it, and `failed` at the end. Each is read only in the states that make its call.
+        for own, states in ((h2.UNCERTAIN, h2.RELEASABLE), (h2.STILL_UNCERTAIN, h2.OBSERVING)):
+            for name in states:
+                before = sample_state(name)
+                for facts, after in onward + (({}, h2.State("failed", **unknown)),):
+                    with self.subTest(reading=own, state=name, facts=facts):
+                        reading = h2.Reading(own, "none", None, dict(facts, unreleased=unknown))
+                        self.assertEqual(h2.transition(before, reading)[0], after)
+                reading = h2.Reading(own, "none", None, {"unreleased": named})
+                self.assertEqual(h2.transition(before, reading)[0].record(),
+                                 dict(named, state="failed"))
+            self.assertEqual({row.states for row in h2.TRANSITIONS if row.code == own}, {states})
+        # No longer held: observed to have been released, by either observation; or not
+        # listed, which only the list of bindings can say. On in the same ways, or the
+        # end of the stop.
+        for own, states in ((h2.OBSERVED, h2.OBSERVING), (h2.NOT_LISTED, h2.INSPECTING)):
+            for name in states:
+                before = sample_state(name)
+                for facts, after in onward + (({}, h2.State("stopped")),
+                                              ({"unreleased": unknown}, h2.State("failed", **unknown))):
+                    with self.subTest(reading=own, state=name, facts=facts):
+                        reading = h2.Reading(own, "none", None, facts)
+                        self.assertEqual(h2.transition(before, reading)[0], after)
+            self.assertEqual({row.states for row in h2.TRANSITIONS if row.code == own}, {states})
+        # The operation ended and says that the release did not happen: one new
+        # release, of the same binding, whatever else is held.
+        reading = h2.Reading(h2.NOT_RUN, "none", None, {"held": older()})
+        after, row = h2.transition(sample_state("observing_release"), reading)
+        self.assertEqual((after, row.to),
+                         (h2.State("releasing", binding_id=SAMPLES["binding_id"]), "releasing"))
+        # What follows an observing state is an observation. One row alone leads from
+        # there to a release of the same binding. It is a row of the state that waits
+        # on an operation, never of the one that reads the list of bindings, and it is
+        # not a row for an uncertain reading. Every other row that leads to a release
+        # names another binding.
+        self.assertEqual((h2.WAITING, h2.INSPECTING, h2.OBSERVING),
+                         (("observing_release",), ("inspecting_release",),
+                          ("observing_release", "inspecting_release")))
+        self.assertEqual([h2.FOLLOW[name] for name in h2.OBSERVING],
+                         [("observe", None), ("bindings", None)])
+        self.assertEqual([(row.states, row.to, row.takes) for row in h2.TRANSITIONS
+                          if row.code == h2.NOT_RUN],
+                         [(("observing_release",), "releasing", (("binding_id", "state.binding_id"),))])
+        for row in h2.TRANSITIONS:
+            if row.to == "releasing" and row.code != h2.NOT_RUN:
+                self.assertEqual(row.takes, h2.NEXT_HELD, row)
+            if row.code in (h2.UNCERTAIN, h2.STILL_UNCERTAIN):
+                self.assertIn(row.to, ("releasing", *h2.OBSERVING, "failed"), row)
+            if "inspecting_release" in row.states:  # the list of bindings never ends in a release
+                self.assertIn(row.code, (h2.OBSERVED, h2.NOT_LISTED, h2.STILL_UNCERTAIN), row)
+        # A stop begins at a binding in the same ways.
+        for facts, after in onward:
+            self.assertEqual(h2.entering(facts), after)
+        # No envelope can stand in for one of the planner's own readings.
+        for own in (h2.UNCERTAIN, h2.STILL_UNCERTAIN, h2.OBSERVED, h2.NOT_RUN, h2.NOT_LISTED,
+                    h2.ABSENT):
+            with self.assertRaises(h2.PlannerError):
+                h2.read_envelope({"schema_version": "1", "code": own})
+
     def test_a_code_without_its_typed_fields_has_no_row(self):
         reading = h2.Reading("ACCESS_READY", "use_binding", None, {"code": "ACCESS_READY", "next": {}})
         after, row = h2.transition(h2.State("start"), reading)
@@ -404,10 +679,14 @@ class TableTests(unittest.TestCase):
     def test_the_call_set_names_no_decision_or_owner_command(self):
         for name, call in h2.load_call_set(["/nonexistent"]).items():
             words = [part for part in call["argv"] if not part.startswith(("{", "-"))]
-            self.assertIn(words[0], ("schema", "access", "operation", "run"), name)
+            self.assertIn(words[0], ("schema", "access", "operation", "run", "inspect"), name)
             for word in words:
                 self.assertNotIn(word, ("decision", "approve", "deny", "time", "confirm", "resume",
-                                        "allow", "stop", "tui", "setup", "inspect"), name)
+                                        "allow", "stop", "tui", "setup"), name)
+        # `inspect` is read for one subject only: the caller's own bindings, to learn
+        # what became of an uncertain release.
+        self.assertEqual([call["argv"] for call in h2.load_call_set(["/nonexistent"]).values()
+                          if call["argv"][0] == "inspect"], [("inspect", "bindings")])
 
 
 class SourceTests(unittest.TestCase):
@@ -504,6 +783,20 @@ class PlannerTests(unittest.TestCase):
 
     def access(self, profile="covered", **fields):
         return dict({"goal": "access", "profile": profile, "work_id": "work-1"}, **fields)
+
+    def fresh(self):
+        """Forget the stub's log and its counts: subtests share one root."""
+        for kept in [self.root / "calls.jsonl", *self.root.glob("count-*")]:
+            kept.unlink(missing_ok=True)
+
+    def holding(self, mode, count):
+        """A planner that was given `count` bindings (`binding_many_0` and so on), and
+        the release calls it has made since."""
+        planner = self.planner(mode)
+        for _ in range(count):
+            self.assertTrue(h2.run_goal(planner, self.access("many"))["success"])
+        self.assertEqual(planner.held, [f"binding_many_{index}" for index in range(count)])
+        return planner, lambda: [call[2] for call in self.calls()[count:]]
 
     def test_discover_reads_the_installed_code_table(self):
         planner = self.planner()
@@ -798,13 +1091,6 @@ class PlannerTests(unittest.TestCase):
                 self.assertEqual(record["transitions"][-1]["code"], h2.MISMATCH)
                 self.assertTrue(all(step["by_table"] for step in record["transitions"]))
                 self.assertEqual((record["calls"], self.handoffs, record["held"]), (calls, [], held))
-        # A release in the wrong exit class leaves its binding held: a later stop asks again.
-        planner = self.planner("exit:OK=1")
-        self.assertTrue(h2.run_goal(planner, self.access())["success"])
-        stopped = h2.run_goal(planner, {"goal": "stop"})
-        self.assertFalse(stopped["success"])
-        self.assertEqual((stopped["final_state"], stopped["held"]),
-                         (inconsistent("OK", 1), ["binding_fixture"]))
 
     def test_prose_never_changes_a_transition(self):
         goals = [{"goal": "discover"}, self.access(), self.access(timeout_ms=1),
@@ -935,6 +1221,362 @@ class PlannerTests(unittest.TestCase):
         # Each binding was released once, the newest first.
         self.assertEqual(self.calls()[len(held):], [["access", "release", binding]
                                                     for binding in reversed(held)])
+
+    def test_a_refused_release_is_recorded_and_the_rest_are_still_released(self):
+        many = "binding_many_{}".format
+        refusal = lambda index, code="CAPABILITY_UNAVAILABLE", status=4: {
+            "binding_id": many(index), "code": code, "exit_code": status}
+        # (the bindings refused, the refusal the stop's final state names)
+        for named, first in (("1", 1),    # the middle one
+                             ("0", 0),    # the last one asked for
+                             ("2", 2),    # the first one asked for
+                             ("*", 2)):   # every one
+            with self.subTest(refused=named):
+                for name in ("calls.jsonl", "count-many"):
+                    (self.root / name).unlink(missing_ok=True)
+                refused = [2, 1, 0] if named == "*" else [int(named)]
+                mode = "refuse:" + ("*" if named == "*" else many(named))
+                planner, released = self.holding(mode, 3)
+                stopped = h2.run_goal(planner, {"goal": "stop"})
+                # Each binding was asked for once, the newest first, whatever was refused.
+                self.assertEqual(released(), [many(2), many(1), many(0)])
+                # One step for each: the stop goes on after a refusal, and fails at its end.
+                path = [("ready" if asked == 2 else "releasing",
+                         *((h2.REFUSED, "none") if asked in refused else ("OK", "none")),
+                         "releasing" if asked else "failed") for asked in (2, 1, 0)]
+                self.assertEqual(self.path(stopped), path)
+                self.assertTrue(all(step["by_table"] for step in stopped["transitions"]))
+                self.assertEqual(stopped["refused_releases"], [refusal(index) for index in refused])
+                self.assertEqual(stopped["held"], [many(index) for index in sorted(refused)])
+                self.assertEqual(stopped["final_state"], dict(refusal(first), state="failed"))
+                self.assertEqual((stopped["success"], stopped["calls"], stopped["detail"]),
+                                 (False, 3, "failed: CAPABILITY_UNAVAILABLE"))
+                self.assertEqual(planner.refusals, stopped["refused_releases"])
+        # Whatever the code of the refusal: a binding Heimdall does not know (counted as a
+        # wrong request too), and a code no table has.
+        for kind, code, status, invalid in (("refuse-unknown", "NOT_FOUND", 2, 1),
+                                            ("refuse-novel", "SOMETHING_NEW", 1, 0)):
+            with self.subTest(kind=kind):
+                for name in ("calls.jsonl", "count-many"):
+                    (self.root / name).unlink(missing_ok=True)
+                planner, released = self.holding(f"{kind}:{many(1)}", 3)
+                stopped = h2.run_goal(planner, {"goal": "stop"})
+                self.assertEqual(released(), [many(2), many(1), many(0)])
+                self.assertEqual(stopped["refused_releases"], [refusal(1, code, status)])
+                self.assertEqual((stopped["success"], stopped["held"], stopped["invalid_retries"]),
+                                 (False, [many(1)], invalid))
+
+    def test_a_release_in_the_wrong_exit_class_is_recorded_as_a_refusal_and_the_rest_are_released(self):
+        many = "binding_many_{}".format
+        defect = "exit {} does not fit {}: its documented exit class is {}; a probable product defect"
+        planner, released = self.holding("refuse-exit-0:" + many(1), 3)
+        stopped = h2.run_goal(planner, {"goal": "stop"})
+        entry = {"binding_id": many(1), "code": "CAPABILITY_UNAVAILABLE", "exit_code": 0,
+                 "inconsistent": True, "detail": defect.format(0, "CAPABILITY_UNAVAILABLE", 4)}
+        # The stop goes on: each binding was asked for once, the newest first.
+        self.assertEqual(released(), [many(2), many(1), many(0)])
+        self.assertEqual(self.path(stopped), [("ready", "OK", "none", "releasing"),
+                                              ("releasing", h2.REFUSED, "none", "releasing"),
+                                              ("releasing", "OK", "none", "failed")])
+        self.assertTrue(all(step["by_table"] for step in stopped["transitions"]))
+        self.assertEqual((stopped["refused_releases"], stopped["outcome_unknown"], stopped["held"]),
+                         ([entry], [], [many(1)]))
+        self.assertEqual(stopped["final_state"],
+                         {"state": "failed", "code": "CAPABILITY_UNAVAILABLE",
+                          "binding_id": many(1), "exit_code": 0})
+        # The record names it as a probable product defect.
+        self.assertEqual((stopped["success"], stopped["detail"]), (False, entry["detail"]))
+        self.assertEqual(planner.by_binding(), {many(1): {"held": True, "attempts": [
+            {"by": "stop", "outcome": "refused", "code": "CAPABILITY_UNAVAILABLE", "exit_code": 0,
+             "inconsistent": True, "detail": entry["detail"]}]}})
+        # `OK` in the wrong exit class: the binding stays held, and the next is still asked for.
+        self.fresh()
+        planner, released = self.holding("exit:OK=1", 2)
+        stopped = h2.run_goal(planner, {"goal": "stop"})
+        self.assertEqual(released(), [many(1), many(0)])
+        self.assertEqual(stopped["refused_releases"], [
+            {"binding_id": many(index), "code": "OK", "exit_code": 1, "inconsistent": True,
+             "detail": defect.format(1, "OK", 0)} for index in (1, 0)])
+        self.assertEqual((stopped["success"], stopped["held"], stopped["detail"]),
+                         (False, [many(0), many(1)], defect.format(1, "OK", 0)))
+        self.assertEqual(stopped["final_state"], {"state": "failed", "code": "OK",
+                                                  "binding_id": many(1), "exit_code": 1})
+        # An uncertain answer in the wrong exit class is still uncertain, not a refusal:
+        # a later stop observes it and sends nothing. The list says the binding is
+        # `active`, which is no evidence that the release never ran.
+        self.fresh()
+        planner, _ = self.holding(f"uncertain:{many(1)}:bindings:active:0", 3)
+        stopped = h2.run_goal(planner, {"goal": "stop"})
+        self.assertEqual((stopped["refused_releases"], stopped["held"]), ([], [many(1)]))
+        self.assertEqual(stopped["outcome_unknown"], [
+            {"binding_id": many(1), "code": "OUTCOME_UNKNOWN", "exit_code": 0, "request_id": None,
+             "inconsistent": True, "detail": defect.format(0, "OUTCOME_UNKNOWN", 7)}])
+        seen = len(self.calls())
+        later = h2.run_goal(planner, {"goal": "stop"})
+        self.assertEqual(self.calls()[seen:], [["inspect", "bindings"]])
+        self.assertEqual((later["success"], later["held"], later["refused_releases"]),
+                         (False, [many(1)], []))
+
+    def test_an_uncertain_release_is_recorded_apart_and_the_rest_are_still_released(self):
+        many = "binding_many_{}".format
+        # (how the answer names its operation, the operation the record names)
+        for means, operation in (("operation", "op_fixture"), ("own", "op_fixture"),
+                                 ("bindings", None)):
+            with self.subTest(means=means):
+                self.fresh()
+                planner, _ = self.holding(f"uncertain:{many(1)}:{means}:unknown", 3)
+                stopped = h2.run_goal(planner, {"goal": "stop"})
+                named = {"operation_id": operation} if operation else {}
+                # Each binding was asked for once, the newest first, and nothing was
+                # observed: the stop that gets the uncertain answer goes on to the rest.
+                self.assertEqual(self.calls()[3:], [["access", "release", many(index)]
+                                                    for index in (2, 1, 0)])
+                self.assertEqual(self.path(stopped), [("ready", "OK", "none", "releasing"),
+                                                      ("releasing", h2.UNCERTAIN, "none", "releasing"),
+                                                      ("releasing", "OK", "none", "failed")])
+                self.assertTrue(all(step["by_table"] for step in stopped["transitions"]))
+                # Recorded apart from a refusal: the binding, the request ID (the release
+                # takes none today) and the operation, when the answer names one.
+                self.assertEqual(stopped["refused_releases"], [])
+                self.assertEqual(stopped["outcome_unknown"], [dict(
+                    {"binding_id": many(1), "code": "OUTCOME_UNKNOWN", "exit_code": 7,
+                     "request_id": None}, **named)])
+                self.assertEqual(stopped["held"], [many(1)])
+                self.assertEqual(stopped["final_state"], dict(
+                    {"state": "failed", "code": "OUTCOME_UNKNOWN", "binding_id": many(1),
+                     "exit_code": 7}, **named))
+                self.assertEqual((stopped["success"], stopped["calls"], stopped["detail"]),
+                                 (False, 3, "failed: OUTCOME_UNKNOWN"))
+                self.assertEqual(planner.uncertain, {many(1): dict({"request_id": None}, **named)})
+
+    def test_a_later_stop_or_the_close_observes_an_uncertain_release_before_it_sends_anything(self):
+        mine = "binding_fixture"
+        wait = ["operation", "wait", "op_fixture", "--timeout-ms", "20000"]
+        inspect = ["inspect", "bindings"]
+        release = ["access", "release", mine]
+        # (how the uncertain answer named its operation, what the observation says; the
+        #  outcome recorded for it, with the code and exit status it was read from; the
+        #  calls made; whether the binding is still held)
+        rows = (
+            # the operation is observed released: the binding leaves `held`, nothing is sent
+            ("operation", "released", "released", "OK", 0, [wait], False),
+            ("own", "released", "released", "OK", 0, [wait], False),
+            # the operation ended and says the release did not happen: one new release
+            # is sent after the observation, and only then
+            ("operation", "never-ran", "not_run", "CAPABILITY_UNAVAILABLE", 4, [wait, release], False),
+            ("own", "never-ran", "not_run", "CAPABILITY_UNAVAILABLE", 4, [wait, release], False),
+            # the operation is unfinished when the wait runs out, or does not say: still
+            # unknown, held, and nothing is sent
+            ("operation", "unfinished", "still_unknown", "OK", 5, [wait], True),
+            ("operation", "unknown", "still_unknown", "OUTCOME_UNKNOWN", 7, [wait], True),
+            ("operation", "partial", "still_unknown", "OPERATION_CANCELLED", 4, [wait], True),
+            ("operation", "missing", "still_unknown", "NOT_FOUND", 2, [wait], True),
+            ("operation", "wrong-exit", "still_unknown", "OK", 3, [wait], True),
+            # no operation, and the binding is listed `active`: that alone is no evidence
+            # that the release never ran. No new release: still unknown, and held
+            ("bindings", "active", "still_unknown", "OK", 0, [inspect], True),
+            # no operation, and the complete list does not name the binding: not listed.
+            # It is not held, and it is never recorded as released
+            ("bindings", "absent", "not_listed", "OK", 0, [inspect], False),
+            # no operation, and the list gives the binding the state `released`
+            ("bindings", "released", "released", "OK", 0, [inspect], False),
+            # no operation, and the list does not say: still unknown, held, nothing sent
+            ("bindings", "odd", "still_unknown", "OK", 0, [inspect], True),
+            ("bindings", "twice", "still_unknown", "OK", 0, [inspect], True),
+            ("bindings", "unknown", "still_unknown", "SERVICE_UNAVAILABLE", 5, [inspect], True),
+            ("bindings", "wrong-exit", "still_unknown", "OK", 4, [inspect], True),
+        )
+        # The state the list gave the binding, where it could be read.
+        states = {"active": "active", "absent": h2.ABSENT, "released": "released",
+                  "odd": "suspended"}
+        for means, says, outcome, code, status, calls, held in rows:
+            for by in ("stop", "close"):
+                with self.subTest(means=means, says=says, by=by):
+                    self.fresh()
+                    planner = self.planner(f"uncertain:{mine}:{means}:{says}")
+                    self.assertTrue(h2.run_goal(planner, self.access())["success"])
+                    first = h2.run_goal(planner, {"goal": "stop"})
+                    self.assertEqual((first["success"], first["held"], len(first["outcome_unknown"]),
+                                      first["still_unknown"], first["not_listed"]),
+                                     (False, [mine], 1, [], []))
+                    self.assertEqual(self.calls()[1:], [release])
+                    observing = "inspecting_release" if means == "bindings" else "observing_release"
+                    named = {} if means == "bindings" else {"operation_id": "op_fixture"}
+                    if by == "close":
+                        # `released` names only a binding that was released: one that is
+                        # not listed is in neither list.
+                        self.assertEqual(planner.close(), {
+                            "released": [mine] if outcome in ("released", "not_run") else [],
+                            "held": [mine] if held else []})
+                    else:
+                        later = h2.run_goal(planner, {"goal": "stop"})
+                        path = {"released": [(observing, h2.OBSERVED, "none", "stopped")],
+                                "not_listed": [(observing, h2.NOT_LISTED, "none", "stopped")],
+                                "not_run": [(observing, h2.NOT_RUN, "none", "releasing"),
+                                            ("releasing", "OK", "none", "stopped")],
+                                "still_unknown": [(observing, h2.STILL_UNCERTAIN, "none", "failed")]}
+                        self.assertEqual(self.path(later), path[outcome])
+                        self.assertTrue(all(step["by_table"] for step in later["transitions"]))
+                        # The goal is met when the binding is no longer held: released,
+                        # or not listed.
+                        self.assertEqual((later["success"], later["held"], later["calls"]),
+                                         (not held, [mine] if held else [], len(calls)))
+                        # The record lists the observation under its own outcome: an
+                        # observation is not a release answered `OUTCOME_UNKNOWN`.
+                        self.assertEqual((later["refused_releases"], later["outcome_unknown"]),
+                                         ([], []))
+                        self.assertEqual([entry["binding_id"] for entry in later["still_unknown"]],
+                                         [mine] * (outcome == "still_unknown"))
+                        self.assertEqual(later["not_listed"], [
+                            {"binding_id": mine, "code": "OK", "exit_code": 0,
+                             "observed": "bindings", "state": h2.ABSENT}] * (outcome == "not_listed"))
+                        if held:
+                            self.assertEqual(later["final_state"], dict(
+                                {"state": "failed", "code": "OUTCOME_UNKNOWN", "binding_id": mine,
+                                 "exit_code": status}, **named))
+                    # The observation comes first. A release follows only where the
+                    # operation the uncertain answer named says the first did not happen.
+                    self.assertEqual(self.calls()[2:], calls)
+                    self.assertEqual(release in calls, means != "bindings" and says == "never-ran")
+                    self.assertEqual(planner.held, [mine] if held else [])
+                    self.assertEqual(set(planner.uncertain), {mine} if held else set())
+                    # The binding's attempts, in order.
+                    entry = planner.by_binding()[mine]
+                    self.assertEqual(entry["held"], held)
+                    observed = "bindings" if means == "bindings" else "operation"
+                    self.assertEqual(
+                        [(attempt["by"], attempt["outcome"], attempt.get("observed"))
+                         for attempt in entry["attempts"]],
+                        [("stop", "outcome_unknown", None), (by, outcome, observed)]
+                        + [(by, "released", None)] * (outcome == "not_run"))
+                    observation = entry["attempts"][1]
+                    self.assertEqual((observation["code"], observation["exit_code"]), (code, status))
+                    self.assertEqual(observation.get("inconsistent", False), says == "wrong-exit")
+                    if means == "bindings":
+                        self.assertEqual(observation.get("state"),
+                                         h2.ABSENT if says == "wrong-exit" else states.get(says))
+                    if held:  # still unknown: it names the same request and operation
+                        self.assertEqual({key: observation.get(key) for key in ("request_id", *named)},
+                                         dict({"request_id": None}, **named))
+
+    def test_an_uncertain_release_is_never_sent_again_while_its_outcome_is_unknown(self):
+        many = "binding_many_{}".format
+        release = lambda index: ["access", "release", many(index)]
+        # The operation is unfinished every time its wait runs out; and, where the
+        # answer named none, the list goes on saying that the binding is `active`.
+        for means, says, observation, observing in (
+                ("operation", "unfinished",
+                 ["operation", "wait", "op_fixture", "--timeout-ms", "20000"], "observing_release"),
+                ("bindings", "active", ["inspect", "bindings"], "inspecting_release")):
+            with self.subTest(means=means):
+                self.fresh()
+                planner, _ = self.holding(f"uncertain:{many(1)}:{means}:{says}", 3)
+                # Three stops, a new binding and its stop, and the close: the release of
+                # the uncertain binding is sent once, by the first stop. Each later stop
+                # and the close observe it once, and it stays held and reported.
+                stops = [h2.run_goal(planner, {"goal": "stop"}) for _ in range(3)]
+                self.assertTrue(h2.run_goal(planner, self.access("many"))["success"])
+                last = h2.run_goal(planner, {"goal": "stop"})
+                closing = planner.close()
+                self.assertEqual(self.calls()[3:], [
+                    release(2), release(1), release(0), observation, observation,
+                    self.calls()[-4], release(3), observation, observation])
+                self.assertEqual(self.calls()[-4][:2], ["access", "ensure"])
+                self.assertEqual(sum(call == release(1) for call in self.calls()), 1)
+                self.assertEqual([(stop["success"], stop["held"]) for stop in stops + [last]],
+                                 [(False, [many(1)])] * 4)
+                self.assertEqual(self.path(last), [("ready", "OK", "none", observing),
+                                                   (observing, h2.STILL_UNCERTAIN, "none", "failed")])
+                self.assertEqual([(len(stop["outcome_unknown"]), len(stop["still_unknown"]))
+                                  for stop in stops + [last]], [(1, 0)] + [(0, 1)] * 3)
+                self.assertEqual(closing, {"released": [], "held": [many(1)]})
+                entry = planner.by_binding()
+                self.assertEqual(list(entry), [many(1)])
+                self.assertEqual([(attempt["by"], attempt["outcome"], "observed" in attempt)
+                                  for attempt in entry[many(1)]["attempts"]],
+                                 [("stop", "outcome_unknown", False)]
+                                 + [("stop", "still_unknown", True)] * 3
+                                 + [("close", "still_unknown", True)])
+
+    def test_the_close_does_not_observe_an_uncertain_release_of_its_own(self):
+        many = "binding_many_{}".format
+        planner, _ = self.holding(f"uncertain:{many(1)}:operation:released", 3)
+        closing = planner.close()
+        # The close got the uncertain answer itself: it goes on to the rest and ends.
+        self.assertEqual(self.calls()[3:], [["access", "release", many(index)] for index in (2, 1, 0)])
+        self.assertEqual(closing, {"released": [many(0), many(2)], "held": [many(1)]})
+        self.assertEqual(planner.by_binding(), {many(1): {"held": True, "attempts": [
+            {"by": "close", "outcome": "outcome_unknown", "code": "OUTCOME_UNKNOWN", "exit_code": 7,
+             "request_id": None, "operation_id": "op_fixture"}]}})
+        # A later close is a stop of its own: it observes first, and here finds it released.
+        self.assertEqual(planner.close(), {"released": [many(1)], "held": []})
+        self.assertEqual(self.calls()[6:], [["operation", "wait", "op_fixture", "--timeout-ms", "20000"]])
+
+    def test_the_close_asks_again_after_a_stop_that_was_cut_short(self):
+        many = "binding_many_{}".format
+        count = h2.MAX_STEPS + 2
+        planner, released = self.holding("refuse:" + many(count - 1), count)
+        first = h2.run_goal(planner, {"goal": "stop"})
+        self.assertIn("step limit", first["detail"])
+        self.assertEqual(first["final_state"], {"state": "releasing", "binding_id": many(1)})
+        # The close is a stop of its own, whatever state the goals left: it asks about
+        # every held binding, the one the stop was refused included.
+        closing = planner.close()
+        self.assertEqual(released()[h2.MAX_STEPS:], [many(1), many(count - 1), many(0)])
+        self.assertEqual(closing, {"released": [many(0), many(1)], "held": [many(count - 1)]})
+        refused = {"outcome": "refused", "code": "CAPABILITY_UNAVAILABLE", "exit_code": 4}
+        self.assertEqual(planner.by_binding(), {many(count - 1): {"held": True, "attempts": [
+            dict(refused, by="stop"), dict(refused, by="close")]}})
+
+    def test_close_records_a_refused_release_and_still_releases_the_rest(self):
+        many = "binding_many_{}".format
+        planner, released = self.holding("refuse:" + many(1), 3)
+        closing = planner.close()
+        self.assertEqual(released(), [many(2), many(1), many(0)])
+        self.assertEqual(closing, {"released": [many(0), many(2)], "held": [many(1)]})
+        self.assertEqual(planner.refusals, [{"binding_id": many(1), "code": "CAPABILITY_UNAVAILABLE",
+                                             "exit_code": 4}])
+        self.assertEqual(planner.state.record(), dict(planner.refusals[0], state="failed"))
+
+    def test_refused_releases_never_make_a_stop_or_a_close_spin(self):
+        many = "binding_many_{}".format
+        count = h2.MAX_STEPS + 2
+        newest_first = [many(index) for index in reversed(range(count))]
+        # Every release refused, and more bindings than one stop may ask for: the close
+        # asks for each once, in two rounds, and ends with all of them held.
+        planner, released = self.holding("refuse:*", count)
+        closing = planner.close()
+        self.assertEqual(released(), newest_first)
+        self.assertEqual(closing, {"released": [], "held": newest_first[::-1]})
+        self.assertEqual([refusal["binding_id"] for refusal in planner.refusals], newest_first)
+        # A stop of its own is a new one: it asks again, within its limit, and fails.
+        again = h2.run_goal(planner, {"goal": "stop"})
+        self.assertEqual((again["success"], again["calls"], len(again["refused_releases"])),
+                         (False, h2.MAX_STEPS, h2.MAX_STEPS))
+        self.assertEqual(len(released()), count + h2.MAX_STEPS)
+
+    def test_a_stop_cut_short_after_a_refusal_is_finished_without_asking_again(self):
+        many = "binding_many_{}".format
+        count = h2.MAX_STEPS + 2
+        for name in ("calls.jsonl", "count-many"):
+            (self.root / name).unlink(missing_ok=True)
+        planner, released = self.holding("refuse:" + many(count - 1), count)
+        refused = {"binding_id": many(count - 1), "code": "CAPABILITY_UNAVAILABLE", "exit_code": 4}
+        first = h2.run_goal(planner, {"goal": "stop"})
+        self.assertFalse(first["success"])
+        self.assertIn("step limit", first["detail"])
+        self.assertEqual((first["calls"], first["held"], first["refused_releases"]),
+                         (h2.MAX_STEPS, [many(0), many(1), many(count - 1)], [refused]))
+        self.assertEqual(first["final_state"], {"state": "releasing", "binding_id": many(1)})
+        # The next stop goes on from there: the refused binding stays set aside and held,
+        # and the stop fails naming it though this part of it was refused nothing.
+        second = h2.run_goal(planner, {"goal": "stop"})
+        self.assertEqual(self.path(second), [("releasing", "OK", "none", "releasing"),
+                                             ("releasing", "OK", "none", "failed")])
+        self.assertEqual((second["success"], second["calls"], second["held"],
+                          second["refused_releases"]), (False, 2, [many(count - 1)], []))
+        self.assertEqual(second["final_state"], dict(refused, state="failed"))
+        self.assertEqual(released(), [many(index) for index in reversed(range(count))])
 
     def test_a_binding_of_earlier_work_is_released_by_the_stop_too(self):
         planner = self.planner("second-binding")
@@ -1156,11 +1798,126 @@ class PlannerTests(unittest.TestCase):
         # The binding the goals left held was released before the process ended.
         self.assertEqual(summary["close"], {"released": ["binding_fixture"], "held": []})
         self.assertEqual(self.calls()[-1], ["access", "release", "binding_fixture"])
+        self.assertEqual(summary["release_attempts"], {})
+        self.assertEqual(sorted(summary), ["call_set", "close", "harness", "release_attempts", "tasks"])
         for task in summary["tasks"]:
             for field in ("calls", "round_trips", "human_handoffs", "invalid_retries",
                           "wall_time_ms", "discovery_bytes", "detail", "skipped", "final_state",
-                          "held"):
+                          "held", "refused_releases", "outcome_unknown", "still_unknown",
+                          "not_listed"):
                 self.assertIn(field, task)
+
+    @unittest.skipUnless(os.name == "posix", "the stub is started through its interpreter line")
+    def test_main_exits_1_when_a_release_was_refused_and_names_it(self):
+        many = "binding_many_{}".format
+        refused = {"binding_id": many(1), "code": "CAPABILITY_UNAVAILABLE", "exit_code": 4}
+        default = 'mode = "normal" if'
+        self.assertEqual(STUB.count(default), 1)
+        stub = STUB.replace(default, f'mode = "refuse:{many(1)}" if')
+        self.stub.write_text(f"#!{sys.executable} -IB\n{stub}", encoding="utf-8")
+        self.stub.chmod(0o700)
+        access = [json.dumps(self.access("many", task=f"access-{index}")) for index in range(3)]
+        # The refusal meets a stop goal, or only the close that ends the run.
+        for last, close in (([json.dumps({"goal": "stop"})], {"released": [], "held": [many(1)]}),
+                            ([], {"released": [many(0), many(2)], "held": [many(1)]})):
+            with self.subTest(stop_goal=bool(last)):
+                for name in ("calls.jsonl", "count-many"):
+                    (self.root / name).unlink(missing_ok=True)
+                argv = ["--heimdall-bin", str(self.stub), "--scratch-root", str(self.root)]
+                for goal in access + last:
+                    argv += ["--goal", goal]
+                stdout = io.StringIO()
+                with patch.dict(os.environ, self.environment), contextlib.redirect_stdout(stdout):
+                    status = h2.main(argv)
+                self.assertEqual(status, 1)
+                summary = json.loads(stdout.getvalue())
+                self.assertEqual([task["success"] for task in summary["tasks"]],
+                                 [True, True, True] + [False] * len(last))
+                self.assertEqual(summary["close"], close)
+                # A stop goal's refusal is in its record, and the close then asks once
+                # more. The summary has one entry for the binding, with its attempts in
+                # order: the stop, then the close.
+                attempt = {"outcome": "refused", "code": "CAPABILITY_UNAVAILABLE", "exit_code": 4}
+                self.assertEqual(summary["release_attempts"], {many(1): {"held": True, "attempts": [
+                    dict(attempt, by=by) for by in ["stop"] * len(last) + ["close"]]}})
+                self.assertEqual([task["refused_releases"] for task in summary["tasks"]],
+                                 [[], [], []] + [[refused]] * len(last))
+                self.assertEqual([call[2] for call in self.calls()[3:]],
+                                 [many(2), many(1), many(0)] + [many(1)] * len(last))
+
+    @unittest.skipUnless(os.name == "posix", "the stub is started through its interpreter line")
+    def test_main_exits_1_after_an_uncertain_release_and_lists_its_attempts_by_binding(self):
+        many = "binding_many_{}".format
+        default = 'mode = "normal" if'
+        access = [json.dumps(self.access("many", task=f"access-{index}")) for index in range(3)]
+        stop = [json.dumps({"goal": "stop"})]
+        unknown = {"outcome": "outcome_unknown", "code": "OUTCOME_UNKNOWN", "exit_code": 7,
+                   "request_id": None}
+        operation = {"operation_id": "op_fixture"}
+        still = {"outcome": "still_unknown", "request_id": None}
+        # (how the uncertain answer named its operation, what the observation says,
+        #  whether a stop goal comes before the close; what the close reports released;
+        #  the binding's attempts after the first, each made by the close; whether it is
+        #  still held)
+        rows = (
+            # the operation is observed released
+            ("operation", "released", True, [many(1)],
+             [{"outcome": "released", "code": "OK", "exit_code": 0, "observed": "operation"}], False),
+            # the operation says the release did not happen: one new release
+            ("operation", "never-ran", True, [many(1)],
+             [{"outcome": "not_run", "code": "CAPABILITY_UNAVAILABLE", "exit_code": 4,
+               "observed": "operation"}, {"outcome": "released", "code": "OK", "exit_code": 0}], False),
+            # the operation is still unfinished, or its own outcome is unknown
+            ("operation", "unfinished", True, [],
+             [dict(still, code="OK", exit_code=5, observed="operation", **operation)], True),
+            ("operation", "unknown", True, [],
+             [dict(still, code="OUTCOME_UNKNOWN", exit_code=7, observed="operation", **operation)],
+             True),
+            # no operation, and the binding is `active`: no new release
+            ("bindings", "active", True, [],
+             [dict(still, code="OK", exit_code=0, observed="bindings", state="active")], True),
+            # no operation, and the binding is not listed: not held, and not released
+            ("bindings", "absent", True, [],
+             [{"outcome": "not_listed", "code": "OK", "exit_code": 0, "observed": "bindings",
+               "state": h2.ABSENT}], False),
+            # The close alone: it gets the uncertain answer itself, and does not observe it.
+            ("operation", "released", False, [many(0), many(2)], [], True),
+            ("bindings", "absent", False, [many(0), many(2)], [], True),
+        )
+        for means, says, stopped, released, later, held in rows:
+            with self.subTest(means=means, says=says, stop_goal=stopped):
+                self.fresh()
+                stub = STUB.replace(default, f'mode = "uncertain:{many(1)}:{means}:{says}" if')
+                self.stub.write_text(f"#!{sys.executable} -IB\n{stub}", encoding="utf-8")
+                self.stub.chmod(0o700)
+                argv = ["--heimdall-bin", str(self.stub), "--scratch-root", str(self.root)]
+                for goal in access + stop * stopped:
+                    argv += ["--goal", goal]
+                stdout = io.StringIO()
+                with patch.dict(os.environ, self.environment), contextlib.redirect_stdout(stdout):
+                    status = h2.main(argv)
+                # Whatever the close then observed, the run fails: a release was uncertain.
+                self.assertEqual(status, 1)
+                summary = json.loads(stdout.getvalue())
+                self.assertEqual([task["success"] for task in summary["tasks"]],
+                                 [True, True, True] + [False] * stopped)
+                # `released` names only what was released. A binding found not listed
+                # is in neither list of the close: its attempts say what it is.
+                self.assertEqual(summary["close"], {"released": released,
+                                                    "held": [many(1)] if held else []})
+                self.assertEqual(sorted(summary["close"]), ["held", "released"])
+                first = dict(unknown, by="stop" if stopped else "close",
+                             **(operation if means == "operation" else {}))
+                self.assertEqual(summary["release_attempts"], {many(1): {"held": held, "attempts": [
+                    first, *(dict(attempt, by="close") for attempt in later)]}})
+                if stopped:
+                    self.assertEqual(summary["tasks"][3]["outcome_unknown"],
+                                     [{key: value for key, value in dict(first, binding_id=many(1)).items()
+                                       if key not in ("outcome", "by")}])
+                # The uncertain release was sent once, and a second one only after its
+                # operation said that the first did not happen.
+                self.assertEqual(sum(call == ["access", "release", many(1)] for call in self.calls()),
+                                 2 if says == "never-ran" else 1)
 
 
 @unittest.skipUnless(os.environ.get("HEIMDALL_HARNESS_SMOKE_BIN"), "fixture debug binary not supplied")
