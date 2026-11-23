@@ -18,6 +18,7 @@
 //! The same core edits Git configuration text ([`crate::gitedit`]); only the line
 //! classes and the block body differ.
 
+use std::collections::HashMap;
 use std::ops::Range;
 
 use crate::parse::{SourceId, Span};
@@ -272,9 +273,43 @@ fn begin_marker(content: &[u8]) -> Option<MarkerId> {
     MarkerId::parse(&rest[..close]).ok()
 }
 
-fn is_end_marker(content: &[u8], marker: &MarkerId) -> bool {
+/// The id text of an end marker line: what lies between `END_PREFIX` and the final
+/// `)` of the line with surrounding whitespace trimmed. The line ends the block of
+/// `marker` exactly when this is `marker.as_str()`.
+fn end_marker_id(content: &[u8]) -> Option<&str> {
     std::str::from_utf8(trim_ascii(content))
-        .is_ok_and(|t| t == format!("{END_PREFIX}{})", marker.as_str()))
+        .ok()?
+        .strip_prefix(END_PREFIX)?
+        .strip_suffix(')')
+}
+
+/// Every end marker line of a file, by id, read in one pass, so that finding each
+/// begin marker's end never rescans the lines below it (M08-W2-F1: an unterminated
+/// begin marker used to read, and build an end-marker `String` for, every later line).
+struct EndLines<'a> {
+    /// Each id's end lines in ascending order, and how many of them lie at or above
+    /// the begin line of the last lookup for that id.
+    by_id: HashMap<&'a str, (Vec<usize>, usize)>,
+}
+
+impl<'a> EndLines<'a> {
+    fn new(bytes: &'a [u8], lines: &[LineRef]) -> Self {
+        let mut by_id: HashMap<&'a str, (Vec<usize>, usize)> = HashMap::new();
+        for (j, l) in lines.iter().enumerate() {
+            if let Some(id) = end_marker_id(&bytes[l.start..l.content_end]) {
+                by_id.entry(id).or_default().0.push(j);
+            }
+        }
+        Self { by_id }
+    }
+
+    /// The first end line of `marker` below line `begin`. `begin` never decreases from
+    /// one call to the next, so the lines passed over are never needed again.
+    fn first_below(&mut self, marker: &MarkerId, begin: usize) -> Option<usize> {
+        let (at, passed) = self.by_id.get_mut(marker.as_str())?;
+        *passed += at[*passed..].iter().take_while(|&&j| j <= begin).count();
+        at.get(*passed).copied()
+    }
 }
 
 fn line_text(bytes: &[u8], l: &LineRef) -> Option<String> {
@@ -350,24 +385,46 @@ fn line_no(i: usize) -> u32 {
     u32::try_from(i + 1).unwrap_or(u32::MAX)
 }
 
-fn position_of(bytes: &[u8], lines: &[LineRef], begin: usize, flavor: Flavor) -> BlockPosition {
-    let mut last_section = None;
-    let mut first_directive = None;
-    for (i, l) in lines[..begin].iter().enumerate() {
-        match classify(&bytes[l.start..l.content_end], flavor) {
-            LineClass::Section => last_section = Some(i),
-            LineClass::Directive => {
-                first_directive.get_or_insert(i);
+/// The lines above a begin marker, classified once each as the scan moves down, so
+/// that each block's position does not reclassify every line above it (M08-W2-F1).
+/// Every line counts, those inside earlier blocks included.
+#[derive(Default)]
+struct LinesAbove {
+    /// How many lines, from the first, are classified.
+    seen: usize,
+    /// The last section line among them.
+    last_section: Option<usize>,
+    /// The first directive line among them.
+    first_directive: Option<usize>,
+}
+
+impl LinesAbove {
+    /// Where a block that begins at line `begin` sits. `begin` never decreases from
+    /// one call to the next.
+    fn position(
+        &mut self,
+        bytes: &[u8],
+        lines: &[LineRef],
+        begin: usize,
+        flavor: Flavor,
+    ) -> BlockPosition {
+        for (i, l) in lines[..begin].iter().enumerate().skip(self.seen) {
+            match classify(&bytes[l.start..l.content_end], flavor) {
+                LineClass::Section => self.last_section = Some(i),
+                LineClass::Directive => {
+                    self.first_directive.get_or_insert(i);
+                }
+                LineClass::Blank | LineClass::Comment => {}
             }
-            LineClass::Blank | LineClass::Comment => {}
         }
-    }
-    match last_section.or(first_directive) {
-        None => BlockPosition::BeforeFirstSection,
-        Some(i) => BlockPosition::Conditional(Span {
-            source: SourceId(0),
-            line: line_no(i),
-        }),
+        self.seen = self.seen.max(begin);
+        match self.last_section.or(self.first_directive) {
+            None => BlockPosition::BeforeFirstSection,
+            Some(i) => BlockPosition::Conditional(Span {
+                source: SourceId(0),
+                line: line_no(i),
+            }),
+        }
     }
 }
 
@@ -377,8 +434,14 @@ struct Located {
     first_line: usize,
 }
 
+/// Every block, in file order. A begin marker's block ends at the first later end
+/// marker for its id; begin markers inside it are not blocks. Linear in the length of
+/// `bytes`: each line is split, tested as a begin and an end marker and classified at
+/// most once.
 fn locate(bytes: &[u8], flavor: Flavor) -> Vec<Located> {
     let lines = split_lines(bytes);
+    let mut ends = EndLines::new(bytes, &lines);
+    let mut above = LinesAbove::default();
     let mut out = Vec::new();
     let mut i = 0;
     while i < lines.len() {
@@ -387,9 +450,8 @@ fn locate(bytes: &[u8], flavor: Flavor) -> Vec<Located> {
             i += 1;
             continue;
         };
-        let end = (i + 1..lines.len())
-            .find(|&j| is_end_marker(&bytes[lines[j].start..lines[j].content_end], &marker));
-        let position = position_of(bytes, &lines, i, flavor);
+        let end = ends.first_below(&marker, i);
+        let position = above.position(bytes, &lines, i, flavor);
         let (range, ok, next) = match end {
             Some(j) => (
                 l.start..lines[j].end,
