@@ -1487,11 +1487,13 @@ impl heimdall_app::transport::EndpointAnnouncer for ManagementAnnouncer {
             stderr_file: None,
             issuer_ca: None,
             iroh_endpoint: None,
+            fill: OPENSSH_FILL,
         };
         let sessions = SshSessions {
             ssh_client: ssh,
             root,
             key: key.clone(),
+            fill: OPENSSH_FILL,
         };
         let confirm = TerminalConfirm { interactive: false };
         RemoteEnvController::new(ControllerPorts {
@@ -1550,6 +1552,7 @@ impl ManagementSessions for DriverSessions {
             key: Arc::new(StoreKey {
                 store: Some(Arc::<dyn MgmtKeyStore>::from(mgmt_store(&self.ctx, &own)?)),
             }),
+            fill: OPENSSH_FILL,
         };
         sessions.open(target).await
     }
@@ -2241,7 +2244,16 @@ struct SshSessions {
     /// `heimdall_credential::mgmt::agent::AgentDir` (Unix).
     root: PathBuf,
     key: Arc<StoreKey>,
+    /// ⟨M06 exit⟩ The management `ssh`'s and the probes' environment fill ([`OPENSSH_FILL`]).
+    fill: env_ssh::OpensshEnvFill,
 }
+
+/// ⟨M06 exit; ADR-0006 §18.9 item 13⟩ The fill every M06 launch of `ssh` applies (the
+/// preflight, the bootstrap session, the management session and the probes): the variables
+/// OpenSSH for Windows needs, from the operating system, as every other product launch of
+/// `ssh` (`heimdall_localenv::sys::openssh_env`). The guard behind it stays the backstop.
+const OPENSSH_FILL: env_ssh::OpensshEnvFill =
+    heimdall_localenv::sys::openssh_env::fill_openssh_environment;
 
 type SessionStream = tokio::io::Join<tokio::process::ChildStdout, tokio::process::ChildStdin>;
 
@@ -2261,6 +2273,7 @@ struct SshSession {
     ssh_client: PathBuf,
     config_file: PathBuf,
     alias: String,
+    fill: env_ssh::OpensshEnvFill,
 }
 
 impl Drop for SshSession {
@@ -2302,6 +2315,7 @@ impl ManagementSession for SshSession {
                 &self.config_file,
                 &self.alias,
                 &disposable,
+                self.fill,
             )
             .await
         }
@@ -2311,7 +2325,7 @@ impl ManagementSession for SshSession {
             // agent the in-box client can be pointed at, which this build does not have
             // there. No observation is reported, so the callers take their closed side (a
             // limited-role join and a policy re-check refuse; an owner session needs none).
-            let _ = (&self.ssh_client, &self.config_file, &self.alias);
+            let _ = (&self.ssh_client, &self.config_file, &self.alias, self.fill);
             None
         }
     }
@@ -2653,7 +2667,7 @@ impl ManagementSessions for SshSessions {
         };
         let alias = mgmt_target.alias();
         let args = env_ssh::management_args(&config_file, &alias);
-        let child = env_ssh::spawn_management(&ssh_client, &args)
+        let child = env_ssh::spawn_management(&ssh_client, &args, self.fill)
             .map_err(|e| cleanup(ssh_spawn_failed(e)))?;
         let env_ssh::ManagementChild {
             child,
@@ -2745,6 +2759,7 @@ impl ManagementSessions for SshSessions {
             ssh_client,
             config_file,
             alias,
+            fill: self.fill,
         }))
     }
 }
@@ -2841,11 +2856,13 @@ async fn wiring(ctx: &Ctx, write: bool) -> Result<Wiring, OpError> {
             // ⟨ADR-0006 §18.7 item 8⟩ This device's endpoint ID when its verified store
             // holds K_iroh: the runner admits the bootstrap owner over Iroh with it.
             iroh_endpoint: own_iroh_endpoint(ctx),
+            fill: OPENSSH_FILL,
         },
         sessions: SshSessions {
             ssh_client: ssh,
             root,
             key,
+            fill: OPENSSH_FILL,
         },
         confirm: TerminalConfirm {
             interactive: ctx.interactive(),
@@ -5050,6 +5067,44 @@ mod tests {
     use super::*;
     use crate::cli::{Cli, Command, dispatch};
 
+    /// ⟨M06 exit; ADR-0006 §18.9 item 13⟩ The wired fill ([`OPENSSH_FILL`]) on an M06
+    /// launch whose environment has no `ProgramData` (removed on the command, as a stripped
+    /// parent would leave it), through the same seam every M06 launch uses
+    /// (`env_ssh::prepare_client_environment`, with the guard checked). On Windows the launch
+    /// carries `ProgramData` and `ALLUSERSPROFILE` from the operating system and passes. Off
+    /// Windows the operating system fill has no source (it does nothing), so the guard,
+    /// forced on here, refuses: `CAPABILITY_UNAVAILABLE` / `ssh_client_not_started`.
+    #[test]
+    fn the_os_fill_reaches_an_m06_launch_without_program_data() {
+        let mut command = std::process::Command::new("ssh");
+        command
+            .env_remove("ProgramData")
+            .env_remove("ALLUSERSPROFILE");
+        let parent = |n: &str| std::env::var_os(n);
+        let got = env_ssh::prepare_client_environment(&mut command, OPENSSH_FILL, true, &parent);
+        if cfg!(windows) {
+            got.expect("the operating system's fill");
+            for name in ["ProgramData", "ALLUSERSPROFILE"] {
+                assert!(
+                    env_ssh::launch_env_value(&command, name, &parent)
+                        .is_some_and(|v| !v.is_empty()),
+                    "{name} from the operating system"
+                );
+            }
+        } else {
+            let refused = got.unwrap_err();
+            assert_eq!(refused.code, Code::CapabilityUnavailable);
+            assert_eq!(
+                refused.reason.as_deref(),
+                Some(reason::SSH_CLIENT_NOT_STARTED)
+            );
+            assert_eq!(
+                env_ssh::launch_env_value(&command, "ProgramData", &parent),
+                None
+            );
+        }
+    }
+
     /// ⟨M06 W5 `w5r`, `w5t`; ADR-0006 §18.9⟩ One way the controller's K_mgmt agent can fail
     /// to start, from the error the platform gives (the credential crate's tests cause each
     /// one for real): the code, exit code, `retryable` and reason of its class, effect
@@ -5304,6 +5359,7 @@ mod tests {
             ssh_client: None,
             root: root.clone(),
             key: Arc::new(StoreKey { store: None }),
+            fill: OPENSSH_FILL,
         };
         let got = sessions.session_dir().unwrap_err();
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();

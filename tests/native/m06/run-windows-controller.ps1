@@ -121,6 +121,14 @@ The pure helpers on synthetic data (no host state, no network, no WSL), the scan
 and the runner script for a distribution-management verb, and the runner script's refusals.
 Runs anywhere.
 
+.PARAMETER WithoutProgramData
+⟨M06 exit; ADR-0006 §18.9 item 13⟩ The driver-revert recipe without a code edit: ProgramData
+and ALLUSERSPROFILE are left out of the environment of every heimdall.exe and driver this run
+starts (the driver passes on only what it has), so each M06 launch of ssh.exe gets them from
+the product's own fill. Expected: the journey passes as without the switch. host.txt says
+program-data=omitted. The other Windows tools this script starts (ssh-keygen.exe, ssh.exe -V)
+keep them.
+
 .PARAMETER DryRun
 Check the inputs (and, on the PC, that -WslDistro is registered: the read-only list), print the
 plan and exit; nothing is created and nothing runs in the distribution.
@@ -142,6 +150,7 @@ param(
     [string]$Out = '.',
     [switch]$Local,
     [switch]$SelfTest,
+    [switch]$WithoutProgramData,
     [switch]$DryRun
 )
 Set-StrictMode -Version 3.0
@@ -408,6 +417,14 @@ function Format-SshConfig([string]$Port, [string]$IdentityFile) {
 
 function Test-Sha256([string]$Text) { return ($Text -cmatch '\A[0-9a-f]{64}\z') }
 
+# ⟨M06 exit⟩ -WithoutProgramData: $Environment without ProgramData and ALLUSERSPROFILE (any case),
+# everything else kept. A new hashtable; the input is unchanged.
+function Remove-ProgramData([hashtable]$Environment) {
+    $e = @{}
+    foreach ($k in $Environment.Keys) { if (@('programdata', 'allusersprofile') -notcontains ([string]$k).ToLowerInvariant()) { $e[$k] = $Environment[$k] } }
+    return $e
+}
+
 # ---------------------------------------------------------------------------------------------
 # -SelfTest
 # ---------------------------------------------------------------------------------------------
@@ -431,6 +448,12 @@ function Invoke-SelfTest {
         (Test-DistributionName 'Ubuntu') -and (Test-DistributionName 'Ubuntu-24.04') -and -not (Test-DistributionName '') -and
         -not (Test-DistributionName '--list') -and -not (Test-DistributionName '-d') -and -not (Test-DistributionName 'a b') -and
         -not (Test-DistributionName "Ubuntu`n") -and -not (Test-DistributionName ('a' * 65)))
+    $pdIn = @{ PATH = 'C:\x'; ProgramData = 'C:\p'; ALLUSERSPROFILE = 'C:\p'; TEMP = 'C:\t' }
+    $pdOut = Remove-ProgramData $pdIn
+    $pdCase = Remove-ProgramData @{ PROGRAMDATA = 'C:\p'; allusersprofile = 'C:\p'; SystemDrive = 'C:' }
+    Check 'D01 -WithoutProgramData drops ProgramData and ALLUSERSPROFILE (any case) and keeps everything else' (
+        (@($pdOut.Keys | Sort-Object) -join ',') -eq 'PATH,TEMP' -and $pdOut['PATH'] -eq 'C:\x' -and $pdIn.Count -eq 4 -and
+        (@($pdCase.Keys) -join ',') -eq 'SystemDrive')
     Check 'N02 a new name matches the pattern' (Test-ScratchName ('hm-m06j-' + (New-RandomHex 4)))
     $list = ConvertFrom-WslList "U`0b`0u`0n`0t`0u`0`r`n`r`nDebian`r`n"
     Check 'N03 the wsl list is read with NULs and blank lines' ($list.Count -eq 2 -and $list[0] -eq 'Ubuntu' -and $list[1] -eq 'Debian')
@@ -749,6 +772,7 @@ function New-ControllerEnvironment {
         $e['HEIMDALL_TEST_MGMT_STORE'] = 'fixture-file:' + (Join-Path $run 'k_mgmt.fixture')
         $e['HEIMDALL_TEST_IROH_KEY_STORE'] = (Join-Path $run 'k_iroh.fixture')
     }
+    if ($WithoutProgramData) { $e = Remove-ProgramData $e }
     return $e
 }
 
@@ -762,6 +786,7 @@ function Invoke-Driver([string]$Entry, [hashtable]$Inputs, [int]$Seconds = 600) 
     $e = New-BaseEnvironment
     foreach ($k in $Inputs.Keys) { $e[$k] = $Inputs[$k] }
     $e['HM_M06J_FACTS_OUT'] = $out
+    if ($WithoutProgramData) { $e = Remove-ProgramData $e }
     $r = Invoke-Bounded $DriverExe @('--ignored', '--exact', $Entry) $e $Seconds
     if ($r.Code -ne 0 -or -not (Test-Path -LiteralPath $out)) { throw "driver_entry=$Entry exit=$($r.Code)" }
     return ConvertFrom-Facts (Get-Content -LiteralPath $out -Raw)
@@ -1161,6 +1186,7 @@ $stepBodies = @{
 try {
     Add-Fact 'mode' $mode
     Add-Fact 'pwsh' $PSVersionTable.PSVersion.ToString()
+    Add-Fact 'program-data' $(if ($WithoutProgramData) { 'omitted' } else { 'passed' })
     # --- the runner's host -------------------------------------------------------------------
     if ($Local) {
         $runnerRoot = Join-Path $run "hm-m06j-r$hex"
