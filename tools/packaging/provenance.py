@@ -195,22 +195,42 @@ def purl(name, version):
 
 
 def compiled_packages(messages_path, meta):
-    """{(name, version)} of the packages a `cargo build --message-format=json` run compiled."""
+    """{(name, version)} of the packages a `cargo build --message-format=json` run compiled.
+
+    Read strictly, because a line skipped here is a package missing from the comparison with
+    the selected graph (PC job 34: Windows PowerShell 5.1 wrote the file with a UTF-8 byte
+    order mark, the first line no longer started with `{`, and `cfg-if` vanished silently).
+    A leading byte order mark is accepted; every other non-blank line must be one JSON object,
+    and the file must end with cargo's `build-finished` message reporting success. Anything
+    else is refused with the line number, never skipped."""
     by_manifest = {p["manifest_path"]: (p["name"], p["version"]) for p in meta["packages"]}
     seen = set()
-    with open(messages_path, encoding="utf-8") as fh:
-        for line in fh:
-            if not line.startswith("{"):
+    finished = False
+    with open(messages_path, encoding="utf-8-sig") as fh:
+        for number, line in enumerate(fh, 1):
+            if not line.strip():
                 continue
+            if not line.startswith("{"):
+                raise Refused(f"the build messages are malformed at line {number}: not a JSON object")
             try:
                 msg = json.loads(line)
             except ValueError:
-                continue
+                raise Refused(f"the build messages are malformed at line {number}: not valid JSON") from None
+            if not isinstance(msg, dict):
+                raise Refused(f"the build messages are malformed at line {number}: not a JSON object")
+            if finished:
+                raise Refused(f"the build messages continue after build-finished, at line {number}")
             if msg.get("reason") == "compiler-artifact":
                 key = by_manifest.get(msg.get("manifest_path"))
                 if key is None:
                     raise Refused("the build compiled a package cargo metadata does not know")
                 seen.add(key)
+            elif msg.get("reason") == "build-finished":
+                if msg.get("success") is not True:
+                    raise Refused("the build messages record a failed build")
+                finished = True
+    if not finished:
+        raise Refused("the build messages have no successful build-finished message (cut short?)")
     return seen
 
 
@@ -722,6 +742,39 @@ def self_test():
                            "toolchain": stub})
         check("record lists executables only", [o["path"] for o in rec["outputs"]] == ["heimdall"])
         check("record carries the toolchain it was given", rec["toolchain"] == stub)
+
+        # The build messages are read strictly (PC job 34): a byte order mark is accepted, a
+        # malformed or cut file is refused by line, never skipped.
+        meta = {"packages": [{"manifest_path": "/m/a/Cargo.toml", "name": "a", "version": "1.0.0"},
+                             {"manifest_path": "/m/b/Cargo.toml", "name": "b", "version": "2.0.0"}]}
+        art = lambda m: json.dumps({"reason": "compiler-artifact", "manifest_path": m})
+        done = json.dumps({"reason": "build-finished", "success": True})
+        msgs = os.path.join(tmp, "messages.json")
+
+        def compiled(text, encoding="utf-8"):
+            with open(msgs, "w", encoding=encoding, newline="") as fh:
+                fh.write(text)
+            try:
+                return compiled_packages(msgs, meta)
+            except Refused as e:
+                return str(e)
+        good = "\n".join([art("/m/a/Cargo.toml"), art("/m/b/Cargo.toml"), done]) + "\n"
+        both = {("a", "1.0.0"), ("b", "2.0.0")}
+        check("messages: plain", compiled(good) == both)
+        check("messages: a byte order mark keeps the first package", compiled(good, "utf-8-sig") == both)
+        check("messages: CRLF and blank lines", compiled(good.replace("\n", "\r\n") + "\r\n") == both)
+        check("messages: a non-JSON line is refused by number",
+              compiled(art("/m/a/Cargo.toml") + "\nwarning: x\n" + done + "\n") ==
+              "the build messages are malformed at line 2: not a JSON object")
+        check("messages: a broken JSON line is refused by number",
+              compiled("{\"reason\": \n" + done + "\n") == "the build messages are malformed at line 1: not valid JSON")
+        check("messages: a doubled byte order mark is refused",
+              compiled("\ufeff" + good, "utf-8-sig") == "the build messages are malformed at line 1: not a JSON object")
+        check("messages: cut before build-finished is refused",
+              str(compiled(art("/m/a/Cargo.toml") + "\n")).startswith("the build messages have no successful"))
+        check("messages: a failed build is refused",
+              compiled(json.dumps({"reason": "build-finished", "success": False}) + "\n") ==
+              "the build messages record a failed build")
 
         def absent(cmd, **_):
             if cmd[0] == "cargo":

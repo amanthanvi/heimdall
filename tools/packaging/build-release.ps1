@@ -1,8 +1,11 @@
 # Build the Heimdall Windows release archive on the PC (m08-plan U3a; ADR-0014 sections 4.2
 # and 4.4). The counterpart of build-release.sh for x86_64-pc-windows-msvc.
 #
-# STATUS: written from build-release.sh and NOT YET RUN on the PC. Its first run is a
-# rehearsal; nothing it produces is evidence until that run is recorded.
+# STATUS: first run on the PC (job 34, at c3abefbf) built heimdall.exe and then stopped at
+# the provenance step: Windows PowerShell 5.1 had written cargo's messages with a byte order
+# mark, and the first compiled package was dropped. Fixed (raw-byte capture below; a strict
+# reader in provenance.py); not yet rerun. Nothing it produces is evidence until a
+# successful run is recorded.
 #
 # Usage (PowerShell 5.1 or 7, from the repository root):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\packaging\build-release.ps1 `
@@ -64,6 +67,9 @@ $env:TZ = "UTC"
 $commitTime = (git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD).Trim()
 $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
 if (-not $version) { Fail 2 "no workspace version" }
+# The feature list is passed to cargo on one command line (below), so it may hold only the
+# characters a feature list uses.
+if ($Features -and ($Features -notmatch '^[A-Za-z0-9_,/-]+$')) { Fail 2 "-Features may hold only letters, digits, '_', '-', '/' and ','" }
 
 # rustc applies the last matching --remap-path-prefix, so the general one comes first.
 $sep = [char]0x1f
@@ -89,8 +95,23 @@ if ($Offline) { $cargoArgs += "--offline" }
 if ($Features) { $cargoArgs += @("--features", $Features) }
 $started = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 Write-Host "== build-release: $target at $($commit.Substring(0,12)) (tree clean: $clean)"
-& cargo @cargoArgs | Out-File -Encoding utf8 -FilePath $messages
-if ($LASTEXITCODE -ne 0) { Fail 1 "cargo build failed" }
+# cargo's JSON goes to the file byte for byte (PC job 34). Piping `& cargo` through PowerShell
+# would decode its stdout through the console code page and re-encode it, and Windows
+# PowerShell 5.1's `Out-File -Encoding utf8` adds a byte order mark. `cmd /c ... >` would
+# keep the bytes but needs the command line re-quoted for cmd. So the process is started
+# directly, only its stdout is redirected, and the raw stream is copied to the file: no
+# decoding, no BOM, no shell. The rendered diagnostics stay on the console (stderr).
+$cargoExe = (Get-Command cargo -CommandType Application | Select-Object -First 1).Source
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = $cargoExe
+$psi.Arguments = $cargoArgs -join " "   # every argument is a fixed token or a checked feature list
+$psi.UseShellExecute = $false
+$psi.RedirectStandardOutput = $true
+$proc = [System.Diagnostics.Process]::Start($psi)
+$sink = [System.IO.File]::Create($messages)
+try { $proc.StandardOutput.BaseStream.CopyTo($sink) } finally { $sink.Dispose() }
+$proc.WaitForExit()
+if ($proc.ExitCode -ne 0) { Fail 1 "cargo build failed (exit $($proc.ExitCode))" }
 $finished = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
 $name = "heimdall-$version-$target"

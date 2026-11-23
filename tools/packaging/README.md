@@ -12,7 +12,7 @@ M08 land. Archives built now are rehearsals, not release evidence.
 | File | What it does |
 |---|---|
 | `build-release.sh <target>` | Builds one archive on the Mac: `aarch64-apple-darwin`, or `x86_64-unknown-linux-gnu` / `aarch64-unknown-linux-gnu` through zig with a glibc 2.31 floor. Remaps build-host paths, stages the archive, writes the inventory, notices, build record and inner manifest, packs, verifies, and rewrites the external index |
-| `build-release.ps1 -LinuxHelper <file>` | The same for `x86_64-pc-windows-msvc`, on the PC, with a static C runtime and the Linux helper in place. **Not yet run** |
+| `build-release.ps1 -LinuxHelper <file>` | The same for `x86_64-pc-windows-msvc`, on the PC, with a static C runtime and the Linux helper in place. **First run (PC job 34) stopped at the provenance step; fixed, not yet rerun** |
 | `verify_artifact.py <archive>` | The static check: allowed dynamic libraries only, no build-host path, no key block or canary value, the inner manifest complete and correct, the build record consistent, and (with `--index`) the archive's digest in the external index. Executes nothing |
 | `provenance.py` | `sbom` (runs the pinned cargo-cyclonedx and validates its output against cargo's selected graph and the build's compiled packages), `notices`, `build-record`, `manifest`, `pack`, `index` |
 
@@ -64,7 +64,7 @@ its inventory and its notices.
 | `aarch64-apple-darwin` | yes | passed | not run (a release binary needs a disposable account: B3) |
 | `x86_64-unknown-linux-gnu` | yes | passed | `--version` and `service status` in `debian:13-slim` and `ubuntu:24.04`, no toolchain, no network, **under amd64 emulation**: a smoke check, not evidence |
 | `aarch64-unknown-linux-gnu` | yes | passed | the same two containers, natively on the Mac's Docker: supplementary. **Its native rows stay blocked on B9** |
-| `x86_64-pc-windows-msvc` | no | — | `build-release.ps1` has not been run |
+| `x86_64-pc-windows-msvc` | no | — | `build-release.ps1`: no successful run yet (job 34 built the executable and stopped at provenance) |
 
 **Linux arm64 note:** zig's linker does not accept rustc's `--fix-cortex-a53-843419`, so the
 shim drops it (as cargo-zigbuild does). The archive is therefore linked without that
