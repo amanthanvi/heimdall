@@ -4033,6 +4033,9 @@ mod ssh {
             std::fs::create_dir_all(&dir).unwrap();
             WrapperConfig {
                 config: w.home.user_config.clone(),
+                // ⟨M07 W7.1⟩ The scratch root: the wrapper's identity guard accepts only
+                // identity, agent and known-hosts paths inside it (or a fixture pipe).
+                scratch_root: w.home.root.clone(),
                 options: vec![
                     format!(
                         "UserKnownHostsFile={}",
@@ -4103,6 +4106,16 @@ mod ssh {
                         .stderr
                         .contains(heimdall_testkit::pinned_ssh::NAME),
                 "connect launched the redirect's wrapper: {connected:?}"
+            );
+            // The guard's verdict (ADR-0007 §12.52): the wrapper checked the effective
+            // identity agent, found the fixture's pipe, and refused nothing, so the system
+            // agent pipe was never named to the client.
+            assert!(
+                connected
+                    .stderr
+                    .contains("hm-pinned-ssh: checked: identity agent fixture pipe")
+                    && !connected.stderr.contains("hm-pinned-ssh: refused:"),
+                "the wrapper's identity check passed on the fixture's agent: {connected:?}"
             );
             let accepted = f.accepted();
             assert!(
