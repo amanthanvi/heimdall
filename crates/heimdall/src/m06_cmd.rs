@@ -1317,6 +1317,7 @@ fn route_connect(ctx: &Ctx, args: &crate::cli::PlannedArgs) -> ExitCode {
             relay_jump_stderr: true,
         },
         iroh,
+        iroh_in_build: heimdall_runtime::supervise_transport::ROUTE_IROH_IN_BUILD,
     };
     let pin_file = paths
         .config_dir

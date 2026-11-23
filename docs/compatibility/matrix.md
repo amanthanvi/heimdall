@@ -606,6 +606,11 @@ pair; A28 container row: the endpoint lists only the binding's identity and a co
   ruling of 2026-11-22; a line for the release notes' limitations list). The confirming probes do not run on Windows,
   so a limited-role join and a policy recheck from Windows refuse, and say why.
 
+- **The Iroh transport is a preview, source build only** (ADR-0015, the orchestrator's ruling E2 of 2026-11-23; a line
+  for the limitations list). V1's release artifacts are built without it, and every Iroh form in them refuses
+  `driver_unavailable` with a message naming the preview; a route's Iroh leg is failed over to its other legs. The
+  preview is a source build with `cargo build --features iroh`: no support label on any platform, no stable claim.
+  Row 15 of the matrix table gets no product row from M06.
 - **A remote runner does not dial onward over Iroh through a projected alias** (ADR-0012 §5, ruling of 2026-11-22;
   outside V1; a line for the limitations list). Routes and the Iroh transport are for a controller's destinations.
 - **Certificate content change, for the M08 release notes:** the bastion of an approved jump route now gets

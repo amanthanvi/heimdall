@@ -468,12 +468,46 @@ fn unconsented() -> OpError {
 }
 
 fn policy_refused(why: &'static str) -> OpError {
-    OpError::new(
-        Code::CapabilityUnavailable,
-        "the exposure policy cannot be applied",
-    )
-    .with_reason(why)
-    .with_effect(EffectStatus::None)
+    let message = if why == reason::DRIVER_UNAVAILABLE {
+        IROH_PREVIEW_UNAVAILABLE
+    } else {
+        "the exposure policy cannot be applied"
+    };
+    OpError::new(Code::CapabilityUnavailable, message)
+        .with_reason(why)
+        .with_effect(EffectStatus::None)
+}
+
+/// ⟨M06 exit, ruling E2 (2026-11-23)⟩ The message of the `driver_unavailable` refusal of an
+/// Iroh form in a build without the `iroh` feature (the V1 release artifacts): the Iroh
+/// transport is a preview, built from source. The code and reason are unchanged
+/// (`CAPABILITY_UNAVAILABLE` / `driver_unavailable`).
+pub const IROH_PREVIEW_UNAVAILABLE: &str = "the Iroh transport is a preview, available only in \
+     a source build with `cargo build --features iroh`; this build does not include it, so \
+     nothing was changed";
+
+/// ⟨M06 exit, ADR-0015⟩ The text every Iroh preview refusal starts with: the transport's
+/// ([`IROH_PREVIEW_UNAVAILABLE`]) and the route helper's
+/// (`crate::routes::IROH_ROUTE_PREVIEW_UNAVAILABLE`). A test pins both to it.
+pub const IROH_PREVIEW_PREFIX: &str = "the Iroh transport is a preview, available only in a \
+     source build with `cargo build --features iroh`; this build does not include it";
+
+#[cfg(test)]
+mod iroh_preview_message_tests {
+    use super::{IROH_PREVIEW_PREFIX, IROH_PREVIEW_UNAVAILABLE};
+    use crate::routes::IROH_ROUTE_PREVIEW_UNAVAILABLE;
+
+    #[test]
+    fn every_iroh_preview_refusal_shares_one_prefix() {
+        assert_eq!(
+            IROH_PREVIEW_UNAVAILABLE.strip_prefix(IROH_PREVIEW_PREFIX),
+            Some(", so nothing was changed")
+        );
+        assert_eq!(
+            IROH_ROUTE_PREVIEW_UNAVAILABLE.strip_prefix(IROH_PREVIEW_PREFIX),
+            Some(", so this route has no usable leg")
+        );
+    }
 }
 
 /// The widening check: `delta` needs a consent and `approved` is exactly it.
