@@ -47,8 +47,8 @@ use heimdall_localenv::projection::plan::{
     DEADLINE_STRICT_NOT_EXCLUSIVE, deadline_wording, slot_free_command,
 };
 use heimdall_localenv::projection::{
-    LocalProjection, ManagedPairSource, ManagedSectionSpec, ProjectionConfig, PublicKeySource,
-    StateDirMissing,
+    HelperRouteSpec, LocalProjection, ManagedPairSource, ManagedSectionSpec, ProjectionConfig,
+    PublicKeySource, StateDirMissing,
 };
 use heimdall_sshconf::render::{
     AliasName, DEFAULT_MANAGED_IDENTITY_FORM, HostName, ManagedAlias, ManagedIdentityForm,
@@ -74,9 +74,13 @@ impl PublicKeySource for KeyBook {
     }
 }
 
-/// The fake preference source: the managed section of each managed alias.
+/// The fake preference source: the managed section of each managed alias, and (⟨M06 W5
+/// `w5n`⟩) the route helper of each alias whose destination has several routes.
 #[derive(Default)]
-struct Managed(Mutex<BTreeMap<String, ManagedSectionSpec>>);
+struct Managed(
+    Mutex<BTreeMap<String, ManagedSectionSpec>>,
+    Mutex<BTreeMap<String, HelperRouteSpec>>,
+);
 
 impl ManagedPairSource for Managed {
     fn managed_section(
@@ -89,6 +93,23 @@ impl ManagedPairSource for Managed {
             .unwrap_or_else(PoisonError::into_inner)
             .get(&alias.alias)
             .cloned())
+    }
+
+    fn helper_route(&self, alias: &ManagedAliasSpec) -> Result<Option<HelperRouteSpec>, String> {
+        Ok(self
+            .1
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&alias.alias)
+            .cloned())
+    }
+
+    fn routes_need_helper(&self, alias: &ManagedAliasSpec) -> Result<bool, String> {
+        Ok(self
+            .1
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(&alias.alias))
     }
 }
 
@@ -1287,4 +1308,406 @@ fn managed_selection_follows_identity_form() {
             form.as_str()
         );
     }
+}
+
+// --- ⟨M06 W5 `w5n`⟩ the route helper in the projection (ADR-0012 §5.2, §5.3) ----------------
+
+/// Apply `plan` and return the committed record's spec for the next preview.
+fn apply_and_record(
+    fx: &Fx,
+    plan: &ProjectionPlan,
+    aliases: Vec<ManagedAliasSpec>,
+) -> ProjectionSpec {
+    let sink = Sink::default();
+    let r = fx
+        .writer(true)
+        .apply(&plan.intent(), &mut sink.clone())
+        .unwrap();
+    assert!(
+        matches!(
+            r.items.as_slice(),
+            [heimdall_app::ports::ItemOutcome::Applied { .. }]
+        ),
+        "{:?}",
+        r.items
+    );
+    let mut record = sink.0.lock().unwrap()[0].record.clone();
+    record.environment = fx.env.clone();
+    let mut spec = fx.spec(aliases);
+    spec.record = Some(record);
+    spec
+}
+
+fn helper_spec(fx: &Fx, pins: &[(&str, &str)]) -> HelperRouteSpec {
+    HelperRouteSpec {
+        program: fx.home.root.join("bin").join("heimdall"),
+        pins: pins
+            .iter()
+            .map(|(d, k)| ((*d).to_owned(), (*k).to_owned()))
+            .collect(),
+    }
+}
+
+const PIN_A: &str =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const PIN_B: &str =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+/// The brief's constraint 1 and the upgrade path: an installation whose P is applied
+/// **without** a helper (routes approved, nothing projected yet) gets the helper on its next
+/// preview, in the diff and under a decision, never silently; the apply changes exactly the
+/// section of the alias whose destination has routes. Every other section of P, and the
+/// user's own configuration (its own `Host` blocks included), stay byte-identical. The pin
+/// file is written through the same transaction, with the catalog pins only.
+#[test]
+fn route_helper_changes_only_the_alias_with_routes_and_shows_it_first() {
+    let fx = Fx::new();
+    let own = "Host mine\n    HostName mine.example.invalid\n    User me\n    \
+               StrictHostKeyChecking accept-new\n\nHost *.corp\n    ProxyJump gate\n";
+    std::fs::write(&fx.home.user_config, own).unwrap();
+    let routed = fx.alias("work", "work.example.invalid", Some(2222), "deploy");
+    let other = fx.alias("other", "other.example.invalid", None, "deploy");
+    let plain = fx.alias("plain", "plain.example.invalid", None, "deploy");
+    fx.prefer_managed(&routed, fx.environment_endpoint("t"));
+    fx.prefer_managed(&other, fx.environment_endpoint("t"));
+    let aliases = vec![routed.clone(), other, plain];
+    // The installation before this unit: applied, no helper.
+    let before = fx
+        .writer(true)
+        .preview(&fx.spec(aliases.clone()), &apply_intent())
+        .unwrap();
+    let spec = apply_and_record(&fx, &before, aliases.clone());
+    let p0 = std::fs::read_to_string(fx.p()).unwrap();
+    let user0 = std::fs::read(&fx.home.user_config).unwrap();
+    assert!(
+        String::from_utf8_lossy(&user0).ends_with(own),
+        "the user's blocks follow B"
+    );
+    assert!(!p0.contains("ProxyCommand"));
+    let pins = fx.home.config_dir.join("keys").join("host_pins");
+    assert!(!pins.exists());
+
+    // Routes approved since: the next preview shows the helper, and writes nothing.
+    fx.managed.1.lock().unwrap().insert(
+        "work".into(),
+        helper_spec(&fx, &[("dst-work", PIN_A), ("dst-bastion", PIN_B)]),
+    );
+    let plan = fx.writer(true).preview(&spec, &apply_intent()).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fx.p()).unwrap(),
+        p0,
+        "the preview writes nothing"
+    );
+    assert!(!pins.exists());
+    let summary = plan.summary.as_ref().expect("the change needs a decision");
+    assert!(plan.view.consent.decision_required);
+    assert_eq!(summary.changed_aliases, ["work"], "{summary:?}");
+    assert!(summary.added_aliases.is_empty() && summary.removed_aliases.is_empty());
+    assert!(
+        summary.diff_text.contains("+    ProxyCommand \"")
+            && summary
+                .diff_text
+                .contains("route connect --destination dst-work --account deploy")
+            && summary.diff_text.contains("+    StrictHostKeyChecking yes")
+            && summary
+                .diff_text
+                .contains("+    HostKeyAlias hm-dest-dst-work"),
+        "{}",
+        summary.diff_text
+    );
+    assert!(
+        !plan
+            .view
+            .findings
+            .iter()
+            .any(|f| f.code == "host_pin_defeated"),
+        "{:?}",
+        plan.view.findings
+    );
+    apply_and_record(&fx, &plan, aliases);
+    let p1 = std::fs::read_to_string(fx.p()).unwrap();
+    assert_eq!(section_of(&p1, "other"), section_of(&p0, "other"));
+    assert_eq!(section_of(&p1, "plain"), section_of(&p0, "plain"));
+    assert_ne!(section_of(&p1, "work"), section_of(&p0, "work"));
+    let work = section_of(&p1, "work");
+    // The helper's `--endpoint` is the alias's own `IdentityAgent`, by its absolute path.
+    let agent = work
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("IdentityAgent "))
+        .expect("the alias's IdentityAgent")
+        .to_owned();
+    assert!(
+        work.contains(&format!(
+            "route connect --destination dst-work --account deploy --endpoint {agent}\n"
+        )),
+        "{work}"
+    );
+    assert!(!agent.starts_with("\"~"), "{agent}");
+    for line in [
+        "    HostKeyAlias hm-dest-dst-work\n",
+        "    GlobalKnownHostsFile none\n",
+        "    KnownHostsCommand none\n",
+        "    StrictHostKeyChecking yes\n",
+        "    VerifyHostKeyDNS no\n",
+        "    UpdateHostKeys no\n",
+        "    ControlMaster no\n",
+        "    ControlPath none\n",
+    ] {
+        assert!(work.contains(line), "{line:?} in {work}");
+    }
+    assert!(!work.contains("ProxyJump") && !work.contains("ForwardAgent"));
+    assert_eq!(
+        std::fs::read(&fx.home.user_config).unwrap(),
+        user0,
+        "the user's configuration is byte-identical"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&pins).unwrap(),
+        format!("hm-dest-dst-bastion {PIN_B}\nhm-dest-dst-work {PIN_A}\n")
+    );
+}
+
+/// The brief's constraint 2 (ADR-0012 §5.2), at projection time: a user configuration that
+/// decides a pin setting above Heimdall's block defeats the pin (the block is then no longer
+/// first, M02's `include_conditional` conflict). The preview reports `host_pin_defeated`
+/// naming the alias and the setting, and plans nothing: the alias is not rendered with the
+/// helper under trust the catalog does not control, and no pin is written for it. With the
+/// line gone, the helper is rendered.
+#[test]
+fn a_user_setting_that_defeats_the_pin_is_reported_and_the_helper_is_not_rendered() {
+    let fx = Fx::new();
+    let routed = fx.alias("work", "work.example.invalid", None, "deploy");
+    fx.prefer_managed(&routed, fx.environment_endpoint("t"));
+    let aliases = vec![routed];
+    let first = fx
+        .writer(true)
+        .preview(&fx.spec(aliases.clone()), &apply_intent())
+        .unwrap();
+    let spec = apply_and_record(&fx, &first, aliases.clone());
+    let p0 = std::fs::read_to_string(fx.p()).unwrap();
+    let block = std::fs::read_to_string(&fx.home.user_config).unwrap();
+    fx.managed
+        .1
+        .lock()
+        .unwrap()
+        .insert("work".into(), helper_spec(&fx, &[("dst-work", PIN_A)]));
+    for (line, setting) in [
+        ("StrictHostKeyChecking accept-new", "stricthostkeychecking"),
+        (
+            "UserKnownHostsFile ~/.ssh/known_hosts",
+            "userknownhostsfile",
+        ),
+        ("ControlMaster auto", "controlmaster"),
+    ] {
+        std::fs::write(&fx.home.user_config, format!("{line}\n{block}")).unwrap();
+        let plan = fx.writer(true).preview(&spec, &apply_intent()).unwrap();
+        let found: Vec<_> = plan
+            .view
+            .findings
+            .iter()
+            .filter(|f| f.code == "host_pin_defeated")
+            .collect();
+        assert_eq!(found.len(), 1, "{line}: {:?}", plan.view.findings);
+        assert_eq!(found[0].severity, FindingSeverity::Problem);
+        assert_eq!(found[0].subject.id.as_deref(), Some("dst-work"));
+        assert!(
+            found[0].message.contains(setting) && found[0].message.contains("`work`"),
+            "{}",
+            found[0].message
+        );
+        assert!(
+            plan.files
+                .iter()
+                .all(|s| s.role != FileRole::ManagedSsh && s.role != FileRole::Key),
+            "{line}: P and the pin file are not planned: the alias stays native"
+        );
+        assert_eq!(std::fs::read_to_string(fx.p()).unwrap(), p0);
+    }
+    std::fs::write(&fx.home.user_config, &block).unwrap();
+    let plan = fx.writer(true).preview(&spec, &apply_intent()).unwrap();
+    assert!(planned_p(&plan).contains("    ProxyCommand \""));
+    assert!(
+        !plan
+            .view
+            .findings
+            .iter()
+            .any(|f| f.code == "host_pin_defeated")
+    );
+}
+
+/// ⟨M06 W5 `w5o` item 11; ADR-0012 §5 ⟨2026-11-22⟩ "the pin check"⟩ What the static check
+/// cannot decide is shown as `undetermined`, and the helper stays rendered (its own `ssh -G`
+/// check is the backstop): a pin setting behind a `Match exec` above the owner's include, in
+/// manual mode. Nothing of the configuration is run by the preview. A setting that is
+/// **determined** to come from outside P is still a defeat, and the alias then stays native.
+#[test]
+fn an_undetermined_pin_setting_keeps_the_helper_and_the_plan_says_undetermined() {
+    use heimdall_contract::setup::{ConflictKind, RepairResolution};
+    let fx = Fx::new();
+    let routed = fx.alias("work", "work.example.invalid", None, "deploy");
+    fx.prefer_managed(&routed, fx.environment_endpoint("t"));
+    let aliases = vec![routed];
+    let first = fx
+        .writer(true)
+        .preview(&fx.spec(aliases.clone()), &apply_intent())
+        .unwrap();
+    let spec = apply_and_record(&fx, &first, aliases.clone());
+    let block = std::fs::read_to_string(&fx.home.user_config).unwrap();
+    fx.managed
+        .1
+        .lock()
+        .unwrap()
+        .insert("work".into(), helper_spec(&fx, &[("dst-work", PIN_A)]));
+    let manual = PreviewIntent::Repair {
+        conflict: ConflictKind::IncludeConditional,
+        resolution: RepairResolution::ManualMode,
+        operation: None,
+    };
+    // A marker the command would create if the preview ran it.
+    let marker = fx.home.root.join("match-exec-ran");
+    let exec = format!("Match exec \"touch {}\"", marker.display());
+
+    // Undetermined: the setting sits behind the unevaluated condition; the include itself
+    // is outside it.
+    std::fs::write(
+        &fx.home.user_config,
+        format!("{exec}\n    StrictHostKeyChecking no\nHost *\n{block}"),
+    )
+    .unwrap();
+    let plan = fx.writer(true).preview(&spec, &manual).unwrap();
+    assert!(
+        !marker.exists(),
+        "the preview ran the configuration's command"
+    );
+    let undetermined: Vec<_> = plan
+        .view
+        .findings
+        .iter()
+        .filter(|f| f.message.contains("host-key pin status: undetermined"))
+        .collect();
+    assert_eq!(undetermined.len(), 1, "{:?}", plan.view.findings);
+    assert_eq!(undetermined[0].code, finding::DYNAMIC_MATCH_UNRESOLVED);
+    assert_eq!(undetermined[0].severity, FindingSeverity::Warning);
+    assert_eq!(undetermined[0].subject.id.as_deref(), Some("dst-work"));
+    assert!(
+        undetermined[0].message.contains("`work`")
+            && undetermined[0].message.contains("stricthostkeychecking")
+            && undetermined[0].message.contains("--allow-config-commands"),
+        "{}",
+        undetermined[0].message
+    );
+    assert!(
+        !plan
+            .view
+            .findings
+            .iter()
+            .any(|f| f.code == "host_pin_defeated"),
+        "undetermined is not reported as a defeat: {:?}",
+        plan.view.findings
+    );
+    assert!(
+        planned_p(&plan).contains("    ProxyCommand \""),
+        "the helper stays rendered: it is the backstop"
+    );
+
+    // Determined from outside P (no condition): a defeat, and the alias stays native.
+    std::fs::write(
+        &fx.home.user_config,
+        format!("StrictHostKeyChecking no\n{block}"),
+    )
+    .unwrap();
+    let plan = fx.writer(true).preview(&spec, &manual).unwrap();
+    assert!(
+        plan.view
+            .findings
+            .iter()
+            .any(|f| f.code == "host_pin_defeated"),
+        "{:?}",
+        plan.view.findings
+    );
+    assert!(
+        !plan
+            .view
+            .findings
+            .iter()
+            .any(|f| f.message.contains("pin status: undetermined"))
+    );
+    assert!(!marker.exists());
+}
+
+/// ⟨M06 W5 `w5o` item 12; ADR-0012 §5 ⟨2026-11-22⟩⟩ An existing-access alias whose
+/// destination has several approved routes keeps its native rendering, byte for byte, and
+/// the preview says that those routes are not used by ordinary `ssh`. A managed-certificate
+/// alias with routes gets the helper and no such finding; an existing-access alias without
+/// such routes gets neither.
+#[test]
+fn an_existing_access_alias_with_routes_stays_native_and_the_preview_says_so() {
+    use heimdall_localenv::projection::plan::ROUTES_NOT_USED_BY_ORDINARY_SSH;
+    let fx = Fx::new();
+    let existing = fx.alias("legacy", "legacy.example.invalid", None, "deploy");
+    let plain = fx.alias("plain", "plain.example.invalid", None, "deploy");
+    let routed = fx.alias("work", "work.example.invalid", None, "deploy");
+    fx.prefer_managed(&routed, fx.environment_endpoint("t"));
+    let aliases = vec![existing, plain, routed];
+    let spec = fx.spec(aliases);
+    let before = fx.writer(true).preview(&spec, &apply_intent()).unwrap();
+    assert!(
+        !before
+            .view
+            .findings
+            .iter()
+            .any(|f| f.code == ROUTES_NOT_USED_BY_ORDINARY_SSH)
+    );
+    {
+        let mut routes = fx.managed.1.lock().unwrap();
+        routes.insert("legacy".into(), helper_spec(&fx, &[("dst-legacy", PIN_A)]));
+        routes.insert("work".into(), helper_spec(&fx, &[("dst-work", PIN_B)]));
+    }
+    let after = fx.writer(true).preview(&spec, &apply_intent()).unwrap();
+    let found: Vec<_> = after
+        .view
+        .findings
+        .iter()
+        .filter(|f| f.code == ROUTES_NOT_USED_BY_ORDINARY_SSH)
+        .collect();
+    assert_eq!(found.len(), 1, "{:?}", after.view.findings);
+    assert_eq!(found[0].subject.id.as_deref(), Some("dst-legacy"));
+    assert_eq!(found[0].severity, FindingSeverity::Warning);
+    assert!(
+        found[0].message.contains("`legacy`")
+            && found[0]
+                .message
+                .contains("are not used by ordinary `ssh legacy`"),
+        "{}",
+        found[0].message
+    );
+    // The existing-access aliases' sections are byte-identical; only `work` changed.
+    let section = |p: &str, alias: &str| -> String {
+        let mut out = String::new();
+        let mut inside = false;
+        for line in p.lines() {
+            if let Some(name) = line.strip_prefix("Host ") {
+                inside = name.trim() == alias;
+            }
+            if inside {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        assert!(!out.is_empty(), "{alias} is not in P");
+        out
+    };
+    let (p_before, p_after) = (planned_p(&before), planned_p(&after));
+    for alias in ["legacy", "plain"] {
+        assert_eq!(
+            section(&p_before, alias),
+            section(&p_after, alias),
+            "{alias}"
+        );
+        assert!(
+            !section(&p_after, alias).contains("ProxyCommand"),
+            "{alias}"
+        );
+    }
+    assert!(section(&p_after, "work").contains("    ProxyCommand \""));
 }

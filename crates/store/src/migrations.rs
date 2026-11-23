@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 12;
+pub const SCHEMA_VERSION: u32 = 13;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -95,6 +95,13 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 12,
         name: "remote_lift_acks",
         sql: include_str!("../migrations/0012_remote_lift_acks.sql"),
+    },
+    // ⟨M06⟩ Wave 5 (ADR-0006 §18.9 item 8): the widening record's origin; a local record
+    // has no client.
+    Migration {
+        version: 13,
+        name: "local_widening",
+        sql: include_str!("../migrations/0013_local_widening.sql"),
     },
 ];
 
@@ -472,7 +479,10 @@ mod tests {
         let before = tables(&c);
         c.execute_batch("INSERT INTO meta (key, value) VALUES ('m06-w4-probe', 'kept')")
             .unwrap();
-        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 12);
+        assert_eq!(
+            apply_steps(&mut c, &NoFaults, &MIGRATIONS[..12]).unwrap(),
+            12
+        );
         let added: Vec<String> = tables(&c)
             .into_iter()
             .filter(|t| !before.contains(t))
@@ -502,6 +512,149 @@ mod tests {
         assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
         assert_eq!(user_version(&c).unwrap(), 11);
         assert_eq!(tables(&c), before);
+    }
+
+    /// ⟨M06⟩ Wave 5 (ADR-0006 §18.9 item 8): `0013_local_widening` applies on a database at
+    /// version 12, adds no table, keeps every `remote_widening` row as a `paired` one, and
+    /// its CHECK constraint ties the client and the delta digest to the origin in both
+    /// directions; a failure inside the step leaves version 12 and the old table.
+    #[test]
+    fn local_widening_step_keeps_paired_rows_and_constrains_the_origin() {
+        let tables = |c: &Connection| -> Vec<String> {
+            let mut stmt = c
+                .prepare(
+                    "SELECT name FROM sqlite_schema WHERE type = 'table'
+                     AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+                )
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        let columns = |c: &Connection| -> Vec<String> {
+            let mut stmt = c
+                .prepare("SELECT name FROM pragma_table_info('remote_widening') ORDER BY cid")
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        const SEED: &str = "
+            INSERT INTO decisions (id, kind_json, state, generation, created_at, expires_at,
+                record_json)
+            VALUES ('dec_probe', '{}', 'pending', 0, 't', 't', '{}');
+            INSERT INTO remote_widening (decision_id, client_id, request_kind, request_id,
+                request_hash, result_json)
+            VALUES ('dec_probe', 'cl_probe', 'transport.enable', 'req_probe', 'aa', NULL);";
+        let previous = &MIGRATIONS[..12];
+        assert_eq!(MIGRATIONS[12].version, 13);
+        assert_eq!(MIGRATIONS[12].name, "local_widening");
+        let mut c = Connection::open_in_memory().unwrap();
+        c.pragma_update(None, "foreign_keys", "ON").unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, previous).unwrap(), 12);
+        let before = tables(&c);
+        let before_columns = columns(&c);
+        c.execute_batch(SEED).unwrap();
+        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 13);
+        assert_eq!(tables(&c), before, "the step adds and drops no table");
+        let new_columns: Vec<String> = columns(&c)
+            .into_iter()
+            .filter(|col| !before_columns.contains(col))
+            .collect();
+        assert_eq!(
+            new_columns,
+            vec!["origin".to_owned(), "delta_digest".to_owned()]
+        );
+        let kept: (
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            Option<String>,
+        ) = c
+            .query_row(
+                "SELECT origin, client_id, request_kind, request_id, request_hash, delta_digest
+                 FROM remote_widening WHERE decision_id = 'dec_probe'",
+                [],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            kept,
+            (
+                "paired".to_owned(),
+                Some("cl_probe".to_owned()),
+                "transport.enable".to_owned(),
+                "req_probe".to_owned(),
+                "aa".to_owned(),
+                None
+            )
+        );
+        // The constraint: (origin, client, digest) -> accepted?
+        let cases: [(&str, Option<&str>, Option<&str>, bool); 7] = [
+            ("local", None, Some("d1"), true),
+            ("paired", Some("cl_other"), None, true),
+            ("local", Some("cl_other2"), Some("d2"), false),
+            ("local", None, None, false),
+            ("paired", None, None, false),
+            ("paired", Some("cl_other3"), Some("d3"), false),
+            ("owner", None, Some("d4"), false),
+        ];
+        for (n, (origin, client, digest, accepted)) in cases.into_iter().enumerate() {
+            let id = format!("dec_case{n}");
+            c.execute(
+                "INSERT INTO decisions (id, kind_json, state, generation, created_at,
+                     expires_at, record_json) VALUES (?1, '{}', 'pending', 0, 't', 't', '{}')",
+                [&id],
+            )
+            .unwrap();
+            let inserted = c.execute(
+                "INSERT INTO remote_widening (decision_id, origin, client_id, request_kind,
+                     request_id, request_hash, delta_digest)
+                 VALUES (?1, ?2, ?3, 'transport.enable', ?1, 'aa', ?4)",
+                rusqlite::params![id, origin, client, digest],
+            );
+            assert_eq!(
+                inserted.is_ok(),
+                accepted,
+                "origin {origin}, client {client:?}, digest {digest:?}"
+            );
+        }
+        let broken = [
+            previous.to_vec(),
+            vec![Migration {
+                version: 13,
+                name: "local_widening_broken",
+                sql: concat!(
+                    include_str!("../migrations/0013_local_widening.sql"),
+                    "\nTHIS IS NOT SQL;"
+                ),
+            }],
+        ]
+        .concat();
+        let mut c = Connection::open_in_memory().unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, previous).unwrap(), 12);
+        c.execute_batch(SEED).unwrap();
+        assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
+        assert_eq!(user_version(&c).unwrap(), 12);
+        assert_eq!(tables(&c), before);
+        assert_eq!(columns(&c), before_columns);
+        let rows: i64 = c
+            .query_row("SELECT count(*) FROM remote_widening", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 1, "the old table and its row are intact");
     }
 
     #[test]

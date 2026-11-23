@@ -256,6 +256,84 @@ pub fn route_catalog_view(
     })
 }
 
+/// ⟨M06 W5 `w5n`⟩ The catalog-pinned host keys of `pair`'s destination (ADR-0012 §5.1,
+/// §5.7): the approved target's host key of each enrollment of the pair that carries
+/// trust (`verified`, or `reverifying`, which never removes anything), as `<type>
+/// <base64>`, sorted and without duplicates. A pair with no such enrollment has no pin: its
+/// destination cannot be verified through the helper (fail closed).
+///
+/// # Errors
+/// The store's.
+pub fn catalog_pins(
+    tx: &mut heimdall_store::Txn<'_>,
+    pair: &AccessPair,
+) -> heimdall_store::Result<Vec<String>> {
+    use heimdall_contract::enrollment::EnrollmentState;
+    let mut pins: Vec<String> = tx
+        .enrollments_for_pair(pair)?
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                e.state,
+                EnrollmentState::Verified | EnrollmentState::Reverifying
+            )
+        })
+        .map(|e| format!("{} {}", e.target.host_key.algorithm, e.target.host_key.key))
+        .collect();
+    pins.sort();
+    pins.dedup();
+    Ok(pins)
+}
+
+/// ⟨M06 W5 `w5n`⟩ What the projection renders the route helper from, for `destination`
+/// (ADR-0012 §5.3): `Some(pins)` when its approved routes need the helper (more than one
+/// route, or any Iroh route) and its ID can name a pin; the pins are its managed pair's
+/// ([`catalog_pins`]) and those of the jump destination of each approved jump route, as
+/// `(destination ID, "<type> <base64>")`. `None` keeps the native rendering.
+///
+/// # Errors
+/// The store's.
+pub fn helper_pins(
+    tx: &mut heimdall_store::Txn<'_>,
+    destination: &DestinationId,
+) -> heimdall_store::Result<Option<Vec<(String, String)>>> {
+    use heimdall_domain::routes::{RouteRendering, approved_routes, host_key_alias, rendering_of};
+    let Some(record) = tx.destination(destination)? else {
+        return Ok(None);
+    };
+    let DestinationDefinition::Managed { account, .. } = &record.definition else {
+        return Ok(None);
+    };
+    let stored = tx.destination_routes(destination)?;
+    let routes = approved_routes(&record, Some(&stored));
+    if rendering_of(&routes) != RouteRendering::Helper || host_key_alias(destination).is_none() {
+        return Ok(None);
+    }
+    let mut pairs = vec![AccessPair {
+        destination: destination.clone(),
+        account: account.clone(),
+    }];
+    for route in &routes {
+        if let RouteSpec::Jump { via } = &route.route
+            && let Some(DestinationDefinition::Managed { account, .. }) =
+                tx.destination(via)?.map(|d| d.definition)
+            && host_key_alias(via).is_some()
+        {
+            pairs.push(AccessPair {
+                destination: via.clone(),
+                account,
+            });
+        }
+    }
+    let mut pins = Vec::new();
+    for pair in pairs {
+        for key in catalog_pins(tx, &pair)? {
+            pins.push((pair.destination.to_string(), key));
+        }
+    }
+    Ok(Some(pins))
+}
+
 /// `ResolveRouteBinding`'s rule over the bindings an implementation finds for the caller's
 /// context (ADR-0012 §5.4): exactly one at `endpoint`, and its grant covers `pair`.
 ///
@@ -514,14 +592,37 @@ where
             "heimdall route connect: route {route} not used: {why}"
         );
     }
-    for planned in &mut plan.routes {
+    // The jump leg's pin and access, per route. A jump route whose hop cannot be built for
+    // this binding (its dependency is outside the binding's grant, or its catalog pin or
+    // identity is not there) is not attempted, like a route refused at planning; the other
+    // approved routes stand. When none remains, the helper refuses with the first reason.
+    let mut usable = Vec::with_capacity(plan.routes.len());
+    let mut first_refusal = None;
+    for mut planned in std::mem::take(&mut plan.routes) {
         if let LegPlan::Jump {
             route, access, hop, ..
         } = &mut planned.leg
         {
-            *hop = Some(Box::new(ports.jump_hop(route, *access, &binding).await?));
+            match ports.jump_hop(route, *access, &binding).await {
+                Ok(h) => *hop = Some(Box::new(h)),
+                Err(e) => {
+                    let _ = writeln!(
+                        diagnostics,
+                        "heimdall route connect: route {} not used: {}",
+                        planned.id,
+                        e.reason().unwrap_or("route_unavailable")
+                    );
+                    first_refusal.get_or_insert(e);
+                    continue;
+                }
+            }
         }
+        usable.push(planned);
     }
+    if usable.is_empty() {
+        return Err(first_refusal.unwrap_or(RouteHelperError::RouteUnapproved));
+    }
+    plan.routes = usable;
     let outcome = failover::run_failover(
         &args.destination,
         &args.account,

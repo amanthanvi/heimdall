@@ -78,7 +78,6 @@ const KEYDIR: &str = "HM_U56_KEYDIR";
 const STORE: &str = "HM_U56_STORE";
 const DB: &str = "HM_U56_DB";
 const PEERS: &str = "HM_U56_PEERS";
-const PORT: &str = "HM_U56_PORT";
 
 // --- the fixture key store (test-only; mechanism evidence) ---------------------------------
 
@@ -202,9 +201,8 @@ fn runtime_role() -> ! {
             .unwrap(),
         );
         let peers = Arc::new(StaticPeers(parse_peers(&std::env::var(PEERS).unwrap())));
-        let port: u16 = std::env::var(PORT).unwrap().parse().unwrap();
         let keydir = std::env::var_os(KEYDIR).unwrap();
-        let sup = TransportSupervisor::new(store, peers, config(port, &keydir, "child"));
+        let sup = TransportSupervisor::new(store, peers, config(&keydir, "child"));
         sup.start().await.unwrap();
         let serving = sup.serving().await.unwrap();
         println!(
@@ -261,7 +259,9 @@ fn parse_peers(s: &str) -> Vec<(ClientId, IrohEndpointId)> {
         .collect()
 }
 
-fn config(port: u16, keydir: &std::ffi::OsStr, role: &str) -> SupervisorConfig {
+/// The supervisor's configuration. ⟨M06 W5⟩ The target's port is not part of it: it is the
+/// serve policy's `sshd_port`, recorded by `transport enable` ([`World::enable_serving_at`]).
+fn config(keydir: &std::ffi::OsStr, role: &str) -> SupervisorConfig {
     let mut c = SupervisorConfig::new(ServeSpawn {
         program: std::env::current_exe().unwrap(),
         args: Vec::new(),
@@ -270,7 +270,6 @@ fn config(port: u16, keydir: &std::ffi::OsStr, role: &str) -> SupervisorConfig {
             (KEYDIR.into(), keydir.to_owned()),
         ],
     });
-    c.sshd_port = port;
     c.start_bound = Duration::from_secs(20);
     c.ack_bound = Duration::from_secs(3);
     c.stop_bound = Duration::from_secs(5);
@@ -461,7 +460,7 @@ impl World {
         Arc::new(TransportSupervisor::new(
             self.store.clone(),
             Arc::new(StaticPeers(self.peers())),
-            config(self.target.port, self.keydir.as_os_str(), role),
+            config(self.keydir.as_os_str(), role),
         ))
     }
 
@@ -471,9 +470,30 @@ impl World {
         }))
     }
 
-    /// `transport enable --serve` with its runner-local decision, through the application
-    /// operation and `serve` as its supervision port.
+    /// The serve policy whose target is this world's fixture target.
+    fn target_policy(&self) -> ExposurePolicy {
+        ExposurePolicy {
+            sshd_port: self.target.port,
+            ..ExposurePolicy::default()
+        }
+    }
+
+    /// `transport enable --serve --sshd-port <the world's target>` ([`Self::enable_serving_at`]).
     async fn enable_serving(&self, serve: &TransportSupervisor) -> IrohEndpointId {
+        self.enable_serving_at(serve, self.target.port).await
+    }
+
+    /// `transport enable --serve --sshd-port <sshd_port>` with its runner-local decision,
+    /// through the application operation and `serve` as its supervision port.
+    async fn enable_serving_at(
+        &self,
+        serve: &TransportSupervisor,
+        sshd_port: u16,
+    ) -> IrohEndpointId {
+        let policy = ExposurePolicy {
+            sshd_port,
+            ..ExposurePolicy::default()
+        };
         let keys = self.keys();
         let ops = TransportOps {
             store: &self.store,
@@ -481,12 +501,12 @@ impl World {
             serve,
             peers: &StorePeerEnrollments,
         };
-        let delta = ops.enable_delta(true, None).unwrap();
+        let delta = ops.enable_delta(true, Some(&policy)).unwrap();
         let approved = ApprovedWidening {
             decision: DecisionId::from_random_bytes([0x5e; 16]),
             delta,
         };
-        ops.enable(true, None, Some(&approved), now())
+        ops.enable(true, Some(policy), Some(&approved), now())
             .await
             .unwrap()
             .endpoint
@@ -743,7 +763,7 @@ fn transport_disable_clears_the_client_allowlist_before_any_re_enable() {
         let sup = Arc::new(TransportSupervisor::new(
             w.store.clone(),
             Arc::new(StorePeerEndpoints),
-            config(w.target.port, w.keydir.as_os_str(), "child"),
+            config(w.keydir.as_os_str(), "child"),
         ));
         w.enable_serving(&sup).await;
         let serving = sup.serving().await.unwrap();
@@ -880,7 +900,7 @@ fn the_serve_port_is_stable_and_an_unbindable_one_fails_closed() {
         };
         let policy = ExposurePolicy {
             port: Some(named),
-            ..ExposurePolicy::default()
+            ..w.target_policy()
         };
         let delta = ops.enable_delta(true, Some(&policy)).unwrap();
         let approved = ApprovedWidening {
@@ -961,7 +981,7 @@ fn the_runtime_killed_mid_revocation_orphan_exits_and_closure_is_replayed() {
         let recorder = Arc::new(TransportSupervisor::new(
             w.store.clone(),
             Arc::new(NoPeerEndpoints),
-            config(w.target.port, w.keydir.as_os_str(), "child"),
+            config(w.keydir.as_os_str(), "child"),
         ));
         let keys = w.keys();
         let ops = TransportOps {
@@ -970,11 +990,11 @@ fn the_runtime_killed_mid_revocation_orphan_exits_and_closure_is_replayed() {
             serve: recorder.as_ref(),
             peers: &StorePeerEnrollments,
         };
-        let delta = ops.enable_delta(true, None).unwrap();
+        let delta = ops.enable_delta(true, Some(&w.target_policy())).unwrap();
         let err = ops
             .enable(
                 true,
-                None,
+                Some(w.target_policy()),
                 Some(&ApprovedWidening {
                     decision: DecisionId::from_random_bytes([0x5f; 16]),
                     delta,
@@ -995,7 +1015,6 @@ fn the_runtime_killed_mid_revocation_orphan_exits_and_closure_is_replayed() {
             .env(DB, &w.db)
             .env(KEYDIR, &w.keydir)
             .env(PEERS, peers_env(&w.peers()))
-            .env(PORT, w.target.port.to_string())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::inherit())
@@ -1076,7 +1095,7 @@ fn unreadable_authority_starts_no_child_and_stops_a_running_one() {
         let sup = Arc::new(TransportSupervisor::new(
             w.store.clone(),
             Arc::new(FailingPeers(fail.clone(), w.peers())),
-            config(w.target.port, w.keydir.as_os_str(), "child"),
+            config(w.keydir.as_os_str(), "child"),
         ));
         w.enable_serving(&sup).await;
         let pid = sup.serving().await.unwrap().pid.unwrap();
@@ -1184,7 +1203,7 @@ fn no_verified_store_is_transport_key_store_unavailable_and_direct_routes_still_
 impl World {
     /// A supervisor whose children see no verified store.
     fn supervisor_unsupported(&self) -> Arc<TransportSupervisor> {
-        let mut c = config(self.target.port, self.keydir.as_os_str(), "child");
+        let mut c = config(self.keydir.as_os_str(), "child");
         c.spawn.env.push((STORE.into(), "unsupported".into()));
         Arc::new(TransportSupervisor::new(
             self.store.clone(),
@@ -1623,9 +1642,9 @@ fn an_invalid_or_silent_client_reaches_no_target_through_iroh() {
         let sup = Arc::new(TransportSupervisor::new(
             w.store.clone(),
             Arc::new(StaticPeers(w.peers())),
-            config(probe.port, w.keydir.as_os_str(), "child"),
+            config(w.keydir.as_os_str(), "child"),
         ));
-        w.enable_serving(&sup).await;
+        w.enable_serving_at(&sup, probe.port).await;
         let serving = sup.serving().await.unwrap();
         const LONG: &[u8; 256] = &{
             let mut b = [b'x'; 256];
@@ -1682,9 +1701,9 @@ fn route_connect_through_iroh_reaches_a_server_first_target() {
         let sup = Arc::new(TransportSupervisor::new(
             w.store.clone(),
             Arc::new(StaticPeers(w.peers())),
-            config(probe.port, w.keydir.as_os_str(), "child"),
+            config(w.keydir.as_os_str(), "child"),
         ));
-        w.enable_serving(&sup).await;
+        w.enable_serving_at(&sup, probe.port).await;
         let serving = sup.serving().await.unwrap();
         let route = RouteId::from_random_bytes([0x44; 16]);
 
@@ -1813,7 +1832,6 @@ fn main() {
         Ok("runtime") => runtime_role(),
         _ => {}
     }
-    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut cases: Vec<(&str, fn())> = vec![
         (
             "revocation_is_applied_only_after_the_child_closed_the_live_connection",
@@ -1869,16 +1887,43 @@ fn main() {
         "the_runtime_killed_mid_revocation_orphan_exits_and_closure_is_replayed",
         the_runtime_killed_mid_revocation_orphan_exits_and_closure_is_replayed,
     ));
-    let filters: Vec<String> = std::env::args()
-        .skip(1)
-        .filter(|a| !a.starts_with('-'))
-        .collect();
+    // The arguments libtest's callers pass (`integration_route_m06` has the same): name
+    // filters, `--exact`, `--skip <name>` and `--list`; any other flag is ignored.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let exact = args.iter().any(|a| a == "--exact");
+    let list = args.iter().any(|a| a == "--list");
+    let mut filters: Vec<&str> = Vec::new();
+    let mut skips: Vec<&str> = Vec::new();
+    let mut rest = args.iter().map(String::as_str);
+    while let Some(arg) = rest.next() {
+        if arg == "--skip" {
+            skips.extend(rest.next());
+        } else if let Some(name) = arg.strip_prefix("--skip=") {
+            skips.push(name);
+        } else if !arg.starts_with('-') {
+            filters.push(arg);
+        }
+    }
+    let matches = |name: &str, pattern: &str| {
+        if exact {
+            name == pattern
+        } else {
+            name.contains(pattern)
+        }
+    };
+    cases.retain(|(name, _)| {
+        (filters.is_empty() || filters.iter().any(|f| matches(name, f)))
+            && !skips.iter().any(|s| matches(name, s))
+    });
+    if list {
+        for (name, _) in &cases {
+            println!("{name}: test");
+        }
+        return;
+    }
     let mut passed = 0;
     let mut failed = Vec::new();
     for (name, case) in cases {
-        if !filters.is_empty() && !filters.iter().any(|f| name.contains(f.as_str())) {
-            continue;
-        }
         let started = Instant::now();
         let ok = std::panic::catch_unwind(case).is_ok();
         println!(

@@ -334,7 +334,7 @@ pub fn status_of(
             })
         })
         .collect();
-    let issuance_failures = tx
+    let mut issuance_failures: Vec<IssuanceFailed> = tx
         .delivered_grants(Some(environment))?
         .into_iter()
         .filter_map(|d| {
@@ -345,6 +345,13 @@ pub fn status_of(
             })
         })
         .collect();
+    // ⟨M06 W5⟩ A runner-originated pending grant refused for its deadline: the limit it
+    // exceeds, then the sentence that names the policy and the instants.
+    issuance_failures.extend(contact.refused_pending.iter().map(|r| IssuanceFailed {
+        grant: r.grant.clone(),
+        at: r.at,
+        reason: format!("{}: {}", r.limit, r.detail),
+    }));
     Ok(RemoteStatus {
         environment: environment.clone(),
         connectivity: connectivity_of(&contact, session_open),

@@ -233,40 +233,9 @@ pub enum DecisionKind {
     RemoteWidening(Box<RemoteWidening>),
 }
 
-/// ⟨M06⟩ W2: what a [`DecisionKind::RemoteWidening`] record is bound to (ADR-0012 §3.10).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteWidening {
-    /// The paired client that submitted the request (from the bridge's argv, resolved by
-    /// the role table; never a request field).
-    pub client: heimdall_contract::ids::ClientId,
-    /// The request kind (`remote_environment.invite`, `route.add`, …).
-    pub request_kind: String,
-    /// The request's ID (the third part of the key).
-    pub request_id: heimdall_contract::ids::RequestId,
-    /// The exact request, verbatim: approval runs this and nothing wider.
-    pub request: heimdall_contract::request::Request,
-    /// ⟨M06-W0-R07⟩ For an invite: the exact key and role the approval enrolls,
-    /// recomputed by the runner before the record existed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub invite: Option<RemoteInviteBinding>,
-    /// ⟨M06 W2, U56-Q6⟩ For an exposure widening (a transport form): the exact exposure
-    /// delta the request applies, computed by the runner when the record was created and
-    /// shown with it (the store's `ExposureDelta` document). Approval executes only while
-    /// the delta the request would apply is still exactly this one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exposure: Option<serde_json::Value>,
-}
-
-/// ⟨M06-W0-R07⟩ The key and role a runner-local invite decision enrolls.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteInviteBinding {
-    /// The role the invited client will hold.
-    pub role: heimdall_contract::remote::Role,
-    /// The receiving key, canonical OpenSSH public text (no comment).
-    pub public_key: String,
-    /// Its fingerprint, recomputed by the runner and equal to the confirmed one.
-    pub key_fingerprint: heimdall_contract::ids::KeyFingerprint,
-}
+/// ⟨rev6.5; ADR-0006 §18.9 item 8⟩ The widening record's document is a contract type (its
+/// `origin` is a contract field with a published schema, `decision.remote-widening`).
+pub use heimdall_contract::decision::{RemoteInviteBinding, RemoteWidening, WideningOrigin};
 
 impl DecisionKind {
     /// ⟨M05⟩ Whether this is one of revision 5's M05 kinds, or a `WidenPolicy` carrying

@@ -50,6 +50,13 @@
 //!   `connection_registration_refused`) (fail closed);
 //! * the deadline notice follows the pairs' identity selection (D8 item 6).
 //!
+//! **⟨M06 W5⟩ On a remote runner** (ADR-0012 §4 item 5; A24), before step 8 the launch
+//! becomes the clean launch of runner work (`launch_flow::runner_work`): the child gets
+//! only the planned environment, an agent this process inherited is never passed and is
+//! named with its provenance, and an unattended launch whose binding depends on an agent of
+//! provenance `unknown` or `controller_dependency` is refused (`CAPABILITY_UNAVAILABLE`,
+//! a `prelaunch_failed` record). Any other installation is unaffected.
+//!
 //! The control session is closed and the async runtime shut down before step 8, so
 //! the child inherits neither. Every failure before launch writes `prelaunch_failed`
 //! (when a side channel is open) and is reported on stderr; stdout is the child's.
@@ -418,6 +425,17 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
                 .await
                 .map_err(|f| (f, Some(group_ids.clone())))?;
         }
+        // ⟨M06 W5 `w5n`; ADR-0012 §4 item 5 ⟨2026-11-22⟩⟩ On a runner, an existing-access
+        // pair whose alias's `IdentityAgent` the static pass cannot determine is not
+        // launched unattended (the same rule and refusal as `connect`).
+        if let Some(refusal) =
+            launch_flow::runner_undetermined_agent(ctx, &mut client, hooks, &consumer.pairs)
+                .await
+                .map_err(|f| (f, Some(ids.clone())))?
+                .and_then(|u| u.refusal(!ctx.interactive()))
+        {
+            return Err((refusal, Some(ids)));
+        }
         drop(client);
         launch_flow::report_deadline(ctx, &bound_data);
         #[cfg(windows)]
@@ -428,6 +446,11 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
         #[cfg(not(windows))]
         let contained = false;
         let delta = EnvDelta::from_integration(&consumer, &env, &git, platform);
+        // ⟨M06 W5⟩ On a remote runner the work starts from the clean environment
+        // (`launch_flow::runner_work`); on any other installation the delta is unchanged.
+        let managed = bound_data.credential_mechanism == launch_flow::MANAGED_CERTIFICATE;
+        let delta = launch_flow::runner_work(ctx, &consumer, managed, delta, &env)
+            .map_err(|f| (f, Some(ids.clone())))?;
         Ok(Prepared {
             program,
             args: owned_args,
@@ -708,6 +731,76 @@ mod tests {
             agent_forwarding: false,
             route: None,
         }
+    }
+
+    /// ⟨M06 W5 `w5n`; ADR-0012 §4 item 5 "An undetermined `IdentityAgent`" ⟨2026-11-22⟩⟩
+    /// `run` on a runner: among a binding's pairs, the first **existing-access** pair whose
+    /// alias's `IdentityAgent` the static pass (run here over a scratch configuration,
+    /// nothing executed) cannot determine is named with why, and an unattended launch is
+    /// refused for it as `connect`'s is. A managed-certificate pair's alias is never asked;
+    /// a determined agent, or none, is not refused; an attended launch is unchanged.
+    #[test]
+    fn run_on_a_runner_names_an_undetermined_identity_agent_of_an_existing_pair() {
+        use heimdall_localenv::env::{Env, Platform};
+        use heimdall_localenv::paths::SshPaths;
+        use heimdall_localenv::projection::ProjectionConfig;
+        let dir = tempfile::tempdir().unwrap_or_else(|_| unreachable!());
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".ssh")).unwrap_or_else(|_| unreachable!());
+        std::fs::create_dir_all(home.join("etc-ssh")).unwrap_or_else(|_| unreachable!());
+        std::fs::write(
+            home.join(".ssh").join("config"),
+            "Host host1\n    IdentityAgent ~/.agents/one.sock\n\
+             Host host2\n    IdentityAgent /run/%u/agent.sock\n\
+             Host host3\n    IdentityAgent /run/fixed/agent.sock\n\
+             Host host4\n    IdentityAgent none\n\
+             Match originalhost host5 exec \"true\"\n    IdentityAgent /run/a.sock\n\
+             Host host5\n    IdentityAgent /run/b.sock\n",
+        )
+        .unwrap_or_else(|_| unreachable!());
+        let mut config = ProjectionConfig::new(
+            SshPaths::with_test_override(home.clone(), home.join("etc-ssh")),
+            Platform::current(),
+            dir.path().join("config"),
+        );
+        config.env = Env::default();
+        let observe = |alias: &str| launch_flow::observed_observations(&config, alias);
+        let named = |pairs: &[PairIntegration]| launch_flow::undetermined_among(pairs, &observe);
+        // Determined (an explicit endpoint, `none`): nothing to refuse.
+        assert_eq!(
+            named(&[pair(3, "native_agent"), pair(4, "native_agent")]),
+            None
+        );
+        for (n, why) in [(1, "`~` path"), (2, "`%` token"), (5, "`Match` block")] {
+            let got = named(&[pair(3, "native_agent"), pair(n, "native_agent")])
+                .unwrap_or_else(|| panic!("host{n} is undetermined"));
+            assert_eq!(got.alias, format!("host{n}"));
+            assert!(got.why.contains(why), "host{n}: {}", got.why);
+            // Unattended: refused, naming the alias; attended: launched as before.
+            let refusal = got.refusal(true).unwrap_or_else(|| unreachable!());
+            assert_eq!(
+                refusal.env.code,
+                heimdall_contract::Code::CapabilityUnavailable
+            );
+            assert_eq!(
+                refusal.env.data["error"]["reason"],
+                "dependency_provenance_unknown"
+            );
+            assert!(
+                refusal.env.data["error"]["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains(&format!("`host{n}`"))),
+                "{:?}",
+                refusal.env.data
+            );
+            assert!(got.refusal(false).is_none());
+        }
+        // A managed-certificate pair's alias is not asked, whatever its configuration.
+        assert_eq!(named(&[pair(1, launch_flow::MANAGED_CERTIFICATE)]), None);
+        // Nor is a pair without an alias.
+        let mut bare = pair(1, "native_agent");
+        bare.alias = None;
+        assert_eq!(named(&[bare]), None);
     }
 
     /// A fake reading: the destinations whose slot the binding holds, and the reads.

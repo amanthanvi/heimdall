@@ -344,6 +344,12 @@ pub enum SetupCommand {
         /// Also apply the global Git include.
         #[arg(long)]
         include_git: bool,
+        /// After the apply, also check with `ssh -G` that every alias connected through
+        /// Heimdall's routes holds its host-key pin. This runs your configuration's
+        /// commands (a `Match exec`, for example) with whatever effects they have.
+        /// Without it only the static check runs.
+        #[arg(long)]
+        allow_config_commands: bool,
         /// Idempotency request ID (a fresh one is minted and reported when absent).
         #[arg(long)]
         request_id: Option<String>,
@@ -746,6 +752,11 @@ pub struct AccessAllowArgs {
     /// The directory whose workspace `--workspace` names (default the working directory).
     #[arg(long, value_name = "PATH", requires = "workspace")]
     pub cwd: Option<PathBuf>,
+    /// M06, with `--profile`: review a new policy that names this paired runner
+    /// environment. It only lets this controller issue for grants that runner admits for
+    /// the profile; it activates nothing on this device.
+    #[arg(long, value_name = "ENVIRONMENT", requires = "profile")]
+    pub environment: Option<String>,
 }
 
 /// `access stop` arguments (M05; ADR-0011 §7): exactly one of a work ID or a policy-level
@@ -945,6 +956,18 @@ pub struct EnsureArgs {
     /// Caller minimums.
     #[command(flatten)]
     pub require: RequireArgs,
+    /// ⟨M06 W5; ADR-0012 §4 item 2 ⟨2026-11-21⟩⟩ On a runner, for its local owner at a
+    /// terminal: the CA every named pair waits for (`EnsureRequest.pair_issuers`). Only a
+    /// CA already in the runner's `issuer_trust` is admitted, and only as a pending grant:
+    /// the runner never issues. Hidden: it is the runner owner's path to record source
+    /// (b), not an agent's.
+    #[arg(
+        long = "issuer-ca",
+        value_name = "FINGERPRINT",
+        hide = true,
+        conflicts_with = "environment"
+    )]
+    pub issuer_ca: Option<String>,
 }
 
 /// `access delegate` arguments.
@@ -2007,7 +2030,45 @@ fn policy_of(target: &AccessTarget) -> Result<&str, Done> {
         .ok_or_else(|| Done::of(usage("unsupported command")))
 }
 
+/// `--issuer-ca`: the same CA for every pair the request names. Refused before anything
+/// is sent unless the owner is at this terminal, and unless the pairs are named.
+fn named_issuers(
+    ctx: &Ctx,
+    ca: Option<&str>,
+    scope: &std::collections::BTreeSet<AccessPairRef>,
+) -> Result<Vec<heimdall_contract::request::PairIssuer>, Done> {
+    let Some(ca) = ca else {
+        return Ok(Vec::new());
+    };
+    let ca_fingerprint = parse(
+        "issuer CA fingerprint",
+        heimdall_contract::ids::CaFingerprint::parse,
+        ca,
+    )?;
+    if scope.is_empty() {
+        return Err(Done::of(usage(
+            "--issuer-ca names the CA of the pairs given with --pair",
+        )));
+    }
+    if !ctx.interactive() {
+        return Err(Done::of(error_value(error(
+            Code::InteractionRequired,
+            "naming the issuing CA needs the runner's owner at this terminal: nothing was sent",
+        ))));
+    }
+    Ok(scope
+        .iter()
+        .map(|pair| heimdall_contract::request::PairIssuer {
+            pair: pair.clone(),
+            ca_fingerprint: ca_fingerprint.clone(),
+        })
+        .collect())
+}
+
 async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
+    let scope: std::collections::BTreeSet<AccessPairRef> =
+        a.pairs.iter().map(|p| pair(p)).collect::<Result<_, _>>()?;
+    let pair_issuers = named_issuers(ctx, a.issuer_ca.as_deref(), &scope)?;
     let until = match (a.until, a.for_duration) {
         (Some(u), _) => Some(DeadlineIntent::Absolute(u)),
         (None, Some(d)) => Some(DeadlineIntent::Duration(d)),
@@ -2016,7 +2077,7 @@ async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
     let request = EnsureRequest {
         profile: Some(parse("profile", ProfileId::parse, &a.profile)?),
         profile_revision: None,
-        scope: a.pairs.iter().map(|p| pair(p)).collect::<Result<_, _>>()?,
+        scope,
         environment: a
             .environment
             .as_deref()
@@ -2039,7 +2100,7 @@ async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
         connection: a.strict.then(m03_cmd::strict_connection),
         context: None,
         covered_only: false,
-        pair_issuers: Vec::new(),
+        pair_issuers,
     };
     let is_async = a.r#async;
     let mut client = session(ctx, true).await?;
@@ -3395,6 +3456,70 @@ mod tests {
             home: None,
             stdin_tty: true,
         }
+    }
+
+    /// ⟨M06 W5⟩ `--issuer-ca` names the CA of every `--pair`, only for the owner at a
+    /// terminal; without the pairs, without a terminal, or with a malformed fingerprint
+    /// nothing is built to send.
+    #[test]
+    fn the_hidden_issuer_ca_needs_named_pairs_and_a_terminal() {
+        let ca = format!("SHA256:{}", "A".repeat(43));
+        let scope: std::collections::BTreeSet<AccessPairRef> =
+            [pair("h1:deploy").unwrap_or_else(|_| unreachable!())]
+                .into_iter()
+                .collect();
+        let none = std::collections::BTreeSet::new();
+        assert!(matches!(named_issuers(&tty(), None, &scope), Ok(v) if v.is_empty()));
+        let named = named_issuers(&tty(), Some(&ca), &scope).unwrap_or_else(|_| unreachable!());
+        assert_eq!(named.len(), 1);
+        assert_eq!(named[0].ca_fingerprint.as_str(), ca);
+        let code = |r: Result<Vec<heimdall_contract::request::PairIssuer>, Done>| match r {
+            Err(d) => d.env.code,
+            Ok(_) => Code::Ok,
+        };
+        assert_eq!(
+            code(named_issuers(&tty(), Some(&ca), &none)),
+            Code::UsageError
+        );
+        assert_eq!(
+            code(named_issuers(&tty(), Some("not-a-fingerprint"), &scope)),
+            Code::UsageError
+        );
+        let piped = Ctx {
+            stdin_tty: false,
+            ..tty()
+        };
+        assert_eq!(
+            code(named_issuers(&piped, Some(&ca), &scope)),
+            Code::InteractionRequired
+        );
+        let forbidden = Ctx {
+            non_interactive: true,
+            ..tty()
+        };
+        assert_eq!(
+            code(named_issuers(&forbidden, Some(&ca), &scope)),
+            Code::InteractionRequired
+        );
+        // Never with `--environment`: a forwarded request's CA is the controller's own.
+        assert!(
+            Cli::try_parse_from([
+                "heimdall",
+                "access",
+                "ensure",
+                "--profile",
+                "dev",
+                "--work-id",
+                "w",
+                "--request-id",
+                "r",
+                "--environment",
+                "env_00000000000000000000000000000000",
+                "--issuer-ca",
+                &ca,
+            ])
+            .is_err()
+        );
     }
 
     fn ensure_request() -> EnsureRequest {

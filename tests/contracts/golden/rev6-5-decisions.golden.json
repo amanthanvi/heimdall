@@ -1,0 +1,125 @@
+{
+  "source": "ADR-0006 revision 6.5 (M06 wave 5; section 18.9 item 8, and the lift view of the ruling on W5 w5m L2): decision views as `inspect decisions` returns them. A `remote_widening` decision's `request` is the contract type decision::RemoteWidening (schema decision.remote-widening): `origin` is `local` or `paired`, omitted when `paired`, and `client` is absent exactly when `origin` is `local`. A `widen_policy` decision that lifts delivered effects lists each as decision::LiftedEffect (schema decision.lifted-effect) under `lifted_effects`, omitted when it lifts none. Transcribed from the ruling, never from the code. Synthetic values only: documentation addresses (192.0.2.0/24) and placeholder IDs.",
+  "views": [
+    {
+      "what": "a paired owner's serve request (the document as written before revision 6.5)",
+      "origin": "paired",
+      "json": {
+        "decision_id": "dec_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "kind": "remote_widening",
+        "state": "pending",
+        "created_at": "2026-11-22T10:00:00Z",
+        "expires_at": "2026-11-22T10:10:00Z",
+        "expired": false,
+        "request": {
+          "kind": "remote_widening",
+          "client": "cl_b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+          "request_kind": "transport.enable",
+          "request_id": "req-m06-0005",
+          "request": {
+            "op": "transport",
+            "action": "enable",
+            "serve": true,
+            "request_id": "req-m06-0005"
+          }
+        }
+      }
+    },
+    {
+      "what": "the local owner's widening route add (custom relays)",
+      "origin": "local",
+      "json": {
+        "decision_id": "dec_c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "kind": "remote_widening",
+        "state": "pending",
+        "created_at": "2026-11-22T10:00:00Z",
+        "expires_at": "2026-11-22T10:10:00Z",
+        "expired": false,
+        "request": {
+          "kind": "remote_widening",
+          "origin": "local",
+          "request_kind": "route.add",
+          "request_id": "req-m06-0003",
+          "request": {
+            "op": "route",
+            "action": "add",
+            "destination": "lab-runner",
+            "route": {
+              "kind": "iroh",
+              "endpoint": "58ff2b14ee18ef79cb690dd8ce9a9e8e8d8ce8fde772c88070ceaa99c6447058"
+            },
+            "exposure": {
+              "bind": { "kind": "none" },
+              "infrastructure": {
+                "kind": "custom",
+                "relays": ["https://192.0.2.20:8443/"]
+              }
+            },
+            "request_id": "req-m06-0003"
+          },
+          "exposure": {
+            "serve_before": false,
+            "serve_after": false,
+            "bind_before": { "kind": "none" },
+            "bind_after": { "kind": "none" },
+            "relays_added": ["https://192.0.2.20:8443/"],
+            "after": {
+              "bind": { "kind": "none" },
+              "infrastructure": {
+                "kind": "custom",
+                "relays": ["https://192.0.2.20:8443/"]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "lift_views": [
+    {
+      "what": "a local clear_cutoff that lifts one delivered cutoff",
+      "lifts": 1,
+      "json": {
+        "decision_id": "dec_d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+        "kind": "widen_policy",
+        "state": "pending",
+        "created_at": "2026-11-22T10:00:00Z",
+        "expires_at": "2026-11-22T10:10:00Z",
+        "expired": false,
+        "request": {
+          "action": { "action": "clear_cutoff", "target": { "kind": "all" } }
+        },
+        "policies": [],
+        "lifted_effects": [
+          {
+            "scope": { "kind": "all" },
+            "scope_key": "all",
+            "kind": "cutoff",
+            "controller": "cl_b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+            "revision": 3,
+            "effect": "eff_e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+            "delivered_at": "2026-11-22T09:30:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "what": "a targeted resume that lifts nothing (the document as written before revision 6.5)",
+      "lifts": 0,
+      "json": {
+        "decision_id": "dec_f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6",
+        "kind": "widen_policy",
+        "state": "pending",
+        "created_at": "2026-11-22T10:00:00Z",
+        "expires_at": "2026-11-22T10:10:00Z",
+        "expired": false,
+        "request": {
+          "action": { "action": "resume", "target": { "kind": "all" } }
+        },
+        "policies": [
+          { "policy_id": "pol_00112233445566778899aabbccddeeff", "revision": 2 }
+        ]
+      }
+    }
+  ]
+}

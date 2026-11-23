@@ -137,8 +137,9 @@ Passive inspection binds nothing (spec §9.2).
      - **Recorded at join:** the client sends its own endpoint ID in `join` over its K_mgmt session. The runner records it in the join's commit transaction only when the invitation admits Iroh (`iroh_admission`, part of the invitation's runner-local decision, §3.9 item 2); otherwise the join is refused. The owner never types an endpoint ID.
      - **Rotation:** the client's rotation form sets or atomically replaces its own row, and a replacement bumps `remote_authority_generation` in the same transaction.
      - **Revocation** deletes the row in the tombstone's transaction (§3.11).
-2. **The target** is `127.0.0.1:<sshd port>` (or `::1`) only, checked before forwarding.
-   - **The outbound connect** to it is bound explicitly to `127.0.0.1` (or `::1`) before `connect()`, so no wildcard local state can exist (W1 run 1's unexplained `0.0.0.0` reading).
+2. **The target** is `127.0.0.1:<sshd port>` only, checked before forwarding (⟨2026-11-22⟩ the host is fixed; `::1` is refused).
+   - **The outbound connect** to it is bound explicitly to `127.0.0.1` before `connect()`, so no wildcard local state can exist (W1 run 1's unexplained `0.0.0.0` reading).
+   - ⟨2026-11-22⟩ **The port is product configuration:** `transport enable --serve --sshd-port <n>` (1–65535; the default is 22). The host is fixed at `127.0.0.1` and is never configurable. ⟨corrected 2026-11-23, M06-W5-R03⟩ Changing the port of an enabled serving endpoint is `transport disable`, then `transport enable --serve --sshd-port <n>` (a new attended serve decision); `transport enable` with any configuration other than the enabled one is refused `CONFIG_CONFLICT` and changes nothing.
 3. ⟨r3⟩ **The runner's durable tombstones and enrollment records are the only admission authority.** The serve child holds no authority of its own.
    - **The lease:** it admits and forwards only while it holds a lease for the runtime's **current authority generation**. The lease is granted over its supervision channel and renewed as that channel stays open.
    - **Lease loss** stops all admission and closes every stream at once. The lease is lost on channel EOF, on a generation change the child has not acknowledged, or on runtime exit. A surviving orphan child therefore cannot keep admitting; it exits.
@@ -200,6 +201,20 @@ A26 verifies removal. G06 made no uninstall claim.
 | Relay-only | **W3:** an IP-literal TLS relay with certificate validation intact; no UDP socket | Not run |
 | LAN direct | **W4:** observer coverage, otherwise a recorded transport-specific deferral | Not run; the owner must be at the console |
 | Any support label | Each qualifying path **plus the in-box OpenSSH journey** | Not run |
+
+⟨2026-11-22; the owner's scope decision, through the orchestrator⟩ **A Windows controller of runners is in this release.**
+- **What it needs:** a K_mgmt session agent on a named pipe for the in-box OpenSSH, wired into the management-session opener on Windows and reading K_mgmt from the DPAPI store.
+- **Its rules** (the named-pipe hygiene of M04 and M07):
+  - the pipe name carries only a random token after the `heimdall-` prefix;
+  - an owner-only DACL, and the client's SID is checked on connect;
+  - no reparse following; bounded frames and reads;
+  - the agent exists only for the session's lifetime;
+  - it answers list and sign for K_mgmt only, never anything else, and never forwards;
+  - nothing in output or logs.
+- **Evidence:** a Windows controller driving a Linux runner through the product CLI, with the runner as a fixture in a WSL scratch distribution on the PC (management sshd on 127.0.0.1). The cross-machine runner rows are the Mac-to-devbox journey.
+- **A stated limit of this release:** a Windows device can be an owner controller, not a limited client. The confirming probes do not run on Windows, so a limited-role join and a policy recheck from Windows refuse, and the refusal says why.
+- **The first `environment add` against a new runner** (every platform): the bootstrap offers to start the runner's runtime in the same attended TTY session, with a typed yes, and says plainly if it is not running. There is no silent second pass.
+- (An earlier ruling of the same day deferred this; the owner reversed it before any commit.)
 
 ### 2.7 ⟨r2⟩ Not adopted in V1: an encrypted headless K_iroh store
 
@@ -485,9 +500,16 @@ The same path repairs a lost host pin or a lost K_mgmt.
      - **Any other agent** has provenance `unknown`, with no unattended claim. That includes an ordinary local path that may relay to the controller.
      - **Path patterns** are diagnostics only.
      - **Reported:** the conditions (lifetime, time bound, process not restarted).
+   - ⟨2026-11-22⟩ **The declared pass-list.** Work launched on a runner (`run`, `run --parent-binding`, `connect`) receives exactly these variables from its parent environment and nothing else:
+     - the installation locators: `HEIMDALL_HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`;
+     - `TERM`, `TZ`, `LANG`, `LC_ALL`.
+     None carries authority. `SSH_AUTH_SOCK` never reaches runner work. Adding a variable is an explicit change to this list, and a test asserts the exact set.
+   - ⟨2026-11-22⟩ **Launcher-set values**, separate from the pass-list: the launcher sets `PATH`, and sets `HOME`, `USER`, `LOGNAME` and `SHELL` from the account database, never from the parent. When the parent has no `LANG`, the launcher sets `LANG=C.UTF-8`. The exact-set test asserts these come from the account database even when the parent sets something else.
+   - ⟨2026-11-22⟩ **An undetermined `IdentityAgent`:** when the static pass cannot determine an existing-access alias's `IdentityAgent` (`~`, `%` tokens, a `Match`-dependent value), an unattended launch on a runner is refused, naming the alias and why. Attended launches behave as before.
    - **Refusal:** `CAPABILITY_UNAVAILABLE`, reason `controller_dependency`, for inherited controller sockets, and reason `dependency_provenance_unknown`.
    - ⟨2026-11-21⟩ **The refresh dependency** of a runner's managed binding is the contract value `refresh_dependency: controller`: the controller's issuer. The G07 report calls it `controller_issuer`.
 6. **Fixed-auth onward targets** use runner-local existing access only. The controller's agent is never used.
+   - ⟨2026-11-22; found by the A25 real-binary journey, revert proof in the W5 `w5j` unit⟩ **A request from a paired client that is not an owner always waits for an owner controller's record, fixed pairs included.** The runner's standing policy is its owner's, for the owner's work; nothing in it extends to requesters. Before this rule, a requester's `ensure` naming no CA was resolved by the runner's own catalog and came back with an active grant. Letting a runner policy cover requesters is later design, not V1.
 
 ## 5. Stable destination identity with several approved routes (M06-T03)
 
@@ -557,12 +579,20 @@ This text replaces nothing else in ADR-0010 §5.
 
 **The test:** M04-D03's two-hop substitution test is extended to helper aliases. Also, two concurrent grants: the second grant's jump pair is refused for the first grant's final pair.
 
+⟨2026-11-22; rulings on the W5 `w5n` unit⟩ **Routes in the product.**
+- **Projection:** a managed-certificate alias whose destination has several routes renders the route helper and the catalog pin, only through `setup apply`, shown in its diff first. Aliases Heimdall does not own and the user's own `Host` blocks stay byte-identical. **Existing-access aliases with several routes keep their native rendering;** a preview and doctor finding says their routes are not used by ordinary ssh.
+- **The pin check:** `setup apply` uses the static check, and runs `ssh -G` only with `--allow-config-commands`. Where the static check cannot decide (a `Match exec`, for example), the diff shows the pin status as `undetermined`, and the helper's own `ssh -G` check before any route attempt is the backstop.
+- **Route health** (`route.record_health`): only the binding holding the pair's slot may report; the report is typed (a stored route ID, an outcome code, a bounded duration); it can only reorder among stored, owner-approved, pinned routes; it is bounded per binding and kept in memory only.
+- **A certificate-content change:** the bastion of a stored, owner-approved jump route under the same grant gets `permit-port-forwarding` in its certificate. The destination's certificate never gains it, and no other extension or restriction changes.
+- **A jump hop that cannot be built is skipped; a jump pin that differs from the catalog refuses the whole connect.**
+- **Outside V1:** a runner dialing onward over Iroh through a projected alias. The specification does not require it (A24 and R-EN-05 need a runner that continues without its controller; A26, R-SS-05 and R-SS-07 are about routes to a destination). A runner has no catalog pin and no alias projection of its grants.
+
 ### 5.5 ⟨r2⟩ ⟨r3⟩ Failover (R08)
 
 1. **The establishment point** is the receipt, through the candidate route, of the server's SSH identification line (`SSH-2.0-…`).
    - **Before it,** the helper holds the client's bytes.
    - ⟨r3⟩ **Pre-identification lines:** lines the server sends before its identification are buffered and forwarded unchanged once it arrives (RFC 4253 §4.2). The buffer is bounded at 8 KiB and 32 lines; past that the attempt fails.
-   - ⟨r3⟩ **A bounded wait:** a 10 s default, configurable per route. A peer that waits for the client to identify first times out at that bound.
+   - ⟨r3⟩ **A bounded wait:** a 10 s default, configurable per route. (⟨2026-11-22⟩ Failover from a route with nothing behind it therefore takes about 10 s; the default is unchanged.) A peer that waits for the client to identify first times out at that bound.
      - **That timeout is an establishment failure,** so the next approved route may be tried.
      - **On a direct or jump leg, a route whose server needs client-first identification is incompatible with the helper** (on an Iroh leg, item 5 applies). It is reported as such, and stays reachable through a single-route native rendering.
 2. **The forwarding boundary** is the first byte forwarded in either direction.
@@ -646,6 +676,10 @@ This text replaces nothing else in ADR-0010 §5.
      - **A revoke always wins over a stale view.** It revokes the named grant at its current generation and everything older. The generation it carries is for idempotency and audit only, never a precondition. Re-issuing after a revoke needs a new widening.
      - **A cutoff under unbounded uncertain time** fires at once, since it only narrows. Once fired it stays fired even after time becomes certain; only a runner-local attended action lifts it. `environment status` and `doctor` say it fired early because time was uncertain.
      - **Lifting:** a runner-local attended `resume` or `clear_cutoff` lifts a delivered pause or cutoff. The revision rows stay as the record.
+       - ⟨2026-11-22⟩ **The in-force flag:** the runner's report states, per delivered revision, whether that effect is still in force. Only a runner-local attended lift clears it. On a runner with no policy in the effect's scope, the attended `policy clear-cutoff` and `resume` succeed for an empty set while a delivered revision of that scope is in force, and clear that revision's flag. More generally, the runner's local owner lifts a delivered effect by clearing its scope: a targeted, attended `resume` or `clear-cutoff` lifts the in-force delivered revisions of exactly its scope, whatever policies exist now. The approval names the effect being lifted (its scope, the delivering controller, and when). ⟨2026-11-23, rulings on M06-W5-R01⟩ An untargeted `resume` or `clear-cutoff --policy P` on a held policy whose widening lifts a delivered effect is recorded in the targeted form, so the approval shows exactly what it lifts. A paired session's request that would lift a delivered effect is refused at request time (`CAPABILITY_UNAVAILABLE`, `role_insufficient`; only the runner's local owner lifts a delivered effect) and leaves no decision record. An approval whose re-check finds a lift its decision does not name (an effect delivered after the decision was issued) is `DECISION_STALE`, and nothing is lifted.
+       - ⟨2026-11-22⟩ **Two keys, per controller:** the delivering controller resumes only when the runner reports that effect no longer in force and its own owner has acknowledged it.
+       - ⟨2026-11-23, M06-W5-RC01, RC02⟩ **A delivered effect stays in force until a lift that names it is approved; removing or narrowing a policy never lifts it.** The flag clears when the runner's attended owner approves the decision that names the effect, at that approval; the report only reads it. A pause or cutoff the runner's owner makes after that is the runner's own: the delivered effect reads lifted, and the standing policy in the report keeps every controller blocked for that policy (`PolicyPaused` / `PolicyCutoff`).
+       - ⟨2026-11-22⟩ **Two owner controllers:** a controller is blocked by the effects it delivered itself, until its two keys clear, and by anything the runner reports as in force. Another controller's effect that the runner reports as lifted does not block it.
      - **Coverage:** a cutoff covers the policies that exist when it is delivered. A policy the runner-local owner creates later is that owner's own attended widening.
    - ⟨2026-11-21; M06-W3-R02 and the ruling on it⟩ **The controller's own delivered effects gate issuance, whatever the runner says.**
      - A cutoff with scope `all` that this controller delivered blocks all issuance for that runner.

@@ -55,6 +55,12 @@ pub struct OpError {
     /// names the refused `IdentityFile` lines, as the CLI's pre-launch refusal does.
     /// Display paths and line numbers only; empty for every other error.
     pub entries: Vec<heimdall_contract::doctor::ConfigProvenance>,
+    /// ⟨M06 W5 `w5v`, the integrator's item 5⟩ Not on the wire: this controller built the
+    /// error itself, for a fault of its own before anything reached the runner
+    /// (`remote_env::controller_fault`, `remote_env::on_this_controller`). Never set from
+    /// an answer: [`OpError::from_detail`] (a refusal the runner sent) leaves it `false`,
+    /// so a runner's text can never be classed as this controller's fault.
+    pub controller_local: bool,
 }
 
 impl OpError {
@@ -70,6 +76,7 @@ impl OpError {
             operation_id: None,
             reason: None,
             entries: Vec::new(),
+            controller_local: false,
         }
     }
 
@@ -209,6 +216,8 @@ impl OpError {
             operation_id,
             reason: detail.reason,
             entries: detail.entries,
+            // An answer is never this controller's own fault (the field's docs).
+            controller_local: false,
         }
     }
 

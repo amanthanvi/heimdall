@@ -298,6 +298,9 @@ const REQUIRED_COLUMNS: &[(&str, &str)] = &[
     ("grants", "approval_json"),
     ("grants", "origin_json"),
     ("bindings", "context_json"),
+    // schema version 13 (M06 wave 5: the widening record's origin; ADR-0006 §18.9 item 8)
+    ("remote_widening", "origin"),
+    ("remote_widening", "delta_digest"),
 ];
 
 const META_SELF_ENVIRONMENT: &str = "self_environment_id";
@@ -2082,7 +2085,8 @@ mod tests {
         // ⟨M06 wave 0⟩ 0009 adds tables only. ⟨M06 wave 2⟩ 0010 adds one table.
         // ⟨M06 wave 3⟩ 0011 adds one table and one defaulted column.
         // ⟨M06 wave 4⟩ 0012 adds one table.
-        assert_eq!(migrations::SCHEMA_VERSION, 12);
+        // ⟨M06 wave 5⟩ 0013 rebuilds `remote_widening` with its origin (rows kept).
+        assert_eq!(migrations::SCHEMA_VERSION, 13);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"

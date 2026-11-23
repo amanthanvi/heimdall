@@ -288,3 +288,27 @@ path = "../../tests/e2e/environment_cli_m06.rs"
 [[test]]
 name = "e2e_environment_runner_m06"
 path = "../../tests/e2e/environment_runner_m06.rs"
+
+# ⟨M06 W5 U7⟩ The M06 exit journeys through the real binaries (m06-plan §1 U7, §3): a runner
+# (`service run --runner`) and a controller (`service run`) in scratch homes, fixture sshds on
+# 127.0.0.1 and the production issuer child on a scratch store. One test per §3 row, named
+# as the native harness indexes them; one `m06 observation: <case> <step>: <result>` line
+# per step. The steps a single host cannot run are in the unit's NOT-COVERED list.
+[[test]]
+name = "e2e_exit_m06"
+path = "../../tests/e2e/exit_m06.rs"
+
+# ⟨M06 W5 U7⟩ A26's journey (`a26_iroh_routes_trust`), loopback only: needs the Iroh
+# transport in the binary under test.
+[[test]]
+name = "e2e_exit_m06_iroh"
+path = "../../tests/e2e/exit_m06_iroh.rs"
+required-features = ["iroh"]
+
+# ⟨M06 W5; ADR-0012 §2.6⟩ The fixture driver of the Windows controller journey
+# (tests/native/m06/run-windows-controller.ps1): three `#[ignore]`d entries the script runs by
+# exact name (the controller's and the runner's fixture state, and `environment add` on a
+# pseudo-terminal), and the tests of the parsing they share.
+[[test]]
+name = "e2e_windows_controller_m06"
+path = "../../tests/e2e/windows_controller_m06.rs"

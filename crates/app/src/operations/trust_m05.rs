@@ -338,6 +338,83 @@ fn admit_all(
     Ok(Ok(()))
 }
 
+/// What the environments of a personal `create` are ([`admit_create`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CreateTarget {
+    /// Environments of this runtime's managed set: the policy applies locally.
+    Managed,
+    /// ⟨M06 W5; record source (b)⟩ One recorded runner environment: the policy is only
+    /// this controller's authorization to sign that runner's pending grants.
+    Runner,
+}
+
+/// ⟨M06 W5; m06-plan §2 item 3 "Record source (b)"; ADR-0005 §3.5 condition 8 (b)⟩ Admit
+/// the environments of a personal `create`. The managed set, as ever; and, for exactly one
+/// more case, a **single recorded runner environment** on which this controller holds a
+/// role the role table allows to issue (`role_may_issue`; no role is named here). That
+/// policy activates nothing locally (see [`names_unmanaged`]), so it can neither be the
+/// `default` nor be mixed with another environment. Everything else is refused as before:
+/// an environment that is neither managed nor a recorded runner keeps the managed-set
+/// refusal.
+fn admit_create(
+    tx: &mut Txn<'_>,
+    own: &EnvironmentId,
+    environments: &BTreeSet<EnvironmentId>,
+    default: bool,
+) -> heimdall_store::Result<Result<CreateTarget, OpError>> {
+    let mut runner = None;
+    for e in environments {
+        let Err(refusal) = crate::environments::admit(tx, own, e)? else {
+            continue;
+        };
+        match crate::remote_status_driver::pin_of(tx, e)? {
+            Some(pin) => runner = Some(pin),
+            None => return Ok(Err(refusal)),
+        }
+    }
+    let Some(pin) = runner else {
+        return Ok(Ok(CreateTarget::Managed));
+    };
+    if environments.len() != 1 {
+        return Ok(Err(usage(
+            "a policy that names a runner environment names that environment only",
+        )));
+    }
+    if default {
+        return Ok(Err(usage(
+            "a policy that names a runner environment activates nothing here and cannot be the default",
+        )));
+    }
+    if !crate::remote_status_driver::role_may_issue(pin.role) {
+        return Ok(Err(OpError::new(
+            Code::CapabilityUnavailable,
+            "this controller's role on the runner does not let it issue for its grants",
+        )
+        .with_reason(heimdall_contract::envelope::reason::ROLE_INSUFFICIENT)
+        .with_effect(heimdall_contract::EffectStatus::None)));
+    }
+    Ok(Ok(CreateTarget::Runner))
+}
+
+/// ⟨M06 W5; record source (b)⟩ Whether `p` names an environment outside this runtime's
+/// managed set that was never in it: a policy created for a runner ([`admit_create`]; no
+/// other path stores one). Such a policy never gains another environment, so it can never
+/// start applying locally.
+fn names_unmanaged(
+    tx: &mut Txn<'_>,
+    own: &EnvironmentId,
+    p: &StandingPolicy,
+) -> heimdall_store::Result<bool> {
+    for e in &p.environments {
+        if tx.admit_environment(own, e)?
+            == heimdall_domain::environment::EnvironmentAdmission::Unmanaged
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// The profile's current definition (its latest snapshot), or `NOT_FOUND`.
 pub(super) fn latest_profile(
     tx: &mut Txn<'_>,
@@ -419,9 +496,9 @@ fn classify(
             profile,
             environments,
             max_window,
-            ..
+            default,
         } => {
-            if let Err(e) = admit_all(tx, own, environments)? {
+            if let Err(e) = admit_create(tx, own, environments, *default)? {
                 refuse!(e);
             }
             let def = match latest_profile(tx, profile)? {
@@ -460,6 +537,12 @@ fn classify(
             }
             if let Err(e) = admit_all(tx, own, environments)? {
                 refuse!(e);
+            }
+            // ⟨M06 W5⟩ A runner's policy stays that runner's alone.
+            if !environments.is_subset(&p.environments) && names_unmanaged(tx, own, &p)? {
+                refuse!(usage(
+                    "a policy that names a runner environment names that environment only"
+                ));
             }
             let adds = !pairs.is_subset(&p.scope.pairs)
                 || !capabilities.is_subset(&p.scope.capabilities)
@@ -1481,7 +1564,7 @@ fn check_widening(
             profile,
             environments,
             max_window,
-            ..
+            default,
         } => {
             let Some(DecisionBasis::Create { profile_revision }) = tx.decision_basis(&d.id)? else {
                 return Ok(Err(stale(
@@ -1493,9 +1576,9 @@ fn check_widening(
                     "the profile revision is unknown; request it again",
                 )));
             }
-            if admit_all(tx, &m05.own, environments)?.is_err() {
+            if admit_create(tx, &m05.own, environments, *default)?.is_err() {
                 return Ok(Err(stale(
-                    "an environment of the policy is no longer managed",
+                    "an environment of the policy is no longer managed, or this controller's role on the runner no longer lets it issue",
                 )));
             }
             if personal_exists(tx, profile, environments)? {
@@ -1525,6 +1608,11 @@ fn check_widening(
             }
             if admit_all(tx, &m05.own, environments)?.is_err() {
                 return Ok(Err(stale("an added environment is no longer managed")));
+            }
+            if !environments.is_subset(&p.environments) && names_unmanaged(tx, &m05.own, &p)? {
+                return Ok(Err(stale(
+                    "a policy that names a runner environment names that environment only",
+                )));
             }
             Ok(())
         }
@@ -1780,6 +1868,15 @@ fn apply_widening(
             let Ok(window) = create_window(max_window.as_ref(), m05.max) else {
                 return Ok(Err(stale("the window is no longer allowed")));
             };
+            // ⟨M06 W5; record source (b)⟩ Judged again in the transaction that writes.
+            let target = match admit_create(tx, &m05.own, environments, *default)? {
+                Ok(t) => t,
+                Err(_) => {
+                    return Ok(Err(stale(
+                        "an environment of the policy is no longer managed, or this controller's role on the runner no longer lets it issue",
+                    )));
+                }
+            };
             let p = StandingPolicy {
                 id: new_policy.clone(),
                 revision: PolicyRevision(1),
@@ -1798,6 +1895,13 @@ fn apply_widening(
             tx.upsert_policy(&p, false)?;
             emit.policy(tx, &p)?;
             record_change(tx, &p, cause, now)?;
+            // ⟨M06 W5; record source (b)⟩ A runner's policy activates nothing here: no
+            // environment record, no automatic activation, no default (refused above), no
+            // waiter proceeds. It is read only by
+            // `remote_status_driver::adopt_under_standing_policy`.
+            if target == CreateTarget::Runner {
+                return Ok(Ok(false));
+            }
             move_default(tx, emit, &p, &record.id, now)?;
             for e in environments {
                 allow_automatic_activation(tx, e)?;

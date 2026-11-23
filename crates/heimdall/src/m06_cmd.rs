@@ -21,9 +21,14 @@
 //!   typed inputs checked here (a malformed one is `USAGE_ERROR` before the runtime is
 //!   contacted or the home created), then the `route.*` / `transport.*` form sent to the
 //!   runtime (started on demand: they are effectful), which runs `heimdall_app::routes::ops`
-//!   and `heimdall_app::transport`. A widening (a route or endpoint that adds exposure, a
-//!   roost) is refused `exposure_unconsented` there until a local decision record exists for
-//!   it (DONE question). `roost adopt` is `transport adopt-roost`.
+//!   and `heimdall_app::transport`. ⟨M06 W5; ADR-0006 §18.9 item 8⟩ A widening (a route or
+//!   endpoint that adds exposure, a roost) from an interactive terminal is sent on an
+//!   attended session and answers `APPROVAL_REQUIRED` with the reference of its local
+//!   decision record; `heimdall decision approve <ref>` on a terminal at this host shows
+//!   the exact request and delta, asks for the typed confirmation and applies it. From a
+//!   non-interactive session it is answered `INTERACTION_REQUIRED`, the detail naming what
+//!   it would add (⟨ADR-0006 §18.9 item 10⟩), and nothing is recorded.
+//!   `roost adopt` is `transport adopt-roost`.
 //! * **`transport rotate`** (⟨rev6.3⟩ ADR-0006 §18.7 item 10): `transport.rotate` sent to the
 //!   runtime when one runs (it rotates K_iroh and tells every recorded runner through
 //!   [`ManagementAnnouncer`], which `service run` wires in); with no runtime, the same
@@ -35,7 +40,6 @@
 //!   route_connect` over its standard streams with the runtime's `route.resolve_binding`.
 //! * **`transport serve --environment <id>`**: hidden; the supervised serve child.
 
-use std::collections::BTreeSet;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -48,7 +52,7 @@ use heimdall_app::remote_env::{
     InviteInput, InviteOutcome, LocalConfirm, ManagementCall, ManagementHop, ManagementRoute,
     ManagementSession, ManagementSessions, MgmtKeyInfo, MgmtKeyPort, MgmtKeyUnavailable,
     RemoteEnvController, RemoteEnvironmentRecord, SessionHello, SessionName, SessionTarget,
-    VerifiedAccess, ssh as env_ssh,
+    VerifiedAccess, controller_fault, on_this_controller, ssh as env_ssh,
 };
 use heimdall_contract::envelope::{EffectStatus, Envelope, NextAction, reason};
 use heimdall_contract::ids::{
@@ -259,6 +263,14 @@ pub struct RouteAddArgs {
     /// The Iroh endpoint's direct address (`ip:port`), repeatable.
     #[arg(long = "address", value_name = "IP:PORT")]
     pub addresses: Vec<String>,
+    /// A relay this Iroh route may use (`https://…` or `http://…`), repeatable. Each relay
+    /// adds exposure: the route then needs a decision approved on a terminal at this host,
+    /// which names every relay. A URL with a user name or password, a query string or a
+    /// fragment is refused. A relay URL must not carry a credential anywhere, its path
+    /// included: Heimdall stores it as given and shows only its scheme, host, port and a
+    /// short digest.
+    #[arg(long = "relay", value_name = "URL")]
+    pub relays: Vec<String>,
 }
 
 /// A destination and one of its routes.
@@ -308,6 +320,10 @@ pub struct TransportEnableArgs {
     /// and reused. Change it with `disable` then `enable`.
     #[arg(long, value_name = "PORT", requires = "serve", value_parser = clap::value_parser!(u16).range(1..))]
     pub port: Option<u16>,
+    /// The local sshd port served to enrolled clients (1-65535; default 22), always on
+    /// 127.0.0.1. Change it with `disable` then `enable`.
+    #[arg(long, value_name = "PORT", requires = "serve", value_parser = clap::value_parser!(u16).range(1..))]
+    pub sshd_port: Option<u16>,
 }
 
 /// `transport adopt-roost` arguments.
@@ -429,6 +445,13 @@ pub struct RemoteInitArgs {
     /// the controller has no Iroh key. An endpoint already recorded is never replaced.
     #[arg(long, value_name = "ENDPOINT")]
     pub iroh_endpoint: Option<String>,
+    /// ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ Passed by a controller's bootstrap
+    /// (`environment add`): after the enrollment, say plainly whether this runner's runtime
+    /// is running and, when it is not, offer to start it in this same attended terminal
+    /// session with a typed `yes` (`service run --runner`, detached). Declined, it prints
+    /// the next step. Without the flag nothing is offered or started.
+    #[arg(long)]
+    pub offer_runtime_start: bool,
 }
 
 // --- route and transport ----------------------------------------------------------------
@@ -476,12 +499,32 @@ fn parse_endpoint(text: &str) -> Result<heimdall_contract::ids::IrohEndpointId, 
         .map_err(|_| usage("the endpoint ID is malformed (64 lowercase hexadecimal characters)"))
 }
 
+/// ⟨rev6.5; ADR-0006 §18.9 item 9⟩ The exposure policy `--relay` names: each URL validated
+/// and in its one spelling (`ExposurePolicy::with_normalized_relays`: sorted, each once),
+/// checked here so a refused one is a usage error before the runtime is contacted. The
+/// runtime runs the same check before it records anything. The message names the flag's
+/// position and the class, never the URL (a refused one may hold a credential).
+fn relay_policy(relays: &[String]) -> Result<heimdall_contract::route::ExposurePolicy, OpError> {
+    heimdall_contract::route::ExposurePolicy {
+        infrastructure: heimdall_contract::route::InfrastructureProfile::Custom {
+            relays: relays.to_vec(),
+        },
+        ..heimdall_contract::route::ExposurePolicy::default()
+    }
+    .with_normalized_relays()
+    .map_err(|(i, why)| usage(&format!("--relay {} is refused: {}", i + 1, why.message())))
+}
+
 /// Send `request` to the runtime (started when none runs: these are effectful), requiring
-/// `capability`; the answer is printed as is.
+/// `capability`; the answer is printed as is. ⟨M06 W5; ADR-0006 §18.9 item 8⟩ With
+/// `may_widen`, an interactive terminal's session is marked attended first (attendance
+/// authorizes nothing by itself), so a widening is recorded as a local decision and
+/// answered `APPROVAL_REQUIRED`; the human line then names the command that approves it.
 fn send_to_runtime(
     ctx: &Ctx,
     capability: &str,
     request: heimdall_contract::request::Request,
+    may_widen: bool,
     human: impl FnOnce(&serde_json::Value) -> String,
 ) -> ExitCode {
     let rt = match crate::service_cmd::current_thread() {
@@ -494,7 +537,15 @@ fn send_to_runtime(
     };
     let env = rt.block_on(async {
         match crate::client::connect_requiring(ctx, true, &[capability]).await {
-            Ok(mut client) => client.request(request).await,
+            Ok(mut client) => {
+                if may_widen && ctx.interactive() {
+                    let attended = client.attend().await;
+                    if !attended.code.is_success() {
+                        return attended;
+                    }
+                }
+                client.request(request).await
+            }
             Err(e) => output::error_value(*e),
         }
     });
@@ -503,6 +554,15 @@ fn send_to_runtime(
         emit_ok(ctx, env.data, &text)
     } else {
         output::emit(&env, ctx.json);
+        if !ctx.json
+            && env.code == Code::ApprovalRequired
+            && let Some(decision) = env.next.as_ref().and_then(|n| n.decision_ref.as_deref())
+        {
+            output::diagnostic(&format!(
+                "nothing was changed. To review and approve it, run on a terminal at this \
+                 host: heimdall decision approve {decision}"
+            ));
+        }
         output::exit_code_for(env.code, false)
     }
 }
@@ -516,6 +576,9 @@ fn route_request(command: RouteCommand) -> Result<heimdall_contract::route::Rout
         RouteCommand::Add(a) => {
             if !a.addresses.is_empty() && a.iroh.is_none() {
                 return Err(usage("--address belongs to an --iroh route"));
+            }
+            if !a.relays.is_empty() && a.iroh.is_none() {
+                return Err(usage("--relay belongs to an --iroh route"));
             }
             let route = match (a.direct, a.jump, a.iroh) {
                 (Some(d), None, None) => parse_direct(&d)?,
@@ -536,10 +599,16 @@ fn route_request(command: RouteCommand) -> Result<heimdall_contract::route::Rout
                 }
                 _ => return Err(usage("give exactly one of --direct, --jump, --iroh")),
             };
+            // Without `--relay` the request is as before: no policy, the minimal one.
+            let exposure = if a.relays.is_empty() {
+                None
+            } else {
+                Some(relay_policy(&a.relays)?)
+            };
             RouteRequest::Add {
                 destination: parse_destination(&a.destination)?,
                 route,
-                exposure: None,
+                exposure,
                 request_id: heimdall_app::remote_env::new_request_id()?,
             }
         }
@@ -570,10 +639,12 @@ pub(crate) fn route(ctx: &Ctx, command: RouteCommand) -> ExitCode {
         Ok(r) => r,
         Err(e) => return emit_error(ctx, e),
     };
+    let may_widen = matches!(request, heimdall_contract::route::RouteRequest::Add { .. });
     send_to_runtime(
         ctx,
         heimdall_contract::ipc::capability::ROUTES_V1,
         heimdall_contract::request::Request::Route(request),
+        may_widen,
         |data| {
             format!(
                 "route {} {verb}; approved routes of {}, most preferred first: {}",
@@ -592,19 +663,32 @@ pub(crate) fn route(ctx: &Ctx, command: RouteCommand) -> ExitCode {
     )
 }
 
+/// The exposure policy `transport enable`'s flags name: `None` (the minimal policy, as
+/// before) unless a serve port or a non-default sshd port is named, so `--sshd-port 22` is
+/// the same request as no flag (ADR-0006 §18.9 item 1: omitted when 22).
+fn enable_exposure(
+    port: Option<u16>,
+    sshd_port: Option<u16>,
+) -> Option<heimdall_contract::route::ExposurePolicy> {
+    use heimdall_contract::route::{DEFAULT_SSHD_PORT, ExposurePolicy};
+    let sshd_port = sshd_port.unwrap_or(DEFAULT_SSHD_PORT);
+    (port.is_some() || sshd_port != DEFAULT_SSHD_PORT).then(|| ExposurePolicy {
+        port,
+        sshd_port,
+        ..ExposurePolicy::default()
+    })
+}
+
 /// `transport …`.
 pub(crate) fn transport(ctx: &Ctx, command: TransportCommand) -> ExitCode {
-    use heimdall_contract::route::{ExposurePolicy, TransportRequest};
+    use heimdall_contract::route::TransportRequest;
     let request = match command {
         TransportCommand::Serve(a) => return transport_serve(&a),
         TransportCommand::Rotate => return transport_rotate(ctx),
         TransportCommand::Enable(a) => (|| {
             Ok(TransportRequest::Enable {
                 serve: a.serve,
-                exposure: a.port.map(|p| ExposurePolicy {
-                    port: Some(p),
-                    ..ExposurePolicy::default()
-                }),
+                exposure: enable_exposure(a.port, a.sshd_port),
                 request_id: heimdall_app::remote_env::new_request_id()?,
             })
         })(),
@@ -622,23 +706,251 @@ pub(crate) fn transport(ctx: &Ctx, command: TransportCommand) -> ExitCode {
         Ok(r) => r,
         Err(e) => return emit_error(ctx, e),
     };
+    let may_widen = matches!(
+        request,
+        TransportRequest::Enable { .. } | TransportRequest::AdoptRoost { .. }
+    );
     send_to_runtime(
         ctx,
         heimdall_contract::ipc::capability::TRANSPORT_IROH_V1,
         heimdall_contract::request::Request::Transport(request),
+        may_widen,
         |data| serde_json::to_string_pretty(data).unwrap_or_default(),
     )
 }
 
 /// The ports of the route helper (`route connect`): the runtime's `route.resolve_binding`
 /// (a running runtime only: the binding the alias names is served by it), the catalog's
-/// route facts read read-only, and no jump-leg wiring yet (fail closed: a jump route makes
-/// the helper refuse before any route is tried; DONE note). Route health has no request form
-/// to reach the runtime, so it is not recorded here (DONE note).
+/// route facts read read-only, the jump leg's pin and access ([`jump_hop_for`]), and the
+/// route-health report (`route.record_health`).
 struct HelperPorts<'a> {
     ctx: &'a Ctx,
     db: PathBuf,
+    paths: heimdall_runtime::paths::Paths,
+    /// The alias's own rendered endpoint (`--endpoint`).
+    endpoint: String,
+    /// The projected pin file's text (`None`: absent or unreadable).
+    pin_text: Option<String>,
 }
+
+/// A path as OpenSSH takes it on the command line: `/` separators on Windows.
+fn ssh_path(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    if cfg!(windows) {
+        text.replace('\\', "/")
+    } else {
+        text.into_owned()
+    }
+}
+
+/// The keys the pin file `text` holds under `host_key_alias`, as `<type> <base64>`, sorted.
+/// A line naming several hosts, a marker (`@cert-authority`, `@revoked`) or a hashed name
+/// is not a pin and is not counted for this name.
+fn pinned_keys(text: &str, host_key_alias: &str) -> Vec<String> {
+    let mut keys: Vec<String> = text
+        .lines()
+        .filter_map(|line| {
+            let mut words = line.split_ascii_whitespace();
+            let (name, key_type, blob) = (words.next()?, words.next()?, words.next()?);
+            (name == host_key_alias).then(|| format!("{key_type} {blob}"))
+        })
+        .collect();
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
+/// Whether the projected pin file holds **exactly** the catalog's pins for `host_key_alias`
+/// (catalog-only trust, ADR-0012 §5.2): a destination with no catalog pin, or a pin file
+/// that lags the catalog either way (a key the catalog no longer approves, or one it has
+/// approved since), does not hold.
+fn pins_hold(pin_text: Option<&str>, host_key_alias: &str, catalog: &[String]) -> bool {
+    !catalog.is_empty() && pin_text.is_some_and(|t| pinned_keys(t, host_key_alias) == catalog)
+}
+
+/// The `ProxyCommand` text P renders for the helper, from this process's own program path
+/// (`heimdall_sshconf::routes::helper_command`'s form; a unit test holds the two equal).
+fn rendered_helper_command(program: &str, args: &heimdall_app::routes::HelperArgs) -> String {
+    format!(
+        "\"{program}\" route connect --destination {} --account {} --endpoint \"{}\"",
+        args.destination, args.account, args.endpoint
+    )
+}
+
+/// What a jump hop is built from, read from the catalog in one transaction.
+struct JumpFacts {
+    hostname: String,
+    port: Option<u16>,
+    account: AccountName,
+    /// The jump pair's catalog pins.
+    pins: Vec<String>,
+    /// Existing access: the jump identity's endpoint and fingerprint.
+    identity: Option<(Option<String>, String)>,
+}
+
+/// The jump leg's catalog pin and access (ADR-0012 §5.4; ADR-0010 §5 items 1–2).
+///
+/// * **The pin:** `hm-dest-<jump>` in the projected pin file, which must hold exactly the
+///   catalog's pins for the jump (`pins_hold`); otherwise the route is not attempted.
+/// * **A managed jump** (`same_grant`): the binding the alias's endpoint serves for the
+///   **jump pair** must be the very binding resolved for the final pair. `same_grant` is
+///   that answer, asked of the runtime for every jump attempted; anything else is
+///   `route_dependency_out_of_scope`. Its identity is the jump pair's slot certificate at
+///   the alias's own endpoint.
+/// * **Existing access:** the jump identity's own endpoint and its materialized public key
+///   file, outside the grant.
+#[allow(clippy::too_many_arguments)]
+fn jump_hop_for(
+    route: &heimdall_domain::catalog::ApprovedRoute,
+    access: heimdall_contract::environment::JumpAccess,
+    facts: &JumpFacts,
+    same_grant: bool,
+    endpoint: &str,
+    pin_file: &Path,
+    pin_text: Option<&str>,
+    paths: &heimdall_runtime::paths::Paths,
+) -> Result<heimdall_app::routes::JumpHop, heimdall_app::routes::RouteHelperError> {
+    use heimdall_app::routes::RouteHelperError;
+    use heimdall_contract::environment::JumpAccess;
+    let out_of_scope = || RouteHelperError::NoUsableRoute(reason::ROUTE_DEPENDENCY_OUT_OF_SCOPE);
+    let host_key_alias = heimdall_domain::routes::host_key_alias(&route.jump)
+        .ok_or(RouteHelperError::NoUsableRoute(reason::HOST_PIN_DEFEATED))?;
+    if !pins_hold(pin_text, &host_key_alias, &facts.pins) {
+        return Err(RouteHelperError::NoUsableRoute(reason::HOST_PIN_DEFEATED));
+    }
+    let (identity_agent, identity_file) = match access {
+        JumpAccess::Managed => {
+            if !same_grant {
+                return Err(out_of_scope());
+            }
+            let slot = heimdall_localenv::projection::content::managed_slot_paths(
+                &paths.state_dir,
+                &route.jump,
+            )
+            .map_err(|_| out_of_scope())?;
+            (endpoint.to_owned(), slot.cert_pub)
+        }
+        JumpAccess::Existing => {
+            let Some((Some(agent), fingerprint)) = &facts.identity else {
+                return Err(out_of_scope());
+            };
+            (
+                agent.clone(),
+                paths
+                    .config_dir
+                    .join(heimdall_localenv::materialize::key_file_path(fingerprint)),
+            )
+        }
+        _ => return Err(out_of_scope()),
+    };
+    if !identity_file.is_file() {
+        return Err(out_of_scope());
+    }
+    let mut algorithms: Vec<&str> = facts
+        .pins
+        .iter()
+        .filter_map(|k| k.split(' ').next())
+        .collect();
+    algorithms.dedup();
+    Ok(heimdall_app::routes::JumpHop {
+        alias: route.jump_alias.clone(),
+        hostname: facts.hostname.clone(),
+        port: facts.port,
+        user: facts.account.as_str().to_owned(),
+        host_key_alias,
+        pin_file: ssh_path(pin_file),
+        host_key_algorithms: Some(algorithms.join(",")),
+        identity_agent,
+        identity_file: ssh_path(&identity_file),
+        certificate_file: None,
+    })
+}
+
+impl HelperPorts<'_> {
+    fn pin_file(&self) -> PathBuf {
+        self.paths
+            .config_dir
+            .join("keys")
+            .join(heimdall_localenv::projection::HOST_PINS_FILE)
+    }
+
+    /// One `Request::Route` form to the running runtime, bounded.
+    async fn ask(
+        &self,
+        request: heimdall_contract::route::RouteRequest,
+    ) -> Result<Envelope<serde_json::Value>, heimdall_app::routes::RouteHelperError> {
+        use heimdall_app::routes::RouteHelperError;
+        let ask = async {
+            let mut client = crate::client::connect_requiring(
+                self.ctx,
+                false,
+                &[heimdall_contract::ipc::capability::ROUTES_V1],
+            )
+            .await
+            .map_err(|_| RouteHelperError::Unavailable)?;
+            Ok(client
+                .request(heimdall_contract::request::Request::Route(request))
+                .await)
+        };
+        tokio::time::timeout(HELPER_RUNTIME_BOUND, ask)
+            .await
+            .map_err(|_| RouteHelperError::Unavailable)?
+    }
+
+    /// `route.record_health` (best effort: a lost report costs only the report).
+    async fn report(
+        &self,
+        result: heimdall_contract::route::RouteHealthPayload,
+        host_pin_defeated: Option<String>,
+    ) {
+        let _ = self
+            .ask(heimdall_contract::route::RouteRequest::RecordHealth {
+                endpoint: self.endpoint.clone(),
+                result,
+                host_pin_defeated,
+            })
+            .await;
+    }
+
+    /// The catalog facts of the jump destination of `route`.
+    fn jump_facts(&self, route: &heimdall_domain::catalog::ApprovedRoute) -> Option<JumpFacts> {
+        let state =
+            heimdall_store::Store::open_read_only(&self.db, Arc::new(heimdall_store::NoFaults))
+                .ok()?;
+        state
+            .transaction(|tx| {
+                let Some(heimdall_domain::catalog::DestinationDefinition::Managed {
+                    hostname,
+                    port,
+                    account,
+                    identity,
+                    ..
+                }) = tx.destination(&route.jump)?.map(|d| d.definition)
+                else {
+                    return Ok(None);
+                };
+                let pins = heimdall_app::routes::catalog_pins(tx, &route.jump_pair)?;
+                let identity = tx.identity(&identity)?.map(|i| {
+                    (
+                        i.source.endpoint().map(|e| e.locator.clone()),
+                        i.fingerprint,
+                    )
+                });
+                Ok(Some(JumpFacts {
+                    hostname,
+                    port,
+                    account,
+                    pins,
+                    identity,
+                }))
+            })
+            .ok()
+            .flatten()
+    }
+}
+
+/// How long the helper waits for one answer of the runtime.
+const HELPER_RUNTIME_BOUND: Duration = Duration::from_secs(15);
 
 #[async_trait::async_trait]
 impl heimdall_app::routes::RouteHelperPorts for HelperPorts<'_> {
@@ -649,22 +961,13 @@ impl heimdall_app::routes::RouteHelperPorts for HelperPorts<'_> {
         endpoint: &str,
     ) -> Result<heimdall_app::routes::RouteBinding, heimdall_app::routes::RouteHelperError> {
         use heimdall_app::routes::{ResolvedRouteBinding, RouteHelperError};
-        let mut client = crate::client::connect_requiring(
-            self.ctx,
-            false,
-            &[heimdall_contract::ipc::capability::ROUTES_V1],
-        )
-        .await
-        .map_err(|_| RouteHelperError::Unavailable)?;
-        let env = client
-            .request(heimdall_contract::request::Request::Route(
-                heimdall_contract::route::RouteRequest::ResolveBinding {
-                    destination: destination.clone(),
-                    account: account.clone(),
-                    endpoint: endpoint.to_owned(),
-                },
-            ))
-            .await;
+        let env = self
+            .ask(heimdall_contract::route::RouteRequest::ResolveBinding {
+                destination: destination.clone(),
+                account: account.clone(),
+                endpoint: endpoint.to_owned(),
+            })
+            .await?;
         if !env.code.is_success() {
             return Err(
                 if env.data["error"]["reason"] == reason::ROUTE_BINDING_AMBIGUOUS {
@@ -690,20 +993,284 @@ impl heimdall_app::routes::RouteHelperPorts for HelperPorts<'_> {
 
     async fn jump_hop(
         &self,
-        _route: &heimdall_domain::catalog::ApprovedRoute,
-        _access: heimdall_contract::environment::JumpAccess,
-        _binding: &heimdall_app::routes::RouteBinding,
+        route: &heimdall_domain::catalog::ApprovedRoute,
+        access: heimdall_contract::environment::JumpAccess,
+        binding: &heimdall_app::routes::RouteBinding,
     ) -> Result<heimdall_app::routes::JumpHop, heimdall_app::routes::RouteHelperError> {
-        Err(heimdall_app::routes::RouteHelperError::Unavailable)
+        use heimdall_app::routes::RouteHelperError;
+        let facts = self
+            .jump_facts(route)
+            .ok_or(RouteHelperError::Unavailable)?;
+        // ⟨ADR-0012 §5.4; ADR-0010 §5 item 2⟩ The same-grant check, on every jump attempted:
+        // the binding the alias's endpoint serves for the jump pair is the binding resolved
+        // for the final pair (so its grant, and the certificate the endpoint lists for the
+        // jump, are that grant's). Asked of the runtime now, not inferred from the plan.
+        let same_grant = match access {
+            heimdall_contract::environment::JumpAccess::Managed => self
+                .resolve_route_binding(
+                    &route.jump_pair.destination,
+                    &route.jump_pair.account,
+                    &self.endpoint,
+                )
+                .await
+                .is_ok_and(|jump| jump.binding == binding.binding && jump.grant == binding.grant),
+            _ => false,
+        };
+        jump_hop_for(
+            route,
+            access,
+            &facts,
+            same_grant,
+            &self.endpoint,
+            &self.pin_file(),
+            self.pin_text.as_deref(),
+            &self.paths,
+        )
     }
 
-    async fn record_health(&self, _payload: heimdall_contract::route::RouteHealthPayload) {}
+    async fn record_health(&self, payload: heimdall_contract::route::RouteHealthPayload) {
+        self.report(payload, None).await;
+    }
+}
+
+/// ⟨M06 W5 `w5n`; ADR-0012 §5.2⟩ The helper's own check before it tries any route: when it
+/// runs as the proxy of the destination's projected alias, that alias must hold the
+/// destination's catalog pin **effectively**.
+///
+/// 1. `ssh -G <alias>` is read (the user's configuration as the client that started the
+///    helper reads it). **When the alias's effective `ProxyCommand` is not this very helper
+///    invocation, the helper is not acting for the projected alias** (it was named by hand,
+///    by another host entry, or with other arguments). ⟨`w5o` item 8⟩ Where P renders the
+///    alias through the helper, such an invocation is refused (`proxycommand`); only where
+///    P renders no helper section for it (in V1, a runner) does nothing below apply
+///    ([`not_the_projected_proxy`]).
+/// 2. Otherwise the projected pin file must hold exactly the catalog's pins for
+///    `hm-dest-<id>`, and for the jump destination of each approved jump route the catalog
+///    pins (`userknownhostsfile` otherwise: the file `ssh` trusts is not the catalog's);
+/// 3. and the effective configuration must meet
+///    `heimdall_registry::routes::verify_effective`: strict checking, the expected
+///    `HostKeyAlias`, the pin file as the only trust source, no multiplexing but the
+///    slot's own path, and this helper as the proxy.
+///
+/// Returns the setting that does not hold, named as `ssh -G` prints it (`unreadable` when
+/// the effective configuration could not be read: fail closed). A refusal here means no
+/// route is tried, so a projected alias whose pin a user setting defeats never connects
+/// through the helper. Command-line options of the client that started the helper are not
+/// visible here and are not covered (ADR-0012 §5.2 names the configuration).
+async fn alias_pin_defeat(
+    ports: &HelperPorts<'_>,
+    args: &heimdall_app::routes::HelperArgs,
+    ssh: &Path,
+    config: Option<&Path>,
+    program: &str,
+) -> Option<String> {
+    let pair = args.pair();
+    // The destination's alias and pins, and the pins of the jump destination of each of
+    // its approved jump routes that the catalog pins at all.
+    let catalog =
+        heimdall_store::Store::open_read_only(&ports.db, Arc::new(heimdall_store::NoFaults))
+            .and_then(|s| {
+                s.transaction(|tx| {
+                    let alias = tx.destination(&pair.destination)?.map(|d| d.alias);
+                    let pins = heimdall_app::routes::catalog_pins(tx, &pair)?;
+                    let all = heimdall_app::routes::helper_pins(tx, &pair.destination)?
+                        .unwrap_or_default();
+                    Ok((alias, pins, all))
+                })
+            });
+    let Ok((Some(alias), pins, all)) = catalog else {
+        return Some("unreadable".to_owned());
+    };
+    let Some(effective) =
+        heimdall_app::routes::verify::effective_alias_config(ssh, config, &alias).await
+    else {
+        return Some("unreadable".to_owned());
+    };
+    let command = rendered_helper_command(program, args);
+    if !alias_proxy_is(&effective, &command) {
+        // ⟨M06 W5 `w5o` item 8⟩ Not the alias's own proxy. Fail closed wherever this
+        // installation projects the destination's alias through the helper: there the only
+        // invocation that may connect is the one P renders for that alias.
+        let p = std::fs::read_to_string(ports.paths.config_dir.join("ssh_config")).ok();
+        return not_the_projected_proxy(p.as_deref(), &alias);
+    }
+    let Some(host_key_alias) = heimdall_domain::routes::host_key_alias(&args.destination) else {
+        return Some("hostkeyalias".to_owned());
+    };
+    if !pins_hold(ports.pin_text.as_deref(), &host_key_alias, &pins) {
+        return Some("userknownhostsfile".to_owned());
+    }
+    // A jump hop's pin that differs from the catalog's is a trust defect of the pin file,
+    // not an unreachable route: nothing is tried (never failed over to another route).
+    let mut jumps: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for (destination, key) in all {
+        if destination != pair.destination.as_str() {
+            jumps.entry(destination).or_default().push(key);
+        }
+    }
+    for (jump, mut keys) in jumps {
+        keys.sort();
+        keys.dedup();
+        let name = format!("{}{jump}", heimdall_domain::routes::HOST_KEY_ALIAS_PREFIX);
+        if !pins_hold(ports.pin_text.as_deref(), &name, &keys) {
+            return Some("userknownhostsfile".to_owned());
+        }
+    }
+    let expect = heimdall_app::routes::PinExpectation {
+        host_key_alias,
+        pin_file: ssh_path(&ports.pin_file()),
+        owned_control_path: heimdall_localenv::projection::content::checked_mux_path(
+            &ports.paths.runtime_dir,
+            &args.destination,
+        )
+        .ok()
+        .map(|p| ssh_path(&p)),
+        proxy: heimdall_app::routes::ExpectedProxy::Helper(command),
+    };
+    heimdall_app::routes::verify_effective(&effective, &expect)
+        .err()
+        .map(|defeated| defeated.setting.to_owned())
+}
+
+/// ⟨M06 W5 `w5o` item 8; the ruling on `w5n` Q2⟩ The verdict for a helper invocation that
+/// is **not** the effective `ProxyCommand` of the destination's alias (it was named by hand,
+/// by another `Host` entry, or with other arguments), from P's text `p`:
+///
+/// * P renders `alias` through the route helper: **refused** (`proxycommand`). On such an
+///   installation only the invocation P renders may connect, and it is verified against
+///   the catalog pin; anything else would run the routes under trust the catalog does not
+///   control;
+/// * P renders no helper section for `alias` (or there is no P): `None`, the check does not
+///   apply. This is an installation that projects no helper alias for the destination, in
+///   V1 a **runner** (ADR-0012 §5, ruling of 2026-11-22: a runner has no catalog pin and no
+///   alias projection of its grants). There the client that names the helper states its
+///   own host trust; A26's runner-as-dialer steps are that mechanism.
+fn not_the_projected_proxy(p: Option<&str>, alias: &str) -> Option<String> {
+    p.is_some_and(|p| projected_helper_aliases(p).iter().any(|a| a.alias == alias))
+        .then(|| "proxycommand".to_owned())
+}
+
+/// Whether the effective configuration `ssh -G` printed names exactly `command` as its
+/// `ProxyCommand` (one line, the whole value).
+fn alias_proxy_is(effective: &str, command: &str) -> bool {
+    let mut proxies = effective
+        .lines()
+        .map(|l| l.trim_end_matches('\r'))
+        .filter_map(|l| l.split_once(' '))
+        .filter(|(k, _)| k.eq_ignore_ascii_case("proxycommand"))
+        .map(|(_, v)| v);
+    matches!((proxies.next(), proxies.next()), (Some(v), None) if v == command)
+}
+
+/// The `-F` argument of an `ssh -G` under a debug build's test configuration (never in a
+/// release build, where `ssh` reads the account's own tree and this is `None`): the scratch
+/// SSH home's user configuration, or `none` when that home has no configuration file (as
+/// an account without `~/.ssh/config` has none: `ssh -F <missing file>` would fail, where
+/// the account's own missing file does not).
+fn seam_ssh_config(hooks: &crate::testcfg::LaunchHooks) -> Option<PathBuf> {
+    hooks.ssh_home.as_ref().map(|home| {
+        let config = home.join(".ssh").join("config");
+        if config.is_file() {
+            config
+        } else {
+            PathBuf::from("none")
+        }
+    })
+}
+
+/// One helper alias of P, as P's own section states it (what must hold effectively).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProjectedHelperAlias {
+    pub(crate) alias: String,
+    pub(crate) expect: heimdall_app::routes::PinExpectation,
+}
+
+/// The aliases P renders through the route helper, each with the expectation its own
+/// section states: its `ProxyCommand` text, `HostKeyAlias`, pin file and `ControlPath`.
+pub(crate) fn projected_helper_aliases(p: &str) -> Vec<ProjectedHelperAlias> {
+    fn unquoted(v: &str) -> String {
+        v.trim().trim_matches('"').replace("%%", "%")
+    }
+    let mut out = Vec::new();
+    let mut current: Option<(String, Vec<(String, String)>)> = None;
+    let mut flush = |section: Option<(String, Vec<(String, String)>)>| {
+        let Some((alias, lines)) = section else {
+            return;
+        };
+        let get = |k: &str| lines.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        let (Some(proxy), Some(host_key_alias), Some(pin_file)) = (
+            get("ProxyCommand"),
+            get("HostKeyAlias"),
+            get("UserKnownHostsFile"),
+        ) else {
+            return;
+        };
+        let control = get("ControlPath").map(|v| unquoted(&v));
+        out.push(ProjectedHelperAlias {
+            alias,
+            expect: heimdall_app::routes::PinExpectation {
+                host_key_alias,
+                pin_file: unquoted(&pin_file),
+                owned_control_path: control.filter(|c| !c.eq_ignore_ascii_case("none")),
+                proxy: heimdall_app::routes::ExpectedProxy::Helper(proxy),
+            },
+        });
+    };
+    for line in p.lines() {
+        if let Some(name) = line.strip_prefix("Host ") {
+            flush(current.take());
+            current = Some((name.trim().to_owned(), Vec::new()));
+        } else if let Some((_, lines)) = &mut current
+            && let Some((k, v)) = line.trim_start().split_once(' ')
+        {
+            lines.push((k.to_owned(), v.to_owned()));
+        }
+    }
+    flush(current.take());
+    out
+}
+
+/// ⟨M06 W5 `w5n`; ADR-0012 §5.2 "at projection time"⟩ After an apply: `ssh -G` each alias P
+/// renders through the route helper and require what its own section states to hold
+/// effectively (`heimdall_registry::routes::verify_effective`). Returns each alias that
+/// does not verify with the setting (`unreadable` when its effective configuration could
+/// not be read). Nothing is changed here: the route helper refuses such an alias before it
+/// tries any route, so it is never left connecting under that trust.
+pub(crate) async fn verify_projected_helper_aliases(ctx: &Ctx) -> Vec<(String, String)> {
+    use heimdall_app::routes::verify::{RouteVerifyError, verify_projected_alias};
+    let Ok(paths) = ctx.paths() else {
+        return Vec::new();
+    };
+    let Ok(p) = std::fs::read_to_string(paths.config_dir.join("ssh_config")) else {
+        return Vec::new();
+    };
+    let aliases = projected_helper_aliases(&p);
+    if aliases.is_empty() {
+        return Vec::new();
+    }
+    let config = crate::testcfg::launch_hooks(&|n| std::env::var_os(n))
+        .ok()
+        .and_then(|h| seam_ssh_config(&h));
+    let ssh = ssh_client().unwrap_or_default();
+    let mut defeated = Vec::new();
+    for a in aliases {
+        match verify_projected_alias(&ssh, config.as_deref(), &a.alias, &a.expect).await {
+            Ok(()) => {}
+            Err(RouteVerifyError::Defeated { defeated: d, .. }) => {
+                defeated.push((a.alias, d.setting.to_owned()));
+            }
+            Err(_) => defeated.push((a.alias, "unreadable".to_owned())),
+        }
+    }
+    defeated
 }
 
 /// `route connect --destination <id> --account <a> --endpoint <path>` (ADR-0012 §5.3–§5.5):
-/// the typed inputs only (`heimdall_app::routes::HelperArgs`), then the helper core over
-/// this process's standard streams (standard output carries SSH bytes only; diagnostics go
-/// to standard error). Its exit codes are internal (ADR-0012 §1.5).
+/// the typed inputs only (`heimdall_app::routes::HelperArgs`), the alias's pin check
+/// ([`alias_pin_defeat`]), then the helper core over this process's standard streams
+/// (standard output carries SSH bytes only; diagnostics go to standard error). Its exit
+/// codes are internal (ADR-0012 §1.5).
 fn route_connect(ctx: &Ctx, args: &crate::cli::PlannedArgs) -> ExitCode {
     let parsed = match heimdall_app::routes::HelperArgs::parse(
         args.args.iter().map(std::ffi::OsString::from),
@@ -718,6 +1285,15 @@ fn route_connect(ctx: &Ctx, args: &crate::cli::PlannedArgs) -> ExitCode {
         output::diagnostic("heimdall route connect: cannot resolve the Heimdall directories");
         return ExitCode::Usage;
     };
+    // The scratch SSH home of a debug build's test configuration (never in a release
+    // build): the effective configuration is then read with `-F <home>/.ssh/config`.
+    let ssh_config = match crate::testcfg::launch_hooks(&|n| std::env::var_os(n)) {
+        Ok(hooks) => seam_ssh_config(&hooks),
+        Err(m) => {
+            output::diagnostic(&format!("heimdall route connect: {m}"));
+            return ExitCode::Usage;
+        }
+    };
     let db = paths
         .state_dir
         .join(heimdall_runtime::service::STATE_DB_FILE);
@@ -731,17 +1307,59 @@ fn route_connect(ctx: &Ctx, args: &crate::cli::PlannedArgs) -> ExitCode {
             let environment = state.transaction(|tx| tx.self_environment()).ok()??;
             heimdall_runtime::supervise_transport::route_iroh_leg(
                 &state,
-                heimdall_runtime::supervise_transport::product_iroh_store(&environment),
+                iroh_store(ctx, &environment),
             )
         });
+    let ssh = ssh_client().unwrap_or_default();
     let dialer = heimdall_app::routes::legs::RouteLegDialer {
         base: heimdall_app::routes::legs::TokioLegDialer {
-            ssh_client: ssh_client().unwrap_or_default(),
+            ssh_client: ssh.clone(),
             relay_jump_stderr: true,
         },
         iroh,
     };
-    let ports = HelperPorts { ctx, db };
+    let pin_file = paths
+        .config_dir
+        .join("keys")
+        .join(heimdall_localenv::projection::HOST_PINS_FILE);
+    let ports = HelperPorts {
+        ctx,
+        db,
+        endpoint: parsed.endpoint.clone(),
+        pin_text: std::fs::read_to_string(pin_file).ok(),
+        paths,
+    };
+    // The program as the alias names it: the shell `exec`s the rendered, quoted path.
+    let program = std::env::args_os()
+        .next()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if let Some(setting) = rt.block_on(alias_pin_defeat(
+        &ports,
+        &parsed,
+        &ssh,
+        ssh_config.as_deref(),
+        &program,
+    )) {
+        output::diagnostic(&format!(
+            "heimdall route connect: the SSH configuration does not hold this destination's \
+             catalog host-key pin ({}: {setting}); no route was tried. `heimdall doctor` \
+             names the setting; `heimdall setup apply` writes the alias and its pins again",
+            reason::HOST_PIN_DEFEATED
+        ));
+        rt.block_on(ports.report(
+            heimdall_contract::route::RouteHealthPayload {
+                kind: heimdall_contract::route::RouteEventKind::Health,
+                destination: parsed.destination.clone(),
+                account: parsed.account.clone(),
+                attempts: Vec::new(),
+                final_route: None,
+            },
+            Some(setting),
+        ));
+        rt.shutdown_background();
+        return ExitCode::Unavailable;
+    }
     let ended = rt.block_on(heimdall_app::routes::route_connect(
         &parsed,
         &ports,
@@ -866,6 +1484,7 @@ impl heimdall_app::transport::EndpointAnnouncer for ManagementAnnouncer {
             scratch_dir: root.clone(),
             config: None,
             extra_options: Vec::new(),
+            stderr_file: None,
             issuer_ca: None,
             iroh_endpoint: None,
         };
@@ -999,9 +1618,8 @@ fn transport_rotate(ctx: &Ctx) -> ExitCode {
             .ok()
             .flatten()
             .ok_or_else(|| state_refusal("the installation's environment cannot be read"))?;
-        let keys = heimdall_runtime::supervise_transport::CredentialKeys(
-            heimdall_runtime::supervise_transport::product_iroh_store(&environment),
-        );
+        let keys =
+            heimdall_runtime::supervise_transport::CredentialKeys(iroh_store(ctx, &environment));
         let announcer = ManagementAnnouncer::new(ctx, &paths);
         let rotated = heimdall_app::transport::TransportOps {
             store: &w.store,
@@ -1030,6 +1648,7 @@ fn transport_rotate(ctx: &Ctx) -> ExitCode {
             heimdall_contract::request::Request::Transport(
                 heimdall_contract::route::TransportRequest::Rotate,
             ),
+            false,
             rotation_text,
         ),
         Err(e) => emit_error(ctx, e),
@@ -1066,17 +1685,60 @@ fn parse_environment(text: &str) -> Result<EnvironmentId, OpError> {
 
 /// The debug-build test configuration of the K_mgmt store:
 /// `HEIMDALL_TEST_MGMT_STORE=fixture-file:<absolute path>` selects the fixture store (test
-/// kind, never a product claim), with an explicit `HEIMDALL_HOME` only. A release build
-/// never reads the variable.
+/// kind, never a product claim), with an explicit `HEIMDALL_HOME` only. ⟨M06 W5 `w5m`⟩ A
+/// release build refuses the variable (exit 2, `testcfg::mgmt_store_refusal`): it never
+/// honours it and never silently ignores it.
 #[cfg(debug_assertions)]
-pub(crate) const TEST_MGMT_STORE_ENV: &str = "HEIMDALL_TEST_MGMT_STORE";
+pub(crate) const TEST_MGMT_STORE_ENV: &str = crate::testcfg::MGMT_STORE_ENV;
 
 /// The fixture store prefix of [`TEST_MGMT_STORE_ENV`].
 #[cfg(debug_assertions)]
 const FIXTURE_FILE_PREFIX: &str = "fixture-file:";
 
+/// ⟨M06 W5, the 2026-11-22 incident⟩ The debug-build guard for K_mgmt
+/// (`heimdall_credential::scratch_guard`): the refusal when the Heimdall home (`home`, or
+/// `HEIMDALL_HOME` through `var`) is a temporary or scratch directory and
+/// `HEIMDALL_TEST_MGMT_STORE` is not set. The platform store is then never selected, so
+/// nothing is created or read in the account's keychain, DPAPI directory or Secret
+/// Service. `None` in a release build, always.
+#[cfg_attr(windows, allow(dead_code))]
+fn mgmt_scratch_refusal(
+    home: Option<&Path>,
+    var: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<OpError> {
+    use heimdall_credential::scratch_guard;
+    scratch_guard::home_is_scratch(home, scratch_guard::MGMT_FIXTURE_ENV, var).then(|| {
+        OpError::new(Code::CapabilityUnavailable, scratch_guard::MGMT_REFUSAL)
+            .with_reason(reason::MGMT_KEY_STORE_UNAVAILABLE)
+            .with_effect(EffectStatus::None)
+    })
+}
+
+/// ⟨M06 W5⟩ This installation's K_iroh store for the commands that run without the
+/// runtime: `heimdall_runtime::supervise_transport::product_iroh_store`, after the
+/// debug-build guard over the home this command resolved (`--home` as well as
+/// `HEIMDALL_HOME`; `heimdall_credential::iroh::scratch_home_refusal`).
+fn iroh_store(
+    ctx: &Ctx,
+    environment: &EnvironmentId,
+) -> Arc<dyn heimdall_credential::iroh::IrohKeyStore> {
+    if let Some(refusing) =
+        heimdall_credential::iroh::scratch_home_refusal(ctx.home.as_deref(), &|n| {
+            std::env::var_os(n)
+        })
+    {
+        return Arc::from(refusing);
+    }
+    heimdall_runtime::supervise_transport::product_iroh_store(environment)
+}
+
 /// This installation's K_mgmt store (module docs). `environment` scopes the item.
 fn mgmt_store(ctx: &Ctx, environment: &EnvironmentId) -> Result<Box<dyn MgmtKeyStore>, OpError> {
+    // A release build with the test variable set selects no store at all (the commands'
+    // entry points refused it already; this is the same refusal at the selection itself).
+    if let Some(message) = crate::testcfg::mgmt_store_refusal(&|n| std::env::var_os(n)) {
+        return Err(usage(message));
+    }
     #[cfg(debug_assertions)]
     if let Some(value) = std::env::var_os(TEST_MGMT_STORE_ENV) {
         let path = value
@@ -1093,6 +1755,13 @@ fn mgmt_store(ctx: &Ctx, environment: &EnvironmentId) -> Result<Box<dyn MgmtKeyS
             ));
         }
         return Ok(Box::new(mgmt::fixture::FixtureMgmtStore::file(path)));
+    }
+    // (Not on Windows: with an explicit Heimdall home the DPAPI store below lives inside
+    // that home, so a scratch installation's K_mgmt never reaches the account's own
+    // directory there, and the native journeys prove that store under a scratch home.)
+    #[cfg(not(windows))]
+    if let Some(refused) = mgmt_scratch_refusal(ctx.home.as_deref(), &|n| std::env::var_os(n)) {
+        return Err(refused);
     }
     let _ = (ctx, environment);
     #[cfg(target_os = "macos")]
@@ -1340,6 +2009,7 @@ impl StoreRegistry {
                 &w.store,
                 &form,
                 &mgmt::openssh_fingerprint,
+                heimdall_contract::Timestamp::now(),
             ),
             Some(RecordWrites::Runtime(client)) => {
                 let env = client
@@ -1502,12 +2172,33 @@ fn confirmation_text(what: &Confirmation) -> String {
         ),
         Confirmation::RetireDevice {
             environments,
+            forgotten_only,
             fingerprint,
-        } => format!(
-            "Retire this device: revoke it on {} runner(s), then destroy its management key {}.\nThe key cannot be recovered; this device can only rejoin by a new invitation or bootstrap.\nType yes to continue: ",
-            environments.len(),
-            fingerprint.as_str()
-        ),
+        } => {
+            // ⟨M06 W5 `w5m` L3⟩ What is revoked and what is only forgotten, before the yes.
+            let revoked = environments.len().saturating_sub(forgotten_only.len());
+            let mut text = format!(
+                "Retire this device: revoke it on {revoked} runner(s), then destroy its management key {}.\n",
+                fingerprint.as_str()
+            );
+            if !forgotten_only.is_empty() {
+                text.push_str(&format!(
+                    "On {} more runner(s) this device holds a limited role, which cannot revoke a client: their records are ONLY FORGOTTEN on this device, and its client stays enrolled there until an owner revokes it. An owner must run, on an owner controller, for each:\n",
+                    forgotten_only.len()
+                ));
+                for s in forgotten_only {
+                    text.push_str(&format!(
+                        "    heimdall environment revoke-client {} {}\n",
+                        s.environment.as_str(),
+                        s.client.as_str()
+                    ));
+                }
+            }
+            text.push_str(
+                "The key cannot be recovered; this device can only rejoin by a new invitation or bootstrap.\nType yes to continue: ",
+            );
+            text
+        }
     }
 }
 
@@ -1545,7 +2236,9 @@ const SESSION_HELLO_BOUND: Duration = Duration::from_secs(30);
 /// Management sessions over `ssh -F <isolated configuration>` (module docs).
 struct SshSessions {
     ssh_client: Option<PathBuf>,
-    /// A private directory for per-session configuration and agent sockets.
+    /// A private directory for per-session configuration. ⟨M06 W5 `w5r`⟩ The agent sockets
+    /// are not here: each session's are in its own short
+    /// `heimdall_credential::mgmt::agent::AgentDir` (Unix).
     root: PathBuf,
     key: Arc<StoreKey>,
 }
@@ -1558,6 +2251,10 @@ struct SshSession {
     hello: SessionHello,
     _child: tokio::process::Child,
     agent: Option<SessionAgent>,
+    /// ⟨M06 W5 `w5r`⟩ The short owner-only directory of the agent's and the probes'
+    /// sockets; removed after the agent stops.
+    #[cfg(unix)]
+    agent_dir: Option<heimdall_credential::mgmt::agent::AgentDir>,
     dir: PathBuf,
     /// What the confirming probes run with: the session's own client, configuration and
     /// alias (so its key, pins and route).
@@ -1569,6 +2266,8 @@ struct SshSession {
 impl Drop for SshSession {
     fn drop(&mut self) {
         drop(self.agent.take());
+        #[cfg(unix)]
+        drop(self.agent_dir.take());
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
@@ -1593,7 +2292,11 @@ impl ManagementSession for SshSession {
         #[cfg(unix)]
         {
             self.agent.as_ref()?;
-            let disposable = env_ssh::DisposableAgent::start(&self.dir.join("p.sock")).ok()?;
+            let socket = self
+                .agent_dir
+                .as_ref()?
+                .socket(heimdall_credential::mgmt::agent::PROBE_SOCKET);
+            let disposable = env_ssh::DisposableAgent::start(&socket).ok()?;
             env_ssh::run_probes(
                 &self.ssh_client,
                 &self.config_file,
@@ -1604,8 +2307,21 @@ impl ManagementSession for SshSession {
         }
         #[cfg(not(unix))]
         {
-            // No management session opens on this platform (`SshSessions::open`).
+            // ⟨M06 W5⟩ Not run on Windows: the agent-forwarding probe needs a disposable
+            // agent the in-box client can be pointed at, which this build does not have
+            // there. No observation is reported, so the callers take their closed side (a
+            // limited-role join and a policy re-check refuse; an owner session needs none).
             let _ = (&self.ssh_client, &self.config_file, &self.alias);
+            None
+        }
+    }
+
+    /// ⟨M06 W5⟩ On Windows the probes above never run, and the callers say why
+    /// (`heimdall_app::remote_env::PROBES_NOT_ON_WINDOWS`) instead of "inconclusive".
+    fn probes_unavailable(&self) -> Option<&'static str> {
+        if cfg!(windows) {
+            Some(heimdall_app::remote_env::PROBES_NOT_ON_WINDOWS)
+        } else {
             None
         }
     }
@@ -1634,10 +2350,15 @@ fn session_error(stderr: &[u8]) -> OpError {
             "the runner refused this device's management key (revoked, an expired invitation, \
              or not enrolled)",
         ),
-        env_ssh::PreflightVerdict::Unreachable => OpError::new(
-            Code::DestinationUnreachable,
-            "the runner could not be reached for a management session",
-        ),
+        // ⟨`w5v`; ADR-0006 §18.9⟩ Why, from what the client said (`Other` keeps the message
+        // it always had). ⟨`w5w`, M06-W5-RC03; ADR-0006 §18.9 item 12⟩ The client's own
+        // failures (it refused its options, or did not start) are this controller's, as the
+        // preflight says, so `environment add` never sends the user to the runner for them.
+        env_ssh::PreflightVerdict::Unreachable(
+            cause @ (env_ssh::UnreachableCause::ClientRejected
+            | env_ssh::UnreachableCause::ClientNotStarted),
+        ) => on_this_controller(cause.error("for a management session")),
+        env_ssh::PreflightVerdict::Unreachable(cause) => cause.error("for a management session"),
     }
     .with_effect(EffectStatus::None)
 }
@@ -1645,29 +2366,88 @@ fn session_error(stderr: &[u8]) -> OpError {
 impl SshSessions {
     fn session_dir(&self) -> Result<PathBuf, OpError> {
         let mut bytes = [0u8; 6];
-        heimdall_credential::vault::SystemRng::fill(&mut bytes).map_err(|_| {
-            OpError::new(
-                Code::InternalError,
-                "operating system randomness unavailable",
-            )
-        })?;
+        heimdall_credential::vault::SystemRng::fill(&mut bytes).map_err(|_| rng_unavailable())?;
         let name: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
         let dir = self.root.join(name);
-        let mut builder = std::fs::DirBuilder::new();
-        builder.recursive(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt as _;
-            builder.mode(0o700);
-        }
-        builder.create(&dir).map_err(|_| {
-            OpError::new(
-                Code::StateUnavailable,
-                "the management session directory could not be created",
-            )
+        // ⟨M06 W5; ADR-0012 §2.6⟩ Windows: the session directory is created exclusively
+        // with a protected owner-only DACL, under a root that is a real directory (a
+        // symbolic link or junction at the root's name is refused, never followed).
+        #[cfg(windows)]
+        let created = std::fs::create_dir_all(&self.root)
+            .and_then(|()| std::fs::symlink_metadata(&self.root))
+            .and_then(|meta| {
+                if meta.file_type().is_symlink() || !meta.is_dir() {
+                    Err(std::io::Error::other("the session root is not a directory"))
+                } else {
+                    heimdall_ipc::windows::create_dir_owner_only(&dir)
+                }
+            });
+        #[cfg(not(windows))]
+        let created = {
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt as _;
+                builder.mode(0o700);
+            }
+            builder.create(&dir)
+        };
+        created.map_err(|e| {
+            local_io_failed(&e, "management session directory could not be created")
         })?;
         Ok(dir)
     }
+}
+
+/// ⟨M06 W5 `w5r`, `w5t`; ADR-0006 §18.9⟩ The refusal of a management session whose K_mgmt
+/// agent could not start on this controller ([`controller_fault`]): effect `none`, one
+/// `mgmt_agent_*` reason per class (`heimdall_credential::mgmt::agent::AgentFailure`), and a
+/// message that names this controller's agent, why and the fix, never a path. Split by
+/// whether an unchanged retry can help (the code table's placement rule): a path too long
+/// or a denied directory is `CAPABILITY_UNAVAILABLE`; a name still taken after the fresh
+/// names (`AGENT_DIR_ATTEMPTS`) or any other failure is `STATE_UNAVAILABLE`.
+/// ⟨M06 W5 `w5t`, ruling 2026-11-23⟩ Why the agent is "in use": on Windows another process
+/// holds every pipe name this controller tried (the first-instance refusal), elsewhere every
+/// fresh directory name was taken.
+const AGENT_NAMES_IN_USE: &str = if cfg!(windows) {
+    "another process already holds every pipe name it tried, and a pipe of another process is \
+     never joined"
+} else {
+    "every fresh name it tried was already in use, and what is there is never reused or removed"
+};
+
+fn agent_failed(e: &std::io::Error) -> OpError {
+    use heimdall_credential::mgmt::agent::AgentFailure;
+    const WHAT: &str = "management key agent could not start";
+    let (code, why, fix, reason) = match AgentFailure::of(e) {
+        AgentFailure::PathTooLong => (
+            Code::CapabilityUnavailable,
+            "its socket path would be longer than this platform allows",
+            "give this controller a shorter runtime or temporary directory, then try again",
+            reason::MGMT_AGENT_PATH_TOO_LONG,
+        ),
+        AgentFailure::PermissionDenied => (
+            Code::CapabilityUnavailable,
+            "the operating system denied it an owner-only directory, socket or pipe",
+            "correct the ownership or permissions of this controller's runtime or temporary \
+             directory, then try again",
+            reason::MGMT_AGENT_PERMISSION_DENIED,
+        ),
+        AgentFailure::AddressInUse => (
+            Code::StateUnavailable,
+            AGENT_NAMES_IN_USE,
+            "try again",
+            reason::MGMT_AGENT_ADDRESS_IN_USE,
+        ),
+        AgentFailure::Other => (
+            Code::StateUnavailable,
+            "its endpoint could not be created",
+            "try again",
+            reason::MGMT_AGENT_UNAVAILABLE,
+        ),
+    };
+    controller_fault(code, &format!("{WHAT}: {why}"), fix).with_reason(reason)
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> Result<(), OpError> {
@@ -1682,18 +2462,69 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<(), OpError> {
     options
         .open(path)
         .and_then(|mut f| f.write_all(bytes).and_then(|()| f.sync_all()))
-        .map_err(|_| {
-            OpError::new(
-                Code::StateUnavailable,
-                "a management session file could not be written",
-            )
-        })
+        .map_err(|e| local_io_failed(&e, "management session file could not be written"))
+}
+
+/// ⟨M06 W5 `w5t`⟩ A management session's directory or file that could not be made on this
+/// controller ([`controller_fault`]): the operating system's refusal, which an unchanged
+/// retry cannot fix, is `CAPABILITY_UNAVAILABLE` and names the fix; any other failure (a
+/// full disk, say) is `STATE_UNAVAILABLE`. Never a path.
+fn local_io_failed(e: &std::io::Error, what: &str) -> OpError {
+    use std::io::ErrorKind;
+    if matches!(
+        e.kind(),
+        ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem
+    ) {
+        controller_fault(
+            Code::CapabilityUnavailable,
+            &format!("{what}: the operating system denied it"),
+            "correct the ownership or permissions of this controller's Heimdall home, \
+             then try again",
+        )
+    } else {
+        controller_fault(Code::StateUnavailable, what, "try again")
+    }
 }
 
 fn render_refused(_e: heimdall_sshconf::render::RenderError) -> OpError {
-    OpError::new(
+    render_refusal()
+}
+
+/// ⟨M06 W5 `w5t`⟩ The controller-local failures of the session opener, each a named site so
+/// that `every_session_opener_failure_on_this_controller_is_classed_as_its_fault` lists
+/// them all. A new site on this controller gets a function here and a row there.
+fn rng_unavailable() -> OpError {
+    controller_fault(
+        Code::InternalError,
+        "management session could not start: operating system randomness is unavailable",
+        "report it",
+    )
+}
+
+fn no_ssh_client() -> OpError {
+    controller_fault(
+        Code::LaunchFailed,
+        "management session could not start: no OpenSSH client was found",
+        "install OpenSSH on this controller",
+    )
+}
+
+/// This controller's K_mgmt store (opening, loading, the public key, the signer): code and
+/// reason kept.
+fn key_store_failed(e: MgmtKeyUnavailable) -> OpError {
+    on_this_controller(e.to_error())
+}
+
+/// The management `ssh` this controller could not start (`env_ssh::spawn_management`).
+fn ssh_spawn_failed(e: OpError) -> OpError {
+    on_this_controller(e)
+}
+
+fn render_refusal() -> OpError {
+    controller_fault(
         Code::CapabilityUnavailable,
-        "the management configuration cannot be rendered for this runner's recorded route",
+        "management configuration cannot be rendered for this runner's recorded route",
+        "review the runner's record on this controller",
     )
     .with_reason(reason::HOST_PIN_DEFEATED)
 }
@@ -1705,7 +2536,9 @@ impl ManagementSessions for SshSessions {
             HopIdentity, MgmtHop, MgmtTarget, PinnedKey, render_mgmt_config, render_mgmt_pin_file,
         };
         use heimdall_sshconf::render::{HostName, PathStyle, RenderPath};
-        if !cfg!(unix) {
+        // ⟨M06 W5; ADR-0012 §2.6⟩ Unix serves K_mgmt on a socket, Windows on a named pipe for
+        // the in-box OpenSSH. Anywhere else there is no agent: refused before K_mgmt is read.
+        if !cfg!(any(unix, windows)) {
             return Err(OpError::new(
                 Code::CapabilityUnavailable,
                 "management sessions are not available on this platform in this build",
@@ -1719,15 +2552,12 @@ impl ManagementSessions for SshSessions {
             )
             .with_reason(reason::ROUTE_DEPENDENCY_OUT_OF_SCOPE));
         }
-        let ssh_client = self
-            .ssh_client
-            .clone()
-            .ok_or_else(|| OpError::new(Code::LaunchFailed, "no OpenSSH client was found"))?;
-        let store = self.key.store().map_err(MgmtKeyUnavailable::to_error)?;
-        let key = store.load().map_err(|e| unavailable(e).to_error())?;
+        let ssh_client = self.ssh_client.clone().ok_or_else(no_ssh_client)?;
+        let store = self.key.store().map_err(key_store_failed)?;
+        let key = store.load().map_err(|e| key_store_failed(unavailable(e)))?;
         let public = key
             .public()
-            .map_err(|_| MgmtKeyUnavailable::Failed.to_error())?;
+            .map_err(|_| key_store_failed(MgmtKeyUnavailable::Failed))?;
         let name = match &target.name {
             SessionName::Environment(e) => e.as_str().to_owned(),
             SessionName::Bootstrap(d) => format!("bootstrap.{}", d.as_str()),
@@ -1738,11 +2568,49 @@ impl ManagementSessions for SshSessions {
             let _ = std::fs::remove_dir_all(&dir);
             e
         };
-        let socket = dir.join("a.sock");
+        let style = if cfg!(windows) {
+            PathStyle::Windows
+        } else {
+            PathStyle::Unix
+        };
         let pub_file = dir.join("k_mgmt.pub");
         let pins_file = dir.join("known_hosts");
         let config_file = dir.join("mgmt.conf");
-        let path = |p: &Path| RenderPath::absolute(p, PathStyle::Unix).map_err(render_refused);
+        let path = |p: &Path| RenderPath::absolute(p, style).map_err(render_refused);
+        // ⟨M06 W5 `w5r`⟩ The agent's socket is in a short owner-only directory of its own
+        // (`AgentDir`: `$XDG_RUNTIME_DIR` or `/tmp`), not under the Heimdall home, whose
+        // length must never decide whether a session can open.
+        #[cfg(unix)]
+        let agent_dir = heimdall_credential::mgmt::agent::AgentDir::create()
+            .map_err(|e| cleanup(agent_failed(&e)))?;
+        #[cfg(unix)]
+        let socket = agent_dir.socket(heimdall_credential::mgmt::agent::AGENT_SOCKET);
+        #[cfg(not(windows))]
+        let agent_endpoint = path(&socket).map_err(cleanup)?;
+        // ⟨M06 W5; ADR-0012 §2.6⟩ Windows: the agent's pipe is named by a token it draws
+        // itself, so it starts before the configuration that names it. It lives in this
+        // function until the session owns it: every refusal below drops it, which closes the
+        // pipe and drops the key.
+        #[cfg(windows)]
+        let (agent, agent_endpoint) = {
+            let signer = MgmtSigner::with_host_key_lines(
+                key,
+                [runner.account.as_str().to_owned()],
+                &runner.host_keys,
+            )
+            .map_err(|_| cleanup(key_store_failed(MgmtKeyUnavailable::Failed)))?;
+            let agent = SessionAgent::start_pipe(signer).map_err(|e| cleanup(agent_failed(&e)))?;
+            let endpoint = agent
+                .path()
+                .to_str()
+                .and_then(|name| RenderPath::pipe(name).ok())
+                .ok_or_else(|| {
+                    cleanup(agent_failed(&std::io::Error::other(
+                        "the pipe name cannot be rendered",
+                    )))
+                })?;
+            (agent, endpoint)
+        };
         let mgmt_target = (|| -> Result<MgmtTarget, OpError> {
             Ok(MgmtTarget {
                 environment: name.clone(),
@@ -1756,20 +2624,16 @@ impl ManagementSessions for SshSessions {
                         .map(|k| PinnedKey::parse(k))
                         .collect::<Result<_, _>>()
                         .map_err(render_refused)?,
-                    identity: HopIdentity::new(path(&socket)?, path(&pub_file)?)
+                    identity: HopIdentity::new(agent_endpoint.clone(), path(&pub_file)?)
                         .map_err(render_refused)?,
                 },
                 jump: None,
             })
         })()
         .map_err(cleanup)?;
-        let config = render_mgmt_config(
-            &mgmt_target,
-            &path(&pins_file).map_err(cleanup)?,
-            PathStyle::Unix,
-        )
-        .map_err(render_refused)
-        .map_err(cleanup)?;
+        let config = render_mgmt_config(&mgmt_target, &path(&pins_file).map_err(cleanup)?, style)
+            .map_err(render_refused)
+            .map_err(cleanup)?;
         let pins = render_mgmt_pin_file(&mgmt_target)
             .map_err(render_refused)
             .map_err(cleanup)?;
@@ -1777,35 +2641,34 @@ impl ManagementSessions for SshSessions {
             .map_err(cleanup)?;
         write_private(&pins_file, &pins).map_err(cleanup)?;
         write_private(&config_file, &config).map_err(cleanup)?;
-        let signer = MgmtSigner::with_host_key_lines(
-            key,
-            [runner.account.as_str().to_owned()],
-            &runner.host_keys,
-        )
-        .map_err(|_| cleanup(MgmtKeyUnavailable::Failed.to_error()))?;
-        let agent = SessionAgent::start(&socket, signer).map_err(|_| {
-            cleanup(OpError::new(
-                Code::StateUnavailable,
-                "the management key agent could not be started",
-            ))
-        })?;
+        #[cfg(not(windows))]
+        let agent = {
+            let signer = MgmtSigner::with_host_key_lines(
+                key,
+                [runner.account.as_str().to_owned()],
+                &runner.host_keys,
+            )
+            .map_err(|_| cleanup(key_store_failed(MgmtKeyUnavailable::Failed)))?;
+            SessionAgent::start(&socket, signer).map_err(|e| cleanup(agent_failed(&e)))?
+        };
         let alias = mgmt_target.alias();
         let args = env_ssh::management_args(&config_file, &alias);
-        let child = env_ssh::spawn_management(&ssh_client, &args).map_err(cleanup)?;
+        let child = env_ssh::spawn_management(&ssh_client, &args)
+            .map_err(|e| cleanup(ssh_spawn_failed(e)))?;
         let env_ssh::ManagementChild {
             child,
             stdin,
             stdout,
             stderr,
         } = child;
-        // ⟨M06 W3⟩ `remote-control/1` is required; `runner/1` is offered and not required:
-        // the runner negotiates it for an owner session only (ADR-0006 §18.7, ruling Q3), so
-        // a limited role's session still opens, without it.
-        let required: BTreeSet<String> =
-            [heimdall_app::remote_env::MANAGEMENT_CAPABILITY.to_owned()].into();
-        let mut capabilities = heimdall_ipc::session::server_capabilities();
-        capabilities.extend(required.iter().cloned());
-        capabilities.insert(heimdall_contract::ipc::capability::RUNNER_V1.to_owned());
+        // ⟨M06 W5 D1⟩ The role rule (`SessionCapabilities::of`, shared by every platform):
+        // `remote-control/1` is required only when this controller's record says owner (or
+        // the session is the bootstrap's or a join's); `runner/1` is then offered and not
+        // required. A limited record's session requires nothing and offers neither.
+        let wanted = heimdall_app::remote_env::SessionCapabilities::of(
+            target.standing,
+            heimdall_ipc::session::server_capabilities(),
+        );
         let handshake = tokio::time::timeout(
             SESSION_HELLO_BOUND,
             heimdall_ipc::session::ControlClient::handshake_hello(
@@ -1817,8 +2680,8 @@ impl ManagementSessions for SshSessions {
                         name: CLIENT_NAME.to_owned(),
                         version: env!("CARGO_PKG_VERSION").to_owned(),
                     },
-                    capabilities,
-                    required,
+                    capabilities: wanted.offered.clone(),
+                    required: wanted.required.clone(),
                     interaction: InteractionMode::NonInteractive,
                     remote_client: None,
                 },
@@ -1837,6 +2700,14 @@ impl ManagementSessions for SshSessions {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .clone();
+                // ⟨`w5v`; debug builds only⟩ The session's `ssh` messages for a native run's
+                // evidence (a release build refuses the variable, so this reads nothing).
+                if let Some(file) = crate::testcfg::launch_hooks(&|n| std::env::var_os(n))
+                    .ok()
+                    .and_then(|h| h.ssh_stderr_file)
+                {
+                    env_ssh::append_stderr_record(&file, "management session", None, &kept);
+                }
                 return Err(cleanup(session_error(&kept)));
             }
             Err(_) => {
@@ -1846,6 +2717,18 @@ impl ManagementSessions for SshSessions {
                 )));
             }
         };
+        // ⟨M06 W5 D1⟩ Whatever the server's hello said, a session that did not get what its
+        // standing requires is not used.
+        if !wanted.granted(&client.server().capabilities) {
+            return Err(cleanup(
+                OpError::new(
+                    Code::CapabilityUnavailable,
+                    "the runner did not grant this session the owner's management capability",
+                )
+                .with_reason(reason::ROLE_INSUFFICIENT)
+                .with_effect(EffectStatus::None),
+            ));
+        }
         let hello = SessionHello {
             environment: client.server().environment_id.clone(),
             role: client.server().role,
@@ -1856,6 +2739,8 @@ impl ManagementSessions for SshSessions {
             hello,
             _child: child,
             agent: Some(agent),
+            #[cfg(unix)]
+            agent_dir: Some(agent_dir),
             dir,
             ssh_client,
             config_file,
@@ -1940,8 +2825,16 @@ async fn wiring(ctx: &Ctx, write: bool) -> Result<Wiring, OpError> {
             // No client found: an empty path, which the adapter refuses (`LAUNCH_FAILED`).
             ssh_client: ssh.clone().unwrap_or_default(),
             scratch_dir: root.clone(),
-            config: None,
+            // (`environment` refused a release build's or a malformed variable already.)
+            config: bootstrap_test_config(&|n| std::env::var_os(n))
+                .ok()
+                .flatten(),
             extra_options: Vec::new(),
+            // ⟨`w5v`; debug builds only, refused by a release build with the config above⟩
+            // The preflight's and the session's `ssh` messages for a native run's evidence.
+            stderr_file: crate::testcfg::launch_hooks(&|n| std::env::var_os(n))
+                .ok()
+                .and_then(|h| h.ssh_stderr_file),
             // ⟨M06 W3⟩ The runner trusts this controller's CA and designates it as the time
             // source in the bootstrap's confirmation (omitted without an issuer).
             issuer_ca: controller_issuer_ca(&db),
@@ -1962,6 +2855,26 @@ async fn wiring(ctx: &Ctx, write: bool) -> Result<Wiring, OpError> {
 
 fn now() -> heimdall_contract::Timestamp {
     heimdall_contract::Timestamp::now()
+}
+
+/// ⟨M06 W5⟩ The bootstrap session's `-F` file under the test configuration: the scratch
+/// account home's own `.ssh/config` (`HEIMDALL_TEST_SSH_HOME`, **debug builds only**), so
+/// a fixture `environment add` reads the fixture's existing access and never the account's
+/// real `~/.ssh` (which OpenSSH takes from the account database, whatever `HOME` says).
+/// `Ok(None)` in every other invocation: the owner's own configuration, as the command is
+/// for.
+///
+/// # Errors
+/// The usage message (exit 2): **a release build refuses the variable** (and every other
+/// launch test variable: `testcfg::launch_hooks`), never honours it and never silently
+/// ignores it; a debug build refuses a relative value. [`environment`] checks this before
+/// anything else.
+fn bootstrap_test_config(
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<Option<PathBuf>, String> {
+    Ok(crate::testcfg::launch_hooks(env)?
+        .ssh_home
+        .map(|home| home.join(".ssh").join("config")))
 }
 
 fn record_line(r: &RemoteEnvironmentRecord) -> String {
@@ -1995,8 +2908,97 @@ fn recheck_line(environment: &EnvironmentId, data: &serde_json::Value) -> String
     }
 }
 
+/// `environment remove`'s data: `removed` (the environment, as before) and, ⟨M06 W5;
+/// ADR-0006 §18.9 item 6⟩ whether this device's client was revoked on the runner first.
+fn remove_data(removed: &heimdall_app::remote_env::RemoveOutcome) -> serde_json::Value {
+    let mut data = serde_json::json!({
+        "removed": removed.environment.as_str(),
+        "revoked_on_runner": removed.revoked_on_runner,
+    });
+    if !removed.revoked_on_runner
+        && let Some(map) = data.as_object_mut()
+    {
+        map.insert("client".to_owned(), serde_json::json!(removed.client));
+        map.insert("role".to_owned(), serde_json::json!(removed.role));
+    }
+    data
+}
+
+/// `environment remove`'s human line. A limited record is forgotten here only: the line
+/// says that an owner must still revoke this device's client on the runner, and names it.
+fn remove_line(removed: &heimdall_app::remote_env::RemoveOutcome) -> String {
+    let environment = removed.environment.as_str();
+    if removed.revoked_on_runner {
+        return format!("removed {environment} (this device's management key is kept)");
+    }
+    format!(
+        "forgot {environment} on this device only (this device's management key is kept). \
+         This device's role there cannot revoke a client, so client {} is still enrolled on \
+         the runner: an owner must still revoke it there (`heimdall environment \
+         revoke-client {environment} {}` on an owner controller)",
+        removed.client.as_str(),
+        removed.client.as_str()
+    )
+}
+
+/// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ The runner's own view, as a limited role's `environment
+/// status <env>` read it over its session.
+fn runner_view_read(view: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "read": true, "view": view })
+}
+
+/// The same entry when the session, or the read, failed: the refusal, never a guess.
+fn runner_view_unread(e: &OpError) -> serde_json::Value {
+    let mut v = serde_json::json!({
+        "read": false,
+        "code": e.code,
+        "message": e.message,
+    });
+    if let (Some(reason), Some(map)) = (&e.reason, v.as_object_mut()) {
+        map.insert("reason".to_owned(), serde_json::json!(reason));
+    }
+    v
+}
+
+/// The human line of [`runner_view_read`] or [`runner_view_unread`]: what the runner said
+/// of itself, or why nothing was read.
+fn runner_view_lines(view: &serde_json::Value) -> String {
+    if view["read"] != true {
+        return format!(
+            "\n  runner's view: not read ({}{}): {}",
+            view["code"].as_str().unwrap_or("unknown"),
+            view["reason"]
+                .as_str()
+                .map(|r| format!(", {r}"))
+                .unwrap_or_default(),
+            output::quoted_field(view["message"].as_str().unwrap_or_default()),
+        );
+    }
+    // `inspect environments` as a role that is not the owner sees it: the runner's own
+    // environment ID and whether it is enrolled.
+    format!(
+        "\n  runner's view (read over this device's session): environment {}  enrolled {}",
+        output::quoted_field(view["view"]["environment_id"].as_str().unwrap_or("unknown")),
+        view["view"]["enrolled"]
+            .as_bool()
+            .map_or_else(|| "unknown".to_owned(), |b| b.to_string()),
+    )
+}
+
 /// `environment …`.
 pub(crate) fn environment(ctx: &Ctx, command: EnvironmentCommand) -> ExitCode {
+    // ⟨M06 W5⟩ The bootstrap's test seam is read here, before anything else: a release
+    // build refuses its variable (exit 2) rather than ignoring it, and a malformed value
+    // is a usage error (`bootstrap_test_config`; tools/validation/release-gate.sh probes
+    // `environment add`).
+    if let Err(message) = bootstrap_test_config(&|n| std::env::var_os(n)) {
+        return emit_error(ctx, usage(&message));
+    }
+    // ⟨M06 W5 `w5m`⟩ So is the fixture K_mgmt store's variable: refused by a release build
+    // before the terminal check, any state and any key store (release-gate.sh probes it).
+    if let Some(message) = crate::testcfg::mgmt_store_refusal(&|n| std::env::var_os(n)) {
+        return emit_error(ctx, usage(message));
+    }
     let rt = match crate::service_cmd::current_thread() {
         Ok(rt) => rt,
         Err(env) => {
@@ -2137,11 +3139,8 @@ pub(crate) fn environment(ctx: &Ctx, command: EnvironmentCommand) -> ExitCode {
             }
             EnvironmentCommand::Remove(a) => {
                 let environment = parse_environment(&a.environment)?;
-                controller.remove(&environment).await?;
-                Ok((
-                    serde_json::json!({ "removed": environment.as_str() }),
-                    format!("removed {} (this device's management key is kept)", environment.as_str()),
-                ))
+                let removed = controller.remove(&environment).await?;
+                Ok((remove_data(&removed), remove_line(&removed)))
             }
             EnvironmentCommand::Update(a) => {
                 let environment = parse_environment(&a.environment)?;
@@ -2187,7 +3186,28 @@ pub(crate) fn environment(ctx: &Ctx, command: EnvironmentCommand) -> ExitCode {
                         human.push_str(&remote_lines(v));
                     }
                 }
-                let data = serde_json::to_value(&report).unwrap_or_default();
+                let mut data = serde_json::to_value(&report).unwrap_or_default();
+                // ⟨M06 W5; ADR-0006 §18.9 item 6⟩ A limited role's `environment status
+                // <env>` also opens a session and shows the runner's own view (read-only
+                // forms only). The record's own lines above answer whatever happens to
+                // the session; an owner record opens none.
+                if let Some(environment) = &environment {
+                    let view = match controller.runner_view(environment).await {
+                        Ok(None) => None,
+                        Ok(Some(view)) => Some(runner_view_read(view)),
+                        Err(e) => Some(runner_view_unread(&e)),
+                    };
+                    if let Some(view) = view {
+                        human.push_str(&runner_view_lines(&view));
+                        if let Some(entry) = data
+                            .get_mut("environments")
+                            .and_then(|l| l.get_mut(0))
+                            .and_then(serde_json::Value::as_object_mut)
+                        {
+                            entry.insert("runner_view".to_owned(), view);
+                        }
+                    }
+                }
                 Ok((data, human))
             }
         }
@@ -2533,7 +3553,7 @@ fn own_iroh_endpoint(ctx: &Ctx) -> Option<heimdall_contract::ids::IrohEndpointId
     let state =
         heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults)).ok()?;
     let environment = state.transaction(|tx| tx.self_environment()).ok()??;
-    let keys = heimdall_runtime::supervise_transport::product_iroh_store(&environment);
+    let keys = iroh_store(ctx, &environment);
     heimdall_runtime::supervise_transport::held_endpoint(&state, keys.as_ref())
 }
 
@@ -2621,6 +3641,10 @@ fn show_key(ctx: &Ctx) -> ExitCode {
 /// `device retire` (ADR-0012 §3.4, §3.10 item 4).
 pub(crate) fn device(ctx: &Ctx, command: DeviceCommand) -> ExitCode {
     let DeviceCommand::Retire = command;
+    // ⟨M06 W5 `w5m`⟩ A release build refuses the fixture K_mgmt store's variable first.
+    if let Some(message) = crate::testcfg::mgmt_store_refusal(&|n| std::env::var_os(n)) {
+        return emit_error(ctx, usage(message));
+    }
     if !ctx.interactive() {
         return emit_error(
             ctx,
@@ -2655,10 +3679,9 @@ pub(crate) fn device(ctx: &Ctx, command: DeviceCommand) -> ExitCode {
     });
     match rt.block_on(controller.retire()) {
         Ok(outcome) => {
-            let human = format!(
-                "retired: revoked on {} runner(s); management key destroyed",
-                outcome.revoked_on.len()
-            );
+            // ⟨M06 W5 `w5l`⟩ The line names every runner a limited record was forgotten
+            // for: an owner must still revoke this device's client there.
+            let human = outcome.line();
             emit_ok(
                 ctx,
                 serde_json::to_value(&outcome).unwrap_or_default(),
@@ -3080,7 +4103,14 @@ fn remote_init_run(ctx: &Ctx, a: &RemoteInitArgs) -> Result<InitAnswer, OpError>
         Ok(yes)
     };
     let Some(w) = try_writer(&paths)? else {
-        return remote_init_through_runtime(ctx, &plan, &user_dir, &confirm, &not_confirmed);
+        let answer = remote_init_through_runtime(ctx, &plan, &user_dir, &confirm, &not_confirmed)?;
+        // A runtime holds this home and answered as a runner's: it is running.
+        return Ok(answer.map(|(data, human)| {
+            if a.offer_runtime_start {
+                output::diagnostic(RUNTIME_RUNNING);
+            }
+            (data, human)
+        }));
     };
     if !confirm()? {
         return Err(not_confirmed());
@@ -3107,7 +4137,174 @@ fn remote_init_run(ctx: &Ctx, a: &RemoteInitArgs) -> Result<InitAnswer, OpError>
     let written =
         heimdall_runtime::paired::write_owner_line(&w.store, &lines, &enrolled.owner.client, &line);
     let mut data = enrolled.data(Some(&line), written);
-    Ok(Ok(init_answer(&mut data, issuer_data, &user_dir)))
+    let answer = init_answer(&mut data, issuer_data, &user_dir);
+    // ⟨M06 W5⟩ The instance lock is released before the runtime may be started; then the
+    // bootstrap's offer, on this terminal (never a silent second pass). What it states is
+    // printed there once, in text and JSON mode alike, before the command's answer.
+    drop(w);
+    if a.offer_runtime_start {
+        offer_runtime_start(ctx, &paths, &|text| {
+            TerminalConfirm { interactive: true }.ask(text)
+        });
+    }
+    Ok(Ok(answer))
+}
+
+/// ⟨M06 W5⟩ What the bootstrap says when this runner's runtime already runs.
+const RUNTIME_RUNNING: &str = "The runner's runtime is running on this installation.";
+
+/// ⟨M06 W5⟩ What the bootstrap says, before its offer, when the runtime does not run.
+const RUNTIME_NOT_RUNNING: &str = "The runner's runtime is NOT running on this installation, so the controller cannot open \
+     its management session yet.";
+
+/// ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ The command a runner's runtime is
+/// started with, for the offer's text and its declined next step: this executable, the
+/// explicit home, `service run --runner --detach`.
+fn runtime_start_line(exe: &Path, home: &Path) -> String {
+    format!(
+        "{} --home {} service run --runner --detach",
+        exe.display(),
+        home.display()
+    )
+}
+
+/// The offer's prompt.
+fn runtime_start_offer(line: &str) -> String {
+    format!(
+        "{RUNTIME_NOT_RUNNING}\nStart it now, detached from this session? It runs:\n    {line}\n\
+         Started here it belongs to this login session and may stop when the session's \
+         processes are ended; a user service that starts it at login outlives that.\n\
+         Type yes to start it: "
+    )
+}
+
+/// What a declined (or unanswered) offer leaves on the terminal: the next step.
+fn runtime_start_declined(line: &str) -> String {
+    format!(
+        "The runner's runtime was not started. Next step: start it on this runner,\n    \
+         {line}\nthen run `heimdall environment add` on the controller again with the same \
+         arguments: it repairs the record after the same confirmation. Until then the \
+         controller has recorded nothing."
+    )
+}
+
+/// ⟨M06 W5⟩ The variables a runtime started from the bootstrap session receives from that
+/// session, and nothing else of it (no `SSH_AUTH_SOCK`, `SSH_CONNECTION`, `SSH_TTY`,
+/// askpass or agent variable: a runner's runtime never inherits a login session's
+/// credential sources, ADR-0012 §4). A debug build also passes its own `HEIMDALL_TEST_*`
+/// configuration, so a fixture runner keeps its scratch SSH home.
+#[cfg_attr(not(unix), allow(dead_code))]
+const RUNTIME_START_ENV: [&str; 11] = [
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "TMPDIR",
+    "XDG_RUNTIME_DIR",
+];
+
+/// The environment of the started runtime: [`RUNTIME_START_ENV`] from `vars`, plus, when
+/// the test configuration is available (debug builds), every `HEIMDALL_TEST_*` variable.
+#[cfg_attr(not(unix), allow(dead_code))]
+fn runtime_start_env(
+    vars: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+    test_configuration: bool,
+) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
+    vars.filter(|(name, _)| {
+        name.to_str().is_some_and(|n| {
+            RUNTIME_START_ENV.contains(&n)
+                || (test_configuration && n.starts_with("HEIMDALL_TEST_"))
+        })
+    })
+    .collect()
+}
+
+/// ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ The bootstrap's offer on a runner whose
+/// runtime does not run (the caller released the instance lock): say so, ask for a typed
+/// `yes` through `ask`, and on `yes` start `service run --runner --detach` on this home
+/// with [`runtime_start_env`], detached, then wait until it serves. Returns the line that
+/// states the outcome (also printed): running, or not started with the next step. Nothing
+/// is started without the typed `yes`.
+fn offer_runtime_start(
+    ctx: &Ctx,
+    paths: &heimdall_runtime::Paths,
+    ask: &dyn Fn(&str) -> bool,
+) -> String {
+    let (Some(home), Ok(exe)) = (ctx.home.as_deref(), std::env::current_exe()) else {
+        // (`remote init` refused a missing home before this.)
+        let stated = format!(
+            "{RUNTIME_NOT_RUNNING} Start it on this runner, then run `heimdall environment add` on the controller again."
+        );
+        output::diagnostic(&stated);
+        return stated;
+    };
+    let line = runtime_start_line(&exe, home);
+    let stated = if ask(&runtime_start_offer(&line)) {
+        match start_runner_runtime(&exe, home, paths) {
+            Ok(()) => {
+                "The runner's runtime is running on this installation (started now).".to_owned()
+            }
+            Err(why) => format!(
+                "The runner's runtime did not start ({why}). {}",
+                runtime_start_declined(&line)
+            ),
+        }
+    } else {
+        runtime_start_declined(&line)
+    };
+    output::diagnostic(&stated);
+    stated
+}
+
+/// Start this runner's runtime detached and wait until it serves (the launcher's bound).
+#[cfg(unix)]
+fn start_runner_runtime(
+    exe: &Path,
+    home: &Path,
+    paths: &heimdall_runtime::Paths,
+) -> Result<(), String> {
+    use std::os::unix::process::CommandExt as _;
+    let spawn = || -> std::io::Result<()> {
+        let mut command = heimdall_app::no_window!(std::process::Command::new(exe));
+        command
+            .arg("--home")
+            .arg(home)
+            .args(["service", "run", "--runner", "--detach"])
+            .env_clear()
+            .envs(runtime_start_env(
+                std::env::vars_os(),
+                crate::testcfg::AVAILABLE,
+            ))
+            // The same home as `--home`, for the processes the runtime starts itself.
+            .env(heimdall_runtime::paths::HOME_ENV, home)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .process_group(0);
+        // Only the three null standard descriptors reach the long-lived runtime.
+        heimdall_runtime::platform::disinherit_descriptors_above_stdio()?;
+        command.spawn().map(drop)
+    };
+    let rt = crate::service_cmd::current_thread().map_err(|_| "no client runtime".to_owned())?;
+    rt.block_on(heimdall_runtime::launcher::ensure_running_with(
+        &paths.runtime_dir,
+        true,
+        heimdall_runtime::launcher::LauncherConfig::default(),
+        &spawn,
+    ))
+    .map(drop)
+    .map_err(|e| e.to_string())
+}
+
+/// A runner is Unix-only in V1 (m06-plan §5): nothing is started elsewhere.
+#[cfg(not(unix))]
+fn start_runner_runtime(_: &Path, _: &Path, _: &heimdall_runtime::Paths) -> Result<(), String> {
+    Err("a remote runner's runtime is not available on this platform".to_owned())
 }
 
 /// Add the issuer part and what sshd's `StrictModes` would refuse (`strict_modes`, omitted
@@ -3853,6 +5050,450 @@ mod tests {
     use super::*;
     use crate::cli::{Cli, Command, dispatch};
 
+    /// ⟨M06 W5 `w5r`, `w5t`; ADR-0006 §18.9⟩ One way the controller's K_mgmt agent can fail
+    /// to start, from the error the platform gives (the credential crate's tests cause each
+    /// one for real): the code, exit code, `retryable` and reason of its class, effect
+    /// `none`, and a message that names this controller's agent, why and the fix, with no
+    /// path in it.
+    fn assert_agent_class(
+        e: &std::io::Error,
+        code: Code,
+        exit: ExitCode,
+        retryable: bool,
+        want: &str,
+        why: &str,
+        fix: &str,
+    ) {
+        let got = agent_failed(e);
+        assert_eq!(got.code, code);
+        assert_eq!(got.code.exit_code_for_reason(got.reason.as_deref()), exit);
+        let detail = got.detail();
+        assert_eq!(detail.retryable, retryable);
+        assert_eq!(detail.reason.as_deref(), Some(want));
+        assert_eq!(got.effect_status, EffectStatus::None);
+        assert!(
+            got.message
+                .starts_with("this controller's management key agent could not start: "),
+            "{}",
+            got.message
+        );
+        assert!(got.message.contains(why), "{}", got.message);
+        assert!(got.message.ends_with(fix), "{}", got.message);
+        assert!(!got.message.contains('/'), "no path: {}", got.message);
+        assert!(!got.message.contains("120"), "{}", got.message);
+        assert!(reason::MGMT_CONTROLLER_SIDE.contains(&want));
+        assert!(heimdall_app::remote_env::is_controller_fault(&got));
+    }
+
+    #[test]
+    fn an_agent_path_too_long_is_capability_unavailable_and_names_a_shorter_directory() {
+        let too_long = std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            heimdall_credential::mgmt::agent::AgentPathTooLong {
+                bytes: 120,
+                limit: 103,
+            },
+        );
+        assert_agent_class(
+            &too_long,
+            Code::CapabilityUnavailable,
+            ExitCode::Denied,
+            false,
+            reason::MGMT_AGENT_PATH_TOO_LONG,
+            "longer than this platform allows",
+            "give this controller a shorter runtime or temporary directory, then try again",
+        );
+    }
+
+    #[test]
+    fn an_agent_permission_denied_is_capability_unavailable_and_names_the_permissions() {
+        assert_agent_class(
+            &std::io::Error::new(std::io::ErrorKind::PermissionDenied, "/private/secret/path"),
+            Code::CapabilityUnavailable,
+            ExitCode::Denied,
+            false,
+            reason::MGMT_AGENT_PERMISSION_DENIED,
+            "denied",
+            "correct the ownership or permissions of this controller's runtime or temporary \
+             directory, then try again",
+        );
+    }
+
+    #[test]
+    fn an_agent_address_in_use_is_state_unavailable_and_retryable() {
+        for kind in [
+            std::io::ErrorKind::AlreadyExists,
+            std::io::ErrorKind::AddrInUse,
+        ] {
+            assert_agent_class(
+                &std::io::Error::new(kind, "/private/secret/path"),
+                Code::StateUnavailable,
+                ExitCode::Unavailable,
+                true,
+                reason::MGMT_AGENT_ADDRESS_IN_USE,
+                AGENT_NAMES_IN_USE,
+                "try again",
+            );
+        }
+    }
+
+    #[test]
+    fn any_other_agent_failure_is_state_unavailable_and_retryable() {
+        assert_agent_class(
+            &std::io::Error::other("/private/secret/path"),
+            Code::StateUnavailable,
+            ExitCode::Unavailable,
+            true,
+            reason::MGMT_AGENT_UNAVAILABLE,
+            "could not be created",
+            "try again",
+        );
+    }
+
+    /// ⟨M06 W5 `w5t`, ruling 2026-11-23⟩ Every failure of the session opener on this
+    /// controller, one row per site: each is classed as this controller's fault
+    /// (`is_controller_fault`), so `environment add` after a bootstrap never blames the
+    /// runner's runtime for it, and a wording change that drops the class breaks this test.
+    #[test]
+    fn every_session_opener_failure_on_this_controller_is_classed_as_its_fault() {
+        use std::io::{Error, ErrorKind};
+        let sites: Vec<(&str, OpError)> = vec![
+            ("session directory randomness", rng_unavailable()),
+            (
+                "session directory, denied",
+                local_io_failed(
+                    &Error::from(ErrorKind::PermissionDenied),
+                    "management session directory could not be created",
+                ),
+            ),
+            (
+                "session directory, other",
+                local_io_failed(
+                    &Error::from(ErrorKind::StorageFull),
+                    "management session directory could not be created",
+                ),
+            ),
+            (
+                "session file, denied",
+                local_io_failed(
+                    &Error::from(ErrorKind::ReadOnlyFilesystem),
+                    "management session file could not be written",
+                ),
+            ),
+            (
+                "session file, other",
+                local_io_failed(
+                    &Error::from(ErrorKind::StorageFull),
+                    "management session file could not be written",
+                ),
+            ),
+            ("no OpenSSH client", no_ssh_client()),
+            (
+                "K_mgmt store locked",
+                key_store_failed(MgmtKeyUnavailable::Locked),
+            ),
+            (
+                "K_mgmt store unavailable",
+                key_store_failed(MgmtKeyUnavailable::StoreUnavailable),
+            ),
+            (
+                "K_mgmt not found",
+                key_store_failed(MgmtKeyUnavailable::NotFound),
+            ),
+            (
+                "K_mgmt store failed",
+                key_store_failed(MgmtKeyUnavailable::Failed),
+            ),
+            ("configuration render", render_refusal()),
+            (
+                "ssh spawn",
+                ssh_spawn_failed(OpError::new(
+                    Code::LaunchFailed,
+                    "the ssh client could not be started",
+                )),
+            ),
+            (
+                "agent path too long",
+                agent_failed(&Error::new(
+                    ErrorKind::InvalidInput,
+                    heimdall_credential::mgmt::agent::AgentPathTooLong {
+                        bytes: 120,
+                        limit: 103,
+                    },
+                )),
+            ),
+            (
+                "agent denied",
+                agent_failed(&Error::from(ErrorKind::PermissionDenied)),
+            ),
+            (
+                "agent in use",
+                agent_failed(&Error::from(ErrorKind::AddrInUse)),
+            ),
+            ("agent other", agent_failed(&Error::other("x"))),
+            // ⟨`w5w`, M06-W5-RC03⟩ The session's own ssh refused its options.
+            (
+                "session ssh rejected its options",
+                session_error(b"command-line line 0: Bad configuration option: x\r\n"),
+            ),
+        ];
+        for (site, e) in &sites {
+            assert!(
+                heimdall_app::remote_env::is_controller_fault(e),
+                "{site}: {}",
+                e.message
+            );
+            assert!(
+                e.message
+                    .starts_with(heimdall_app::remote_env::CONTROLLER_FAULT_HEAD),
+                "{site}: {}",
+                e.message
+            );
+            assert!(
+                !e.message.contains("runner's runtime"),
+                "{site}: {}",
+                e.message
+            );
+            assert!(!e.message.contains('/'), "{site}: {}", e.message);
+        }
+        // The kept codes (ADR-0006 code table): only the denials changed.
+        let code = |site: &str| {
+            sites
+                .iter()
+                .find(|(s, _)| *s == site)
+                .map(|(_, e)| e.code.clone())
+                .unwrap()
+        };
+        assert_eq!(code("session directory randomness"), Code::InternalError);
+        assert_eq!(
+            code("session directory, denied"),
+            Code::CapabilityUnavailable
+        );
+        assert_eq!(code("session file, other"), Code::StateUnavailable);
+        assert_eq!(code("no OpenSSH client"), Code::LaunchFailed);
+        assert_eq!(code("K_mgmt store failed"), Code::ServiceUnavailable);
+        assert_eq!(code("configuration render"), Code::CapabilityUnavailable);
+        assert_eq!(code("ssh spawn"), Code::LaunchFailed);
+        assert_eq!(
+            code("session ssh rejected its options"),
+            Code::CapabilityUnavailable
+        );
+        let rejected = &sites.last().unwrap().1;
+        assert_eq!(
+            rejected.reason.as_deref(),
+            Some(reason::SSH_CLIENT_CONFIG_REJECTED)
+        );
+        // A network outcome stays the runner's side.
+        assert!(!heimdall_app::remote_env::is_controller_fault(
+            &session_error(b"ssh: connect to host h port 22: Connection refused\r\n")
+        ));
+    }
+
+    /// ⟨M06 W5 `w5t`⟩ A session directory this controller may not create (an unwritable
+    /// Heimdall home): `CAPABILITY_UNAVAILABLE` (an unchanged retry cannot fix it), effect
+    /// `none`, and the message blames this controller, names the fix and carries no path.
+    #[cfg(unix)]
+    #[test]
+    fn an_unwritable_session_directory_blames_this_controller() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path().join("sessions");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let sessions = SshSessions {
+            ssh_client: None,
+            root: root.clone(),
+            key: Arc::new(StoreKey { store: None }),
+        };
+        let got = sessions.session_dir().unwrap_err();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(got.code, Code::CapabilityUnavailable);
+        assert!(!got.detail().retryable);
+        assert_eq!(got.effect_status, EffectStatus::None);
+        assert_eq!(
+            got.message,
+            "this controller's management session directory could not be created: the \
+             operating system denied it; correct the ownership or permissions of this \
+             controller's Heimdall home, then try again"
+        );
+        assert!(heimdall_app::remote_env::is_controller_fault(&got));
+    }
+
+    /// ⟨M06 W5, the 2026-11-22 incident⟩ A debug build under a scratch Heimdall home with
+    /// no `HEIMDALL_TEST_MGMT_STORE` selects no K_mgmt store at all: the refusal names the
+    /// variable, is `CAPABILITY_UNAVAILABLE` / `mgmt_key_store_unavailable` with effect
+    /// `none`, and comes from `mgmt_store` before any platform store is constructed. The
+    /// same for K_iroh (`iroh_store`): a store that refuses everything, never the
+    /// platform's. A home that is not scratch, or the variable set, is not refused.
+    #[test]
+    fn a_scratch_home_without_the_fixture_variables_never_selects_a_platform_key_store() {
+        use heimdall_credential::iroh::IrohStoreAvailability;
+        use heimdall_credential::scratch_guard::{HOME_ENV, IROH_FIXTURE_ENV, MGMT_FIXTURE_ENV};
+        assert_eq!(HOME_ENV, heimdall_runtime::paths::HOME_ENV);
+        assert_eq!(MGMT_FIXTURE_ENV, TEST_MGMT_STORE_ENV);
+        assert_eq!(IROH_FIXTURE_ENV, crate::testcfg::IROH_KEY_STORE_ENV);
+        assert_eq!(
+            heimdall_credential::MACOS_KEYCHAIN_ISSUER_SERVICE_PREFIX,
+            heimdall_issuer::store::ITEM_LABEL_PREFIX
+        );
+        let scratch = tempfile::tempdir().unwrap();
+        let home = scratch.path().join("hm");
+        let none = |_: &str| None;
+        let refused = mgmt_scratch_refusal(Some(&home), &none).expect("refused");
+        assert_eq!(refused.code, Code::CapabilityUnavailable);
+        assert_eq!(
+            refused.reason.as_deref(),
+            Some(reason::MGMT_KEY_STORE_UNAVAILABLE)
+        );
+        assert!(refused.message.contains(MGMT_FIXTURE_ENV), "{refused:?}");
+        // Through the home in the environment, and lifted by the variable alone.
+        let home_os = home.clone().into_os_string();
+        let env_home = |n: &str| (n == HOME_ENV).then(|| home_os.clone());
+        assert!(mgmt_scratch_refusal(None, &env_home).is_some());
+        let with_var = |n: &str| (n == MGMT_FIXTURE_ENV).then(|| "fixture-file:/x".into());
+        assert!(mgmt_scratch_refusal(Some(&home), &with_var).is_none());
+        assert!(mgmt_scratch_refusal(Some(Path::new("/srv/heimdall-home")), &none).is_none());
+        // The selection site itself (this test process sets neither fixture variable).
+        if cfg!(not(windows)) && std::env::var_os(MGMT_FIXTURE_ENV).is_none() {
+            let ctx = Ctx {
+                json: true,
+                non_interactive: true,
+                home: Some(home.clone()),
+                stdin_tty: false,
+            };
+            let environment = EnvironmentId::from_random_bytes([3; 16]);
+            let Err(e) = mgmt_store(&ctx, &environment) else {
+                panic!("a platform K_mgmt store was selected under a scratch home");
+            };
+            assert!(e.message.contains(MGMT_FIXTURE_ENV), "{e:?}");
+            if std::env::var_os(IROH_FIXTURE_ENV).is_none() {
+                let keys = iroh_store(&ctx, &environment);
+                assert_eq!(
+                    keys.availability(),
+                    IrohStoreAvailability::FixtureStoreRequired
+                );
+                assert!(keys.kind().product().is_none());
+                assert!(keys.availability().as_str().contains(IROH_FIXTURE_ENV));
+            }
+        }
+    }
+
+    /// ⟨M06 W5⟩ The bootstrap's test seam: only `HEIMDALL_TEST_SSH_HOME` moves the
+    /// bootstrap session's `-F` file, to that scratch home's own `.ssh/config`; unset, the
+    /// owner's configuration (no `-F`); a relative value is a usage error. A build without
+    /// the test configuration refuses the variable (the same gate `run` and `connect`
+    /// use: `testcfg::launch_hooks`; the release binary is probed by
+    /// tools/validation/release-gate.sh, `environment add`).
+    #[test]
+    fn the_bootstrap_config_seam_is_the_scratch_ssh_home_only_and_gated_like_run() {
+        use crate::testcfg::SSH_HOME_ENV;
+        assert_eq!(bootstrap_test_config(&|_| None), Ok(None));
+        let set = |value: &'static str| move |n: &str| (n == SSH_HOME_ENV).then(|| value.into());
+        if crate::testcfg::AVAILABLE {
+            let scratch = if cfg!(windows) {
+                r"C:\scratch\acct"
+            } else {
+                "/scratch/acct"
+            };
+            assert_eq!(
+                bootstrap_test_config(&set(scratch)),
+                Ok(Some(Path::new(scratch).join(".ssh").join("config")))
+            );
+            let relative = bootstrap_test_config(&set("rel")).unwrap_err();
+            assert!(relative.contains(SSH_HOME_ENV), "{relative}");
+            // No other variable is a seam of the bootstrap.
+            let other = |n: &str| (n == "HOME" || n == "HEIMDALL_HOME").then(|| "/x".into());
+            assert_eq!(bootstrap_test_config(&other), Ok(None));
+        } else {
+            let refused = bootstrap_test_config(&set("/scratch/acct")).unwrap_err();
+            assert_eq!(Some(refused.as_str()), crate::testcfg::refusal(false, true));
+        }
+        // The gate itself, for a build that cannot honour the configuration.
+        assert!(crate::testcfg::refusal(false, true).is_some_and(|m| m.contains("HEIMDALL_TEST_")));
+    }
+
+    /// ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ The bootstrap's offer, without a
+    /// terminal: the runtime that an accepted offer starts receives only the listed
+    /// variables of the bootstrap session (never its agent, connection, terminal or askpass
+    /// variables, nor an arbitrary one), plus a debug build's own test configuration; the
+    /// offer names the exact command and says the runtime is not running; a declined offer
+    /// starts nothing and leaves the next step. (The typed answers on a pseudo-terminal are
+    /// `e2e_environment_runner_m06`'s.)
+    #[test]
+    fn the_runtime_start_offer_says_what_it_runs_and_passes_no_session_credentials() {
+        let session = [
+            ("PATH", "/usr/bin:/bin"),
+            ("HOME", "/home/r"),
+            ("LANG", "C.UTF-8"),
+            ("XDG_RUNTIME_DIR", "/run/user/1000"),
+            ("SSH_AUTH_SOCK", "/tmp/ssh-x/agent.1"),
+            ("SSH_AGENT_PID", "1"),
+            ("SSH_CONNECTION", "192.0.2.1 1 192.0.2.2 22"),
+            ("SSH_CLIENT", "192.0.2.1 1 22"),
+            ("SSH_TTY", "/dev/pts/0"),
+            ("SSH_ASKPASS", "/x"),
+            ("TERM", "xterm"),
+            ("HEIMDALL_HOME", "/elsewhere"),
+            ("HEIMDALL_TEST_SSH_HOME", "/scratch/acct"),
+            ("LD_PRELOAD", "/x.so"),
+        ];
+        let vars = || session.iter().map(|(k, v)| ((*k).into(), (*v).into()));
+        let names = |test: bool| -> Vec<String> {
+            runtime_start_env(vars(), test)
+                .into_iter()
+                .map(|(k, _)| k.to_string_lossy().into_owned())
+                .collect()
+        };
+        assert_eq!(names(false), ["PATH", "HOME", "LANG", "XDG_RUNTIME_DIR"]);
+        assert_eq!(
+            names(true),
+            [
+                "PATH",
+                "HOME",
+                "LANG",
+                "XDG_RUNTIME_DIR",
+                "HEIMDALL_TEST_SSH_HOME"
+            ]
+        );
+        assert!(RUNTIME_START_ENV.iter().all(|n| !n.starts_with("SSH_")));
+
+        let line = runtime_start_line(Path::new("/opt/h/heimdall"), Path::new("/srv/r"));
+        assert_eq!(
+            line,
+            "/opt/h/heimdall --home /srv/r service run --runner --detach"
+        );
+        let offer = runtime_start_offer(&line);
+        assert!(offer.starts_with(RUNTIME_NOT_RUNNING), "{offer}");
+        assert!(offer.contains("is NOT running") && offer.contains(&line));
+        assert!(offer.ends_with("Type yes to start it: "));
+        let declined = runtime_start_declined(&line);
+        assert!(declined.starts_with("The runner's runtime was not started. Next step:"));
+        assert!(declined.contains(&line) && declined.contains("`heimdall environment add`"));
+
+        // A declined offer starts nothing: the answer is asked once and no runtime serves.
+        let scratch = tempfile::tempdir().unwrap();
+        let home = scratch.path().join("hm");
+        let ctx = Ctx {
+            json: false,
+            non_interactive: false,
+            home: Some(home.clone()),
+            stdin_tty: false,
+        };
+        let paths = heimdall_runtime::Paths::under(&home);
+        let asked = std::cell::RefCell::new(Vec::new());
+        let stated = offer_runtime_start(&ctx, &paths, &|text| {
+            asked.borrow_mut().push(text.to_owned());
+            false
+        });
+        assert_eq!(asked.borrow().len(), 1);
+        assert!(asked.borrow()[0].contains("Type yes to start it"));
+        assert!(
+            stated.starts_with("The runner's runtime was not started."),
+            "{stated}"
+        );
+        assert!(!home.exists(), "nothing was created or started");
+    }
+
     /// ⟨M06-W3-R04⟩ `--issuer-ca`'s two requests each carry their own `request_id`.
     #[test]
     fn the_issuer_forms_carry_distinct_request_ids() {
@@ -4181,7 +5822,39 @@ mod tests {
             text.matches("no report of the runner is recorded").count(),
             2
         );
-        // The runner's report, read later: the pause lifted, the cutoff standing.
+        // The runner's report, read later: the pause lifted, the cutoff standing. ⟨W5;
+        // ADR-0006 §18.9 item 4⟩ It says so per delivered effect: each one's own row
+        // states whether it is still in force.
+        let row = |key: &EffectKey, in_force: bool| {
+            let (scope, kind, cutoff_at) = match &key.target {
+                EffectTarget::PolicyCutoff { scope, at, .. } => (
+                    scope.clone(),
+                    heimdall_store::ext_effects::PolicyRevisionKind::Cutoff,
+                    Some(*at),
+                ),
+                EffectTarget::PolicyPause { policy, .. } => (
+                    PolicyTarget::Policy {
+                        policy_id: policy.clone(),
+                    },
+                    heimdall_store::ext_effects::PolicyRevisionKind::Pause,
+                    None,
+                ),
+                _ => unreachable!("a pause or a cutoff"),
+            };
+            heimdall_store::ext_effects::PolicyRevisionRecord {
+                scope_key: heimdall_store::ext_effects::target_ref(&key.target).unwrap(),
+                scope,
+                producer: key.producer.clone(),
+                revision: key.target.generation(),
+                runner_seq: key.target.generation(),
+                kind,
+                effect: key.effect.clone(),
+                received_at: at("2026-11-21T10:00:00Z"),
+                cutoff_at,
+                fired_uncertain_at: None,
+                in_force,
+            }
+        };
         store
             .transaction(|tx| {
                 tx.note_remote_report(
@@ -4191,7 +5864,7 @@ mod tests {
                         environment: env.clone(),
                         authority_generation: 1,
                         tombstones: Vec::new(),
-                        policy_revisions: Vec::new(),
+                        policy_revisions: vec![row(&pause, false), row(&first, true)],
                         policies: vec![
                             ReportedPolicy {
                                 policy: paused.clone(),
@@ -4285,6 +5958,395 @@ mod tests {
     /// usage errors before any runtime contact, without creating the Heimdall home; the
     /// hidden helper and serve child refuse anything but their own arguments; clap refuses
     /// a zero `--port`, a `--port` without `--serve`, and a route with no or two kinds.
+    /// ⟨M06 W5; ADR-0006 §18.9 item 1⟩ `transport enable --serve --sshd-port <n>`: 1–65535
+    /// only (`0`, a value past 65535 and a non-number are refused by the parser), only
+    /// with `--serve`, and no flag names the target's host. The request names the port in
+    /// the serve policy, and 22 (or no flag) is the request with no policy at all.
+    #[test]
+    fn the_sshd_port_flag_is_bounded_needs_serve_and_omits_the_default() {
+        use heimdall_contract::route::ExposurePolicy;
+        for wrong in [
+            &["transport", "enable", "--serve", "--sshd-port", "0"][..],
+            &["transport", "enable", "--serve", "--sshd-port", "65536"],
+            &["transport", "enable", "--serve", "--sshd-port", "-1"],
+            &["transport", "enable", "--serve", "--sshd-port", "ssh"],
+            &[
+                "transport",
+                "enable",
+                "--serve",
+                "--sshd-port",
+                "127.0.0.2:22",
+            ],
+            &["transport", "enable", "--sshd-port", "2222"],
+            &["transport", "enable", "--serve", "--sshd-host", "127.0.0.2"],
+        ] {
+            let mut argv = vec!["heimdall"];
+            argv.extend_from_slice(wrong);
+            assert!(Cli::try_parse_from(&argv).is_err(), "{wrong:?} parsed");
+        }
+        let parsed = |args: &[&str]| {
+            let mut argv = vec!["heimdall", "transport", "enable"];
+            argv.extend_from_slice(args);
+            match Cli::try_parse_from(&argv).unwrap().command {
+                Some(Command::Transport(TransportCommand::Enable(a))) => {
+                    enable_exposure(a.port, a.sshd_port)
+                }
+                _ => panic!("{args:?}"),
+            }
+        };
+        assert_eq!(parsed(&["--serve"]), None);
+        assert_eq!(parsed(&["--serve", "--sshd-port", "22"]), None);
+        for port in [1u16, 2222, 65535] {
+            assert_eq!(
+                parsed(&["--serve", "--sshd-port", &port.to_string()]),
+                Some(ExposurePolicy {
+                    sshd_port: port,
+                    ..ExposurePolicy::default()
+                })
+            );
+        }
+        assert_eq!(
+            parsed(&["--serve", "--port", "4433", "--sshd-port", "2222"]),
+            Some(ExposurePolicy {
+                port: Some(4433),
+                sshd_port: 2222,
+                ..ExposurePolicy::default()
+            })
+        );
+        assert_eq!(
+            parsed(&["--serve", "--port", "4433"]),
+            Some(ExposurePolicy {
+                port: Some(4433),
+                ..ExposurePolicy::default()
+            })
+        );
+    }
+
+    // --- ⟨M06 W5 `w5n`⟩ the route helper's pin and jump leg ------------------------------
+
+    fn helper_paths(root: &Path) -> heimdall_runtime::paths::Paths {
+        heimdall_runtime::paths::Paths {
+            config_dir: root.join("config"),
+            state_dir: root.join("state"),
+            runtime_dir: root.join("run"),
+            log_dir: root.join("log"),
+        }
+    }
+
+    fn approved_jump(account: &str) -> heimdall_domain::catalog::ApprovedRoute {
+        heimdall_domain::catalog::ApprovedRoute {
+            jump: DestinationId::parse("bastion").unwrap(),
+            jump_alias: "bast".into(),
+            jump_pair: heimdall_domain::scope::AccessPair {
+                destination: DestinationId::parse("bastion").unwrap(),
+                account: AccountName::parse(account).unwrap(),
+            },
+        }
+    }
+
+    const KEY_A: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAaa";
+    const KEY_B: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBbb";
+
+    /// The helper's expected `ProxyCommand` is, character for character, what P renders
+    /// (`heimdall_sshconf::routes::helper_command`), so `ssh -G`'s value compares equal.
+    #[test]
+    fn the_helpers_expected_proxy_command_is_the_rendered_one() {
+        use heimdall_sshconf::render::{PathStyle, RenderPath};
+        use heimdall_sshconf::routes::{HelperRoute, helper_command};
+        let unix = |p: &str| RenderPath::unix(Path::new(p)).unwrap();
+        let route = HelperRoute::new(
+            unix("/opt/hm dir/heimdall"),
+            "lab",
+            unix("/c/keys/host_pins"),
+        )
+        .unwrap();
+        let rendered = helper_command(
+            &route,
+            "deploy",
+            &unix("/run/hm/signing.sock"),
+            PathStyle::Unix,
+        )
+        .unwrap();
+        let args = heimdall_app::routes::HelperArgs::parse(
+            [
+                "--destination",
+                "lab",
+                "--account",
+                "deploy",
+                "--endpoint",
+                "/run/hm/signing.sock",
+            ]
+            .map(std::ffi::OsString::from),
+        )
+        .unwrap();
+        assert_eq!(
+            rendered_helper_command("/opt/hm dir/heimdall", &args),
+            rendered
+        );
+    }
+
+    /// The helper applies the alias's pin check only when it is that alias's own effective
+    /// proxy: exactly one `proxycommand` line, with exactly its own command.
+    #[test]
+    fn the_alias_check_applies_only_when_the_alias_names_this_helper() {
+        let command =
+            "\"/opt/heimdall\" route connect --destination lab --account a --endpoint \"/e\"";
+        let g = |proxy: &str| format!("host lab\nuser a\n{proxy}stricthostkeychecking true\n");
+        assert!(alias_proxy_is(
+            &g(&format!("proxycommand {command}\n")),
+            command
+        ));
+        assert!(alias_proxy_is(
+            &g(&format!("ProxyCommand {command}\r\n")),
+            command
+        ));
+        // Not the alias's proxy: none, another command, another endpoint, or two lines.
+        assert!(!alias_proxy_is(&g(""), command));
+        assert!(!alias_proxy_is(&g("proxycommand nc %h %p\n"), command));
+        assert!(!alias_proxy_is(
+            &g(&format!(
+                "proxycommand {}\n",
+                command.replace("/e", "/other")
+            )),
+            command
+        ));
+        assert!(!alias_proxy_is(
+            &g(&format!("proxycommand {command}\nproxycommand {command}\n")),
+            command
+        ));
+    }
+
+    /// ⟨M06 W5 `w5o` item 8⟩ A helper invocation that is not the alias's own proxy is
+    /// refused wherever P renders that alias through the helper, and only there: with no P,
+    /// a P without the alias, or a P that renders the alias natively, the check does not
+    /// apply (an installation that projects no helper alias for the destination).
+    #[test]
+    fn a_helper_that_is_not_the_projected_aliass_proxy_is_refused() {
+        let helper_p = "Host lab\n    HostName 10.0.0.2\n    ProxyCommand \"/opt/heimdall\" route \
+                        connect --destination lab --account a --endpoint \"/e\"\n    \
+                        HostKeyAlias hm-dest-lab\n    UserKnownHostsFile \"/c/keys/host_pins\"\n\
+                        Host other\n    HostName 10.0.0.3\n";
+        assert_eq!(
+            not_the_projected_proxy(Some(helper_p), "lab"),
+            Some("proxycommand".to_owned())
+        );
+        assert_eq!(not_the_projected_proxy(Some(helper_p), "other"), None);
+        assert_eq!(not_the_projected_proxy(Some(helper_p), "absent"), None);
+        assert_eq!(not_the_projected_proxy(Some(""), "lab"), None);
+        assert_eq!(not_the_projected_proxy(None, "lab"), None);
+    }
+
+    /// Catalog-only trust (ADR-0012 §5.2): the projected pin file holds the pin only when it
+    /// has exactly the catalog's keys under the destination's own name.
+    #[test]
+    fn the_pin_file_holds_only_with_exactly_the_catalogs_keys() {
+        let file = format!("hm-dest-lab {KEY_A}\nhm-dest-bastion {KEY_B}\n");
+        let catalog = |k: &[&str]| k.iter().map(|k| (*k).to_owned()).collect::<Vec<_>>();
+        assert!(pins_hold(Some(&file), "hm-dest-lab", &catalog(&[KEY_A])));
+        // No catalog pin; no file; a key the catalog does not approve; a key it has
+        // approved since; another destination's name.
+        assert!(!pins_hold(Some(&file), "hm-dest-lab", &[]));
+        assert!(!pins_hold(None, "hm-dest-lab", &catalog(&[KEY_A])));
+        assert!(!pins_hold(Some(&file), "hm-dest-lab", &catalog(&[KEY_B])));
+        assert!(!pins_hold(
+            Some(&file),
+            "hm-dest-lab",
+            &catalog(&[KEY_A, KEY_B])
+        ));
+        assert!(!pins_hold(Some(&file), "hm-dest-other", &catalog(&[KEY_A])));
+        let extra = format!("{file}hm-dest-lab {KEY_B}\n");
+        assert!(!pins_hold(Some(&extra), "hm-dest-lab", &catalog(&[KEY_A])));
+    }
+
+    /// The brief's constraint 4 (ADR-0012 §5.4; ADR-0010 §5 item 2): a managed jump hop is
+    /// built only when the alias's endpoint serves the jump pair through the **same
+    /// binding** as the final pair; another grant's jump pair is
+    /// `route_dependency_out_of_scope`, whatever else is in place. The hop pins the jump's
+    /// own catalog key and names the jump pair's slot certificate at the alias's endpoint.
+    #[test]
+    fn a_managed_jump_hop_needs_the_final_pairs_own_binding() {
+        use heimdall_app::routes::RouteHelperError;
+        use heimdall_contract::environment::JumpAccess;
+        let dir = tempfile::tempdir().unwrap();
+        let paths = helper_paths(dir.path());
+        let route = approved_jump("jump");
+        let slot = heimdall_localenv::projection::content::managed_slot_paths(
+            &paths.state_dir,
+            &route.jump,
+        )
+        .unwrap();
+        std::fs::create_dir_all(&slot.dir).unwrap();
+        std::fs::write(&slot.cert_pub, "cert\n").unwrap();
+        let pin_file = paths.config_dir.join("keys").join("host_pins");
+        let pin_text = format!("hm-dest-bastion {KEY_B}\n");
+        let facts = JumpFacts {
+            hostname: "10.0.0.1".into(),
+            port: Some(2200),
+            account: AccountName::parse("jump").unwrap(),
+            pins: vec![KEY_B.to_owned()],
+            identity: None,
+        };
+        let hop = |same_grant: bool, pins: Option<&str>| {
+            jump_hop_for(
+                &route,
+                JumpAccess::Managed,
+                &facts,
+                same_grant,
+                "/run/hm/signing.sock",
+                &pin_file,
+                pins,
+                &paths,
+            )
+        };
+        let ok = hop(true, Some(&pin_text)).unwrap();
+        assert_eq!(ok.alias, "bast");
+        assert_eq!(ok.host_key_alias, "hm-dest-bastion");
+        assert_eq!(ok.identity_agent, "/run/hm/signing.sock");
+        assert_eq!(ok.identity_file, ssh_path(&slot.cert_pub));
+        assert_eq!(ok.host_key_algorithms.as_deref(), Some("ssh-ed25519"));
+        assert_eq!(
+            (ok.hostname.as_str(), ok.port, ok.user.as_str()),
+            ("10.0.0.1", Some(2200), "jump")
+        );
+        // Another grant's binding serves the jump pair (or none does): refused.
+        assert_eq!(
+            hop(false, Some(&pin_text)).unwrap_err(),
+            RouteHelperError::NoUsableRoute("route_dependency_out_of_scope")
+        );
+        // The jump's pin is not the catalog's: not attempted either.
+        let stale = format!("hm-dest-bastion {KEY_A}\n");
+        assert_eq!(
+            hop(true, Some(&stale)).unwrap_err(),
+            RouteHelperError::NoUsableRoute("host_pin_defeated")
+        );
+        assert_eq!(
+            hop(true, None).unwrap_err(),
+            RouteHelperError::NoUsableRoute("host_pin_defeated")
+        );
+        // Existing access without an agent endpoint for the jump identity: refused.
+        assert_eq!(
+            jump_hop_for(
+                &route,
+                JumpAccess::Existing,
+                &facts,
+                false,
+                "/run/hm/signing.sock",
+                &pin_file,
+                Some(&pin_text),
+                &paths,
+            )
+            .unwrap_err(),
+            RouteHelperError::NoUsableRoute("route_dependency_out_of_scope")
+        );
+    }
+
+    /// ⟨M06 W5; ADR-0006 §18.9 item 8⟩ `route add --iroh <E> --relay <URL>` names the relays
+    /// in the request's exposure policy (the widening the runtime then records as a local
+    /// decision); without `--relay` the request carries no policy, as before; a relay
+    /// without `--iroh`, or one that is not a plain `https://` URL, is refused before any
+    /// contact.
+    #[test]
+    fn route_add_relay_names_the_relays_and_nothing_else() {
+        use heimdall_contract::route::{InfrastructureProfile, RouteRequest};
+        let parse = |line: &[&str]| {
+            let mut argv = vec!["heimdall", "route", "add", "lab"];
+            argv.extend_from_slice(line);
+            match Cli::try_parse_from(&argv).map(|c| c.command) {
+                Ok(Some(Command::Route(r))) => Ok(route_request(r)),
+                Ok(_) => panic!("{line:?}: not a route command"),
+                Err(e) => Err(e),
+            }
+        };
+        let exposure = |line: &[&str]| match parse(line).unwrap().unwrap() {
+            RouteRequest::Add { exposure, .. } => exposure,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(exposure(&["--iroh", EP]), None);
+        let with = exposure(&[
+            "--iroh",
+            EP,
+            "--relay",
+            "https://relay.invalid./",
+            "--relay",
+            "https://other.invalid./",
+        ])
+        .unwrap();
+        assert_eq!(
+            with,
+            heimdall_contract::route::ExposurePolicy {
+                infrastructure: InfrastructureProfile::Custom {
+                    relays: vec![
+                        "https://other.invalid./".into(),
+                        "https://relay.invalid./".into()
+                    ],
+                },
+                ..heimdall_contract::route::ExposurePolicy::default()
+            }
+        );
+        let misplaced = parse(&["--direct", "h", "--relay", "https://relay.invalid./"]).unwrap();
+        assert_eq!(misplaced.unwrap_err().code, Code::UsageError);
+        // ⟨ADR-0006 §18.9 item 9⟩ One spelling: two spellings of one URL are one relay, and
+        // each distinct URL is named once, sorted (the order of the flags does not matter).
+        let spelled = exposure(&[
+            "--iroh",
+            EP,
+            "--relay",
+            "HTTPS://Relay.Invalid.:443",
+            "--relay",
+            "http://other.invalid.:8080/r",
+            "--relay",
+            "https://relay.invalid./",
+        ])
+        .unwrap();
+        assert_eq!(
+            spelled.infrastructure,
+            InfrastructureProfile::Custom {
+                relays: vec![
+                    "http://other.invalid.:8080/r".into(),
+                    "https://relay.invalid./".into()
+                ],
+            }
+        );
+        // Each refusal class is a usage error that names the flag's position and the
+        // class, and never the URL.
+        for (bad, class) in [
+            ("ftp://relay.invalid./", "https:// or http://"),
+            ("relay", "https:// or http://"),
+            (
+                "https://user:hunter2@relay.invalid./",
+                "no user name or password",
+            ),
+            ("https://relay.invalid./?token=hunter2", "no query string"),
+            ("https://relay.invalid./#hunter2", "no fragment"),
+            ("https://", "a scheme, a host"),
+            ("https://a b", "a scheme, a host"),
+            ("https://a;b", "a scheme, a host"),
+        ] {
+            let refused = parse(&[
+                "--iroh",
+                EP,
+                "--relay",
+                "https://ok.invalid./",
+                "--relay",
+                bad,
+            ])
+            .unwrap()
+            .unwrap_err();
+            assert_eq!(refused.code, Code::UsageError, "{bad}");
+            assert!(
+                refused.message.contains("--relay 2"),
+                "{bad}: {}",
+                refused.message
+            );
+            assert!(
+                refused.message.contains(class),
+                "{bad}: {}",
+                refused.message
+            );
+            assert!(!refused.message.contains("hunter2"), "{bad}");
+        }
+    }
+
     #[test]
     fn m06_route_and_transport_commands_are_wired() {
         let scratch = std::env::temp_dir().join(format!("hm-m06-w3-{}", std::process::id()));
@@ -4737,12 +6799,39 @@ mod tests {
         assert!(!remote_init_confirmation(&controller, &fp, None, None).contains("Iroh"));
         let retire = confirmation_text(&Confirmation::RetireDevice {
             environments: vec![env.clone()],
+            forgotten_only: Vec::new(),
             fingerprint: fp.clone(),
         });
-        assert!(retire.contains("destroy") && retire.contains("1 runner"));
+        assert!(retire.contains("destroy") && retire.contains("revoke it on 1 runner"));
+        assert!(!retire.contains("FORGOTTEN") && !retire.contains("revoke-client"));
+        // ⟨M06 W5 `w5m` L3⟩ Limited records: only forgotten, with the command an owner
+        // must run on each such runner; they are not counted as revoked.
+        let other = EnvironmentId::from_random_bytes([2; 16]);
+        let limited_client = heimdall_contract::ids::ClientId::from_random_bytes([7; 16]);
+        let mixed = confirmation_text(&Confirmation::RetireDevice {
+            environments: vec![env.clone(), other.clone()],
+            forgotten_only: vec![heimdall_app::remote_env::StillEnrolled {
+                environment: other.clone(),
+                client: limited_client.clone(),
+                role: Role::Viewer,
+            }],
+            fingerprint: fp.clone(),
+        });
+        assert!(mixed.contains("revoke it on 1 runner"), "{mixed}");
+        assert!(mixed.contains("ONLY FORGOTTEN on this device"), "{mixed}");
+        assert!(
+            mixed.contains(&format!(
+                "heimdall environment revoke-client {} {}",
+                other.as_str(),
+                limited_client.as_str()
+            )),
+            "{mixed}"
+        );
+        assert!(mixed.ends_with("Type yes to continue: "));
         assert!(
             !TerminalConfirm { interactive: false }.confirm(&Confirmation::RetireDevice {
                 environments: vec![env],
+                forgotten_only: Vec::new(),
                 fingerprint: fp,
             })
         );

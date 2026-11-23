@@ -480,8 +480,96 @@ pub(crate) fn fresh_selection(
     let Some(alias) = alias else {
         return selection_of("", Vec::new(), &config.paths.account_home);
     };
-    let profiles = heimdall_localenv::projection::observe::observe_profiles(config, record, alias);
+    selection_of(
+        alias,
+        managed_observations(config, record, alias),
+        &config.paths.account_home,
+    )
+}
+
+/// `alias`'s static observation under each invocation profile (`None`: the pass reported
+/// nothing for that profile).
+pub(crate) type ProfileObservations =
+    Vec<(String, Option<heimdall_contract::doctor::AliasObservation>)>;
+
+/// The observations [`fresh_selection`] reads: a managed alias (one P renders).
+pub(crate) fn managed_observations(
+    config: &ProjectionConfig,
+    record: &ProjectionRecord,
+    alias: &str,
+) -> ProfileObservations {
+    heimdall_localenv::projection::observe::observe_profiles(config, record, alias)
+}
+
+/// A selection from observations already made ([`managed_observations`],
+/// [`observed_observations`]).
+pub(crate) fn selection_from(
+    config: &ProjectionConfig,
+    alias: &str,
+    profiles: ProfileObservations,
+) -> FreshSelection {
     selection_of(alias, profiles, &config.paths.account_home)
+}
+
+/// ⟨M06 W5; ADR-0012 §4 item 5 "An undetermined `IdentityAgent`" ⟨2026-11-22⟩⟩ Why the
+/// static pass cannot determine the agent `alias` would use, under the first invocation
+/// profile where it cannot; `None` when it is determined under every profile: unset,
+/// `none`, the default agent's variable (which the clean launch of runner work never
+/// passes), or one explicit endpoint.
+///
+/// Undetermined: a profile the pass reported nothing for; a value that depends on a
+/// `Match` block or has several candidates; a `~` path or a value with a `%` token (ssh
+/// expands them, the pass does not); a value read from another environment variable.
+pub(crate) fn undetermined_identity_agent(profiles: &ProfileObservations) -> Option<String> {
+    for profile in heimdall_launch::eligibility::required_profiles() {
+        let observation = profiles
+            .iter()
+            .find(|(name, _)| *name == profile)
+            .and_then(|(_, o)| o.as_ref());
+        let why = match observation {
+            None => Some("its configuration could not be evaluated"),
+            Some(o) => identity_agent_undetermined(o),
+        };
+        if let Some(why) = why {
+            return Some(format!("{why} (invocation profile `{profile}`)"));
+        }
+    }
+    None
+}
+
+/// Why one observation's `IdentityAgent` is undetermined
+/// ([`undetermined_identity_agent`]).
+fn identity_agent_undetermined(
+    observation: &heimdall_contract::doctor::AliasObservation,
+) -> Option<&'static str> {
+    use heimdall_contract::doctor::DirectiveCertainty;
+    let directive = observation
+        .behavior
+        .iter()
+        .find(|d| d.directive.eq_ignore_ascii_case("IdentityAgent"))?;
+    match directive.certainty {
+        DirectiveCertainty::Unset => return None,
+        DirectiveCertainty::Determined => {}
+        _ => {
+            return Some(
+                "its value depends on a `Match` block or has several candidates the static pass cannot choose between",
+            );
+        }
+    }
+    let value = match directive.values.as_slice() {
+        [] => return None,
+        [value] => value.trim().trim_matches('"'),
+        _ => return Some("it has several values"),
+    };
+    if value.starts_with('~') {
+        Some("its value is a `~` path, which ssh expands")
+    } else if value.contains('%') {
+        Some("its value has a `%` token, which ssh expands")
+    } else if value.starts_with('$') {
+        Some("its value is read from an environment variable")
+    } else {
+        None
+    }
 }
 
 /// The fresh static selection of an **observed** alias, one the user's own
@@ -495,6 +583,15 @@ pub(crate) fn fresh_selection(
 /// entry is reported with its own source, fingerprint, backing and provenance, and the
 /// check reads each one as an alternative the domain rule must clear.
 pub(crate) fn fresh_observed_selection(config: &ProjectionConfig, alias: &str) -> FreshSelection {
+    selection_of(
+        alias,
+        observed_observations(config, alias),
+        &config.paths.account_home,
+    )
+}
+
+/// The observations [`fresh_observed_selection`] reads.
+pub(crate) fn observed_observations(config: &ProjectionConfig, alias: &str) -> ProfileObservations {
     use heimdall_localenv::doctor::{CatalogAlias, CatalogIdentity, LocalContext};
     let mut ctx = LocalContext::new(
         config.paths.clone(),
@@ -514,11 +611,10 @@ pub(crate) fn fresh_observed_selection(config: &ProjectionConfig, alias: &str) -
             endpoint: None,
         }),
     }];
-    let profiles = heimdall_localenv::doctor::alias_profiles(&ctx, alias)
+    heimdall_localenv::doctor::alias_profiles(&ctx, alias)
         .into_iter()
         .map(|(name, observation)| (name, (observation.alias == alias).then_some(observation)))
-        .collect();
-    selection_of(alias, profiles, &config.paths.account_home)
+        .collect()
 }
 
 /// A fresh selection from `alias`'s static observation under each profile
@@ -619,6 +715,288 @@ pub(crate) fn report_overrides(ctx: &Ctx, overrides: &[ConsumerOverride]) {
             o.setting
         ));
     }
+}
+
+// --- ⟨M06 W5⟩ runner work (ADR-0012 §4 item 5; A24) ---------------------------------------
+
+/// Whether this installation is a remote runner, read from its own state (read-only: its
+/// environment record's kind, `heimdall_runtime::paired::is_runner`). An installation with
+/// no state database is not one.
+///
+/// # Errors
+/// The state exists and cannot be read: the kind is unknown, so the caller launches
+/// nothing (a runner's work must never start with the launching process's environment).
+pub(crate) fn installation_is_runner(
+    ctx: &Ctx,
+) -> Result<Option<heimdall_runtime::Paths>, Failure> {
+    let unreadable = || {
+        Failure::new(
+            Code::StateUnavailable,
+            "this installation's kind cannot be read; nothing was launched",
+            None,
+        )
+    };
+    let paths = ctx.paths().map_err(|_| unreadable())?;
+    let db = paths
+        .state_dir
+        .join(heimdall_runtime::service::STATE_DB_FILE);
+    if !db.exists() {
+        return Ok(None);
+    }
+    let store =
+        heimdall_store::Store::open_read_only(&db, std::sync::Arc::new(heimdall_store::NoFaults))
+            .map_err(|_| unreadable())?;
+    let runner = store
+        .transaction(heimdall_runtime::paired::is_runner)
+        .map_err(|_| unreadable())?;
+    Ok(runner.then_some(paths))
+}
+
+/// ⟨M06 W5; ADR-0012 §4 item 5 "Dependencies by construction"; A24⟩ The launch of **runner
+/// work**: on an installation of kind `remote_runner`, `delta` becomes the clean launch
+/// `heimdall_runtime::runner::launch::plan_launch` plans, and on any other installation it
+/// is returned unchanged (nothing else is read or printed).
+///
+/// On a runner:
+/// * every variable of this process's environment is removed from the child's, and the
+///   child gets exactly the planned environment: the declared pass-list
+///   (`heimdall_runtime::runner::launch::PASS_LIST`, ADR-0012 §4 item 5 ⟨2026-11-22⟩, less
+///   any variable `delta` already keeps out), a fixed `PATH`, and `SSH_AUTH_SOCK` only
+///   when it is the runner signer's endpoint of this binding (`consumer`'s signing
+///   endpoint, `managed` saying the binding's mechanism is the managed certificate, or the
+///   one endpoint every pair shares). An agent this process inherited (a forwarded one
+///   above all) never reaches the work;
+/// * each agent that is not passed is named on stderr with its provenance
+///   (`controller_dependency`, or `unknown` for any other, an ordinary local path included),
+///   never with its path;
+/// * an override that said the caller's `SSH_AUTH_SOCK` stays in force is dropped: it does
+///   not.
+///
+/// # Errors
+/// The installation's kind cannot be read (`STATE_UNAVAILABLE`); or nobody is present
+/// ([`Ctx::interactive`] is false) and the binding depends on an agent that is neither
+/// runner-managed nor independently managed: `CAPABILITY_UNAVAILABLE`, reason
+/// `controller_dependency` or `dependency_provenance_unknown`. Nothing is launched.
+pub(crate) fn runner_work(
+    ctx: &Ctx,
+    consumer: &heimdall_contract::request::ConsumerIntegration,
+    managed: bool,
+    delta: EnvDelta,
+    env: &Env,
+) -> Result<EnvDelta, Failure> {
+    use heimdall_runtime::runner::launch::{BoundAgent, SSH_AUTH_SOCK};
+    let Some(paths) = installation_is_runner(ctx)? else {
+        return Ok(delta);
+    };
+    let mut bound: Vec<BoundAgent> = consumer
+        .pairs
+        .iter()
+        .filter_map(|p| {
+            let endpoint = p.endpoint.as_ref()?;
+            (endpoint.kind == EndpointKind::UnixSocket).then(|| BoundAgent {
+                socket: std::path::PathBuf::from(&endpoint.locator),
+                managed: p.mechanism == MANAGED_CERTIFICATE,
+            })
+        })
+        .collect();
+    // A runner's managed binding names its endpoint as the integration's signing endpoint
+    // and no pair (`heimdall_runtime::runner::adapter`): that endpoint is the work's signer
+    // when no pair names another.
+    let signing = consumer
+        .signing_endpoint
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from);
+    let from_pairs = !bound.is_empty();
+    if let Some(socket) = &signing {
+        bound.push(BoundAgent {
+            socket: socket.clone(),
+            managed,
+        });
+    }
+    let selected = delta
+        .set
+        .iter()
+        .find(|(name, _)| name == SSH_AUTH_SOCK)
+        .map(|(_, value)| std::path::PathBuf::from(value))
+        .or_else(|| signing.filter(|_| !from_pairs));
+    clean_launch(ctx, &paths, &bound, selected.as_deref(), delta, env)
+}
+
+/// ⟨M06 W5⟩ [`runner_work`] for a launch that has no binding: `connect` to an
+/// existing-access alias on a runner. `agents` are the agent endpoints the alias's own
+/// configuration names (never runner-managed: the runner signer's endpoints belong to
+/// bindings), so none is passed, each is reported, and an unattended launch that depends on
+/// one is refused. Not a runner (`runner` is `None`): the launch is unchanged.
+///
+/// ⟨ADR-0012 §4 item 5 "An undetermined `IdentityAgent`" ⟨2026-11-22⟩⟩ `undetermined`
+/// names the alias and why the static pass cannot determine its `IdentityAgent`
+/// ([`undetermined_identity_agent`]): an unattended launch is then refused, because ssh
+/// would take the agent from its own configuration, which the clean environment does not
+/// control. An attended launch is unchanged.
+///
+/// # Errors
+/// [`runner_work`]'s; and, unattended with `undetermined` set, `CAPABILITY_UNAVAILABLE`,
+/// reason `dependency_provenance_unknown`, naming the alias and why. Nothing is launched.
+pub(crate) fn runner_work_unbound(
+    ctx: &Ctx,
+    runner: Option<&heimdall_runtime::Paths>,
+    agents: &[std::path::PathBuf],
+    undetermined: Option<&UndeterminedAgent>,
+    env: &Env,
+) -> Result<EnvDelta, Failure> {
+    let Some(paths) = runner else {
+        return Ok(EnvDelta::default());
+    };
+    if let Some(refusal) = undetermined.and_then(|u| u.refusal(!ctx.interactive())) {
+        return Err(refusal);
+    }
+    let bound: Vec<heimdall_runtime::runner::launch::BoundAgent> = agents
+        .iter()
+        .map(|socket| heimdall_runtime::runner::launch::BoundAgent {
+            socket: socket.clone(),
+            managed: false,
+        })
+        .collect();
+    clean_launch(ctx, paths, &bound, None, EnvDelta::default(), env)
+}
+
+/// ⟨M06 W5 `w5n`; ADR-0012 §4 item 5 "An undetermined `IdentityAgent`" ⟨2026-11-22⟩⟩ The
+/// first existing-access pair of a binding whose alias's `IdentityAgent` the static pass
+/// cannot determine, with why: `run` and `run --parent-binding` on a runner, the same rule
+/// and the same helper as `connect` ([`runner_work_unbound`]). A managed-certificate pair's
+/// alias is not asked (its endpoint is the runner signer's, named by the binding), nor is
+/// a pair without an alias. `observe` gives one alias's observations.
+pub(crate) fn undetermined_among(
+    pairs: &[heimdall_contract::request::PairIntegration],
+    observe: &dyn Fn(&str) -> ProfileObservations,
+) -> Option<UndeterminedAgent> {
+    pairs
+        .iter()
+        .filter(|p| p.mechanism != MANAGED_CERTIFICATE)
+        .filter_map(|p| p.alias.as_deref())
+        .find_map(|alias| {
+            undetermined_identity_agent(&observe(alias)).map(|why| UndeterminedAgent {
+                alias: alias.to_owned(),
+                why,
+            })
+        })
+}
+
+/// ⟨M06 W5 `w5n`⟩ [`undetermined_among`] for the pairs of a binding about to be launched
+/// by `run`, on a runner only (`Ok(None)` on every other installation, where the pass is
+/// not run for this): each alias's fresh static observation, as [`fresh_selection`] reads
+/// it (P's aliases through the projection record, any other through the doctor's static
+/// level; nothing executes).
+///
+/// # Errors
+/// [`installation_is_runner`]'s, [`static_config`]'s and [`projection_record`]'s.
+pub(crate) async fn runner_undetermined_agent(
+    ctx: &Ctx,
+    client: &mut Client,
+    hooks: &LaunchHooks,
+    pairs: &[heimdall_contract::request::PairIntegration],
+) -> Result<Option<UndeterminedAgent>, Failure> {
+    if installation_is_runner(ctx)?.is_none()
+        || !pairs
+            .iter()
+            .any(|p| p.mechanism != MANAGED_CERTIFICATE && p.alias.is_some())
+    {
+        return Ok(None);
+    }
+    let config = static_config(ctx, hooks)?;
+    let record = projection_record(client).await?;
+    let projected = |alias: &str| {
+        record
+            .items
+            .get(&heimdall_contract::setup::ProjectionItem::Ssh)
+            .is_some_and(|r| r.aliases.iter().any(|a| a == alias))
+    };
+    Ok(undetermined_among(pairs, &|alias| {
+        if projected(alias) {
+            managed_observations(&config, &record, alias)
+        } else {
+            observed_observations(&config, alias)
+        }
+    }))
+}
+
+/// An existing-access alias whose `IdentityAgent` the static pass cannot determine
+/// ([`undetermined_identity_agent`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UndeterminedAgent {
+    /// The alias.
+    pub(crate) alias: String,
+    /// Why.
+    pub(crate) why: String,
+}
+
+impl UndeterminedAgent {
+    /// The refusal of an unattended launch on a runner; `None` when somebody is present.
+    pub(crate) fn refusal(&self, unattended: bool) -> Option<Failure> {
+        unattended.then(|| {
+            Failure::new(
+                Code::CapabilityUnavailable,
+                &format!(
+                    "the static pass cannot determine the IdentityAgent of alias `{}`: {}; runner work is not launched unattended on an agent whose custody is not established",
+                    self.alias, self.why
+                ),
+                Some(heimdall_contract::envelope::reason::DEPENDENCY_PROVENANCE_UNKNOWN),
+            )
+        })
+    }
+}
+
+/// The clean launch of runner work over the agents the launch names ([`runner_work`]).
+fn clean_launch(
+    ctx: &Ctx,
+    paths: &heimdall_runtime::Paths,
+    bound: &[heimdall_runtime::runner::launch::BoundAgent],
+    selected: Option<&Path>,
+    delta: EnvDelta,
+    env: &Env,
+) -> Result<EnvDelta, Failure> {
+    use heimdall_runtime::runner::launch::{AgentSource, SSH_AUTH_SOCK, plan_launch};
+    let plan = plan_launch(
+        &paths.runtime_dir,
+        bound,
+        selected,
+        |name| env.get(name).map(std::ffi::OsStr::to_os_string),
+        !ctx.interactive(),
+    )
+    .map_err(|e| {
+        Failure::of(output::error_value(
+            e.with_effect(EffectStatus::None).into_envelope(),
+        ))
+    })?;
+    for agent in plan.agents.iter().filter(|a| !a.passed) {
+        let source = match agent.source {
+            AgentSource::Binding => "an agent of this binding",
+            AgentSource::Inherited => "the inherited agent",
+        };
+        let looks = agent
+            .diagnostic
+            .map(|d| format!("; {d}"))
+            .unwrap_or_default();
+        output::diagnostic(&format!(
+            "heimdall: runner work does not get {source} (provenance: {}{looks})",
+            agent.provenance.as_str()
+        ));
+    }
+    let kept_out = delta.unset;
+    Ok(EnvDelta {
+        set: plan
+            .environment
+            .into_iter()
+            .filter(|(name, _)| !kept_out.contains(name))
+            .collect(),
+        unset: env.iter().map(|(name, _)| name.to_os_string()).collect(),
+        overrides: delta
+            .overrides
+            .into_iter()
+            .filter(|o| !(o.setting == SSH_AUTH_SOCK && o.source == OverrideSource::Environment))
+            .collect(),
+    })
 }
 
 // --- ⟨M03⟩ managed launches (ADR-0008 D8 item 2, D10 items 4-5) --------------------------
@@ -837,6 +1215,82 @@ fn exec(
 mod tests {
     use super::*;
     use heimdall_contract::doctor::ConfigProvenance;
+
+    /// ⟨M06 W5; ADR-0012 §4 item 5 "An undetermined `IdentityAgent`" ⟨2026-11-22⟩⟩ Which
+    /// values of an alias's `IdentityAgent` the static pass cannot determine, and that
+    /// only an unattended launch is refused for one, naming the alias and why.
+    #[test]
+    fn an_undetermined_identity_agent_is_named_and_refused_only_unattended() {
+        use heimdall_contract::doctor::{
+            AliasDefinition, AliasObservation, DirectiveCertainty, DirectiveObservation,
+        };
+        let observation = |certainty: DirectiveCertainty, values: &[&str]| AliasObservation {
+            alias: "h1".to_owned(),
+            definition: AliasDefinition::Observed,
+            behavior: vec![DirectiveObservation {
+                directive: "IdentityAgent".to_owned(),
+                values: values.iter().map(|v| (*v).to_owned()).collect(),
+                certainty,
+                provenance: Vec::new(),
+            }],
+            identity_selection: None,
+        };
+        let every = |o: Option<AliasObservation>| -> ProfileObservations {
+            heimdall_launch::eligibility::required_profiles()
+                .into_iter()
+                .map(|p| (p, o.clone()))
+                .collect()
+        };
+        let why = |certainty, values: &[&str]| {
+            undetermined_identity_agent(&every(Some(observation(certainty, values))))
+        };
+        use DirectiveCertainty::{Determined, Undetermined, Unset};
+        // Determined: unset, no agent, the default agent's variable, one explicit endpoint.
+        assert_eq!(why(Unset, &[]), None);
+        assert_eq!(why(Determined, &[]), None);
+        assert_eq!(why(Determined, &["none"]), None);
+        assert_eq!(why(Determined, &["SSH_AUTH_SOCK"]), None);
+        assert_eq!(why(Determined, &["/run/user/1000/agent.sock"]), None);
+        // Undetermined, each with its reason and the profile.
+        for (certainty, values, text) in [
+            (Determined, &["~/.ssh/agent.sock"][..], "`~` path"),
+            (Determined, &["\"~/.ssh/agent.sock\""][..], "`~` path"),
+            (Determined, &["/run/%u/agent.sock"][..], "`%` token"),
+            (Determined, &["$OTHER_SOCK"][..], "environment variable"),
+            (Determined, &["/a.sock", "/b.sock"][..], "several values"),
+            (Undetermined, &["/a.sock", "/b.sock"][..], "`Match` block"),
+            (Undetermined, &[][..], "`Match` block"),
+        ] {
+            let got = why(certainty, values).unwrap_or_else(|| panic!("{values:?}"));
+            assert!(got.contains(text), "{values:?}: {got}");
+            assert!(got.contains("invocation profile `shell`"), "{got}");
+        }
+        // A profile the pass reported nothing for; and one undetermined profile is enough.
+        let nothing = undetermined_identity_agent(&every(None)).unwrap();
+        assert!(nothing.contains("could not be evaluated"), "{nothing}");
+        assert!(undetermined_identity_agent(&Vec::new()).is_some());
+        let mut mixed = every(Some(observation(Determined, &["none"])));
+        mixed[1].1 = Some(observation(Determined, &["~/x.sock"]));
+        let got = undetermined_identity_agent(&mixed).unwrap();
+        assert!(got.contains(&format!("`{}`", mixed[1].0)), "{got}");
+        // Only an unattended launch is refused.
+        let agent = UndeterminedAgent {
+            alias: "h1".to_owned(),
+            why: got,
+        };
+        assert!(agent.refusal(false).is_none());
+        let refusal = agent.refusal(true).unwrap();
+        assert_eq!(refusal.env.code, Code::CapabilityUnavailable);
+        assert_eq!(
+            reason_of(&refusal.env).as_deref(),
+            Some(heimdall_contract::envelope::reason::DEPENDENCY_PROVENANCE_UNKNOWN)
+        );
+        let message = refusal.env.data["error"]["message"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(message.contains("alias `h1`"), "{message}");
+        assert!(message.contains("`~` path"), "{message}");
+    }
 
     /// ADR-0007 §12.24 item 4: the fallback refusal carries the refused entries' file
     /// and line in `data.error.entries`, in order; a refusal without entries omits the

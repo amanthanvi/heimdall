@@ -209,6 +209,52 @@ pub fn render<T: serde::Serialize>(result: OpResult<T>) -> Envelope<serde_json::
     }
 }
 
+/// ⟨M06 W5 `w5n`⟩ Add each destination's latest route-health report to an `inspect
+/// destinations` answer: `route_health` (the `RouteHealthPayload`, with `reported_at`) and,
+/// when the route helper refused for it, `host_pin_defeated` (the setting). Additive: an
+/// item without a report is unchanged.
+fn add_route_health(
+    data: &mut serde_json::Value,
+    routes: &crate::supervise_transport::RouteTransport,
+) {
+    let Some(items) = data
+        .get_mut("items")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for item in items {
+        let Some(report) = item
+            .get("destination_id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|id| heimdall_contract::ids::DestinationId::parse(id).ok())
+            .and_then(|id| routes.route_health(&id))
+        else {
+            continue;
+        };
+        if let serde_json::Value::Object(map) = item {
+            if !report.result.attempts.is_empty() {
+                map.insert(
+                    "route_health".to_owned(),
+                    serde_json::json!({
+                        "result": report.result,
+                        "reported_at": report.reported_at,
+                    }),
+                );
+            }
+            if let Some(setting) = &report.host_pin_defeated {
+                map.insert(
+                    "host_pin_defeated".to_owned(),
+                    serde_json::json!({
+                        "setting": setting,
+                        "reported_at": report.reported_at,
+                    }),
+                );
+            }
+        }
+    }
+}
+
 /// ⟨ADR-0008 §17.27 item 2, §17.28 item 1⟩ Whether `request` can start or advance
 /// remote or CA work, so that the uninstall fence refuses it from any connection but
 /// the holder: the application's one classification
@@ -436,6 +482,7 @@ impl OperationsDispatcher {
                 store,
                 request,
                 &heimdall_credential::mgmt::openssh_fingerprint,
+                self.clock.wall(),
             )
             .map(|data| heimdall_app::error::Completed::ok(Code::Ok, data)),
         )
@@ -527,7 +574,22 @@ impl OperationsDispatcher {
     }
 
     /// Handle one request for an already-authenticated session.
+    ///
+    /// ⟨M06 W5 `w5s`, M06-W5-R05⟩ Every answer leaves with its relay URLs in their shown form
+    /// ([`heimdall_contract::route::display_relay_urls`]): no path, query or userinfo of a
+    /// relay URL reaches any client, local or paired, in an answer, an error, a decision
+    /// view or `inspect`. What is stored is unchanged.
     pub async fn handle(
+        &self,
+        session: &SessionInfo,
+        request: Request,
+    ) -> Envelope<serde_json::Value> {
+        let mut env = self.handle_unshown(session, request).await;
+        heimdall_contract::route::display_relay_urls(&mut env.data);
+        env
+    }
+
+    async fn handle_unshown(
         &self,
         session: &SessionInfo,
         request: Request,
@@ -614,6 +676,16 @@ impl OperationsDispatcher {
         caller: &Caller,
         request: Request,
     ) -> Envelope<serde_json::Value> {
+        let mut env = self.handle_as_unshown(caller, request).await;
+        heimdall_contract::route::display_relay_urls(&mut env.data);
+        env
+    }
+
+    async fn handle_as_unshown(
+        &self,
+        caller: &Caller,
+        request: Request,
+    ) -> Envelope<serde_json::Value> {
         let caller = caller.clone();
         // ⟨rev 6.3; ADR-0006 §18.7 item 9⟩ A paired session's `decide` has no remote path:
         // it names its reason, so a wrapper does not ask the user and retry.
@@ -629,6 +701,39 @@ impl OperationsDispatcher {
                 Code::InteractionRequired,
                 "this request requires an attended interactive session",
             ));
+        }
+        // ⟨M06 W5; ADR-0006 §18.9 item 8; ADR-0012 §3.10 item 4⟩ On every installation that
+        // serves the route and transport forms, `Decide` on a **local** widening record is
+        // decided here, before the application (attended, local owner, checked time); a paired client's record is
+        // the runner's ([`Self::handle`]), and any other decision the application's.
+        if let (Some(local), Request::Decide(d)) = (&self.route_transport, &request) {
+            let admission = if d.verdict == heimdall_contract::request::Verdict::Approve
+                && self
+                    .operations
+                    .uninstall_fence_lease(self.scope.id)
+                    .is_none()
+            {
+                match self.operations.uninstall_fence_admit() {
+                    Ok(a) => Some(a),
+                    Err(e) => return error_value(e.with_effect(EffectStatus::None)),
+                }
+            } else {
+                None
+            };
+            let checked = self
+                .operations
+                .timegate()
+                .check()
+                .await
+                .ok()
+                .map(|safe| safe.anchor.wall);
+            let decided = local
+                .decide_local(&caller, d, checked, self.clock.wall())
+                .await;
+            drop(admission);
+            if let Some(env) = decided {
+                return env;
+            }
         }
         if let Request::Shutdown(_) = request {
             return self.shutdown(&caller);
@@ -695,7 +800,17 @@ impl OperationsDispatcher {
             }
         }
         match request {
-            Request::Inspect(r) => render(ops.inspect(&caller, r).await),
+            Request::Inspect(r) => {
+                let destinations =
+                    r.subject == heimdall_contract::request::InspectSubject::Destinations;
+                let mut answer = render(ops.inspect(&caller, r).await);
+                // ⟨M06 W5 `w5n`; ADR-0012 §5.5 item 4, §5.2⟩ Each destination's latest
+                // route-health report (and the pin setting found defeated), additive.
+                if destinations && let Some(t) = &self.route_transport {
+                    add_route_health(&mut answer.data, t);
+                }
+                answer
+            }
             Request::Ensure(r) => {
                 // ⟨M06 W3 grant-path⟩ The local owner's `ensure` naming a recorded runner's
                 // environment is forwarded over the management session; the forwarder
@@ -891,10 +1006,24 @@ impl OperationsDispatcher {
             Request::ControllerRecord(r) => self.controller_record(&caller, &r),
             // ⟨M06 W3⟩ The route and transport forms, when this runtime serves them.
             Request::Route(r) if self.route_transport.is_some() => match &self.route_transport {
-                Some(t) => render(
-                    t.route(&caller, &r, self.clock.wall())
-                        .map(|data| heimdall_app::error::Completed::ok(Code::Ok, data)),
-                ),
+                Some(t) => {
+                    let done = t.route(&caller, &r, self.clock.wall());
+                    // ⟨M06 W5 `w5n`; ADR-0012 §5.5 item 4⟩ `route.health` for every
+                    // attempt (`failed_over` is its subtype, in the payload's kind). A
+                    // report without an attempt (a refusal before any route) has no
+                    // result to state.
+                    if done.is_ok()
+                        && let heimdall_contract::route::RouteRequest::RecordHealth {
+                            result, ..
+                        } = &r
+                        && !result.attempts.is_empty()
+                        && let Ok(payload) = serde_json::to_value(result)
+                        && let Err(e) = ops.events().publish(EventType::Route, None, payload)
+                    {
+                        tracing::warn!(code = %e.code, "a route.health event was not recorded");
+                    }
+                    render(done.map(|data| heimdall_app::error::Completed::ok(Code::Ok, data)))
+                }
                 None => error_value(OpError::driver_unavailable("routes are not served")),
             },
             Request::Transport(r) if self.route_transport.is_some() => {
@@ -1329,8 +1458,18 @@ mod tests {
     }
 
     async fn dispatcher() -> OperationsDispatcher {
-        let env = EnvironmentId::from_random_bytes([5; 16]);
         let store = Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+        dispatcher_on(store).await
+    }
+
+    async fn dispatcher_on(store: Arc<Store>) -> OperationsDispatcher {
+        dispatcher_and_clock_on(store).await.0
+    }
+
+    async fn dispatcher_and_clock_on(
+        store: Arc<Store>,
+    ) -> (OperationsDispatcher, Arc<VirtualClock>) {
+        let env = EnvironmentId::from_random_bytes([5; 16]);
         store
             .transaction(|tx| tx.init_self_environment(&env))
             .unwrap();
@@ -1350,7 +1489,7 @@ mod tests {
         .await
         .unwrap();
         let relay = EventRelay::spawn(&ops, CancellationToken::new());
-        OperationsDispatcher::new(ops, relay, clock)
+        (OperationsDispatcher::new(ops, relay, clock.clone()), clock)
     }
 
     fn owner() -> Caller {
@@ -1649,8 +1788,8 @@ mod tests {
         let rows = golden["requests"].as_array().unwrap();
         // 24 forms at revision 6; revision 6.1 (ADR-0006 §18.4) adds the activation probe;
         // revision 6.3 (§18.7) adds rotate_endpoint, runner_policy_recheck, transport.rotate
-        // and the six runner_local forms.
-        assert_eq!(rows.len(), 34);
+        // and the six runner_local forms. ⟨M06 W5 `w5n`⟩ `route.record_health`.
+        assert_eq!(rows.len(), 35);
         for row in rows {
             let request: Request = serde_json::from_value(row["json"].clone()).unwrap();
             assert!(request.is_revision_6());
@@ -2059,14 +2198,13 @@ mod tests {
             Arc::new(crate::supervise_transport::CredentialKeys(Arc::new(
                 heimdall_credential::iroh::FixtureIrohStore::new(),
             )));
-        let d = unwired.with_route_transport(Arc::new(
-            crate::supervise_transport::RouteTransport::new(
-                store.clone(),
-                supervisor,
-                keys,
-                Arc::new(heimdall_app::transport::StorePeerEnrollments),
-            ),
+        let served = Arc::new(crate::supervise_transport::RouteTransport::new(
+            store.clone(),
+            supervisor,
+            keys,
+            Arc::new(heimdall_app::transport::StorePeerEnrollments),
         ));
+        let d = unwired.with_route_transport(Arc::clone(&served));
         let offer = d.offered_capabilities();
         assert!(
             offer.contains(capability::ROUTES_V1) && offer.contains(capability::TRANSPORT_IROH_V1)
@@ -2133,13 +2271,23 @@ mod tests {
                 }),
             )
             .await;
+        // Without the transport this build cannot serve at all; with it, an unattended
+        // owner's serve is a widening that needs the terminal (⟨rev6.5; ADR-0006 §18.9
+        // item 10⟩). Nothing is written either way.
+        #[cfg(not(feature = "iroh"))]
         assert_eq!(serve.code, Code::CapabilityUnavailable, "{serve:?}");
-        assert_eq!(serve.data["error"]["effect_status"], "none");
         #[cfg(feature = "iroh")]
-        assert_eq!(
-            serve.data["error"]["reason"],
-            heimdall_contract::envelope::reason::EXPOSURE_UNCONSENTED
-        );
+        {
+            assert_eq!(serve.code, Code::InteractionRequired, "{serve:?}");
+            assert!(
+                serve.data["error"]["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("`transport.enable` widens")
+                        && m.contains("serving this host's sshd")),
+                "{serve:?}"
+            );
+        }
+        assert_eq!(serve.data["error"]["effect_status"], "none");
         assert!(
             store
                 .transaction(|tx| tx.transport_keys())
@@ -2187,6 +2335,1199 @@ mod tests {
             .handle_as(&owner(), Request::Transport(TransportRequest::Disable))
             .await;
         assert_eq!(disable.code, Code::Ok, "{disable:?}");
+    }
+
+    /// Binding endpoints from a fixed table.
+    struct FixedEndpoints(Vec<(heimdall_contract::ids::BindingId, String)>);
+
+    impl crate::connections::BindingEndpoints for FixedEndpoints {
+        fn endpoint(
+            &self,
+            binding: &heimdall_contract::ids::BindingId,
+        ) -> Option<heimdall_contract::provider::EndpointRef> {
+            self.0.iter().find(|(b, _)| b == binding).map(|(_, l)| {
+                heimdall_contract::provider::EndpointRef {
+                    kind: heimdall_contract::provider::EndpointKind::UnixSocket,
+                    locator: l.clone(),
+                }
+            })
+        }
+    }
+
+    /// An active grant and binding `n` for `lab:deploy`, owned by `owner`.
+    fn seed_binding(
+        store: &Store,
+        n: u8,
+        owner: &CallerContext,
+    ) -> heimdall_contract::ids::BindingId {
+        let id = heimdall_contract::ids::BindingId::from_random_bytes([n; 16]);
+        seed_binding_with_id(store, id.clone(), usize::from(n), owner);
+        id
+    }
+
+    fn seed_binding_with_id(
+        store: &Store,
+        id: heimdall_contract::ids::BindingId,
+        n: usize,
+        owner: &CallerContext,
+    ) {
+        use heimdall_contract::ids::{AccountName, DestinationId, GrantId};
+        use heimdall_contract::request::{
+            DeadlineIntent, DestinationScopeEnforcement, Enforcement, ExistingConnectionsPolicy,
+            NewAuthenticationExpiry, RevocationStatus, WorkloadIsolation,
+        };
+        let environment = store
+            .transaction(|tx| tx.self_environment())
+            .unwrap()
+            .unwrap();
+        let scope = heimdall_domain::scope::Scope {
+            pairs: [heimdall_domain::scope::AccessPair {
+                destination: DestinationId::parse("lab").unwrap(),
+                account: AccountName::parse("deploy").unwrap(),
+            }]
+            .into_iter()
+            .collect(),
+            capabilities: [heimdall_domain::scope::Capability::SshAuthentication]
+                .into_iter()
+                .collect(),
+        };
+        let grant = heimdall_domain::grant::GrantSnapshot {
+            id: {
+                let mut g = [0x47_u8; 16];
+                g[..8].copy_from_slice(&(n as u64).to_be_bytes());
+                GrantId::from_random_bytes(g)
+            },
+            environment: environment.clone(),
+            scope: scope.clone(),
+            starts_at: t0(),
+            deadline: heimdall_domain::time::Deadline {
+                intent: DeadlineIntent::Duration("60m".into()),
+                resolved_at: t0(),
+                effective: heimdall_contract::Timestamp::from_second(t0().as_second() + 3600)
+                    .unwrap(),
+            },
+            parent: None,
+            source: heimdall_domain::grant::AuthorizationSource::StandingPolicy {
+                revision: heimdall_domain::policy::PolicyRevision(1),
+            },
+            generation: heimdall_domain::policy::AuthorityGeneration(0),
+            state: heimdall_contract::GrantState::Active,
+            enforcement: heimdall_domain::evidence::EnforcementEvidence {
+                report: Enforcement::new(
+                    DestinationScopeEnforcement::Unknown,
+                    NewAuthenticationExpiry::Unknown,
+                    WorkloadIsolation::SharedOsUser,
+                    ExistingConnectionsPolicy::Unknown,
+                    RevocationStatus::Unknown,
+                ),
+                evidence: Vec::new(),
+            },
+        };
+        let binding = heimdall_domain::binding::BindingRecord {
+            id,
+            environment,
+            grant: grant.id.clone(),
+            work_id: heimdall_contract::ids::WorkId::parse(&format!("w{n}")).unwrap(),
+            owner: owner.clone(),
+            profile: heimdall_contract::ids::ProfileId::parse("dev").unwrap(),
+            profile_revision: 1,
+            scope,
+            mechanism: "existing_access".to_owned(),
+            parent: None,
+            created_at: t0(),
+            released_at: None,
+            state: heimdall_domain::binding::BindingState::Active,
+        };
+        store
+            .transaction(|tx| {
+                tx.insert_grant(&grant)?;
+                tx.insert_binding(&binding)
+            })
+            .unwrap();
+    }
+
+    /// ⟨rev6.5; ADR-0006 §18.9 item 11⟩ `route.record_health`, each condition of the ruling:
+    /// * (a) only the caller that owns the binding served at the named endpoint for the
+    ///   pair may report. Refused, nothing kept: a paired session; a local caller with
+    ///   another principal, **the local owner included** (its access to every caller's
+    ///   objects does not apply here); the owning caller naming an endpoint no binding of
+    ///   its own is served at, or another caller's endpoint;
+    /// * (b) the report is typed: an unknown route ID, another account, a duration past
+    ///   the bound, too many attempts, a pin setting outside the contract's list, a final
+    ///   route that is not the one attempt that did not fail, and any free-text or host
+    ///   field's value in a typed position are refused;
+    /// * (c) a report changes nothing but the ledger: the stored route list, its order
+    ///   and its consents are exactly as before, whatever was reported;
+    /// * (d) the ledger is bounded: a binding keeps its newest
+    ///   `ROUTE_HEALTH_REPORTS_PER_BINDING` reports, and at most
+    ///   `ROUTE_HEALTH_BINDINGS_MAX` bindings are kept;
+    /// * (e) it is in memory only: a new `RouteTransport` over the same store holds none.
+    #[tokio::test]
+    async fn route_health_is_reported_only_by_the_binding_typed_and_bounded() {
+        use crate::supervise_transport::{
+            ROUTE_HEALTH_BINDINGS_MAX, ROUTE_HEALTH_REPORTS_PER_BINDING, RouteTransport,
+        };
+        use heimdall_contract::route::{
+            ROUTE_ATTEMPT_DURATION_MAX_MS, ROUTE_HEALTH_ATTEMPTS_MAX, RouteRequest, RouteSpec,
+        };
+        let (store, d, lab, _clock) = local_widening_rig().await;
+        // A second approved route, so a report can name a failover.
+        let approved = d
+            .handle_as(
+                &owner(),
+                Request::Route(RouteRequest::Add {
+                    destination: lab.clone(),
+                    route: RouteSpec::Direct {
+                        host: "10.0.0.10".into(),
+                        port: None,
+                    },
+                    exposure: None,
+                    request_id: heimdall_contract::ids::RequestId::parse("req_route_h").unwrap(),
+                }),
+            )
+            .await;
+        assert_eq!(approved.code, Code::Ok, "{approved:?}");
+        let routes: Vec<heimdall_contract::ids::RouteId> =
+            serde_json::from_value(approved.data["routes"].clone()).unwrap();
+        let stored_before = store.transaction(|tx| tx.destination_routes(&lab)).unwrap();
+        let consents_before = store.transaction(|tx| tx.all_route_consents()).unwrap();
+
+        // The helper's caller (an agent's local session) owns binding 1; another local
+        // caller owns binding 2.
+        let helper_ctx = CallerContext::local(
+            PrincipalRef::UnixUser { uid: 1001 },
+            ClientRole::LimitedConsumer,
+        );
+        let other_ctx = CallerContext::local(
+            PrincipalRef::UnixUser { uid: 1002 },
+            ClientRole::LimitedConsumer,
+        );
+        let helper = Caller::unattended(helper_ctx.clone());
+        let other = Caller::unattended(other_ctx.clone());
+        let b1 = seed_binding(&store, 1, &helper_ctx);
+        let b2 = seed_binding(&store, 2, &other_ctx);
+        let (mine, theirs) = ("/run/b1/agent.sock", "/run/b2/agent.sock");
+        let wire = |served: Vec<(heimdall_contract::ids::BindingId, String)>| {
+            let supervisor = Arc::new(crate::supervise_transport::TransportSupervisor::new(
+                store.clone(),
+                Arc::new(crate::supervise_transport::NoPeerEndpoints),
+                crate::supervise_transport::SupervisorConfig::new(
+                    crate::supervise_transport::ServeSpawn {
+                        program: std::path::PathBuf::from("/nonexistent/heimdall"),
+                        args: Vec::new(),
+                        env: Vec::new(),
+                    },
+                ),
+            ));
+            let keys: Arc<dyn heimdall_app::transport::TransportKeys> =
+                Arc::new(crate::supervise_transport::CredentialKeys(Arc::new(
+                    heimdall_credential::iroh::FixtureIrohStore::new(),
+                )));
+            Arc::new(
+                RouteTransport::new(
+                    store.clone(),
+                    supervisor,
+                    keys,
+                    Arc::new(heimdall_app::transport::StorePeerEnrollments),
+                )
+                .with_binding_endpoints(Arc::new(FixedEndpoints(served))),
+            )
+        };
+        let served = wire(vec![(b1.clone(), mine.to_owned()), (b2, theirs.to_owned())]);
+        let report = |endpoint: &str, result: serde_json::Value, pin: Option<&str>| {
+            let mut doc = serde_json::json!({
+                "op": "route", "action": "record_health", "endpoint": endpoint, "result": result,
+            });
+            if let Some(pin) = pin {
+                doc["host_pin_defeated"] = serde_json::json!(pin);
+            }
+            match serde_json::from_value::<Request>(doc).unwrap() {
+                Request::Route(r) => r,
+                other => panic!("{other:?}"),
+            }
+        };
+        let result = |attempts: serde_json::Value,
+                      last: Option<&heimdall_contract::ids::RouteId>| {
+            let mut r = serde_json::json!({
+                "kind": "failed_over", "destination": "lab", "account": "deploy",
+                "attempts": attempts,
+            });
+            if let Some(last) = last {
+                r["final_route"] = serde_json::json!(last);
+            }
+            r
+        };
+        let good = || {
+            result(
+                serde_json::json!([
+                    {"route": routes[0], "failure": "refused", "duration_ms": 12},
+                    {"route": routes[1], "duration_ms": 30},
+                ]),
+                Some(&routes[1]),
+            )
+        };
+        let now = t0();
+        let send = |caller: &Caller, request: &RouteRequest| served.route(caller, request, now);
+
+        // (a) who may report.
+        let mut paired = helper.clone();
+        paired.context.remote_client =
+            Some(heimdall_contract::ids::ClientId::from_random_bytes([4; 16]));
+        for (who, caller, endpoint) in [
+            ("a paired session", &paired, mine),
+            ("another local caller", &other, mine),
+            ("the local owner", &owner(), mine),
+            (
+                "the owning caller at another caller's endpoint",
+                &helper,
+                theirs,
+            ),
+            (
+                "the owning caller at no binding's endpoint",
+                &helper,
+                "/run/none/agent.sock",
+            ),
+        ] {
+            let e = send(caller, &report(endpoint, good(), None)).unwrap_err();
+            assert_eq!(e.code, Code::CapabilityUnavailable, "{who}: {e:?}");
+            assert_eq!(e.effect_status, EffectStatus::None, "{who}");
+        }
+        assert_eq!(
+            served.route_health_len(),
+            (0, 0),
+            "a refused report was kept"
+        );
+
+        // (b) typed.
+        let unknown = heimdall_contract::ids::RouteId::from_random_bytes([9; 16]);
+        let too_many: Vec<_> = (0..=ROUTE_HEALTH_ATTEMPTS_MAX)
+            .map(|_| serde_json::json!({"route": routes[0], "failure": "timeout"}))
+            .collect();
+        let mut other_account = good();
+        other_account["account"] = serde_json::json!("root");
+        for (what, request) in [
+            (
+                "an unknown route",
+                report(
+                    mine,
+                    result(serde_json::json!([{"route": unknown}]), Some(&unknown)),
+                    None,
+                ),
+            ),
+            ("another account", report(mine, other_account, None)),
+            (
+                "a duration past the bound",
+                report(
+                    mine,
+                    result(
+                        serde_json::json!([{"route": routes[0], "failure": "timeout",
+                            "duration_ms": ROUTE_ATTEMPT_DURATION_MAX_MS + 1}]),
+                        None,
+                    ),
+                    None,
+                ),
+            ),
+            (
+                "too many attempts",
+                report(mine, result(serde_json::json!(too_many), None), None),
+            ),
+            (
+                "a final route that no attempt used",
+                report(
+                    mine,
+                    result(
+                        serde_json::json!([{"route": routes[0], "failure": "refused"}]),
+                        Some(&routes[1]),
+                    ),
+                    None,
+                ),
+            ),
+            (
+                "a used route without a final route",
+                report(
+                    mine,
+                    result(serde_json::json!([{"route": routes[0]}]), None),
+                    None,
+                ),
+            ),
+            (
+                "a pin setting outside the list",
+                report(mine, result(serde_json::json!([]), None), Some("hostname")),
+            ),
+            (
+                "free text as the pin setting",
+                report(
+                    mine,
+                    result(serde_json::json!([]), None),
+                    Some("lab.lan was unreachable"),
+                ),
+            ),
+        ] {
+            let e = send(&helper, &request).unwrap_err();
+            // No binding of the caller covers another account's pair: that one is refused
+            // as "not the binding" before the catalog is read.
+            let expected = if what == "another account" {
+                Code::CapabilityUnavailable
+            } else {
+                Code::UsageError
+            };
+            assert_eq!(e.code, expected, "{what}: {e:?}");
+        }
+        // A free-text outcome, a host string as the route, or a text duration is not the
+        // form at all.
+        for bad in [
+            serde_json::json!([{"route": routes[0], "failure": "the host was down"}]),
+            serde_json::json!([{"route": "lab.lan:22", "failure": "refused"}]),
+            serde_json::json!([{"route": routes[0], "failure": "refused", "duration_ms": "long"}]),
+        ] {
+            let doc = serde_json::json!({
+                "op": "route", "action": "record_health", "endpoint": mine,
+                "result": result(bad.clone(), None),
+            });
+            assert!(serde_json::from_value::<Request>(doc).is_err(), "{bad}");
+        }
+        assert_eq!(
+            served.route_health_len(),
+            (0, 0),
+            "a refused report was kept"
+        );
+
+        // The binding's own caller: kept.
+        send(&helper, &report(mine, good(), None)).unwrap();
+        let kept = served.route_health(&lab).expect("the report is kept");
+        assert_eq!(kept.result.final_route.as_ref(), Some(&routes[1]));
+        assert_eq!(kept.result.attempts[0].duration_ms, Some(12));
+        send(
+            &helper,
+            &report(
+                mine,
+                result(serde_json::json!([]), None),
+                Some("stricthostkeychecking"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(served.route_health_len(), (1, 2));
+
+        // (c) nothing but the ledger changed: the same routes, in the same order, the same
+        // consents, though the first route was reported failed.
+        assert_eq!(
+            store.transaction(|tx| tx.destination_routes(&lab)).unwrap(),
+            stored_before
+        );
+        assert_eq!(
+            store.transaction(|tx| tx.all_route_consents()).unwrap(),
+            consents_before
+        );
+
+        // (d) bounded per binding, and in bindings.
+        for _ in 0..(ROUTE_HEALTH_REPORTS_PER_BINDING * 3) {
+            send(&helper, &report(mine, good(), None)).unwrap();
+        }
+        assert_eq!(
+            served.route_health_len(),
+            (1, ROUTE_HEALTH_REPORTS_PER_BINDING)
+        );
+        let mut many = vec![(b1, mine.to_owned())];
+        for n in 10..(10 + ROUTE_HEALTH_BINDINGS_MAX as u16 + 5) {
+            // Distinct IDs: two bytes of the 16 vary.
+            let mut id = [0xEE_u8; 16];
+            id[0] = (n >> 8) as u8;
+            id[1] = (n & 0xff) as u8;
+            many.push((
+                heimdall_contract::ids::BindingId::from_random_bytes(id),
+                format!("/run/x{n}/agent.sock"),
+            ));
+        }
+        // (e) a new transport over the same store starts empty: memory only.
+        let fresh = wire(many.clone());
+        assert_eq!(fresh.route_health_len(), (0, 0));
+        assert!(fresh.route_health(&lab).is_none());
+        // Fill past the binding bound through the ledger's own insert path: each binding
+        // must exist and be the caller's, so seed them.
+        for (i, (binding, endpoint)) in many.iter().enumerate().skip(1) {
+            seed_binding_with_id(&store, binding.clone(), 1000 + i, &helper_ctx);
+            fresh
+                .route(&helper, &report(endpoint, good(), None), now)
+                .unwrap();
+        }
+        let (bindings, reports) = fresh.route_health_len();
+        assert_eq!(bindings, ROUTE_HEALTH_BINDINGS_MAX);
+        assert_eq!(reports, ROUTE_HEALTH_BINDINGS_MAX);
+    }
+
+    /// A non-runner dispatcher with the route and transport forms wired over a store that
+    /// holds one managed destination, `lab`.
+    async fn local_widening_rig() -> (
+        Arc<Store>,
+        OperationsDispatcher,
+        heimdall_contract::ids::DestinationId,
+        Arc<VirtualClock>,
+    ) {
+        use heimdall_contract::ids::{AccountName, DestinationId, IdentityId};
+        let store = Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+        let lab = DestinationId::parse("lab").unwrap();
+        store
+            .transaction(|tx| {
+                tx.upsert_destination(&heimdall_domain::catalog::DestinationRecord {
+                    id: lab.clone(),
+                    alias: "lab".into(),
+                    revision: 1,
+                    definition: heimdall_domain::catalog::DestinationDefinition::Managed {
+                        hostname: "lab.lan".into(),
+                        port: None,
+                        account: AccountName::parse("deploy").unwrap(),
+                        identity: IdentityId::from_random_bytes([1; 16]),
+                        jump: None,
+                    },
+                    label: None,
+                    updated_at: t0(),
+                })
+            })
+            .unwrap();
+        let supervisor = Arc::new(crate::supervise_transport::TransportSupervisor::new(
+            store.clone(),
+            Arc::new(crate::supervise_transport::NoPeerEndpoints),
+            crate::supervise_transport::SupervisorConfig::new(
+                crate::supervise_transport::ServeSpawn {
+                    program: std::path::PathBuf::from("/nonexistent/heimdall"),
+                    args: Vec::new(),
+                    env: Vec::new(),
+                },
+            ),
+        ));
+        let keys: Arc<dyn heimdall_app::transport::TransportKeys> =
+            Arc::new(crate::supervise_transport::CredentialKeys(Arc::new(
+                heimdall_credential::iroh::FixtureIrohStore::new(),
+            )));
+        let (d, clock) = dispatcher_and_clock_on(store.clone()).await;
+        let d = d.with_route_transport(Arc::new(crate::supervise_transport::RouteTransport::new(
+            store.clone(),
+            supervisor,
+            keys,
+            Arc::new(heimdall_app::transport::StorePeerEnrollments),
+        )));
+        (store, d, lab, clock)
+    }
+
+    /// ⟨rev6.5; ADR-0006 §18.9 item 9⟩ `route add`'s relay URLs, at the runtime:
+    /// * each refusal class (a scheme the relay transport does not accept, userinfo, a query
+    ///   string, a fragment, a malformed URL) is `USAGE_ERROR`, effect none, for an attended
+    ///   and an unattended owner alike, and makes no record and no route; the answer never
+    ///   quotes the URL;
+    /// * the request is normalised before it is recorded: the record's request and delta
+    ///   hold the one spelling, each distinct URL once, sorted;
+    /// * a retry that spells the same URLs differently, in another order, finds the same
+    ///   pending record (one digest); another URL is another record;
+    /// * after the approval the stored route's policy and its consent's delta hold the
+    ///   normal form.
+    /// ⟨M06 W5 `w5s`, M06-W5-R05; ADR-0006 §18.9 item 9⟩ A relay URL whose path carries a
+    /// token: stored as given (the record, the route and the consent's delta), and never
+    /// shown. No answer carries its path: the unattended refusal's detail, the attended
+    /// `APPROVAL_REQUIRED`, `inspect decisions`, the approval, `inspect destinations` and
+    /// the event pages. Each shows the scheme, host and port with the URL's digest.
+    #[tokio::test]
+    async fn a_relay_urls_path_is_stored_and_never_shown() {
+        use heimdall_contract::ids::IrohEndpointId;
+        use heimdall_contract::request::{
+            DecideRequest, InspectRequest, InspectSubject, ObserveRequest, Verdict,
+        };
+        use heimdall_contract::route::{
+            ExposurePolicy, InfrastructureProfile, RouteRequest, RouteSpec, relay_display,
+        };
+        const TOKEN: &str = "t0k3nInThePath";
+        let relay = format!("https://relay.invalid.:8443/{TOKEN}");
+        let (store, d, lab, _clock) = local_widening_rig().await;
+        let add = |request_id: &str| {
+            Request::Route(RouteRequest::Add {
+                destination: lab.clone(),
+                route: RouteSpec::Iroh {
+                    endpoint: IrohEndpointId::parse(&"ab".repeat(32)).unwrap(),
+                    direct_addresses: Vec::new(),
+                    external_roost: false,
+                },
+                exposure: Some(ExposurePolicy {
+                    infrastructure: InfrastructureProfile::Custom {
+                        relays: vec![relay.clone()],
+                    },
+                    ..ExposurePolicy::default()
+                }),
+                request_id: heimdall_contract::ids::RequestId::parse(request_id).unwrap(),
+            })
+        };
+        let shown = relay_display(&relay);
+        assert!(
+            shown.starts_with("https://relay.invalid.:8443 (sha256:"),
+            "{shown}"
+        );
+        let unseen = |what: &str, env: &Envelope<serde_json::Value>| {
+            let text = serde_json::to_string(env).unwrap();
+            assert!(
+                !text.contains(TOKEN),
+                "{what} shows the relay URL's path: {text}"
+            );
+        };
+
+        let unattended = d.handle_as(&owner(), add("req_1")).await;
+        assert_eq!(unattended.code, Code::InteractionRequired, "{unattended:?}");
+        unseen("the unattended refusal", &unattended);
+        assert!(
+            unattended.data.to_string().contains(&shown),
+            "the refusal names the relay: {unattended:?}"
+        );
+        let asked = d.handle_as(&attended(), add("req_2")).await;
+        assert_eq!(asked.code, Code::ApprovalRequired, "{asked:?}");
+        unseen("the approval request", &asked);
+        let id = heimdall_contract::ids::DecisionId::parse(
+            asked
+                .next
+                .as_ref()
+                .unwrap()
+                .decision_ref
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+        // Stored as given.
+        let recorded = store.transaction(|tx| tx.pending_decisions()).unwrap();
+        assert!(
+            serde_json::to_string(&recorded).unwrap().contains(TOKEN),
+            "the record keeps the URL"
+        );
+        let inspect = |subject| {
+            Request::Inspect(InspectRequest {
+                subject,
+                preview: None,
+                cwd: None,
+                redact: false,
+            })
+        };
+        let listed = d
+            .handle_as(&attended(), inspect(InspectSubject::Decisions))
+            .await;
+        unseen("inspect decisions", &listed);
+        assert!(listed.data.to_string().contains(&shown), "{listed:?}");
+
+        let approved = d
+            .handle_as(
+                &attended(),
+                Request::Decide(DecideRequest {
+                    decision_id: id,
+                    verdict: Verdict::Approve,
+                }),
+            )
+            .await;
+        assert_eq!(approved.code, Code::Ok, "{approved:?}");
+        unseen("the approval", &approved);
+        let routes = store.transaction(|tx| tx.destination_routes(&lab)).unwrap();
+        assert!(
+            serde_json::to_string(&routes).unwrap().contains(TOKEN),
+            "the stored route keeps the URL"
+        );
+        let added = routes
+            .iter()
+            .find(|r| matches!(r.route, RouteSpec::Iroh { .. }))
+            .expect("the route");
+        let consents = store
+            .transaction(|tx| tx.route_consents(Some(&added.id)))
+            .unwrap();
+        assert!(
+            consents
+                .iter()
+                .any(|c| c.delta.relays_added == vec![relay.clone()]),
+            "the consent's delta keeps the URL"
+        );
+        for subject in [InspectSubject::Destinations, InspectSubject::Decisions] {
+            let env = d.handle_as(&attended(), inspect(subject)).await;
+            unseen("inspect", &env);
+        }
+        let events = d
+            .handle_as(
+                &attended(),
+                Request::Observe(ObserveRequest::Events {
+                    cursor: None,
+                    filter: Default::default(),
+                    limit: None,
+                }),
+            )
+            .await;
+        unseen("the event page", &events);
+        // The same add again under the same policy: the existing route, shown so too.
+        let again = d.handle_as(&attended(), add("req_3")).await;
+        assert_eq!(again.code, Code::Ok, "{again:?}");
+        unseen("already_present", &again);
+    }
+
+    #[tokio::test]
+    async fn route_add_relay_urls_are_validated_and_normalised_before_any_record() {
+        use heimdall_contract::ids::IrohEndpointId;
+        use heimdall_contract::request::{DecideRequest, Verdict};
+        use heimdall_contract::route::{
+            ExposurePolicy, InfrastructureProfile, RouteRequest, RouteSpec,
+        };
+        let (store, d, lab, _clock) = local_widening_rig().await;
+        let add = |request_id: &str, relays: &[&str]| {
+            Request::Route(RouteRequest::Add {
+                destination: lab.clone(),
+                route: RouteSpec::Iroh {
+                    endpoint: IrohEndpointId::parse(&"ab".repeat(32)).unwrap(),
+                    direct_addresses: Vec::new(),
+                    external_roost: false,
+                },
+                exposure: Some(ExposurePolicy {
+                    infrastructure: InfrastructureProfile::Custom {
+                        relays: relays.iter().map(|r| (*r).to_owned()).collect(),
+                    },
+                    ..ExposurePolicy::default()
+                }),
+                request_id: heimdall_contract::ids::RequestId::parse(request_id).unwrap(),
+            })
+        };
+        let pending = || {
+            store
+                .transaction(|tx| tx.pending_decisions())
+                .unwrap()
+                .into_iter()
+                .filter_map(|d| match d.kind {
+                    heimdall_domain::decision::DecisionKind::RemoteWidening(w) => Some((d.id, *w)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let routes = || store.transaction(|tx| tx.destination_routes(&lab)).unwrap();
+
+        for (bad, class) in [
+            ("ftp://relay.invalid./", "https:// or http://"),
+            (
+                "https://user:hunter2@relay.invalid./",
+                "no user name or password",
+            ),
+            ("https://relay.invalid./?token=hunter2", "no query string"),
+            ("https://relay.invalid./#hunter2", "no fragment"),
+            ("https://relay.invalid.:0/", "a scheme, a host"),
+        ] {
+            for caller in [attended(), owner()] {
+                let env = d
+                    .handle_as(&caller, add("req_bad", &["https://ok.invalid./", bad]))
+                    .await;
+                assert_eq!(env.code, Code::UsageError, "{bad}: {env:?}");
+                assert_eq!(env.data["error"]["effect_status"], "none", "{bad}");
+                let text = env.data.to_string();
+                assert!(text.contains("relay URL 2"), "{bad}: {text}");
+                assert!(text.contains(class), "{bad}: {text}");
+                assert!(!text.contains("hunter2"), "{bad}: the URL is quoted");
+            }
+            assert!(pending().is_empty(), "{bad}: a record was made");
+            assert!(routes().is_empty(), "{bad}");
+        }
+
+        // Two spellings of one relay and a second relay: one record, the normal form.
+        let first = d
+            .handle_as(
+                &attended(),
+                add(
+                    "req_1",
+                    &[
+                        "HTTPS://Relay.Invalid.:443",
+                        "http://other.invalid.:8080/r",
+                        "https://relay.invalid./",
+                    ],
+                ),
+            )
+            .await;
+        assert_eq!(first.code, Code::ApprovalRequired, "{first:?}");
+        let reference = first.next.as_ref().and_then(|n| n.decision_ref.clone());
+        let recorded = pending();
+        assert_eq!(recorded.len(), 1);
+        let (id, w) = &recorded[0];
+        let normal = ["http://other.invalid.:8080/r", "https://relay.invalid./"];
+        assert_eq!(w.request, add("req_1", &normal));
+        let delta = w.exposure.clone().expect("the record carries its delta");
+        assert_eq!(
+            delta["relays_added"],
+            serde_json::json!(normal),
+            "each URL is named in the delta, once: {delta}"
+        );
+        // A retry in another spelling: the same record.
+        let again = d
+            .handle_as(
+                &attended(),
+                add(
+                    "req_2",
+                    &["https://RELAY.invalid.", "HTTP://other.invalid.:08080/r"],
+                ),
+            )
+            .await;
+        assert_eq!(again.code, Code::ApprovalRequired, "{again:?}");
+        assert_eq!(
+            again.next.as_ref().and_then(|n| n.decision_ref.clone()),
+            reference
+        );
+        assert_eq!(pending().len(), 1, "another spelling made a second record");
+        // Another URL (the path differs in case) is another record.
+        let other = d
+            .handle_as(
+                &attended(),
+                add(
+                    "req_3",
+                    &["https://relay.invalid./", "http://other.invalid.:8080/R"],
+                ),
+            )
+            .await;
+        assert_eq!(other.code, Code::ApprovalRequired, "{other:?}");
+        assert_eq!(pending().len(), 2);
+        assert!(routes().is_empty());
+
+        let approved = d
+            .handle_as(
+                &attended(),
+                Request::Decide(DecideRequest {
+                    decision_id: id.clone(),
+                    verdict: Verdict::Approve,
+                }),
+            )
+            .await;
+        assert_eq!(approved.code, Code::Ok, "{approved:?}");
+        let stored = routes();
+        assert_eq!(stored.len(), 2, "the definition's route and the new one");
+        let added = stored
+            .iter()
+            .find(|r| matches!(r.route, RouteSpec::Iroh { .. }))
+            .expect("the route");
+        assert_eq!(
+            added.exposure.as_ref().map(|e| &e.infrastructure),
+            Some(&InfrastructureProfile::Custom {
+                relays: normal.iter().map(|r| (*r).to_owned()).collect()
+            })
+        );
+        let consents = store
+            .transaction(|tx| tx.route_consents(Some(&added.id)))
+            .unwrap();
+        assert_eq!(consents.len(), 1);
+        assert_eq!(serde_json::to_value(&consents[0].delta).unwrap(), delta);
+    }
+
+    /// ⟨M06 W5; ADR-0006 §18.9 item 8⟩ A local widening decision through a dispatcher that
+    /// is **not a runner** (no paired-runner service): a widening `route add`.
+    ///
+    /// * an unattended local owner is answered `INTERACTION_REQUIRED`, the detail naming
+    ///   the request and what it adds, with no reason, and no record is made (⟨rev6.5;
+    ///   ADR-0006 §18.9 item 10⟩);
+    /// * a paired session never produces a local record, even one that claims attendance
+    ///   (a caller the frame never builds): refused, nothing recorded;
+    /// * the attended local owner gets `APPROVAL_REQUIRED` with the decision reference; the
+    ///   record says `origin: local`, names no client, and carries the exact delta;
+    /// * a retry with a fresh request ID returns the same pending record;
+    /// * another delta is another record;
+    /// * an unattended or paired `Decide` never approves it; nothing is written meanwhile;
+    /// * the attended local owner's approval runs the exact request once: the route is
+    ///   stored with a recorded consent naming the decision and the delta; a second
+    ///   approval is `DECISION_STALE`; the same request again is the existing route.
+    #[tokio::test]
+    async fn a_local_widening_is_recorded_and_approved_only_by_the_attended_local_owner() {
+        use heimdall_contract::ids::IrohEndpointId;
+        use heimdall_contract::request::{DecideRequest, Verdict};
+        use heimdall_contract::route::{ExposurePolicy, RouteRequest, RouteSpec};
+        let (store, d, lab, _clock) = local_widening_rig().await;
+        let add = |request_id: &str, fallback: bool, relay: bool| {
+            Request::Route(RouteRequest::Add {
+                destination: lab.clone(),
+                route: RouteSpec::Iroh {
+                    endpoint: IrohEndpointId::parse(&"ab".repeat(32)).unwrap(),
+                    direct_addresses: Vec::new(),
+                    external_roost: false,
+                },
+                exposure: Some(ExposurePolicy {
+                    direct_fallback: fallback,
+                    infrastructure: if relay {
+                        heimdall_contract::route::InfrastructureProfile::Custom {
+                            relays: vec!["https://relay.invalid./".into()],
+                        }
+                    } else {
+                        heimdall_contract::route::InfrastructureProfile::None
+                    },
+                    ..ExposurePolicy::default()
+                }),
+                request_id: heimdall_contract::ids::RequestId::parse(request_id).unwrap(),
+            })
+        };
+        let pending = || {
+            store
+                .transaction(|tx| tx.pending_decisions())
+                .unwrap()
+                .into_iter()
+                .filter_map(|d| match d.kind {
+                    heimdall_domain::decision::DecisionKind::RemoteWidening(w) => Some((d.id, *w)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let routes = || store.transaction(|tx| tx.destination_routes(&lab)).unwrap();
+        let unconsented = |env: &Envelope<serde_json::Value>| {
+            assert_eq!(env.code, Code::CapabilityUnavailable, "{env:?}");
+            assert_eq!(
+                env.data["error"]["reason"],
+                heimdall_contract::envelope::reason::EXPOSURE_UNCONSENTED,
+                "{env:?}"
+            );
+            assert_eq!(env.data["error"]["effect_status"], "none", "{env:?}");
+        };
+
+        // An unattended local owner: `INTERACTION_REQUIRED` naming the widening, no record.
+        for (request, names) in [
+            (add("req_u", true, false), "direct fallback"),
+            (
+                add("req_r", false, true),
+                // ⟨`w5s`, M06-W5-R05⟩ Shown as scheme, host and port with its digest.
+                "the relay https://relay.invalid. (sha256:",
+            ),
+        ] {
+            let env = d.handle_as(&owner(), request).await;
+            assert_eq!(env.code, Code::InteractionRequired, "{env:?}");
+            assert_eq!(env.data["error"]["effect_status"], "none", "{env:?}");
+            assert!(
+                env.data["error"]
+                    .get("reason")
+                    .is_none_or(serde_json::Value::is_null)
+            );
+            let detail = env.data.to_string();
+            assert!(detail.contains("`route.add` widens"), "{detail}");
+            assert!(detail.contains(names), "{detail}");
+            assert!(
+                env.next
+                    .as_ref()
+                    .and_then(|n| n.decision_ref.as_ref())
+                    .is_none(),
+                "there is no record to name"
+            );
+        }
+        assert!(pending().is_empty());
+        // A paired session, even one claiming attendance: refused, no record.
+        let paired_client = heimdall_contract::ids::ClientId::from_random_bytes([9; 16]);
+        let paired = Caller {
+            context: CallerContext {
+                principal: PrincipalRef::UnixUser { uid: 501 },
+                role: ClientRole::Owner,
+                remote_client: Some(paired_client),
+            },
+            attendance: Attendance::Attended { since: t0() },
+            interaction: heimdall_contract::request::InteractionMode::Interactive,
+        };
+        unconsented(&d.handle_as(&paired, add("req_p", true, false)).await);
+        assert!(
+            pending().is_empty(),
+            "a paired session produced a widening record on the local path"
+        );
+
+        // The attended local owner: a pending local record, bound to the exact delta.
+        let first = d.handle_as(&attended(), add("req_1", true, false)).await;
+        assert_eq!(first.code, Code::ApprovalRequired, "{first:?}");
+        assert_eq!(first.data["error"]["effect_status"], "none", "{first:?}");
+        let reference = first
+            .next
+            .as_ref()
+            .and_then(|n| n.decision_ref.clone())
+            .expect("the pending answer names its decision");
+        let recorded = pending();
+        assert_eq!(recorded.len(), 1);
+        let (id, w) = &recorded[0];
+        assert_eq!(id.as_str(), reference);
+        assert_eq!(w.origin, heimdall_domain::decision::WideningOrigin::Local);
+        assert_eq!(w.client, None);
+        assert_eq!(w.request, add("req_1", true, false));
+        let delta = w.exposure.clone().expect("the record carries its delta");
+        assert_eq!(delta["direct_fallback_added"], true, "{delta}");
+        let document = serde_json::to_value(
+            heimdall_domain::decision::DecisionKind::RemoteWidening(Box::new(w.clone())),
+        )
+        .unwrap();
+        assert_eq!(document["origin"], "local", "{document}");
+        assert!(document.get("client").is_none(), "{document}");
+        // The owner's decision list shows it so.
+        let listed = d
+            .handle_as(
+                &attended(),
+                Request::Inspect(heimdall_contract::request::InspectRequest {
+                    subject: heimdall_contract::request::InspectSubject::Decisions,
+                    preview: None,
+                    cwd: None,
+                    redact: false,
+                }),
+            )
+            .await;
+        let shown = &listed.data["decisions"][0];
+        assert_eq!(shown["decision_id"], reference.as_str(), "{listed:?}");
+        assert_eq!(shown["request"]["origin"], "local", "{listed:?}");
+        assert!(shown["request"].get("client").is_none(), "{listed:?}");
+        assert_eq!(shown["request"]["exposure"], delta, "{listed:?}");
+
+        // A retry (a fresh request ID, the same widening): the same pending record.
+        let again = d.handle_as(&attended(), add("req_2", true, false)).await;
+        assert_eq!(again.code, Code::ApprovalRequired, "{again:?}");
+        assert_eq!(
+            again.next.as_ref().and_then(|n| n.decision_ref.clone()),
+            Some(reference.clone())
+        );
+        assert_eq!(pending().len(), 1, "a retry made a second record");
+        // Another delta is another record.
+        let other = d.handle_as(&attended(), add("req_3", true, true)).await;
+        assert_eq!(other.code, Code::ApprovalRequired, "{other:?}");
+        assert_ne!(
+            other.next.as_ref().and_then(|n| n.decision_ref.clone()),
+            Some(reference.clone())
+        );
+        assert_eq!(pending().len(), 2);
+        assert!(routes().is_empty(), "nothing is written before an approval");
+        assert!(
+            store
+                .transaction(|tx| tx.all_route_consents())
+                .unwrap()
+                .is_empty()
+        );
+
+        // Only the attended local owner decides.
+        let decide = |verdict| {
+            Request::Decide(DecideRequest {
+                decision_id: id.clone(),
+                verdict,
+            })
+        };
+        let unattended = d.handle_as(&owner(), decide(Verdict::Approve)).await;
+        assert_eq!(unattended.code, Code::InteractionRequired, "{unattended:?}");
+        let from_paired = d.handle_as(&paired, decide(Verdict::Approve)).await;
+        assert_eq!(
+            from_paired.code,
+            Code::InteractionRequired,
+            "{from_paired:?}"
+        );
+        assert_eq!(
+            from_paired.data["error"]["reason"],
+            heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED
+        );
+        assert!(routes().is_empty());
+        assert_eq!(pending().len(), 2, "a refused decide consumed nothing");
+
+        let approved = d.handle_as(&attended(), decide(Verdict::Approve)).await;
+        assert_eq!(approved.code, Code::Ok, "{approved:?}");
+        let route =
+            heimdall_contract::ids::RouteId::parse(approved.data["route"].as_str().unwrap())
+                .unwrap();
+        let stored = routes();
+        let added = stored.iter().find(|r| r.id == route).expect("the route");
+        assert!(added.exposure.as_ref().is_some_and(|e| e.direct_fallback));
+        let consents = store
+            .transaction(|tx| tx.route_consents(Some(&route)))
+            .unwrap();
+        assert_eq!(consents.len(), 1);
+        assert_eq!(&consents[0].decision, id);
+        assert_eq!(serde_json::to_value(&consents[0].delta).unwrap(), delta);
+        assert_eq!(added.consents, vec![consents[0].consent.clone()]);
+        // Consumed once.
+        let twice = d.handle_as(&attended(), decide(Verdict::Approve)).await;
+        assert_eq!(twice.code, Code::DecisionStale, "{twice:?}");
+        assert_eq!(routes().len(), stored.len());
+        // The same widening again is the existing route: no new record.
+        let present = d.handle_as(&attended(), add("req_4", true, false)).await;
+        assert_eq!(present.code, Code::Ok, "{present:?}");
+        assert_eq!(present.data["already_present"], true, "{present:?}");
+        assert_eq!(
+            pending().len(),
+            1,
+            "only the other delta's record is pending"
+        );
+        // The route write moved the authority generation: the other record, issued before
+        // it, is stale and is never approved; the same widening submitted again is a new
+        // record (not the stale one), and a denial of it writes nothing.
+        let other_id = pending()[0].0.clone();
+        let decide_other = |decision_id: heimdall_contract::ids::DecisionId, verdict| {
+            Request::Decide(DecideRequest {
+                decision_id,
+                verdict,
+            })
+        };
+        let stale = d
+            .handle_as(
+                &attended(),
+                decide_other(other_id.clone(), Verdict::Approve),
+            )
+            .await;
+        assert_eq!(stale.code, Code::DecisionStale, "{stale:?}");
+        assert!(pending().is_empty());
+        // ⟨M06 W5 `w5s`, M06-W5-R02⟩ The approved route's endpoint again with another
+        // policy (a relay added) is not the existing route: `CONFIG_CONFLICT` with the next
+        // step, no record, nothing changed; never `already_present` with the relay dropped.
+        let same_route = d.handle_as(&attended(), add("req_5", true, true)).await;
+        assert_eq!(same_route.code, Code::ConfigConflict, "{same_route:?}");
+        assert_eq!(
+            same_route.data["error"]["message"],
+            heimdall_app::routes::ops::EXPOSURE_DIFFERS,
+            "{same_route:?}"
+        );
+        assert!(pending().is_empty());
+        assert_eq!(routes(), stored);
+        let mut elsewhere = add("req_6", true, true);
+        if let Request::Route(RouteRequest::Add {
+            route: RouteSpec::Iroh { endpoint, .. },
+            ..
+        }) = &mut elsewhere
+        {
+            *endpoint = IrohEndpointId::parse(&"cd".repeat(32)).unwrap();
+        }
+        let fresh = d.handle_as(&attended(), elsewhere).await;
+        assert_eq!(fresh.code, Code::ApprovalRequired, "{fresh:?}");
+        let fresh_id = pending()[0].0.clone();
+        assert_ne!(fresh_id, other_id);
+        let denied = d
+            .handle_as(&attended(), decide_other(fresh_id, Verdict::Deny))
+            .await;
+        assert_eq!(denied.code, Code::CapabilityUnavailable, "{denied:?}");
+        assert!(pending().is_empty());
+        assert_eq!(routes().len(), stored.len());
+    }
+
+    /// ⟨M06 W5 `w5o`; brief item 5⟩ A local widening record that lapses:
+    /// * while inside its lifetime it is listed `pending`, `expired: false`, no reason;
+    /// * at the first decision read past its deadline it is listed once more, as
+    ///   `state: expired`, `expired: true`, `reason: approval_lapsed`; the store holds it
+    ///   `expired` with the `DECISION_STALE` / `approval_lapsed` answer; the event log has
+    ///   one `decision` event naming it with state `expired`;
+    /// * the next read lists nothing and appends no second event;
+    /// * an approval of it is `DECISION_STALE` and writes nothing; the same widening
+    ///   submitted again is a new record.
+    #[tokio::test]
+    async fn a_lapsed_local_widening_shows_expired_with_its_reason_and_is_in_the_event_log() {
+        use heimdall_contract::ids::IrohEndpointId;
+        use heimdall_contract::request::{DecideRequest, Verdict};
+        use heimdall_contract::route::{ExposurePolicy, RouteRequest, RouteSpec};
+        let (store, d, lab, clock) = local_widening_rig().await;
+        let add = |request_id: &str| {
+            Request::Route(RouteRequest::Add {
+                destination: lab.clone(),
+                route: RouteSpec::Iroh {
+                    endpoint: IrohEndpointId::parse(&"ab".repeat(32)).unwrap(),
+                    direct_addresses: Vec::new(),
+                    external_roost: false,
+                },
+                exposure: Some(ExposurePolicy {
+                    direct_fallback: true,
+                    ..ExposurePolicy::default()
+                }),
+                request_id: heimdall_contract::ids::RequestId::parse(request_id).unwrap(),
+            })
+        };
+        let listed = || async {
+            d.handle_as(
+                &attended(),
+                Request::Inspect(heimdall_contract::request::InspectRequest {
+                    subject: heimdall_contract::request::InspectSubject::Decisions,
+                    preview: None,
+                    cwd: None,
+                    redact: false,
+                }),
+            )
+            .await
+            .data["decisions"]
+                .as_array()
+                .cloned()
+                .unwrap()
+        };
+        let decision_events = |id: &str| {
+            let env = store
+                .transaction(|tx| tx.self_environment())
+                .unwrap()
+                .unwrap();
+            store
+                .transaction(|tx| {
+                    tx.events_after(
+                        &env,
+                        0,
+                        &heimdall_contract::event::EventFilter::default(),
+                        1000,
+                    )
+                })
+                .unwrap()
+                .events
+                .into_iter()
+                .filter(|e| {
+                    e.event_type == heimdall_contract::event::EventType::Decision
+                        && e.payload["decision_id"] == id
+                })
+                .map(|e| e.payload["state"].as_str().unwrap_or_default().to_owned())
+                .collect::<Vec<_>>()
+        };
+
+        let first = d.handle_as(&attended(), add("req_1")).await;
+        assert_eq!(first.code, Code::ApprovalRequired, "{first:?}");
+        let reference = first
+            .next
+            .as_ref()
+            .and_then(|n| n.decision_ref.clone())
+            .unwrap();
+        let shown = listed().await;
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0]["state"], "pending");
+        assert_eq!(shown[0]["expired"], false);
+        assert!(shown[0].get("reason").is_none());
+        assert!(!decision_events(&reference).contains(&"expired".to_owned()));
+
+        clock.advance(
+            heimdall_domain::decision::DEFAULT_DECISION_LIFETIME
+                + std::time::Duration::from_secs(1),
+        );
+        let shown = listed().await;
+        assert_eq!(shown.len(), 1, "{shown:?}");
+        assert_eq!(shown[0]["decision_id"], reference.as_str());
+        assert_eq!(shown[0]["state"], "expired", "{shown:?}");
+        assert_eq!(shown[0]["expired"], true);
+        assert_eq!(
+            shown[0]["reason"],
+            heimdall_contract::envelope::reason::APPROVAL_LAPSED
+        );
+        assert_eq!(shown[0]["request"]["origin"], "local");
+        let id = heimdall_contract::ids::DecisionId::parse(&reference).unwrap();
+        let (record, row) = store
+            .transaction(|tx| tx.remote_widening(&id))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            record.state,
+            heimdall_domain::decision::DecisionState::Expired
+        );
+        let answer = row.result.expect("the lapse's recorded answer");
+        assert_eq!(answer["code"], "DECISION_STALE", "{answer}");
+        assert_eq!(answer["data"]["error"]["reason"], "approval_lapsed");
+        let events = decision_events(&reference);
+        assert_eq!(
+            events.iter().filter(|s| *s == "expired").count(),
+            1,
+            "{events:?}"
+        );
+
+        // The next read: gone from the list, no second event.
+        assert!(listed().await.is_empty());
+        assert_eq!(decision_events(&reference), events);
+        // Never approved; a resubmission is a new record.
+        let late = d
+            .handle_as(
+                &attended(),
+                Request::Decide(DecideRequest {
+                    decision_id: id.clone(),
+                    verdict: Verdict::Approve,
+                }),
+            )
+            .await;
+        assert_eq!(late.code, Code::DecisionStale, "{late:?}");
+        assert!(
+            store
+                .transaction(|tx| tx.destination_routes(&lab))
+                .unwrap()
+                .is_empty()
+        );
+        let again = d.handle_as(&attended(), add("req_2")).await;
+        assert_eq!(again.code, Code::ApprovalRequired, "{again:?}");
+        assert_ne!(
+            again.next.as_ref().and_then(|n| n.decision_ref.clone()),
+            Some(reference)
+        );
     }
 
     /// Only the owner may take or lift the fence.

@@ -13,9 +13,13 @@
 //!   §3.10 item 4; the contract's `route.add` docs): an Iroh route whose exposure policy
 //!   widens beyond the minimal one (relays, a broader bind, direct fallback, public
 //!   infrastructure), or an external roost (`transport adopt-roost`'s widening), needs an
-//!   attended decision local to this host, which this build cannot record for a local
-//!   session yet: refused `exposure_unconsented`, nothing written (DONE question). A direct
-//!   or jump route, or an Iroh route under the minimal policy, adds no exposure.
+//!   attended decision local to this host. ⟨M06 W5; ADR-0006 §18.9 item 8⟩ The runtime
+//!   records that decision for the local owner ([`RouteOps::add_delta`] is the exact delta
+//!   it is bound to) and, once approved in an attended local session, runs the add with it
+//!   ([`crate::transport::ApprovedWidening`]): the route is stored with a recorded consent
+//!   naming the decision and the delta. Without an approval of exactly that delta the add
+//!   is refused `exposure_unconsented` and nothing is written. A direct or jump route, or
+//!   an Iroh route under the minimal policy, adds no exposure.
 //! * **`remove`** (narrowing, no decision) drops one route and its recorded consents (each
 //!   removal moves the admission authority generation); the last route cannot be removed
 //!   (`CONFIG_CONFLICT`: a destination keeps its definition's route); a list back to exactly
@@ -60,12 +64,66 @@ fn not_found(destination: &DestinationId) -> OpError {
     .with_effect(EffectStatus::None)
 }
 
+/// ⟨M06 W5 `w5s`, M06-W5-R02⟩ `route add` of an approved Iroh route with another exposure
+/// policy: what to do instead.
+pub const EXPOSURE_DIFFERS: &str = "this Iroh route is already approved with another exposure \
+     policy (its relays, direct fallback, bind or infrastructure differ); nothing was changed. \
+     To use the new policy, remove the route (`heimdall route remove`), then add it again with \
+     that policy";
+
 fn conflict(message: &str, why: Option<&'static str>) -> OpError {
     let e = OpError::new(Code::ConfigConflict, message.to_owned()).with_effect(EffectStatus::None);
     match why {
         Some(r) => e.with_reason(r),
         None => e,
     }
+}
+
+/// ⟨rev6.5; ADR-0006 §18.9 item 9⟩ The refusal of a relay URL (the `position`-th of the
+/// request, from 1): `USAGE_ERROR`, nothing written. The URL itself is never quoted, since
+/// a refused one may hold a credential.
+fn relay_refused(position: usize, why: heimdall_contract::route::RelayUrlRefusal) -> OpError {
+    OpError::new(
+        Code::UsageError,
+        format!(
+            "relay URL {position} is refused: {}; nothing was recorded",
+            why.message()
+        ),
+    )
+    .with_effect(EffectStatus::None)
+}
+
+/// ⟨rev6.5; ADR-0006 §18.9 item 9⟩ `request` with the relay URLs of a `route add` in their
+/// one spelling (`heimdall_contract::route::normalize_relay_url`), **before any record is
+/// made of it**: the decision's delta, its digest and the retry lookup are all computed
+/// from the result, so two spellings of one URL are one request. Every other request is
+/// returned as it is.
+///
+/// # Errors
+/// `USAGE_ERROR` naming the refused URL's position and class (a scheme the relay transport
+/// does not accept, userinfo, a query string, a fragment, or a malformed URL).
+pub fn normalized(request: &RouteRequest) -> Result<std::borrow::Cow<'_, RouteRequest>, OpError> {
+    let RouteRequest::Add {
+        destination,
+        route,
+        exposure: Some(exposure),
+        request_id,
+    } = request
+    else {
+        return Ok(std::borrow::Cow::Borrowed(request));
+    };
+    let normal = exposure
+        .with_normalized_relays()
+        .map_err(|(i, why)| relay_refused(i + 1, why))?;
+    if &normal == exposure {
+        return Ok(std::borrow::Cow::Borrowed(request));
+    }
+    Ok(std::borrow::Cow::Owned(RouteRequest::Add {
+        destination: destination.clone(),
+        route: route.clone(),
+        exposure: Some(normal),
+        request_id: request_id.clone(),
+    }))
 }
 
 /// Whether adding `route` with `exposure` widens this host's exposure (module docs).
@@ -90,6 +148,35 @@ pub fn route_widens(route: &RouteSpec, exposure: Option<&ExposurePolicy>) -> boo
         }
         // A direct or jump route carries no exposure policy.
         _ => false,
+    }
+}
+
+/// ⟨M06 W5; ADR-0006 §18.9 item 8⟩ The exact exposure delta adding `route` with `exposure`
+/// applies (what a local decision is bound to): from the minimal, non-serving policy to the
+/// route's, for the route's endpoint, naming it as an external roost when it is one. `None`
+/// for a direct or jump route.
+#[must_use]
+pub fn route_delta(
+    route: &RouteSpec,
+    exposure: Option<&ExposurePolicy>,
+) -> Option<crate::transport::ExposureDelta> {
+    match route {
+        RouteSpec::Iroh {
+            endpoint,
+            external_roost,
+            ..
+        } => {
+            let after = exposure.cloned().unwrap_or_default();
+            Some(crate::transport::exposure_delta(
+                Some(endpoint),
+                &ExposurePolicy::default(),
+                false,
+                &after,
+                false,
+                external_roost.then_some(endpoint),
+            ))
+        }
+        _ => None,
     }
 }
 
@@ -150,6 +237,14 @@ pub struct RouteOps<'a> {
     pub store: &'a Store,
 }
 
+/// How `add` treats a widening: with the caller's approval (or none), or as a precheck that
+/// writes nothing.
+#[derive(Clone, Copy)]
+enum Approval<'a> {
+    Given(Option<&'a crate::transport::ApprovedWidening>),
+    DryRun,
+}
+
 impl RouteOps<'_> {
     fn finish(destination: &DestinationId, outcome: Outcome) -> Result<RouteChange, OpError> {
         match outcome {
@@ -159,38 +254,131 @@ impl RouteOps<'_> {
         }
     }
 
-    /// `route add` (module docs).
+    /// ⟨M06 W5⟩ The exact delta a widening `route add` applies ([`route_delta`]), `None`
+    /// when the add widens nothing (no decision is needed).
+    #[must_use]
+    pub fn add_delta(
+        route: &RouteSpec,
+        exposure: Option<&ExposurePolicy>,
+    ) -> Option<crate::transport::ExposureDelta> {
+        route_widens(route, exposure)
+            .then(|| route_delta(route, exposure))
+            .flatten()
+    }
+
+    /// ⟨M06 W5⟩ What `route add` would answer apart from the consent, writing nothing:
+    /// `Ok(Some(_))` when the same reachability data is already approved (the existing
+    /// route), `Ok(None)` when the route would be added. Used before a local decision
+    /// record is made, so a request that can never succeed creates none.
     ///
     /// # Errors
-    /// `exposure_unconsented` (a widening), `NOT_FOUND`, `CONFIG_CONFLICT` (with the route
-    /// reason), or the store's; nothing is written on any of them.
-    pub fn add(
+    /// [`Self::add`]'s, except `exposure_unconsented`.
+    pub fn add_precheck(
         &self,
         destination: &DestinationId,
         route: &RouteSpec,
         exposure: Option<&ExposurePolicy>,
         now: Timestamp,
+    ) -> Result<Option<RouteChange>, OpError> {
+        let change = self.add_inner(destination, route, exposure, Approval::DryRun, now)?;
+        Ok(change.already_present.then_some(change))
+    }
+
+    /// `route add` (module docs). `approved` is the claimed local decision of a widening
+    /// add (`None` otherwise).
+    ///
+    /// # Errors
+    /// `exposure_unconsented` (a widening without an approval of exactly its delta),
+    /// `NOT_FOUND`, `CONFIG_CONFLICT` (with the route reason), or the store's; nothing is
+    /// written on any of them.
+    pub fn add(
+        &self,
+        destination: &DestinationId,
+        route: &RouteSpec,
+        exposure: Option<&ExposurePolicy>,
+        approved: Option<&crate::transport::ApprovedWidening>,
+        now: Timestamp,
     ) -> Result<RouteChange, OpError> {
-        if route_widens(route, exposure) {
+        self.add_inner(destination, route, exposure, Approval::Given(approved), now)
+    }
+
+    fn add_inner(
+        &self,
+        destination: &DestinationId,
+        route: &RouteSpec,
+        exposure: Option<&ExposurePolicy>,
+        approval: Approval<'_>,
+        now: Timestamp,
+    ) -> Result<RouteChange, OpError> {
+        if exposure.is_some_and(|e| e.sshd_port != heimdall_contract::route::DEFAULT_SSHD_PORT) {
+            // ⟨M06 W5; ADR-0012 §2.3 item 2⟩ The sshd port is the serve side's forward
+            // target. A route dials an endpoint and forwards to nothing, so a value here
+            // would be recorded and ignored: refused instead.
             return Err(OpError::new(
-                Code::CapabilityUnavailable,
-                "this route adds exposure, which needs an attended decision local to this host; \
-                 this build cannot record that decision for a local session yet, so nothing was \
-                 written",
+                Code::UsageError,
+                crate::transport::SSHD_PORT_NOT_FOR_A_DIALER,
             )
-            .with_reason(reason::EXPOSURE_UNCONSENTED)
             .with_effect(EffectStatus::None));
         }
         if !exposure.is_none_or(ExposurePolicy::port_is_valid) {
             return Err(OpError::new(Code::UsageError, "port 0 is not a port")
                 .with_effect(EffectStatus::None));
         }
+        // ⟨rev6.5; ADR-0006 §18.9 item 9⟩ Only a relay URL in its one spelling is ever
+        // compared with an approval or stored: the runtime normalises the request before it
+        // records anything ([`normalized`]); a caller that did not is refused here.
+        if let Some(e) = exposure {
+            match e.with_normalized_relays() {
+                Ok(normal) if &normal == e => {}
+                Ok(_) => {
+                    return Err(OpError::new(
+                        Code::UsageError,
+                        "a relay URL of this request is not in its normal form; nothing was \
+                         recorded",
+                    )
+                    .with_effect(EffectStatus::None));
+                }
+                Err((i, why)) => return Err(relay_refused(i + 1, why)),
+            }
+        }
+        // A widening add runs only with an approval of exactly its delta.
+        let dry_run = matches!(approval, Approval::DryRun);
+        let consent = match (Self::add_delta(route, exposure), approval) {
+            (None, _) | (Some(_), Approval::DryRun) => None,
+            (Some(delta), Approval::Given(Some(a))) if a.delta == delta => Some(a),
+            (Some(_), Approval::Given(_)) => {
+                return Err(OpError::new(
+                    Code::CapabilityUnavailable,
+                    "this route adds exposure, which needs an attended decision local to this \
+                     host; nothing was written",
+                )
+                .with_reason(reason::EXPOSURE_UNCONSENTED)
+                .with_effect(EffectStatus::None));
+            }
+        };
+        let consent_id = match consent {
+            Some(_) => Some(heimdall_contract::ids::ConsentId::from_random_bytes(
+                crate::transport::random16()?,
+            )),
+            None => None,
+        };
         let id = random_route_id()?;
         let outcome = self.store.transaction(|tx| {
             let Some((record, mut list)) = load(tx, destination)? else {
                 return Ok(Outcome::NotFound);
             };
             if let Some(existing) = list.iter().find(|r| &r.route == route) {
+                // ⟨M06 W5 `w5s`, M06-W5-R02⟩ The same Iroh endpoint under another exposure
+                // policy (another relay set, direct fallback, bind or infrastructure) is not
+                // the route already present: refused, as `transport enable` refuses another
+                // configuration, never answered `already_present` with the request's policy
+                // silently dropped.
+                if matches!(route, RouteSpec::Iroh { .. })
+                    && existing.exposure.clone().unwrap_or_default()
+                        != exposure.cloned().unwrap_or_default()
+                {
+                    return Ok(Outcome::Conflict(EXPOSURE_DIFFERS, None));
+                }
                 return Ok(Outcome::Done(RouteChange {
                     destination: destination.clone(),
                     route: existing.id.clone(),
@@ -205,7 +393,7 @@ impl RouteOps<'_> {
                     RouteSpec::Iroh { .. } => exposure.cloned(),
                     _ => None,
                 },
-                consents: Vec::new(),
+                consents: consent_id.iter().cloned().collect(),
                 identification_timeout_ms: None,
             });
             let mut view = crate::catalog::route_view(tx)?;
@@ -216,7 +404,26 @@ impl RouteOps<'_> {
                     e.reason(),
                 ));
             }
+            if dry_run {
+                // The precheck: the add would succeed; nothing is written.
+                return Ok(Outcome::Done(RouteChange {
+                    destination: destination.clone(),
+                    route: id.clone(),
+                    routes: Vec::new(),
+                    already_present: false,
+                }));
+            }
             store_list(tx, &record, &list, now)?;
+            if let (Some(a), Some(consent_id)) = (consent, consent_id.as_ref()) {
+                // The recorded consent: the attended local decision and its exact delta.
+                tx.insert_route_consent(&crate::transport::RouteConsentRecord {
+                    consent: consent_id.clone(),
+                    route: Some(id.clone()),
+                    decision: a.decision.clone(),
+                    delta: a.delta.clone(),
+                    recorded_at: now,
+                })?;
+            }
             Ok(Outcome::Done(RouteChange {
                 destination: destination.clone(),
                 route: id.clone(),
@@ -307,13 +514,16 @@ impl RouteOps<'_> {
     }
 
     /// Run one `Request::Route` change form (`resolve_binding` is the runtime's own lookup:
-    /// `driver_unavailable` here). The result as a JSON document.
+    /// `driver_unavailable` here). `approved` is the claimed local decision of a widening
+    /// `add` (`None` for every other request; a widening add without it is refused
+    /// `exposure_unconsented`). The result as a JSON document.
     ///
     /// # Errors
     /// The operation's.
     pub fn execute(
         &self,
         request: &RouteRequest,
+        approved: Option<&crate::transport::ApprovedWidening>,
         now: Timestamp,
     ) -> Result<serde_json::Value, OpError> {
         let change = match request {
@@ -322,7 +532,7 @@ impl RouteOps<'_> {
                 route,
                 exposure,
                 ..
-            } => self.add(destination, route, exposure.as_ref(), now)?,
+            } => self.add(destination, route, exposure.as_ref(), approved, now)?,
             RouteRequest::Remove { destination, route } => self.remove(destination, route, now)?,
             RouteRequest::Prefer {
                 destination, route, ..
@@ -407,12 +617,16 @@ mod tests {
         let store = store_with(&[("lab", None)]);
         let ops = RouteOps { store: &store };
         let implicit = heimdall_domain::routes::implicit_route_id(&d("lab"));
-        let added = ops.add(&d("lab"), &direct("10.0.0.9"), None, t()).unwrap();
+        let added = ops
+            .add(&d("lab"), &direct("10.0.0.9"), None, None, t())
+            .unwrap();
         assert_eq!(added.routes, vec![implicit.clone(), added.route.clone()]);
-        let again = ops.add(&d("lab"), &direct("10.0.0.9"), None, t()).unwrap();
+        let again = ops
+            .add(&d("lab"), &direct("10.0.0.9"), None, None, t())
+            .unwrap();
         assert!(again.already_present);
         assert_eq!(again.route, added.route);
-        let minimal = ops.add(&d("lab"), &iroh(), None, t()).unwrap();
+        let minimal = ops.add(&d("lab"), &iroh(), None, None, t()).unwrap();
         assert_eq!(
             minimal.routes.len(),
             3,
@@ -436,11 +650,169 @@ mod tests {
             Code::NotFound
         );
         assert_eq!(
-            ops.add(&d("nope"), &direct("h"), None, t())
+            ops.add(&d("nope"), &direct("h"), None, None, t())
                 .unwrap_err()
                 .code,
             Code::NotFound
         );
+    }
+
+    /// ⟨M06 W5 `w5o` item 13; ADR-0012 §5 ⟨2026-11-22⟩⟩ The certificate-content change of a
+    /// stored jump route, over `crate::catalog::jump_pairs_of` (the one input both request
+    /// creation and the issuance check read) and `extension_profile`:
+    /// * before any jump route is approved, no pair of the grant has
+    ///   `permit-port-forwarding`;
+    /// * after `route add --jump bas` for `dst`, with `dst` and `bas` under one grant, the
+    ///   bastion's certificate gains **exactly** that one extension, and nothing else
+    ///   changes for it;
+    /// * the destination's certificate never gains it, and neither does a third pair of
+    ///   the same grant that no route jumps through;
+    /// * a grant that does not hold the destination gives the bastion nothing (not the
+    ///   same grant), and one that does not hold the bastion gives nobody anything;
+    /// * a bastion whose pair is not a managed certificate (existing access) gets nothing;
+    /// * removing the route removes the extension.
+    #[test]
+    fn a_stored_jump_route_gives_port_forwarding_to_its_bastion_only() {
+        use std::collections::BTreeSet;
+
+        use heimdall_contract::request::{
+            DeadlineIntent, DestinationScopeEnforcement, Enforcement, ExistingConnectionsPolicy,
+            NewAuthenticationExpiry, RevocationStatus, WorkloadIsolation,
+        };
+        use heimdall_domain::issuance::{
+            EXTENSION_PORT_FORWARDING, EXTENSION_PTY, extension_profile,
+        };
+        use heimdall_domain::scope::{AccessPair, Capability, Scope};
+
+        let store = store_with(&[("dst", None), ("bas", None), ("far", None)]);
+        let ops = RouteOps { store: &store };
+        let pair = |id: &str| AccessPair {
+            destination: d(id),
+            account: AccountName::parse("deploy").unwrap(),
+        };
+        let managed = |id: &str| {
+            store
+                .transaction(|tx| {
+                    tx.set_pair_preference(
+                        &heimdall_domain::enrollment::PairPreference {
+                            destination: d(id),
+                            account: AccountName::parse("deploy").unwrap(),
+                            mechanism:
+                                heimdall_contract::managed::PreferredMechanism::ManagedCertificate,
+                            projection: heimdall_domain::enrollment::ProjectionStatus::Pending,
+                            issuing_cas: BTreeSet::new(),
+                        },
+                        t(),
+                    )
+                })
+                .unwrap();
+        };
+        for id in ["dst", "bas", "far"] {
+            managed(id);
+        }
+        let grant = |ids: &[&str]| heimdall_domain::grant::GrantSnapshot {
+            id: heimdall_contract::ids::GrantId::from_random_bytes([3; 16]),
+            environment: heimdall_contract::ids::EnvironmentId::from_random_bytes([7; 16]),
+            scope: Scope {
+                pairs: ids.iter().map(|i| pair(i)).collect(),
+                capabilities: [Capability::SshAuthentication].into_iter().collect(),
+            },
+            starts_at: t(),
+            deadline: heimdall_domain::time::Deadline {
+                intent: DeadlineIntent::Duration("60m".into()),
+                resolved_at: t(),
+                effective: Timestamp::from_second(t().as_second() + 3600).unwrap(),
+            },
+            parent: None,
+            source: heimdall_domain::grant::AuthorizationSource::StandingPolicy {
+                revision: heimdall_domain::policy::PolicyRevision(1),
+            },
+            generation: heimdall_domain::policy::AuthorityGeneration(0),
+            state: heimdall_contract::GrantState::Active,
+            enforcement: heimdall_domain::evidence::EnforcementEvidence {
+                report: Enforcement::new(
+                    DestinationScopeEnforcement::Unknown,
+                    NewAuthenticationExpiry::Unknown,
+                    WorkloadIsolation::SharedOsUser,
+                    ExistingConnectionsPolicy::Unknown,
+                    RevocationStatus::Unknown,
+                ),
+                evidence: Vec::new(),
+            },
+        };
+        // The extensions of every pair of a grant over `ids`, as issuance derives them.
+        let extensions = |ids: &[&str]| -> Vec<(String, BTreeSet<String>)> {
+            let g = grant(ids);
+            let jumps = store
+                .transaction(|tx| crate::catalog::jump_pairs_of(tx, &g.scope.pairs))
+                .unwrap();
+            ids.iter()
+                .map(|i| ((*i).to_owned(), extension_profile(&g, &pair(i), &jumps)))
+                .collect()
+        };
+        let base: BTreeSet<String> = [EXTENSION_PTY.to_owned()].into_iter().collect();
+        let with_forwarding: BTreeSet<String> = [
+            EXTENSION_PTY.to_owned(),
+            EXTENSION_PORT_FORWARDING.to_owned(),
+        ]
+        .into_iter()
+        .collect();
+        let all = ["dst", "bas", "far"];
+        let plain = |ids: &[&str]| -> Vec<(String, BTreeSet<String>)> {
+            ids.iter()
+                .map(|i| ((*i).to_owned(), base.clone()))
+                .collect()
+        };
+
+        // No jump route: no pair has the extension.
+        assert_eq!(extensions(&all), plain(&all));
+
+        let added = ops
+            .add(
+                &d("dst"),
+                &RouteSpec::Jump { via: d("bas") },
+                None,
+                None,
+                t(),
+            )
+            .unwrap();
+        // One grant holding both: exactly the bastion, exactly the one extension.
+        assert_eq!(
+            extensions(&all),
+            vec![
+                ("dst".to_owned(), base.clone()),
+                ("bas".to_owned(), with_forwarding.clone()),
+                ("far".to_owned(), base.clone()),
+            ]
+        );
+        assert_eq!(
+            with_forwarding.difference(&base).collect::<Vec<_>>(),
+            [EXTENSION_PORT_FORWARDING]
+        );
+        // Not the same grant: the bastion without the destination, and the reverse.
+        assert_eq!(extensions(&["bas", "far"]), plain(&["bas", "far"]));
+        assert_eq!(extensions(&["dst", "far"]), plain(&["dst", "far"]));
+        // A bastion reached with existing access has no certificate to extend.
+        store
+            .transaction(|tx| {
+                tx.set_pair_preference(
+                    &heimdall_domain::enrollment::PairPreference {
+                        destination: d("bas"),
+                        account: AccountName::parse("deploy").unwrap(),
+                        mechanism: heimdall_contract::managed::PreferredMechanism::Existing,
+                        projection: heimdall_domain::enrollment::ProjectionStatus::Pending,
+                        issuing_cas: BTreeSet::new(),
+                    },
+                    t(),
+                )
+            })
+            .unwrap();
+        assert_eq!(extensions(&all), plain(&all));
+        managed("bas");
+        assert_eq!(extensions(&all)[1].1, with_forwarding);
+        // The route removed: the extension is gone.
+        ops.remove(&d("dst"), &added.route, t()).unwrap();
+        assert_eq!(extensions(&all), plain(&all));
     }
 
     /// New exposure is a widening: an Iroh route with relays, a broader bind, direct
@@ -453,7 +825,7 @@ mod tests {
         for exposure in [
             ExposurePolicy {
                 infrastructure: InfrastructureProfile::Custom {
-                    relays: vec!["https://relay.invalid".into()],
+                    relays: vec!["https://relay.invalid/".into()],
                 },
                 ..ExposurePolicy::default()
             },
@@ -464,9 +836,24 @@ mod tests {
             },
         ] {
             let e = ops
-                .add(&d("far"), &iroh(), Some(&exposure), t())
+                .add(&d("far"), &iroh(), Some(&exposure), None, t())
                 .unwrap_err();
             assert_eq!(e.reason.as_deref(), Some(reason::EXPOSURE_UNCONSENTED));
+            assert_eq!(e.effect_status, EffectStatus::None);
+        }
+        // ⟨rev6.5; ADR-0006 §18.9 item 9⟩ A relay URL that is refused, or not in its one
+        // spelling, never reaches the approval comparison or the store: `USAGE_ERROR`.
+        for relay in ["https://relay.invalid", "https://u:p@relay.invalid/"] {
+            let exposure = ExposurePolicy {
+                infrastructure: InfrastructureProfile::Custom {
+                    relays: vec![relay.into()],
+                },
+                ..ExposurePolicy::default()
+            };
+            let e = ops
+                .add(&d("far"), &iroh(), Some(&exposure), None, t())
+                .unwrap_err();
+            assert_eq!(e.code, Code::UsageError, "{relay}");
             assert_eq!(e.effect_status, EffectStatus::None);
         }
         let roost = RouteSpec::Iroh {
@@ -475,14 +862,41 @@ mod tests {
             external_roost: true,
         };
         assert_eq!(
-            ops.add(&d("far"), &roost, None, t())
+            ops.add(&d("far"), &roost, None, None, t())
                 .unwrap_err()
                 .reason
                 .as_deref(),
             Some(reason::EXPOSURE_UNCONSENTED)
         );
+        // ⟨M06 W5⟩ A non-default sshd port on a route is refused (a dialer has no target),
+        // on an otherwise minimal policy and before the widening check on a wider one; the
+        // default value is the same request as no value.
+        for exposure in [
+            ExposurePolicy {
+                sshd_port: 2222,
+                ..ExposurePolicy::default()
+            },
+            ExposurePolicy {
+                sshd_port: 2222,
+                bind: BindScope::Wildcard,
+                ..ExposurePolicy::default()
+            },
+        ] {
+            let e = ops
+                .add(&d("far"), &iroh(), Some(&exposure), None, t())
+                .unwrap_err();
+            assert_eq!(e.code, Code::UsageError);
+            assert_eq!(e.message, crate::transport::SSHD_PORT_NOT_FOR_A_DIALER);
+            assert_eq!(e.effect_status, EffectStatus::None);
+        }
         let chained = ops
-            .add(&d("far"), &RouteSpec::Jump { via: d("hop") }, None, t())
+            .add(
+                &d("far"),
+                &RouteSpec::Jump { via: d("hop") },
+                None,
+                None,
+                t(),
+            )
             .unwrap_err();
         assert_eq!(chained.code, Code::ConfigConflict);
         assert_eq!(
@@ -495,5 +909,85 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+    /// ⟨M06 W5; ADR-0006 §18.9 item 8⟩ A widening add runs only with an approval of exactly
+    /// its delta: an approval of another delta writes nothing; the exact one stores the
+    /// route with a recorded consent naming the decision and the delta. The precheck writes
+    /// nothing and reports a route that is already approved.
+    #[test]
+    fn a_widening_add_runs_only_with_an_approval_of_exactly_its_delta() {
+        use crate::transport::ApprovedWidening;
+        let store = store_with(&[("far", None)]);
+        let ops = RouteOps { store: &store };
+        let exposure = ExposurePolicy {
+            direct_fallback: true,
+            ..ExposurePolicy::default()
+        };
+        let delta = RouteOps::add_delta(&iroh(), Some(&exposure)).unwrap();
+        assert!(delta.direct_fallback_added);
+        assert_eq!(RouteOps::add_delta(&iroh(), None), None);
+        assert_eq!(RouteOps::add_delta(&direct("h"), None), None);
+        assert_eq!(
+            ops.add_precheck(&d("far"), &iroh(), Some(&exposure), t())
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            ops.add_precheck(&d("nope"), &iroh(), Some(&exposure), t())
+                .unwrap_err()
+                .code,
+            Code::NotFound
+        );
+        let decision = heimdall_contract::ids::DecisionId::from_random_bytes([5; 16]);
+        let other = ApprovedWidening {
+            decision: decision.clone(),
+            delta: RouteOps::add_delta(
+                &iroh(),
+                Some(&ExposurePolicy {
+                    bind: BindScope::Wildcard,
+                    ..ExposurePolicy::default()
+                }),
+            )
+            .unwrap(),
+        };
+        let e = ops
+            .add(&d("far"), &iroh(), Some(&exposure), Some(&other), t())
+            .unwrap_err();
+        assert_eq!(e.reason.as_deref(), Some(reason::EXPOSURE_UNCONSENTED));
+        assert!(
+            store
+                .transaction(|tx| Ok((tx.all_destination_routes()?, tx.all_route_consents()?)))
+                .map(|(r, c)| r.is_empty() && c.is_empty())
+                .unwrap(),
+            "nothing written by the precheck or the refused add"
+        );
+        let approved = ApprovedWidening {
+            decision: decision.clone(),
+            delta: delta.clone(),
+        };
+        let added = ops
+            .add(&d("far"), &iroh(), Some(&exposure), Some(&approved), t())
+            .unwrap();
+        assert!(!added.already_present);
+        let consents = store
+            .transaction(|tx| tx.route_consents(Some(&added.route)))
+            .unwrap();
+        assert_eq!(consents.len(), 1);
+        assert_eq!(
+            (&consents[0].decision, &consents[0].delta),
+            (&decision, &delta)
+        );
+        let stored = store
+            .transaction(|tx| tx.destination_routes(&d("far")))
+            .unwrap();
+        let route = stored.iter().find(|r| r.id == added.route).unwrap();
+        assert_eq!(route.exposure.as_ref(), Some(&exposure));
+        assert_eq!(route.consents, vec![consents[0].consent.clone()]);
+        // The same route again is the existing one, with or without an approval.
+        let again = ops
+            .add_precheck(&d("far"), &iroh(), Some(&exposure), t())
+            .unwrap()
+            .unwrap();
+        assert_eq!((again.route, again.already_present), (added.route, true));
     }
 }

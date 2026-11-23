@@ -325,7 +325,48 @@ fn ensure_private_dir(dir: &Path, uid: u32) -> io::Result<()> {
         }
         Err(e) => return Err(e),
     }
+    verify_private_dir(dir, uid).map(drop)
+}
+
+/// The longest Unix socket path this platform binds, in bytes without the terminator
+/// (`sun_path` is 104 bytes on macOS and the BSDs, 108 on Linux).
+pub const SOCKET_PATH_MAX: usize = if cfg!(any(target_os = "linux", target_os = "android")) {
+    107
+} else {
+    103
+};
+
+/// ⟨M06 W5 `w5r`⟩ Create `dir` **exclusively** (mode `0700`, its parent must exist) and
+/// verify it as [`Listener::bind`] verifies a runtime directory: a real directory, owned
+/// by this uid, no group/other bits, the `lstat` and the `fstat` of an opened handle the
+/// same object. Anything already at the name, a symbolic link included, is refused
+/// (`AlreadyExists`) and left untouched: `mkdir` never follows a link at its last
+/// component. Returns the directory's `(st_dev, st_ino)`, so a later removal can check it
+/// removes this directory and no other.
+///
+/// # Errors
+/// The `mkdir`'s error, or `PermissionDenied` when the created directory fails the check
+/// (it is then left in place: what is at the name may no longer be ours).
+pub fn create_private_dir_exclusive(dir: &Path) -> io::Result<(u64, u64)> {
+    fs::DirBuilder::new().mode(0o700).create(dir)?;
+    // The umask may have removed owner bits. A same-user program could swap the new
+    // directory before this (spec P03; out of scope): the check below would refuse it.
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+    verify_private_dir(dir, current_uid())
+}
+
+/// ⟨M06 W5 `w5r`⟩ The check `Listener::bind` applies to its directory, on an existing
+/// `dir`, without creating anything: a real directory (never a link), owned by `uid`, no
+/// group/other bits, and the `lstat` of the path and the `fstat` of an opened handle the
+/// same object.
+/// Returns its `(st_dev, st_ino)`.
+///
+/// # Errors
+/// `PermissionDenied` when it is not such a directory; the `lstat`'s or `open`'s error.
+pub fn verify_private_dir(dir: &Path, uid: u32) -> io::Result<(u64, u64)> {
     let lmeta = fs::symlink_metadata(dir)?;
+    check_private_dir(&PathFacts::of(&lmeta), uid)
+        .map_err(|p| io::Error::new(io::ErrorKind::PermissionDenied, p.to_string()))?;
     let handle = fs::File::open(dir)?;
     let fmeta = handle.metadata()?;
     if (lmeta.dev(), lmeta.ino()) != (fmeta.dev(), fmeta.ino()) {
@@ -334,9 +375,9 @@ fn ensure_private_dir(dir: &Path, uid: u32) -> io::Result<()> {
             "runtime directory changed while it was being checked",
         ));
     }
-    check_private_dir(&PathFacts::of(&lmeta), uid)
-        .and_then(|()| check_private_dir(&PathFacts::of(&fmeta), uid))
-        .map_err(|p| io::Error::new(io::ErrorKind::PermissionDenied, p.to_string()))
+    check_private_dir(&PathFacts::of(&fmeta), uid)
+        .map_err(|p| io::Error::new(io::ErrorKind::PermissionDenied, p.to_string()))?;
+    Ok((lmeta.dev(), lmeta.ino()))
 }
 
 /// File kind as far as the endpoint checks care.

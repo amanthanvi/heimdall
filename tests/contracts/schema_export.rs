@@ -266,7 +266,9 @@ fn public_schemas_tolerate_unknown_fields_except_the_closed_bundle_types() {
             closed_seen.insert((s.name, def.to_owned()));
         }
     }
-    let wanted: BTreeSet<_> = ["request", "ipc.client-message"]
+    // ⟨rev6.5⟩ `decision.remote-widening` carries the recorded request verbatim, so it
+    // embeds the request document and its closed bundle types.
+    let wanted: BTreeSet<_> = ["request", "ipc.client-message", "decision.remote-widening"]
         .into_iter()
         .flat_map(|n| CLOSED.map(|d| (n, d.to_owned())))
         .collect();

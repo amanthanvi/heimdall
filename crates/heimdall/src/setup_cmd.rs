@@ -678,6 +678,7 @@ pub(crate) async fn offer_personal_default<S: Session, P: Prompter>(
 pub(crate) fn run(ctx: &Ctx, args: SetupArgs) -> ExitCode {
     let action = args.action.unwrap_or(SetupCommand::Apply {
         include_git: false,
+        allow_config_commands: false,
         request_id: None,
     });
     match action {
@@ -694,6 +695,7 @@ pub(crate) fn run(ctx: &Ctx, args: SetupArgs) -> ExitCode {
         ),
         SetupCommand::Apply {
             include_git,
+            allow_config_commands,
             request_id,
         } => block(
             ctx,
@@ -705,6 +707,7 @@ pub(crate) fn run(ctx: &Ctx, args: SetupArgs) -> ExitCode {
                     items: Default::default(),
                 },
                 request_id,
+                allow_config_commands,
             ),
         ),
         SetupCommand::Rollback {
@@ -712,10 +715,10 @@ pub(crate) fn run(ctx: &Ctx, args: SetupArgs) -> ExitCode {
             request_id,
         } => block(
             ctx,
-            effect(ctx, rollback_intent(keep_key_files), request_id),
+            effect(ctx, rollback_intent(keep_key_files), request_id, false),
         ),
         SetupCommand::Repair(r) => match repair_intent(&r) {
-            Ok(intent) => block(ctx, effect(ctx, intent, r.request_id)),
+            Ok(intent) => block(ctx, effect(ctx, intent, r.request_id, false)),
             Err(o) => o.emit(ctx),
         },
         SetupCommand::Status => block(ctx, status(ctx)),
@@ -783,8 +786,15 @@ async fn preview(ctx: &Ctx, intent: PreviewIntent) -> Outcome {
     }
 }
 
-/// `apply`, `rollback`, `repair` on a new session.
-async fn effect(ctx: &Ctx, intent: PreviewIntent, given: Option<String>) -> Outcome {
+/// `apply`, `rollback`, `repair` on a new session. `allow_config_commands` (`setup apply
+/// --allow-config-commands`) authorizes the `ssh -G` check of the helper aliases after an
+/// apply, which runs the configuration's own commands.
+async fn effect(
+    ctx: &Ctx,
+    intent: PreviewIntent,
+    given: Option<String>,
+    allow_config_commands: bool,
+) -> Outcome {
     let rid = match request_id(given.as_deref()) {
         Ok(r) => r,
         Err(o) => return o,
@@ -800,6 +810,35 @@ async fn effect(ctx: &Ctx, intent: PreviewIntent, given: Option<String>) -> Outc
         && let Some(note) = offer_personal_default(&mut client, &mut TerminalPrompt, ctx).await
     {
         output::diagnostic(&note);
+    }
+    // ⟨M06 W5 `w5n`, `w5o`; ADR-0012 §5.2 and §5 ⟨2026-11-22⟩ "the pin check"⟩ At projection
+    // time the plan's STATIC check decides what is rendered (nothing of the configuration
+    // runs). The `ssh -G` verification of every alias P renders through the route helper
+    // runs the configuration's commands, so it runs only with `--allow-config-commands`.
+    // A defeated pin is reported; with or without the flag, the helper itself checks with
+    // `ssh -G` before it tries any route and refuses such an alias.
+    let mut out = out;
+    if allow_config_commands
+        && matches!(intent, PreviewIntent::Apply { .. })
+        && out.exit == ExitCode::Success
+    {
+        for (alias, setting) in crate::m06_cmd::verify_projected_helper_aliases(ctx).await {
+            let message = format!(
+                "`{alias}` does not hold its destination's catalog host-key pin: the SSH \
+                 configuration decides `{setting}` outside Heimdall's own section \
+                 (host_pin_defeated: {setting}). `ssh {alias}` is refused by Heimdall's \
+                 route helper until that setting no longer applies; `heimdall doctor` \
+                 names it"
+            );
+            if !ctx.json {
+                output::diagnostic(&message);
+            }
+            out.env.warnings.push(Warning {
+                code: "HOST_PIN_DEFEATED".to_owned(),
+                message,
+                reason: Some(reason::HOST_PIN_DEFEATED.to_owned()),
+            });
+        }
     }
     finish_repair(ctx, &intent, out)
 }

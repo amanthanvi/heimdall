@@ -82,6 +82,14 @@ pub fn wsl_command(
         }
     }
     cmd.env("WSL_UTF8", "0");
+    // ⟨M06 W5 `w5v` round 3⟩ The in-box `ssh.exe` the distribution helper starts through
+    // interop (its local `ssh -G` queries) runs with this `wsl.exe`'s Windows environment,
+    // and Win32-OpenSSH exits 255 without a word when `ProgramData` is unset
+    // (`init_prog_paths`, before its standard error exists). So this child also gets what
+    // OpenSSH for Windows needs to start, from the operating system (`ProgramData`,
+    // `ALLUSERSPROFILE`, `SystemDrive`, `windir`; ⟨M04 U2⟩ `fill_openssh_environment`), never
+    // from the parent. A no-op off Windows.
+    heimdall_localenv::sys::openssh_env::fill_openssh_environment(&mut cmd, false);
     cmd
 }
 
@@ -311,6 +319,15 @@ mod tests {
             .collect();
         let mut names: Vec<&str> = envs.iter().map(|(k, _)| k.as_str()).collect();
         names.sort_unstable();
+        // ⟨`w5v` round 3⟩ On Windows also what OpenSSH for Windows needs to start, from the
+        // operating system (never the parent's value): `wsl_exe_carries_what_an_interop_ssh_exe_needs`.
+        if cfg!(windows) {
+            names.retain(|n| {
+                !heimdall_localenv::sys::openssh_env::OPENSSH_WINDOWS_VARS
+                    .iter()
+                    .any(|v| v.eq_ignore_ascii_case(n))
+            });
+        }
         assert_eq!(names, ["PATH", "SystemRoot", "TEMP", "WSL_UTF8"]);
         assert!(envs.iter().any(|(k, v)| k == "WSL_UTF8" && v == "0"));
         assert_eq!(
@@ -318,5 +335,30 @@ mod tests {
             "C:\\Windows\\System32\\OpenSSH\\ssh.exe"
         );
         assert_eq!(ssh_exe_windows(None), SSH_EXE_DEFAULT);
+    }
+
+    /// ⟨M06 W5 `w5v` round 3⟩ A `wsl.exe` child gets `ProgramData` (and the other variables
+    /// OpenSSH for Windows needs to start) from the operating system even when the parent has
+    /// none, so the in-box `ssh.exe` its helper starts through interop can start; a secret of
+    /// the parent never passes. Elsewhere nothing is added.
+    #[test]
+    fn wsl_exe_carries_what_an_interop_ssh_exe_needs() {
+        let parent = |n: &str| match n {
+            "SystemRoot" => Some(OsString::from("C:\\Windows")),
+            "SECRET_TOKEN" => Some(OsString::from("x")),
+            _ => None,
+        };
+        let cmd = wsl_command(Path::new("wsl.exe"), &["--list"], &parent);
+        let set = |name: &str| {
+            cmd.get_envs()
+                .any(|(k, v)| k.eq_ignore_ascii_case(name) && v.is_some_and(|v| !v.is_empty()))
+        };
+        assert!(!set("SECRET_TOKEN"));
+        if cfg!(windows) {
+            assert!(set("ProgramData"), "ProgramData from the operating system");
+            assert!(set("windir"));
+        } else {
+            assert!(!set("ProgramData"));
+        }
     }
 }

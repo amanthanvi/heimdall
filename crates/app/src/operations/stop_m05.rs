@@ -84,8 +84,11 @@ use heimdall_domain::operation::{
 use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::revocation::{RevocationCause, Tombstone};
-use heimdall_domain::workspace::{BindingContext, DecisionBasis, PolicyChangeCause, WorkStop};
+use heimdall_domain::workspace::{
+    BindingContext, DecisionBasis, DeliveredLift, PolicyChangeCause, WorkStop,
+};
 use heimdall_store::Txn;
+use heimdall_store::ext_effects::PolicyRevisionKind;
 
 use super::narrowing::{NarrowingKind, SetReader};
 use super::{
@@ -267,6 +270,212 @@ fn resolve_target(
         // A target this build does not know names nothing (fail closed: no write).
         _ => Vec::new(),
     })
+}
+
+/// ⟨M06 W5 `w5l`, `w5m` L1; ADR-0012 §7.4 ⟨2026-11-22⟩ "The in-force flag"⟩ The delivered
+/// effects a targeted `resume` (pauses) or `clear_cutoff` (cutoffs) lifts: every delivered
+/// revision this store (a runner's) holds of **exactly the target's scope** and that kind
+/// that is still in force, whatever standing policies exist now ("the runner's local owner
+/// lifts a delivered effect by clearing its scope"). Exact scope only: `all` names the
+/// effects delivered for `all`, never one delivered for a profile, a workspace or a policy.
+/// Empty for every other action, for a scope without a key, and when none is in force.
+fn delivered_lifts(
+    tx: &mut Txn<'_>,
+    action: &PolicyAction,
+) -> heimdall_store::Result<Vec<DeliveredLift>> {
+    let kind = match action {
+        PolicyAction::Resume { .. } => PolicyRevisionKind::Pause,
+        PolicyAction::ClearCutoff { .. } => PolicyRevisionKind::Cutoff,
+        _ => return Ok(Vec::new()),
+    };
+    let Some(key) = target_of(action).and_then(heimdall_store::ext_effects::scope_key) else {
+        return Ok(Vec::new());
+    };
+    Ok(tx
+        .remote_policy_revisions()?
+        .into_iter()
+        .filter(|r| r.in_force && r.kind == kind && r.scope_key == key)
+        .map(|r| DeliveredLift {
+            scope_key: r.scope_key,
+            kind: lift_kind(r.kind).to_owned(),
+            controller: r.producer,
+            revision: r.revision,
+            effect: r.effect,
+            delivered_at: r.received_at,
+        })
+        .collect())
+}
+
+/// The token of a delivered effect's kind in a [`DeliveredLift`].
+fn lift_kind(kind: PolicyRevisionKind) -> &'static str {
+    match kind {
+        PolicyRevisionKind::Pause => "pause",
+        PolicyRevisionKind::Cutoff => "cutoff",
+    }
+}
+
+/// Whether `action` lifts a delivered effect ([`delivered_lifts`]).
+fn delivered_lift(tx: &mut Txn<'_>, action: &PolicyAction) -> heimdall_store::Result<bool> {
+    Ok(!delivered_lifts(tx, action)?.is_empty())
+}
+
+/// The recorded lifts of `lifts` that are still in force now.
+fn lifts_in_force(
+    tx: &mut Txn<'_>,
+    lifts: &[DeliveredLift],
+) -> heimdall_store::Result<Vec<DeliveredLift>> {
+    let mut out = Vec::new();
+    for l in lifts {
+        if tx
+            .remote_policy_revision(&l.scope_key, &l.controller, l.revision)?
+            .is_some_and(|r| r.in_force && lift_kind(r.kind) == l.kind && r.effect == l.effect)
+        {
+            out.push(l.clone());
+        }
+    }
+    Ok(out)
+}
+
+/// ⟨M06 W5 `w5s`, M06-W5-R01; ADR-0012 §7.4 ⟨2026-11-22⟩ "The in-force flag"⟩ The delivered
+/// effects in force that applying `action` (a `resume` or a `clear_cutoff`) to the stored
+/// policies `ids` would release ([`heimdall_store::Txn::lifted_if`]): a pause or cutoff of
+/// **any** scope whose policies the change leaves unblocked (the policy's own delivered
+/// pause on a runner that holds it, or a profile's cutoff lifted by `clear-cutoff
+/// --policy`). Empty for every other action. ⟨M06 W5 `w5w`, M06-W5-RC01⟩ These are named in
+/// the decision and cleared only when it is approved ([`apply`]); nothing clears the flag
+/// otherwise (not the report, not a removal or other narrowing).
+fn implied_lifts(
+    tx: &mut Txn<'_>,
+    action: &PolicyAction,
+    ids: &BTreeSet<heimdall_contract::ids::PolicyId>,
+) -> heimdall_store::Result<Vec<DeliveredLift>> {
+    if !matches!(
+        action,
+        PolicyAction::Resume { .. } | PolicyAction::ClearCutoff { .. }
+    ) || ids.is_empty()
+    {
+        return Ok(Vec::new());
+    }
+    let mut after = tx.policies()?;
+    for p in after.iter_mut().filter(|p| ids.contains(&p.id)) {
+        // `resume` and `clear_cutoff` do not read the instant.
+        apply_change(action, p, Timestamp::MIN);
+    }
+    Ok(tx
+        .lifted_if(&after)?
+        .into_iter()
+        .map(|r| DeliveredLift {
+            scope_key: r.scope_key,
+            kind: lift_kind(r.kind).to_owned(),
+            controller: r.producer,
+            revision: r.revision,
+            effect: r.effect,
+            delivered_at: r.received_at,
+        })
+        .collect())
+}
+
+/// `more` added to `lifts`, each effect once (keyed by scope, controller and revision).
+fn union_lifts(mut lifts: Vec<DeliveredLift>, more: Vec<DeliveredLift>) -> Vec<DeliveredLift> {
+    for l in more {
+        if !lifts.iter().any(|k| same_lift(k, &l)) {
+            lifts.push(l);
+        }
+    }
+    lifts
+}
+
+fn same_lift(a: &DeliveredLift, b: &DeliveredLift) -> bool {
+    a.scope_key == b.scope_key && a.controller == b.controller && a.revision == b.revision
+}
+
+/// ⟨M06 W5 `w5s`, M06-W5-R01⟩ Inside `decide`'s transaction, before an **approval** of a
+/// `resume` or `clear_cutoff` record (targeted or not) is completed: every delivered effect
+/// the approval would lift now must be one the record names (its basis's `lifts`, shown to
+/// the owner as `lifted_effects`). ⟨M06 W5 `w5u`, the rulings of 2026-11-23⟩ One it does
+/// not name (the state changed after the decision was issued: an effect delivered since, or
+/// a record made before it arrived) is `DECISION_STALE` (ADR-0006 §3.1; `next:
+/// fix_request`), as [`listed`]'s stale path answers: nothing written, nothing lifted, the
+/// record left pending, and the message names each extra lift. The owner asks again for a
+/// fresh decision naming the set. Denials and other actions pass.
+///
+/// # Errors
+/// A store failure.
+pub(super) fn lift_binding(
+    tx: &mut Txn<'_>,
+    d: &DecisionRecord,
+    verdict: Verdict,
+) -> heimdall_store::Result<Result<(), OpError>> {
+    let DecisionKind::WidenPolicy { action } = &d.kind else {
+        return Ok(Ok(()));
+    };
+    if verdict == Verdict::Deny
+        || !matches!(
+            action,
+            PolicyAction::Resume { .. } | PolicyAction::ClearCutoff { .. }
+        )
+    {
+        return Ok(Ok(()));
+    }
+    let (ids, named) = match tx.decision_basis(&d.id)? {
+        Some(DecisionBasis::Targeted { policies, lifts }) => {
+            (policies.into_keys().collect::<BTreeSet<_>>(), lifts)
+        }
+        _ => (
+            action.policy_id().cloned().into_iter().collect(),
+            Vec::new(),
+        ),
+    };
+    let unnamed: Vec<String> = implied_lifts(tx, action, &ids)?
+        .into_iter()
+        .filter(|l| !named.iter().any(|n| same_lift(n, l)))
+        .map(|l| {
+            format!(
+                "a {} of {} delivered by {} (revision {})",
+                l.kind, l.scope_key, l.controller, l.revision
+            )
+        })
+        .collect();
+    Ok(if unnamed.is_empty() {
+        Ok(())
+    } else {
+        Err(stale(&format!(
+            "the state changed after this decision was issued: approving it would also lift {}, which it does not name; nothing was lifted; request it again on this runner for a fresh decision",
+            unnamed.join(", ")
+        )))
+    })
+}
+
+/// ⟨M06 W5 `w5u`; ADR-0012 §7.4 ⟨2026-11-23⟩⟩ A paired session's `resume` or `clear_cutoff`
+/// of the stored policies `ids` whose approval would lift a delivered effect in force
+/// ([`implied_lifts`]) is refused at request time, before any record is written:
+/// `CAPABILITY_UNAVAILABLE` / `role_insufficient` (only the runner's local owner lifts a
+/// delivered effect). `None` otherwise.
+///
+/// # Errors
+/// A store failure.
+pub(super) fn paired_lift_refusal(
+    tx: &mut Txn<'_>,
+    action: &PolicyAction,
+    ids: &BTreeSet<heimdall_contract::ids::PolicyId>,
+) -> heimdall_store::Result<Option<OpError>> {
+    if implied_lifts(tx, action, ids)?.is_empty() {
+        return Ok(None);
+    }
+    let command = if matches!(action, PolicyAction::ClearCutoff { .. }) {
+        "heimdall access cutoff --clear"
+    } else {
+        "heimdall access resume"
+    };
+    Ok(Some(
+        OpError::new(
+            Code::CapabilityUnavailable,
+            format!(
+                "this would lift a pause or cutoff a controller delivered; only the local owner on the runner can lift a delivered effect: run `{command}` there"
+            ),
+        )
+        .with_reason(reason::ROLE_INSUFFICIENT),
+    ))
 }
 
 /// How a targeted action relates to one stored policy.
@@ -511,6 +720,65 @@ fn targeted_view(
 }
 
 impl Operations {
+    /// ⟨M06 W5 `w5l`; ADR-0012 §7.4 ⟨2026-11-22⟩ "The in-force flag"⟩ The targeted form of
+    /// a local owner's `resume` or `clear_cutoff` that names **one policy this runner does
+    /// not hold** while a delivered pause or cutoff of exactly that policy is still in
+    /// force: the same action with the target `policy`, which [`Self::policy_targeted`]
+    /// then treats as the lift of that delivered effect. `None` in every other case (the
+    /// request is answered as before: `NOT_FOUND` for an unknown policy).
+    pub(super) async fn delivered_lift_form(
+        &self,
+        caller: &Caller,
+        req: &PolicyAction,
+    ) -> Result<Option<PolicyAction>, OpError> {
+        if caller.context.remote_client.is_some() {
+            return Ok(None);
+        }
+        let (policy_id, targeted) = match req {
+            PolicyAction::Resume {
+                policy_id: Some(id),
+                target: None,
+            } => (
+                id.clone(),
+                PolicyAction::Resume {
+                    policy_id: None,
+                    target: Some(PolicyTarget::Policy {
+                        policy_id: id.clone(),
+                    }),
+                },
+            ),
+            PolicyAction::ClearCutoff {
+                policy_id: Some(id),
+                target: None,
+            } => (
+                id.clone(),
+                PolicyAction::ClearCutoff {
+                    policy_id: None,
+                    target: Some(PolicyTarget::Policy {
+                        policy_id: id.clone(),
+                    }),
+                },
+            ),
+            _ => return Ok(None),
+        };
+        let action = targeted.clone();
+        let lifts = self
+            .write(move |tx, _| {
+                Ok(if tx.policy(&policy_id)?.is_none() {
+                    delivered_lift(tx, &action)?
+                } else {
+                    // ⟨M06 W5 `w5s`, M06-W5-R01⟩ A policy this runner holds: the targeted
+                    // form too when widening it lifts a delivered effect (its own
+                    // delivered pause, or a cutoff delivered for its profile), so the
+                    // record names every effect its approval lifts.
+                    let ids = std::iter::once(policy_id).collect();
+                    !implied_lifts(tx, &action, &ids)?.is_empty()
+                })
+            })
+            .await?;
+        Ok(lifts.then_some(targeted))
+    }
+
     /// ⟨M05⟩ A targeted `pause`, `resume`, `cutoff` or `clear_cutoff`, or `stop {target}`
     /// (module documentation). The target is resolved, every policy classified and the
     /// narrowing part applied in **one** transaction under the narrowing protocol; a
@@ -524,6 +792,9 @@ impl Operations {
             return Err(internal("not a targeted policy action"));
         };
         let attended = caller.is_attended();
+        // A paired session's request never lifts a delivered effect (ADR-0012 §7.4: only a
+        // runner-local attended action does).
+        let local = caller.context.remote_client.is_none();
         let gate = self.inner.timegate.in_txn();
         let decision_id = crate::ids::new_decision_id()?;
         let lifetime = self.inner.config.limits.decision_lifetime;
@@ -549,7 +820,31 @@ impl Operations {
                         Err(_) => gate.clock().wall(),
                     };
                     let policies = resolve_target(tx, &target)?;
-                    if policies.is_empty() {
+                    // ⟨M06 W5 `w5l`, `w5m` L1⟩ The local owner's targeted `resume` or
+                    // `clear_cutoff` also lifts the delivered effects of exactly this scope
+                    // that are in force ([`delivered_lifts`]), whatever policies the target
+                    // resolves to now (none; one added after the effect; others than the
+                    // ones it applied to). That is a widening, decided like any other. A
+                    // paired session's request lifts nothing.
+                    let mut lifted = if local {
+                        delivered_lifts(tx, &action)?
+                    } else {
+                        Vec::new()
+                    };
+                    let lifts = !lifted.is_empty();
+                    // ⟨M06 W5 `w5u`⟩ A paired session's request whose approval would lift
+                    // a delivered effect is refused now, with no record.
+                    if !local {
+                        let ids = policies
+                            .iter()
+                            .filter(|p| change_of(&action, p) == Change::Widens)
+                            .map(|p| p.id.clone())
+                            .collect();
+                        if let Some(e) = paired_lift_refusal(tx, &action, &ids)? {
+                            return Ok((Err(e), Ended::default()));
+                        }
+                    }
+                    if policies.is_empty() && !lifts {
                         return Ok((Err(target_empty()), Ended::default()));
                     }
                     // The set, read before anything is written (the commit's own re-read).
@@ -621,7 +916,7 @@ impl Operations {
                         .iter()
                         .flat_map(|(_, all)| all.iter().cloned())
                         .collect();
-                    if widened.is_empty() {
+                    if widened.is_empty() && !lifts {
                         return Ok((
                             Ok(Targeted::Applied {
                                 policies: after,
@@ -638,7 +933,19 @@ impl Operations {
                     if let Err(u) = &assessed {
                         return Ok((Err(uncertain(u).with_effect(effect)), ended));
                     }
-                    let basis = DecisionBasis::Targeted { policies: widened };
+                    // ⟨M06 W5 `w5s`, M06-W5-R01⟩ And every other delivered effect in force
+                    // that widening exactly these policies releases ([`implied_lifts`])
+                    // (any scope: a pause delivered for one of them, a cutoff delivered for
+                    // their profile), so the approval names each one it lifts. A paired
+                    // session's request that would lift one was refused above.
+                    if local {
+                        let ids = widened.keys().cloned().collect();
+                        lifted = union_lifts(lifted, implied_lifts(tx, &action, &ids)?);
+                    }
+                    let basis = DecisionBasis::Targeted {
+                        policies: widened,
+                        lifts: lifted,
+                    };
                     let current = tx.authority_generation()?;
                     if let Some(existing) = pending_record(tx, &action, &basis, now, current)? {
                         return Ok((
@@ -708,13 +1015,19 @@ fn listed(
     tx: &mut Txn<'_>,
     d: &DecisionRecord,
 ) -> heimdall_store::Result<Result<Vec<StandingPolicy>, OpError>> {
-    let Some(DecisionBasis::Targeted { policies }) = tx.decision_basis(&d.id)? else {
+    let Some(DecisionBasis::Targeted { policies, lifts }) = tx.decision_basis(&d.id)? else {
         return Ok(Err(stale(
             "the decision's basis is unknown; request it again",
         )));
     };
     if policies.is_empty() {
-        return Ok(Err(stale("the decision lists no policy; request it again")));
+        // ⟨M06 W5 `w5l`, `w5m` L1⟩ A record that lists no policy only lifts delivered
+        // effects: still good while one of the effects it names is in force.
+        return Ok(if lifts_in_force(tx, &lifts)?.is_empty() {
+            Err(stale("the decision lists no policy; request it again"))
+        } else {
+            Ok(Vec::new())
+        });
     }
     let mut out = Vec::new();
     for (id, revision) in policies {
@@ -736,6 +1049,43 @@ fn listed(
 ///
 /// # Errors
 /// A store failure.
+/// ⟨M06 W5 `w5m` L2; ADR-0006 §18.9⟩ The delivered effects a targeted `resume` or
+/// `clear_cutoff` record lifts, for the decision view (`lifted_effects`): each one's scope,
+/// kind, the controller that delivered it and when. `None` for a record that lifts none, so
+/// its view is unchanged.
+///
+/// # Errors
+/// A store failure.
+pub(super) fn lifted_effects(
+    tx: &mut Txn<'_>,
+    d: &DecisionRecord,
+) -> heimdall_store::Result<Option<Vec<heimdall_contract::decision::LiftedEffect>>> {
+    let DecisionKind::WidenPolicy { action } = &d.kind else {
+        return Ok(None);
+    };
+    let Some(DecisionBasis::Targeted { lifts, .. }) = tx.decision_basis(&d.id)? else {
+        return Ok(None);
+    };
+    if lifts.is_empty() {
+        return Ok(None);
+    }
+    let scope = target_of(action).cloned();
+    Ok(Some(
+        lifts
+            .into_iter()
+            .map(|l| heimdall_contract::decision::LiftedEffect {
+                scope: scope.clone(),
+                scope_key: l.scope_key,
+                kind: l.kind,
+                controller: l.controller,
+                revision: l.revision,
+                effect: l.effect,
+                delivered_at: l.delivered_at,
+            })
+            .collect(),
+    ))
+}
+
 pub(super) fn listed_policies(
     tx: &mut Txn<'_>,
     d: &DecisionRecord,
@@ -744,7 +1094,7 @@ pub(super) fn listed_policies(
         return Ok(None);
     }
     Ok(match tx.decision_basis(&d.id)? {
-        Some(DecisionBasis::Targeted { policies }) => Some(
+        Some(DecisionBasis::Targeted { policies, .. }) => Some(
             policies
                 .into_iter()
                 .map(|(policy_id, revision)| PolicyRevisionRef {
@@ -771,7 +1121,10 @@ pub(super) fn precheck(
     if verdict == Verdict::Deny {
         return Ok(Ok(()));
     }
-    Ok(listed(tx, d)?.map(|_| ()))
+    if let Err(e) = listed(tx, d)? {
+        return Ok(Err(e));
+    }
+    lift_binding(tx, d, verdict)
 }
 
 /// ⟨M05⟩ Inside `decide`'s transaction, **after** the record was completed: an approval
@@ -796,6 +1149,15 @@ pub(super) fn apply(
             Ok(p) => p,
             Err(e) => return Ok(Err(e)),
         };
+        // ⟨M06 W5 `w5l`, `w5m` L1⟩ The delivered effects the record names (the local
+        // owner's request recorded them; a paired session's record names none): their
+        // in-force flags are cleared, exactly those rows and nothing else. One delivered
+        // after the record was made was not shown to the owner and stays in force.
+        if let Some(DecisionBasis::Targeted { lifts, .. }) = tx.decision_basis(&record.id)? {
+            for l in lifts_in_force(tx, &lifts)? {
+                tx.lift_remote_policy_revision(&l.scope_key, &l.controller, l.revision)?;
+            }
+        }
         for mut p in policies {
             apply_change(action, &mut p, now);
             write_revision(
