@@ -144,6 +144,25 @@ Each has what today's build does (observed, with where), and a recommendation.
   damage into the store as fence records (`REQUEST_STALE`), so nothing past the damage can run
   twice, and whether the restore epoch is raised as part of the repair.
 
+### U0-Q9. Catalog alias uniqueness is case-insensitive (added by M08 W2-2, 2026-11-23)
+- **Observed:** the catalog's alias check is case-sensitive (`WHERE alias = ?1` and a `UNIQUE`
+  column in `crates/store/migrations/0005_existing_access.sql`), so `Alpha` can be stored beside
+  `alpha`. The managed-file renderer then refuses the pair (`duplicate_alias_is_refused`,
+  `crates/sshconf/src/render.rs`), so no wrong identity is written, but the catalog holds a state it
+  cannot render.
+- **Ruled direction (the contract owner's, low):** catalog alias uniqueness is case-insensitive,
+  matching `ssh_config` `Host` matching, checked at write time and answered `CONFIG_CONFLICT` with
+  reason `alias_collision`. Existing case-variant duplicates are reported, not rewritten. It touches
+  the store, so it lands with U0.
+
+### U0-Q10. The `alias_collision` doctor finding and the `AliasCollision` setup conflict have no producer (added by M08 W2-2, 2026-11-23)
+- **Observed:** the contract defines a doctor finding `alias_collision` and a setup conflict
+  `AliasCollision`, but nothing in `crates/localenv` produces either; the only producer of the
+  reason is the catalog (`crates/app/src/catalog.rs`). No test puts a same-name `Host <alias>` in
+  the user's configuration or an included file.
+- **Question:** produce them (the passive doctor and setup report a user `Host` section that names
+  a managed alias), or remove them from the contract. U1b's new test follows whichever is decided.
+
 ## 4. Rulings already made that U0 or U4b must carry
 
 - `invalid_retries` counts answers whose `next.action` is `fix_request` or `new_request_id`.
