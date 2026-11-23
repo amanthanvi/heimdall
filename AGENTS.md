@@ -66,8 +66,11 @@ Before planning, reviewing, testing or recording a wave, read
   reads the account's real `~/.ssh/config` unless told otherwise. In tests, that `ssh`
   always gets `-F <scratch config>` and the isolated options: on the `run -- ssh` command
   line, or for `connect` through a wrapper `ssh` first on `PATH` that adds them (as
-  `tests/e2e/cli_m02.rs` does). Otherwise run inside a container. Never run them on a host
-  any other way.
+  `tests/e2e/cli_m02.rs` does), or on Windows, where `connect` starts the pinned in-box
+  `ssh.exe`, through the debug pinned-client redirect `HEIMDALL_TEST_PINNED_CLIENT` (the
+  testkit wrapper `hm-pinned-ssh`, which checks the effective configuration with `ssh -G`,
+  adds the isolated options and starts the in-box client). Otherwise run inside a
+  container. Never run them on a host any other way.
 - Work that `heimdall run` or `connect` launches on a runner gets the account's real
   `HOME`, `USER` and `SHELL` from the account database (ADR-0012 §4), with no debug
   redirect; on the devbox that is the owner's account. So in tests, every `ssh` inside
