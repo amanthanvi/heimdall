@@ -543,6 +543,8 @@ def make_record(a):
         "schema": "heimdall-build-record/1",
         "commit": a["commit"], "commit_time": a["time"], "tree_clean": a["clean"] == "yes",
         "target": a["target"], "profile": "release", "features": a.get("features") or "default",
+        # Ruling E2 (option c): release artifacts never carry the Iroh transport.
+        "iroh_transport": "not built (release artifacts ship without the iroh feature; the Iroh transport is a source-build preview)",
         "rustflags": a["flags"],
         "toolchain": toolchain,
         "cargo_lock_sha256": sha256(os.path.join(REPO, "Cargo.lock")),
@@ -761,6 +763,7 @@ def self_test():
         second = json.dumps(make_record(dict(inputs, started="2026-02-02T20:00:00Z", finished="2026-02-02T20:09:00Z")), indent=1, sort_keys=True)
         check("records of the same inputs at different times are byte-identical", first == second)
         check("the packed record holds no build time", "started_at" not in rec and "finished_at" not in rec)
+        check("the record says the Iroh transport is not built", rec["iroh_transport"].startswith("not built"))
         ext = external_record(rec, "2026-01-01T10:00:00Z", "2026-01-01T10:05:00Z")
         check("the external record is the packed record plus the two times",
               {k: v for k, v in ext.items() if k not in ("started_at", "finished_at")} == rec
@@ -903,6 +906,8 @@ def main(argv):
                 text = make_notices(root, comps, target, features)
         elif cmd == "build-record":
             need(opts, "target", "commit", "time", "clean", "flags", "stage", "out")
+            if "iroh" in [f.strip().split("/")[-1] for f in (opts.get("features") or "").split(",")]:
+                raise Refused("release artifacts are built without the iroh feature")
             text = json.dumps(make_record(opts), indent=1, sort_keys=True) + "\n"
         elif cmd == "external-record":
             need(opts, "record", "started", "finished", "out")

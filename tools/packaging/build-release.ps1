@@ -71,6 +71,8 @@ if (-not $version) { Fail 2 "no workspace version" }
 # The feature list is passed to cargo on one command line (below), so it may hold only the
 # characters a feature list uses.
 if ($Features -and ($Features -notmatch '^[A-Za-z0-9_,/-]+$')) { Fail 2 "-Features may hold only letters, digits, '_', '-', '/' and ','" }
+# Release artifacts ship without the Iroh transport (ruling E2, option c): a source-build preview.
+if ((",$Features," -split ',') -contains 'iroh' -or (",$Features," -split ',') -contains 'heimdall/iroh') { Fail 2 "release artifacts are built without the iroh feature (the Iroh transport is a source-build preview)" }
 
 # rustc applies the last matching --remap-path-prefix, so the general one comes first.
 $sep = [char]0x1f

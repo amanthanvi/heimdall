@@ -46,6 +46,9 @@ while [ $# -gt 0 ]; do
         *) [ -z "$target" ] || usage; target=$1; shift ;;
     esac
 done
+# Release artifacts ship without the Iroh transport (ruling E2, option c): it is a preview,
+# built from source with --features iroh, with no support label.
+case ",$features," in *,iroh,*|*,heimdall/iroh,*) echo "build-release: release artifacts are built without the iroh feature (the Iroh transport is a source-build preview)" >&2; exit 2 ;; esac
 [ -n "$target" ] || usage
 
 zig_target=""
