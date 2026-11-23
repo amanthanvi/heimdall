@@ -2151,3 +2151,230 @@ impl World {
         self.clock.wall()
     }
 }
+
+// =================================================================================
+// ⟨M06 W5⟩ Record source (b): a personal policy that names a recorded runner
+// =================================================================================
+
+fn runner_env() -> EnvironmentId {
+    EnvironmentId::from_random_bytes([9; 16])
+}
+
+/// This controller's record of the runner [`runner_env`], holding `role` there.
+fn record_runner(w: &World, role: heimdall_contract::remote::Role) {
+    use heimdall_contract::controller_record::{
+        ManagementHop, ManagementRoute, RemoteEnvironmentPin,
+    };
+    let pin = RemoteEnvironmentPin {
+        environment: runner_env(),
+        destination: DestinationId::parse("runner1").unwrap(),
+        route: ManagementRoute {
+            runner: ManagementHop {
+                hostname: "runner1.example".into(),
+                port: None,
+                account: AccountName::parse("deploy").unwrap(),
+                host_keys: vec!["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA".into()],
+            },
+            jump: None,
+        },
+        client: heimdall_contract::ids::ClientId::from_random_bytes([3; 16]),
+        role,
+        key_fingerprint: heimdall_contract::ids::KeyFingerprint::parse(&format!(
+            "SHA256:{}",
+            "K".repeat(43)
+        ))
+        .unwrap(),
+        label: None,
+        pinned_at: t0(),
+    };
+    w.store
+        .transaction(|tx| {
+            tx.put_remote_environment_pin(
+                &pin.environment,
+                &pin.destination,
+                &pin.route.runner.account,
+                &pin.key_fingerprint,
+                &serde_json::to_string(&pin).unwrap(),
+                t0(),
+            )
+        })
+        .unwrap();
+}
+
+fn create_for(profile: &str, environments: &[EnvironmentId], default: bool) -> PolicyAction {
+    PolicyAction::Create {
+        profile: ProfileId::parse(profile).unwrap(),
+        environments: environments.iter().cloned().collect(),
+        max_window: None,
+        default,
+    }
+}
+
+/// m06-plan §2 item 3 "Who can create one" and "It activates nothing locally"; ADR-0005
+/// §3.5 condition 8 (b). A personal `create` may name an environment outside the managed
+/// set in exactly one case: a single recorded runner on which this controller holds a role
+/// the role table allows to issue, through the ordinary attended widening. An unrecorded
+/// environment keeps the managed-set refusal; a limited role, a mixed set and `default`
+/// are refused before any record. The approved policy changes nothing local: no
+/// environment record, no automatic activation, no default profile, and a local `ensure`
+/// for its profile still waits for its own approval and binds nothing. The role is judged
+/// again when the decision is applied.
+#[tokio::test]
+async fn a_policy_naming_a_runner_needs_an_issuing_role_and_activates_nothing_locally() {
+    use heimdall_contract::remote::Role;
+    let w = World::new().await;
+    let before = w.snap();
+    let runner = [runner_env()];
+
+    // Not recorded: the managed-set refusal, as ever.
+    let e = w
+        .policy(true, create_for("dev", &runner, false))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::NotFound, "{e:?}");
+
+    // Recorded, with a role the table does not let issue.
+    for role in [Role::Requester, Role::Viewer] {
+        record_runner(&w, role);
+        let e = w
+            .policy(true, create_for("dev", &runner, false))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, Code::CapabilityUnavailable, "{e:?}");
+        assert_eq!(
+            e.reason.as_deref(),
+            Some(heimdall_contract::envelope::reason::ROLE_INSUFFICIENT)
+        );
+    }
+
+    // An issuing role: never mixed with another environment, never the default.
+    record_runner(&w, Role::Owner);
+    let mixed = [env_id(), runner_env()];
+    let e = w
+        .policy(true, create_for("dev", &mixed, false))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::UsageError, "{e:?}");
+    let e = w
+        .policy(true, create_for("dev", &runner, true))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::UsageError, "{e:?}");
+    assert_eq!(w.snap(), before, "no refusal wrote anything");
+
+    // The ordinary widening: a decision record, applied only by the attended approval.
+    let e = w
+        .policy(false, create_for("dev", &runner, false))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::InteractionRequired, "{e:?}");
+    let widen = decision_ref(&e);
+    assert!(w.snap().policies.is_empty(), "nothing applied on dispatch");
+    let unattended = w.decide(false, &widen, Verdict::Approve).await;
+    assert!(
+        unattended.is_err(),
+        "an unattended session approves nothing"
+    );
+    assert!(w.snap().policies.is_empty());
+    w.decide(true, &widen, Verdict::Approve).await.unwrap();
+
+    let snap = w.snap();
+    assert_eq!(snap.policies.len(), 1);
+    let p = snap.policies.values().next().unwrap().clone();
+    assert_eq!(p.environments, BTreeSet::from([runner_env()]));
+    assert!(!p.default && p.workspace.is_none());
+    assert_eq!(p.scope.pairs, hosts(0b1111));
+    // Nothing local moved.
+    assert!(!snap.automatic, "no automatic activation here");
+    w.store
+        .transaction(|tx| {
+            assert!(tx.environment(&runner_env())?.is_none(), "no record of it");
+            assert!(tx.default_profile(&env_id())?.is_none());
+            assert!(tx.default_profile(&runner_env())?.is_none());
+            assert!(tx.policies_for(&dev(), &env_id())?.is_empty());
+            Ok(())
+        })
+        .unwrap();
+
+    // A local `ensure` for the same profile is not covered by it: it waits for its own
+    // approval, and nothing is bound or prepared.
+    let e = w
+        .ops
+        .ensure(&owner(false), ensure_req("rb-1", "rb-work", 0b0001))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::InteractionRequired, "{e:?}");
+    assert!(matches!(
+        w.decision(&decision_ref(&e)).kind,
+        DecisionKind::ApproveAuthority { .. }
+    ));
+    // An `ensure` naming the runner is not this pipeline's (the runtime forwards it).
+    let mut remote = ensure_req("rb-2", "rb-work-2", 0b0001);
+    remote.environment = Some(runner_env());
+    let e = w.ops.ensure(&owner(false), remote).await.unwrap_err();
+    assert_eq!(e.code, Code::NotFound, "{e:?}");
+    w.store
+        .transaction(|tx| {
+            for (environment, work) in [(env_id(), "rb-work"), (runner_env(), "rb-work-2")] {
+                assert!(
+                    tx.bindings_for_work(&environment, &WorkId::parse(work).unwrap())?
+                        .is_empty()
+                );
+            }
+            // The one grant is the waiting local request's own (its approval is still
+            // pending, asserted above); the request naming the runner created none.
+            assert_eq!(tx.table_counts()?.grants, 1);
+            Ok(())
+        })
+        .unwrap();
+
+    // It never gains another environment, and no local policy gains the runner.
+    let e = w
+        .policy(
+            true,
+            PolicyAction::ExtendScope {
+                policy_id: p.id.clone(),
+                pairs: BTreeSet::new(),
+                capabilities: BTreeSet::new(),
+                environments: BTreeSet::from([env_id()]),
+                background_work: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::UsageError, "{e:?}");
+    let e = w.policy(true, create(false)).await.unwrap_err();
+    let local = decision_ref(&e);
+    w.decide(true, &local, Verdict::Approve).await.unwrap();
+    let local = w
+        .snap()
+        .policies
+        .into_values()
+        .find(|q| q.environments.contains(&env_id()))
+        .unwrap();
+    let e = w
+        .policy(
+            true,
+            PolicyAction::ExtendScope {
+                policy_id: local.id.clone(),
+                pairs: BTreeSet::new(),
+                capabilities: BTreeSet::new(),
+                environments: BTreeSet::from([runner_env()]),
+                background_work: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::NotFound, "{e:?}");
+
+    // The role is judged again at the approval: a decision made while the role was the
+    // owner's applies nothing once it is not.
+    let e = w
+        .policy(true, create_for("ops", &runner, false))
+        .await
+        .unwrap_err();
+    let later = decision_ref(&e);
+    record_runner(&w, Role::Viewer);
+    assert!(w.decide(true, &later, Verdict::Approve).await.is_err());
+    assert_eq!(w.snap().policies.len(), 2, "no third policy");
+}

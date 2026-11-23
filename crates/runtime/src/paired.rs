@@ -1696,7 +1696,10 @@ impl PairedRunner {
                     environment,
                     client,
                 }) => Frame::Answer(self.revoke_client(environment, client).await),
-                // ⟨M06 W3⟩ The session's own client only (never a field).
+                // ⟨M06 W3⟩ The session's own client only (never a field). ⟨W5; ADR-0006
+                // §18.9 item 5⟩ The form is on the base capability, so a limited role's
+                // session reaches this arm too; the check above and the invitation's own
+                // admission (`rotate_endpoint`) are what decide, per request, as before.
                 Request::RemoteEnvironment(RemoteEnvironmentRequest::RotateEndpoint { .. }) => {
                     Frame::Answer(self.rotate_endpoint(&session.client, &request).await)
                 }
@@ -1957,6 +1960,20 @@ impl PairedRunner {
     /// to its exact request (and, for an exposure widening, its exact delta), or the
     /// recorded answer of the same key.
     fn submit_widening(&self, client: &ClientId, request: &Request) -> Envelope<serde_json::Value> {
+        // ⟨rev6.5; ADR-0006 §18.9 item 9⟩ A `route add`'s relay URLs are validated, and put
+        // in their one spelling, before any record is made of the request.
+        let normal;
+        let request = match request {
+            Request::Route(r) => match heimdall_app::routes::ops::normalized(r) {
+                Ok(std::borrow::Cow::Borrowed(_)) => request,
+                Ok(std::borrow::Cow::Owned(r)) => {
+                    normal = Request::Route(r);
+                    &normal
+                }
+                Err(e) => return value_of(e.into_envelope()),
+            },
+            _ => request,
+        };
         let generation = match self.store.transaction(|tx| tx.authority_generation()) {
             Ok(g) => g,
             Err(_) => return refused(Refusal::State),
@@ -2029,8 +2046,10 @@ impl PairedRunner {
     ) -> Option<Envelope<serde_json::Value>> {
         let records = StoreWidening::new(Arc::clone(&self.store));
         let record = match records.by_decision(&decide.decision_id) {
-            Ok(Some(r)) => r,
-            Ok(None) => return None,
+            // ⟨M06 W5; ADR-0006 §18.9 item 8⟩ A local owner's record is not this path's: its
+            // executor is on every installation (`crate::local_widening`).
+            Ok(Some(r)) if !r.key.submitter.is_local() => r,
+            Ok(_) => return None,
             Err(_) => return Some(refused(Refusal::State)),
         };
         if !attended {

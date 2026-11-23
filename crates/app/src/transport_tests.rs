@@ -132,7 +132,7 @@ fn relays(urls: &[&str]) -> ExposurePolicy {
             relays: urls.iter().map(|u| (*u).to_owned()).collect(),
         },
         direct_fallback: false,
-        port: None,
+        ..ExposurePolicy::default()
     }
 }
 
@@ -369,6 +369,40 @@ fn serve_adopt_then_disable_leaves_no_key_route_allowlist_entry_or_consent() {
         &routes[2].route,
         RouteSpec::Iroh { external_roost: true, endpoint, .. } if *endpoint == roost
     ));
+    // ⟨M06 W5⟩ A non-default sshd port on an adoption is refused before any consent is
+    // read (a dialer has no target), even with a decision bound to that very request.
+    let other = endpoint(b'f');
+    let with_port = ExposurePolicy {
+        sshd_port: 2222,
+        ..ExposurePolicy::default()
+    };
+    for approved in [
+        None,
+        Some(ApprovedWidening {
+            decision: DecisionId::from_random_bytes([7; 16]),
+            delta: TransportOps::adopt_delta(&other, Some(&with_port)),
+        }),
+    ] {
+        let err = run(o.adopt_roost(
+            &lab.id,
+            &other,
+            Some(with_port.clone()),
+            approved.as_ref(),
+            now(),
+        ))
+        .unwrap_err();
+        assert_eq!(err.code, Code::UsageError);
+        assert_eq!(err.message, SSHD_PORT_NOT_FOR_A_DIALER);
+        assert_eq!(err.effect_status, EffectStatus::None);
+    }
+    assert_eq!(
+        store
+            .transaction(|tx| tx.destination_routes(&lab.id))
+            .unwrap()
+            .len(),
+        3,
+        "nothing was adopted"
+    );
     // Adopting the same roost again is refused.
     let err = run(o.adopt_roost(
         &lab.id,
@@ -440,7 +474,7 @@ fn deltas_name_the_exact_change_and_narrowing_never_widens() {
             ],
         },
         direct_fallback: true,
-        port: None,
+        ..ExposurePolicy::default()
     };
     let d = exposure_delta(None, &before, false, &after, false, None);
     assert_eq!(d.relays_added, vec!["https://b.example.invalid".to_owned()]);
@@ -751,4 +785,82 @@ fn forgotten_runners_release_the_old_key_and_no_channel_rotates_nothing() {
     );
     let destroyed = f.calls.lock().unwrap().destroyed.clone();
     assert!(destroyed.contains(&second.endpoint) && destroyed.contains(&second.previous));
+}
+
+/// ⟨M06 W5; ADR-0006 §18.9 item 1; ADR-0012 §2.3 item 2⟩ The serve policy's sshd port:
+/// `0` is refused and so is a port without `serve` (nothing recorded, no key made); the
+/// default is 22; a named port is bound to the decision's exact delta (a decision for
+/// another port does not execute), is recorded with the serve consent in the one enabling
+/// transaction, and is what the endpoint's durable state reads back; the same request again
+/// is the same result and another port is another configuration (`disable` first).
+#[test]
+fn the_sshd_port_is_validated_recorded_with_the_serve_consent_and_changed_only_through_disable() {
+    let store = store();
+    let f = Fakes::new();
+    let o = ops(&store, &f);
+    let with_port = |sshd_port: u16| ExposurePolicy {
+        sshd_port,
+        ..ExposurePolicy::default()
+    };
+    let approve = |policy: &ExposurePolicy, n: u8| ApprovedWidening {
+        decision: DecisionId::from_random_bytes([n; 16]),
+        delta: o.enable_delta(true, Some(policy)).unwrap(),
+    };
+
+    // Validation: nothing is recorded and no key is made.
+    let zero = with_port(0);
+    let e = run(o.enable(true, Some(zero.clone()), Some(&approve(&zero, 1)), now())).unwrap_err();
+    assert_eq!(e.code, Code::UsageError);
+    let unserved = run(o.enable(false, Some(with_port(2222)), None, now())).unwrap_err();
+    assert_eq!(unserved.code, Code::UsageError);
+    assert_eq!(f.calls.lock().unwrap().created, 0);
+    assert!(store.transaction(endpoint_state).unwrap().key.is_none());
+
+    // A decision for port 22 does not approve port 2222.
+    let named = with_port(2222);
+    let for_default = approve(&ExposurePolicy::default(), 2);
+    let e = run(o.enable(true, Some(named.clone()), Some(&for_default), now())).unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some(reason::EXPOSURE_UNCONSENTED));
+    assert_eq!(f.calls.lock().unwrap().created, 0);
+
+    // The named port, approved: recorded, and read back from durable state.
+    let approved = approve(&named, 3);
+    let enabled = run(o.enable(true, Some(named.clone()), Some(&approved), now())).unwrap();
+    assert_eq!(enabled.exposure.sshd_port, 2222);
+    let state = store.transaction(endpoint_state).unwrap();
+    assert!(state.serve);
+    assert_eq!(state.policy.sshd_port, 2222);
+    assert_eq!(
+        serde_json::to_value(&enabled).unwrap()["exposure"]["sshd_port"],
+        2222
+    );
+
+    // The same request again: the same result. Another port: disable first.
+    let again = run(o.enable(true, Some(named.clone()), None, now())).unwrap();
+    assert!(again.already_enabled);
+    for other in [ExposurePolicy::default(), with_port(2223)] {
+        let e =
+            run(o.enable(true, Some(other.clone()), Some(&approve(&other, 4)), now())).unwrap_err();
+        assert_eq!(e.code, Code::ConfigConflict);
+    }
+    assert_eq!(
+        store.transaction(endpoint_state).unwrap().policy.sshd_port,
+        2222
+    );
+
+    // Disable, then enable with the default: 22, and the field is omitted.
+    run(o.disable(now())).unwrap();
+    let default = ExposurePolicy::default();
+    let approved = approve(&default, 5);
+    let enabled = run(o.enable(true, None, Some(&approved), now())).unwrap();
+    assert_eq!(enabled.exposure.sshd_port, 22);
+    assert!(
+        serde_json::to_value(&enabled).unwrap()["exposure"]
+            .get("sshd_port")
+            .is_none()
+    );
+    assert_eq!(
+        store.transaction(endpoint_state).unwrap().policy.sshd_port,
+        22
+    );
 }

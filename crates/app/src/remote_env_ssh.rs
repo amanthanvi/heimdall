@@ -50,6 +50,13 @@ pub const STDERR_MAX: usize = 64 * 1024;
 /// integrator; its argument shape is DONE question U2-Q4).
 pub const REMOTE_INIT: [&str; 2] = ["remote", "init"];
 
+/// ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ The flag the bootstrap session appends to
+/// the runner's `remote init` ([`bootstrap_args_for`]): after the enrollment the runner says
+/// plainly whether its runtime is running and, when it is not, offers to start it in the
+/// same attended terminal session with a typed `yes`. A `remote init` the runner's owner
+/// runs by hand does not carry it.
+pub const OFFER_RUNTIME_START: &str = "--offer-runtime-start";
+
 /// Key types that can be the only trust source of a pin.
 const PINNABLE: &[&str] = &[
     "ssh-ed25519",
@@ -373,7 +380,12 @@ pub fn bootstrap_args_for(
     args.push(plan.access.route.runner.account.as_str().into());
     args.push("--".into());
     args.push(plan.access.alias.as_str().into());
-    args.push(remote_init_command_for(plan, issuer_ca, iroh_endpoint)?.into());
+    // ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ The bootstrap is attended on this
+    // terminal: the runner says whether its runtime runs and offers to start it there.
+    let mut command = remote_init_command_for(plan, issuer_ca, iroh_endpoint)?;
+    command.push(' ');
+    command.push_str(OFFER_RUNTIME_START);
+    args.push(command.into());
     Ok(args)
 }
 
@@ -444,6 +456,22 @@ impl BootstrapSsh {
 
     fn write_pin_file(&self, plan: &BootstrapPlan) -> Result<PathBuf, OpError> {
         let text = pin_file_text(plan.access.destination.as_str(), &plan.access.route.runner)?;
+        // ⟨M06 W5⟩ The directory may not exist yet: on a new installation the bootstrap runs
+        // before any management session has made it (found by the Windows journey's driver:
+        // the first `environment add` failed here, after K_mgmt had been created).
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt as _;
+            builder.mode(0o700);
+        }
+        builder.create(&self.scratch_dir).map_err(|_| {
+            OpError::new(
+                Code::StateUnavailable,
+                "the bootstrap pin file could not be written",
+            )
+        })?;
         let path = self.scratch_dir.join("bootstrap_known_hosts");
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create(true).truncate(true);
@@ -1024,7 +1052,14 @@ mod tests {
         assert!(session.contains(&"-t".to_owned()));
         let command = session.last().unwrap();
         assert!(command.starts_with("/opt/heimdall/bin/heimdall remote init --owner-client cl_"));
-        assert!(command.ends_with(&format!(" --owner-key '{ED}'")));
+        // ⟨M06 W5⟩ The attended bootstrap session, and only it, asks the runner to state
+        // whether its runtime runs and to offer its start.
+        assert!(command.ends_with(&format!(" --owner-key '{ED}' {OFFER_RUNTIME_START}")));
+        assert!(
+            !remote_init_command(&plan())
+                .unwrap()
+                .contains(OFFER_RUNTIME_START)
+        );
         assert_eq!(
             pin_file_text("lab", &plan().access.route.runner).unwrap(),
             format!("hm-dest-lab {ED}\n")

@@ -28,6 +28,16 @@
 //!   re-execution (T-RA3, ADR-0006 §7.3). The same key with a different request is
 //!   `REQUEST_CONFLICT`.
 //!
+//! * ⟨M06 W5; ADR-0006 §18.9 item 8⟩ **A local owner's widening request**
+//!   ([`submit_local`]) is the same record with [`Submitter::Local`]: no client, and no
+//!   client ID that could stand for one. It is bound to its exact request and its exact
+//!   exposure delta, and looked up by [`local_digest`] (the request without its request ID,
+//!   and the delta), so a retry of the same widening returns the pending record. Whether
+//!   the session is the installation's local owner and attended is the runtime's check
+//!   before it calls [`submit_local`]; nothing here can turn a paired session's request
+//!   into a local record ([`submit`] and [`submit_bound`] take the client and always
+//!   record it).
+//!
 //! **Persistence.** ⟨M06 W2⟩ The records are ADR-0006 §3.1 decision records
 //! ([`StoreWidening`]): a `decisions` row of kind `DecisionKind::RemoteWidening` (the client,
 //! the request kind and ID, the exact request and, for an invite, the bound key and role),
@@ -50,12 +60,40 @@ use heimdall_domain::policy::AuthorityGeneration;
 
 use crate::roles::Refusal;
 
+/// ⟨M06 W5; ADR-0006 §18.9 item 8⟩ Who submitted a widening request: the record's origin,
+/// with the client only where there is one.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Submitter {
+    /// A paired client (`origin = paired`).
+    Paired(ClientId),
+    /// This installation's local owner (`origin = local`): no client.
+    Local,
+}
+
+impl Submitter {
+    /// The paired client, `None` for the local owner.
+    #[must_use]
+    pub fn client(&self) -> Option<&ClientId> {
+        match self {
+            Submitter::Paired(c) => Some(c),
+            Submitter::Local => None,
+        }
+    }
+
+    /// Whether this is the local owner.
+    #[must_use]
+    pub fn is_local(&self) -> bool {
+        matches!(self, Submitter::Local)
+    }
+}
+
 /// The caller-namespaced key of a widening request (ADR-0012 §3.7: two clients' identical
-/// request IDs are different keys).
+/// request IDs are different keys). A local record is not looked up by this key
+/// ([`WideningRecords::pending_local`]).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WideningKey {
-    /// The paired client.
-    pub client: ClientId,
+    /// Who submitted it.
+    pub submitter: Submitter,
     /// The request kind (`remote_environment.invite`, …).
     pub kind: String,
     /// The request ID.
@@ -123,6 +161,9 @@ pub struct WideningRecord {
     /// ⟨M06 W2, U56-Q6⟩ For an exposure widening: the exact exposure delta the request
     /// applies, computed when the record was created (the store's `ExposureDelta` document).
     pub exposure: Option<serde_json::Value>,
+    /// ⟨M06 W5⟩ For a local record: [`local_digest`] of its request and delta, its lookup
+    /// key. `None` exactly for a paired record.
+    pub delta_digest: Option<String>,
     /// The authority generation it was issued under.
     pub generation: AuthorityGeneration,
     /// When it was created.
@@ -157,12 +198,24 @@ pub enum LedgerError {
 
 /// Where runner-local records live (module docs, "Persistence").
 pub trait WideningRecords: Send + Sync {
-    /// The record for a key.
+    /// The paired record for a key; always `None` for a [`Submitter::Local`] key.
     ///
     /// # Errors
     ///
     /// [`LedgerError::Store`].
     fn by_key(&self, key: &WideningKey) -> Result<Option<WideningRecord>, LedgerError>;
+
+    /// ⟨M06 W5⟩ The local record of `kind` and `delta_digest` whose state is `pending`
+    /// (at most one; expiry is the caller's to judge).
+    ///
+    /// # Errors
+    ///
+    /// [`LedgerError::Store`].
+    fn pending_local(
+        &self,
+        kind: &str,
+        delta_digest: &str,
+    ) -> Result<Option<WideningRecord>, LedgerError>;
 
     /// The record with an ID.
     ///
@@ -171,7 +224,8 @@ pub trait WideningRecords: Send + Sync {
     /// [`LedgerError::Store`].
     fn by_decision(&self, id: &DecisionId) -> Result<Option<WideningRecord>, LedgerError>;
 
-    /// Insert a new pending record; its key and ID must be new.
+    /// Insert a new pending record; its ID must be new, and so must a paired record's key
+    /// or a local record's pending (kind, delta digest).
     ///
     /// # Errors
     ///
@@ -268,6 +322,15 @@ fn to_record(
         .transpose()
         .map_err(|_| LedgerError::Store)?;
     let w = *w;
+    // ⟨M06 W5⟩ The origin, the client and the digest agree (the store checked the row
+    // against the decision; this is the port's own reading of the same rule).
+    let submitter = match (row.origin, w.client, &row.delta_digest) {
+        (heimdall_domain::decision::WideningOrigin::Paired, Some(client), None) => {
+            Submitter::Paired(client)
+        }
+        (heimdall_domain::decision::WideningOrigin::Local, None, Some(_)) => Submitter::Local,
+        _ => return Err(LedgerError::Store),
+    };
     let iroh_admission = matches!(
         &w.request,
         Request::RemoteEnvironment(RemoteEnvironmentRequest::Invite {
@@ -278,7 +341,7 @@ fn to_record(
     Ok(WideningRecord {
         decision: d.id,
         key: WideningKey {
-            client: w.client,
+            submitter,
             kind: w.request_kind,
             request_id: w.request_id,
         },
@@ -291,6 +354,7 @@ fn to_record(
             iroh_admission,
         }),
         exposure: w.exposure,
+        delta_digest: row.delta_digest,
         generation: d.generation,
         created_at: d.created_at,
         expires_at: d.expires_at,
@@ -306,7 +370,18 @@ fn envelope_value(e: &Envelope<serde_json::Value>) -> Result<serde_json::Value, 
 
 impl WideningRecords for StoreWidening {
     fn by_key(&self, key: &WideningKey) -> Result<Option<WideningRecord>, LedgerError> {
-        self.read(|tx| tx.remote_widening_by_key(&key.client, &key.kind, &key.request_id))
+        let Submitter::Paired(client) = &key.submitter else {
+            return Ok(None);
+        };
+        self.read(|tx| tx.remote_widening_by_key(client, &key.kind, &key.request_id))
+    }
+
+    fn pending_local(
+        &self,
+        kind: &str,
+        delta_digest: &str,
+    ) -> Result<Option<WideningRecord>, LedgerError> {
+        self.read(|tx| tx.pending_local_widening(kind, delta_digest))
     }
 
     fn by_decision(&self, id: &DecisionId) -> Result<Option<WideningRecord>, LedgerError> {
@@ -318,10 +393,16 @@ impl WideningRecords for StoreWidening {
             DecisionKind, DecisionRecord, RemoteInviteBinding, RemoteWidening,
         };
         let hash = record.request_hash.to_hex();
+        let digest = record.delta_digest;
+        let (origin, client) = match record.key.submitter {
+            Submitter::Paired(c) => (heimdall_domain::decision::WideningOrigin::Paired, Some(c)),
+            Submitter::Local => (heimdall_domain::decision::WideningOrigin::Local, None),
+        };
         let decision = DecisionRecord {
             id: record.decision,
             kind: DecisionKind::RemoteWidening(Box::new(RemoteWidening {
-                client: record.key.client,
+                origin,
+                client,
                 request_kind: record.key.kind,
                 request_id: record.key.request_id,
                 request: record.request,
@@ -339,7 +420,7 @@ impl WideningRecords for StoreWidening {
             decided_at: record.decided_at,
         };
         self.store
-            .transaction(|tx| tx.insert_remote_widening(&decision, &hash))
+            .transaction(|tx| tx.insert_remote_widening(&decision, &hash, digest.as_deref()))
             .map_err(|e| match e {
                 heimdall_store::StoreError::GenerationConflict(_) => LedgerError::Exists,
                 _ => LedgerError::Store,
@@ -494,7 +575,7 @@ pub fn submit_bound(
     let request_id = request_id_of(request).ok_or(Refusal::NotAvailableRemotely)?;
     let invite = invite_binding(request)?;
     let key = WideningKey {
-        client: client.clone(),
+        submitter: Submitter::Paired(client.clone()),
         kind: request.kind().to_owned(),
         request_id: request_id.clone(),
     };
@@ -516,6 +597,7 @@ pub fn submit_bound(
         request_hash: hash,
         invite,
         exposure,
+        delta_digest: None,
         generation,
         created_at: now,
         expires_at: now.checked_add(span).map_err(|_| Refusal::State)?,
@@ -526,6 +608,145 @@ pub fn submit_bound(
     records.insert(rec).map_err(store_err)?;
     let answer = pending_envelope(&decision);
     Ok((Submitted::Created(decision), answer))
+}
+
+/// ⟨M06 W5; ADR-0006 §18.9 item 8⟩ The lookup key of a local widening: a digest of the
+/// request kind, the exact request without its request ID (the CLI mints a fresh one per
+/// run), and the exact exposure delta it applies. Two local requests with the same digest
+/// differ in nothing but their request ID.
+///
+/// # Errors
+///
+/// [`Refusal::State`] when the request does not serialize canonically.
+pub fn local_digest(request: &Request, exposure: &serde_json::Value) -> Result<String, Refusal> {
+    let mut body = serde_json::to_value(request).map_err(|_| Refusal::State)?;
+    let id = request_id_of(request).ok_or(Refusal::NotAvailableRemotely)?;
+    let removed = body
+        .as_object_mut()
+        .and_then(|m| m.remove("request_id"))
+        .is_some_and(|v| v == serde_json::Value::String(id.as_str().to_owned()));
+    if !removed {
+        // The request ID is not where this build expects it: no digest, so no record.
+        return Err(Refusal::State);
+    }
+    let value = serde_json::json!({
+        "kind": request.kind(),
+        "request": body,
+        "delta": exposure,
+    });
+    request_hash("local-widening", &value)
+        .map(|h| h.to_hex())
+        .map_err(|_| Refusal::State)
+}
+
+/// The pending answer of a local record as the request's refusal: `APPROVAL_REQUIRED` with
+/// `next.decision_ref`, effect `none`.
+#[must_use]
+pub fn pending_local_error(decision: &DecisionId) -> heimdall_app::OpError {
+    let mut next = NextAction::for_code(Code::ApprovalRequired);
+    next.decision_ref = Some(decision.as_str().to_owned());
+    heimdall_app::OpError::new(
+        Code::ApprovalRequired,
+        "this request adds exposure: approve its decision in an attended session at this host",
+    )
+    .with_effect(EffectStatus::None)
+    .with_next(next)
+}
+
+/// [`pending_local_error`] as an envelope.
+#[must_use]
+pub fn pending_local_envelope(decision: &DecisionId) -> Envelope<serde_json::Value> {
+    pending_local_error(decision)
+        .into_envelope()
+        .map(|d| serde_json::to_value(d).unwrap_or_default())
+}
+
+/// ⟨M06 W5; ADR-0006 §18.9 item 8⟩ Submit the local owner's widening request, bound to the
+/// exact exposure delta it applies (`exposure`). **The caller has already established that
+/// the session is this installation's local owner, not paired, and attended.** Idempotent
+/// by (`origin = local`, request kind, [`local_digest`]): while a record of that digest is
+/// pending, unexpired and of the current generation, it is returned and nothing is written.
+/// A pending record that lapsed or was issued under another generation is marked so and a
+/// new one is made. Nothing executes here.
+///
+/// # Errors
+///
+/// `driver_unavailable` for a request that is not a keyed widening form (or an invite: a
+/// local owner invites through the paired path's own record); `STATE_UNAVAILABLE`.
+pub fn submit_local(
+    records: &dyn WideningRecords,
+    request: &Request,
+    exposure: serde_json::Value,
+    generation: AuthorityGeneration,
+    now: Timestamp,
+) -> Result<(Submitted, Envelope<serde_json::Value>), Refusal> {
+    let request_id = request_id_of(request).ok_or(Refusal::NotAvailableRemotely)?;
+    if invite_binding(request)?.is_some() {
+        return Err(Refusal::NotAvailableRemotely);
+    }
+    let kind = request.kind().to_owned();
+    let digest = local_digest(request, &exposure)?;
+    let hash = hash_of(request)?;
+    for attempt in 0..2 {
+        if let Some(rec) = records.pending_local(&kind, &digest).map_err(store_err)? {
+            let lapsed = if now >= rec.expires_at {
+                Some(DecisionState::Expired)
+            } else if rec.generation != generation {
+                Some(DecisionState::Stale)
+            } else {
+                None
+            };
+            match lapsed {
+                None => {
+                    let answer = pending_local_envelope(&rec.decision);
+                    return Ok((Submitted::Replayed(rec.decision), answer));
+                }
+                Some(state) => match records.settle(
+                    &rec.decision,
+                    state,
+                    now,
+                    Some(refusal_envelope(Refusal::DecisionStale)),
+                ) {
+                    // Settled here, or by someone else meanwhile: either way it is no
+                    // longer the pending record.
+                    Ok(_) | Err(LedgerError::Moved) => {}
+                    Err(e) => return Err(store_err(e)),
+                },
+            }
+        }
+        let decision = heimdall_app::ids::new_decision_id().map_err(|_| Refusal::State)?;
+        let span = jiff::SignedDuration::try_from(DEFAULT_DECISION_LIFETIME)
+            .map_err(|_| Refusal::State)?;
+        let rec = WideningRecord {
+            decision: decision.clone(),
+            key: WideningKey {
+                submitter: Submitter::Local,
+                kind: kind.clone(),
+                request_id: request_id.clone(),
+            },
+            request: request.clone(),
+            request_hash: hash,
+            invite: None,
+            exposure: Some(exposure.clone()),
+            delta_digest: Some(digest.clone()),
+            generation,
+            created_at: now,
+            expires_at: now.checked_add(span).map_err(|_| Refusal::State)?,
+            state: DecisionState::Pending,
+            decided_at: None,
+            result: None,
+        };
+        match records.insert(rec) {
+            Ok(()) => {
+                let answer = pending_local_envelope(&decision);
+                return Ok((Submitted::Created(decision), answer));
+            }
+            // Another submission of the same delta won the insert: return its record.
+            Err(LedgerError::Exists) if attempt == 0 => {}
+            Err(e) => return Err(store_err(e)),
+        }
+    }
+    Err(Refusal::State)
 }
 
 /// The session a decision arrives on.
@@ -547,7 +768,21 @@ pub struct DecidingSession<'a> {
 ///
 /// [`Refusal::BindingMismatch`]; `STATE_UNAVAILABLE` when the request does not serialize.
 pub fn verify_binding(record: &WideningRecord) -> Result<(), Refusal> {
-    let same = hash_of(&record.request)? == record.request_hash
+    // ⟨M06 W5⟩ A local record is also bound to its delta: it has one, it has a digest, and
+    // the digest is the one its request and delta give. A paired record has no digest.
+    let origin_bound = match (
+        &record.key.submitter,
+        &record.delta_digest,
+        &record.exposure,
+    ) {
+        (Submitter::Paired(_), None, _) => true,
+        (Submitter::Local, Some(digest), Some(exposure)) => {
+            record.invite.is_none() && &local_digest(&record.request, exposure)? == digest
+        }
+        _ => false,
+    };
+    let same = origin_bound
+        && hash_of(&record.request)? == record.request_hash
         && record.request.kind() == record.key.kind
         && request_id_of(&record.request) == Some(&record.key.request_id)
         && invite_binding(&record.request)? == record.invite;
@@ -898,5 +1133,241 @@ mod tests {
         );
         assert!(out.is_ok());
         assert_eq!(admitted, Some(true));
+    }
+    fn enable_serve(request_id: &str, port: Option<u16>) -> Request {
+        let mut v = serde_json::json!({
+            "op": "transport", "action": "enable", "serve": true, "request_id": request_id,
+        });
+        if let Some(p) = port {
+            v["exposure"] = serde_json::json!({
+                "bind": { "kind": "loopback" },
+                "infrastructure": { "kind": "none" },
+                "port": p,
+            });
+        }
+        serde_json::from_value(v).unwrap()
+    }
+
+    /// ⟨M06 W5; ADR-0006 §18.9 item 8⟩ A local widening record, in memory and through the
+    /// store: it has no client; a retry with a fresh request ID and the same delta returns
+    /// the pending record and writes nothing; another delta or another request is another
+    /// record; a lapsed or other-generation pending record is marked and replaced; a paired
+    /// submission of the very same request is a paired record with its client, never the
+    /// local one; and a record whose request or delta changed after it was written is
+    /// refused `decision_binding_mismatch` before it is claimed, by a local attended
+    /// approval, while paired and unattended sessions never decide.
+    #[tokio::test]
+    async fn a_local_record_has_no_client_and_is_idempotent_by_its_delta() {
+        let now: Timestamp = "2026-11-22T09:00:00Z".parse().unwrap();
+        let generation = AuthorityGeneration(3);
+        let delta = serde_json::json!({ "serve_before": false, "serve_after": true });
+        let other_delta = serde_json::json!({ "serve_before": false, "serve_after": true,
+            "direct_fallback_added": true });
+        let store = std::sync::Arc::new(
+            heimdall_store::Store::open_in_memory(std::sync::Arc::new(heimdall_store::NoFaults))
+                .unwrap(),
+        );
+        let stored = StoreWidening::new(std::sync::Arc::clone(&store));
+        let memory = MemoryWidening::new();
+        let ports: [&dyn WideningRecords; 2] = [&stored, &memory];
+        for records in ports {
+            let (first, answer) = submit_local(
+                records,
+                &enable_serve("r1", None),
+                delta.clone(),
+                generation,
+                now,
+            )
+            .unwrap();
+            let Submitted::Created(id) = first else {
+                panic!("not created");
+            };
+            assert_eq!(answer.code, Code::ApprovalRequired);
+            let rec = records.by_decision(&id).unwrap().unwrap();
+            assert_eq!(rec.key.submitter, Submitter::Local);
+            assert_eq!(rec.key.submitter.client(), None);
+            assert_eq!(rec.exposure, Some(delta.clone()));
+            assert_eq!(verify_binding(&rec), Ok(()));
+            // A retry: a fresh request ID, the same delta.
+            let (again, answer) = submit_local(
+                records,
+                &enable_serve("r2", None),
+                delta.clone(),
+                generation,
+                now,
+            )
+            .unwrap();
+            assert_eq!(again, Submitted::Replayed(id.clone()));
+            assert_eq!(answer, pending_local_envelope(&id));
+            // Another delta, and another request under the same delta, are other records.
+            let (Submitted::Created(by_delta), _) = submit_local(
+                records,
+                &enable_serve("r3", None),
+                other_delta.clone(),
+                generation,
+                now,
+            )
+            .unwrap() else {
+                panic!("another delta is another record");
+            };
+            let (Submitted::Created(by_request), _) = submit_local(
+                records,
+                &enable_serve("r4", Some(4433)),
+                delta.clone(),
+                generation,
+                now,
+            )
+            .unwrap() else {
+                panic!("another request is another record");
+            };
+            assert!(by_delta != id && by_request != id && by_delta != by_request);
+            // The same request from a paired client: its own record, with its client.
+            let client = ClientId::from_random_bytes([1; 16]);
+            let (Submitted::Created(paired), _) = submit_bound(
+                records,
+                &client,
+                &enable_serve("r1", None),
+                Some(delta.clone()),
+                generation,
+                now,
+            )
+            .unwrap() else {
+                panic!("a paired request is its own record");
+            };
+            let paired = records.by_decision(&paired).unwrap().unwrap();
+            assert_eq!(paired.key.submitter, Submitter::Paired(client.clone()));
+            assert_eq!(paired.delta_digest, None);
+            // Paired and unattended sessions never decide a local record.
+            for session in [
+                DecidingSession {
+                    remote_client: Some(&client),
+                    attended: true,
+                },
+                DecidingSession {
+                    remote_client: None,
+                    attended: false,
+                },
+            ] {
+                let out = decide(
+                    records,
+                    session,
+                    &id,
+                    Verdict::Approve,
+                    generation,
+                    now,
+                    |_| panic!("nothing executes"),
+                );
+                assert_eq!(out, Err(Refusal::InteractionRequired));
+            }
+            // A lapsed pending record is marked and replaced; so is one of an old generation.
+            let later = rec.expires_at;
+            let (Submitted::Created(after_expiry), _) = submit_local(
+                records,
+                &enable_serve("r5", None),
+                delta.clone(),
+                generation,
+                later,
+            )
+            .unwrap() else {
+                panic!("a lapsed record is not returned");
+            };
+            assert_eq!(
+                records.by_decision(&id).unwrap().unwrap().state,
+                DecisionState::Expired
+            );
+            let moved = AuthorityGeneration(4);
+            let (Submitted::Created(after_move), _) = submit_local(
+                records,
+                &enable_serve("r6", None),
+                delta.clone(),
+                moved,
+                later,
+            )
+            .unwrap() else {
+                panic!("a record of another generation is not returned");
+            };
+            assert_eq!(
+                records.by_decision(&after_expiry).unwrap().unwrap().state,
+                DecisionState::Stale
+            );
+            // The live one runs once on a local attended approval.
+            let mut runs = 0;
+            let out = decide(
+                records,
+                DecidingSession {
+                    remote_client: None,
+                    attended: true,
+                },
+                &after_move,
+                Verdict::Approve,
+                moved,
+                later,
+                |claimed| {
+                    runs += 1;
+                    assert_eq!(claimed.key.submitter, Submitter::Local);
+                    pending_envelope(&after_move)
+                },
+            );
+            assert!(out.is_ok());
+            assert_eq!(runs, 1);
+        }
+        // A changed request or delta: `decision_binding_mismatch`, not claimed.
+        let records = MemoryWidening::new();
+        let mut ids = Vec::new();
+        for (id, d) in [("a", &delta), ("b", &other_delta)] {
+            let (Submitted::Created(d), _) = submit_local(
+                &records,
+                &enable_serve(id, None),
+                d.clone(),
+                generation,
+                now,
+            )
+            .unwrap() else {
+                panic!("not created");
+            };
+            ids.push(d);
+        }
+        let all = records.all();
+        let pick = |id: &DecisionId| all.iter().find(|r| &r.decision == id).unwrap().clone();
+        let mut changed_delta = pick(&ids[0]);
+        changed_delta.exposure = Some(other_delta.clone());
+        let mut changed_request = pick(&ids[1]);
+        changed_request.request = enable_serve("b", Some(4433));
+        let mut no_delta = pick(&ids[0]);
+        no_delta.decision = DecisionId::from_random_bytes([9; 16]);
+        no_delta.exposure = None;
+        let mut with_client = pick(&ids[1]);
+        with_client.decision = DecisionId::from_random_bytes([8; 16]);
+        with_client.key.submitter = Submitter::Paired(ClientId::from_random_bytes([1; 16]));
+        let replaced = MemoryWidening::new();
+        let mut tampered = Vec::new();
+        for r in [changed_delta, changed_request, no_delta, with_client] {
+            tampered.push(r.decision.clone());
+            // Each is its own (kind, digest) or key in the map, so each inserts.
+            let mut r = r;
+            if replaced.insert(r.clone()).is_err() {
+                r.delta_digest = r.delta_digest.map(|d| format!("{d}x"));
+                replaced.insert(r).unwrap();
+            }
+        }
+        for id in &tampered {
+            let out = decide(
+                &replaced,
+                DecidingSession {
+                    remote_client: None,
+                    attended: true,
+                },
+                id,
+                Verdict::Approve,
+                generation,
+                now,
+                |_| panic!("nothing executes"),
+            );
+            assert_eq!(out, Err(Refusal::BindingMismatch), "{id}");
+            assert_eq!(
+                replaced.by_decision(id).unwrap().unwrap().state,
+                DecisionState::Pending
+            );
+        }
     }
 }

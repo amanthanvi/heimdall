@@ -950,4 +950,78 @@ mod tests {
         assert_eq!(approval_needed(Role::Owner), Ok(()));
         assert_eq!(client_role(Role::Viewer), ClientRole::LimitedConsumer);
     }
+
+    /// ⟨rev6.5; ADR-0006 §18.9 item 5⟩ `rotate_endpoint` is on the base capability, so
+    /// a limited role's session (which negotiates no `remote-control/1`) can send it, and
+    /// the per-request check dispatches it for every active role. The form names an
+    /// environment and an endpoint and no client: the runner serves it for the session's
+    /// own client only. Every other `remote_environment` form still needs
+    /// `remote-control/1`, and a pending or revoked client still cannot send this one.
+    #[test]
+    fn any_role_announces_its_own_endpoint_on_the_base_capability() {
+        use heimdall_contract::ipc::capability;
+        let rotate = req(&format!(
+            r#"{{"op":"remote_environment","action":"rotate_endpoint",
+                "environment":"env_0123456789abcdef0123456789abcdef","endpoint":"{}"}}"#,
+            "ab".repeat(32)
+        ));
+        assert_eq!(rotate.required_capability(), None);
+        // No field of the form names a client.
+        let sent = serde_json::to_value(&rotate).unwrap();
+        let fields: Vec<&str> = sent
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            fields,
+            ["action", "endpoint", "environment", "op"],
+            "{sent}"
+        );
+        for role in [Role::Viewer, Role::Requester, Role::Owner] {
+            let active = record(role, ClientState::Active);
+            assert!(
+                matches!(
+                    check(Some(&active), SessionFrame::Request(&rotate), &NoConsents),
+                    Verdict::Dispatch { role: r, .. } if r == role
+                ),
+                "{role:?}"
+            );
+            let pending = record(role, ClientState::Pending);
+            assert_eq!(
+                check(Some(&pending), SessionFrame::Request(&rotate), &NoConsents),
+                Verdict::Refuse(Refusal::InvitationPending),
+                "{role:?}"
+            );
+        }
+        assert_eq!(
+            check(None, SessionFrame::Request(&rotate), &NoConsents),
+            Verdict::Refuse(Refusal::ClientRevoked)
+        );
+        // The limited roles' capability sets are what made it unreachable before.
+        for role in [Role::Viewer, Role::Requester] {
+            assert!(!role.capabilities().contains(&capability::REMOTE_CONTROL_V1));
+        }
+        // Another client is touched only through the owner's forms, which keep their
+        // capability and their permission.
+        let revoke = req(r#"{"op":"remote_environment","action":"revoke_client",
+                "environment":"env_0123456789abcdef0123456789abcdef",
+                "client":"cl_0123456789abcdef0123456789abcdef"}"#);
+        assert_eq!(
+            revoke.required_capability(),
+            Some(capability::REMOTE_CONTROL_V1)
+        );
+        for role in [Role::Viewer, Role::Requester] {
+            assert_eq!(
+                check(
+                    Some(&record(role, ClientState::Active)),
+                    SessionFrame::Request(&revoke),
+                    &NoConsents
+                ),
+                Verdict::Refuse(Refusal::RoleInsufficient),
+                "{role:?}"
+            );
+        }
+    }
 }

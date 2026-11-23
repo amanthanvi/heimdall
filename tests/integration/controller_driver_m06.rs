@@ -898,10 +898,16 @@ async fn a_delivered_cutoff_that_fired_blocks_outright_whatever_the_report_shows
         AppliedRecord::PolicyRevision { fired: true, .. }
     ));
 
-    // The runner's next report: the policy active, no cutoff, time bounded.
+    // The runner's next report: the policy active, no cutoff, time bounded. ⟨W5; ADR-0006
+    // §18.9 item 4⟩ Its owner cleared the cutoff there, so the delivered effect's own row
+    // says it is no longer in force.
     let mut report = outcome.report;
     for p in &mut report.policies {
         p.cutoff_at = None;
+    }
+    assert!(report.policy_revisions.iter().all(|row| row.in_force));
+    for row in &mut report.policy_revisions {
+        row.in_force = false;
     }
     report.time_bounded = true;
     d.barrier().admit(Reconciliation {
@@ -993,6 +999,145 @@ async fn source_b_needs_every_pair_inside_one_personal_policy() {
     // One personal policy holding both: adopted.
     held("pol-both", &["h1", "h2"], false);
     assert_eq!(adopt(), vec![pending]);
+}
+
+/// ⟨M06 W5; m06-plan §2 item 3 "Coverage"⟩ A pending grant's deadline must be no later than
+/// the covering policy's maximum lifetime (from this controller's clock) and its cutoff.
+/// A later one is not clamped: the grant is not adopted. A paused policy, and one for
+/// another profile, adopt nothing either.
+#[tokio::test]
+async fn source_b_needs_the_deadline_inside_the_policys_lifetime_and_cutoff() {
+    use heimdall_app::remote_status_driver::adopt_under_standing_policy;
+    use heimdall_store::ext_effects::{AuthorityReport, ReportedPendingGrant};
+    let r = rig().await;
+    let a = controller(&r, &controller_a(), Role::Owner);
+    let pending = GrantId::from_random_bytes([0x53; 16]);
+    let report = AuthorityReport {
+        environment: r.w.env.clone(),
+        authority_generation: 1,
+        tombstones: Vec::new(),
+        policy_revisions: Vec::new(),
+        policies: Vec::new(),
+        certificates: Vec::new(),
+        time_bounded: true,
+        pending_grants: vec![ReportedPendingGrant {
+            grant: pending.clone(),
+            profile: profile(),
+            pairs: BTreeSet::from([pair("h1")]),
+            expires_at: plus(a.now(), HOUR),
+        }],
+    };
+    let mut p = policy(&r.w.env, None, 1);
+    p.scope.pairs = BTreeSet::from([pair("h1")]);
+    let mut revision = 1;
+    let mut adopt_under = |p: &mut heimdall_domain::policy::StandingPolicy| {
+        revision += 1;
+        p.revision = heimdall_domain::policy::PolicyRevision(revision);
+        a.store
+            .transaction(|tx| {
+                tx.upsert_policy(p, false)?;
+                adopt_under_standing_policy(tx, &a.pin, &report, a.now())
+            })
+            .unwrap()
+    };
+    // ⟨M06 W5 ruling, 2026-11-22⟩ What the owner reads in `environment status` for the
+    // refused grant: the limit exceeded and the sentence naming it.
+    let shown = || {
+        let status = a
+            .store
+            .transaction(|tx| {
+                heimdall_app::remote_status::status_of(tx, &r.w.env, false, None, a.now())
+            })
+            .unwrap();
+        status
+            .issuance_failures
+            .into_iter()
+            .map(|f| {
+                assert_eq!(f.grant, pending);
+                f.reason
+            })
+            .collect::<Vec<String>>()
+    };
+    assert!(shown().is_empty());
+    // The policy's maximum lifetime ends before the grant's deadline.
+    p.max_window = 59 * MINUTE;
+    assert!(adopt_under(&mut p).is_empty(), "later than the lifetime");
+    let said = shown();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("deadline_exceeds_policy_max_lifetime: ")
+            && said[0].contains(&format!(
+                "later than the maximum lifetime of policy {} allows (3540 s",
+                p.id.as_str()
+            ))
+            && said[0].contains(&report.pending_grants[0].expires_at.to_string())
+            && !said[0].contains("cutoff"),
+        "{said:?}"
+    );
+    // Its cutoff does.
+    p.max_window = 2 * HOUR;
+    let cutoff = plus(a.now(), 30 * MINUTE);
+    p.cutoff_at = Some(cutoff);
+    assert!(adopt_under(&mut p).is_empty(), "later than the cutoff");
+    let said = shown();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("deadline_exceeds_policy_cutoff: ")
+            && said[0].contains(&format!(
+                "later than the cutoff {cutoff} of policy {}",
+                p.id.as_str()
+            ))
+            && !said[0].contains("maximum lifetime"),
+        "{said:?}"
+    );
+    // Past both, the lifetime being the earlier limit: the lifetime is named.
+    p.max_window = 10 * MINUTE;
+    assert!(adopt_under(&mut p).is_empty());
+    assert!(
+        shown()[0].starts_with("deadline_exceeds_policy_max_lifetime: "),
+        "{:?}",
+        shown()
+    );
+    p.max_window = 2 * HOUR;
+    // Paused: not a deadline refusal, so nothing is said about a limit.
+    p.cutoff_at = None;
+    p.pause = heimdall_domain::policy::PauseState::Paused { since: a.now() };
+    assert!(adopt_under(&mut p).is_empty(), "a paused policy");
+    assert!(shown().is_empty(), "{:?}", shown());
+    // Another profile's policy.
+    p.pause = heimdall_domain::policy::PauseState::Active;
+    let own_profile = std::mem::replace(
+        &mut p.profile,
+        heimdall_contract::ids::ProfileId::parse("another").unwrap(),
+    );
+    assert!(adopt_under(&mut p).is_empty(), "another profile");
+    // This controller's role there may not issue.
+    p.profile = own_profile;
+    let mut viewer = a.pin.clone();
+    viewer.role = Role::Viewer;
+    assert!(
+        a.store
+            .transaction(|tx| adopt_under_standing_policy(tx, &viewer, &report, a.now()))
+            .unwrap()
+            .is_empty(),
+        "a role the table does not let issue"
+    );
+    assert!(
+        a.store
+            .transaction(|tx| tx.delivered_grant(&r.w.env, &pending))
+            .unwrap()
+            .is_none()
+    );
+    // Inside the lifetime, no cutoff: adopted, with the grant's own deadline.
+    assert_eq!(adopt_under(&mut p), vec![pending.clone()]);
+    let record = a
+        .store
+        .transaction(|tx| tx.delivered_grant(&r.w.env, &pending))
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.expires_at, report.pending_grants[0].expires_at);
+    assert_eq!(record.policy, Some(p.id.clone()));
+    assert!(shown().is_empty(), "an adopted grant is not a refusal");
 }
 
 /// The owner's local `revoke`, `policy pause` and `policy cutoff` of something that lives on
@@ -1756,7 +1901,10 @@ mod grant_path {
     use heimdall_app::ensure::NoStageHook;
     use heimdall_app::operations::Limits;
     use heimdall_app::ports::AdapterError;
-    use heimdall_app::remote_env::{ManagementCall, ManagementSession, SessionHello};
+    use heimdall_app::remote_env::{
+        ManagementCall, ManagementSession, ManagementSessions, SessionHello, SessionStanding,
+        SessionTarget,
+    };
     use heimdall_app::remote_status_driver::{Forwarded, SessionChannel, forwarded_ask};
     use heimdall_app::{Operations, OperationsConfig};
     use heimdall_contract::ids::{BindingId, ClientId, RequestId, WorkId};
@@ -1924,7 +2072,7 @@ mod grant_path {
                         self.rig.ops.ensure(&caller, *request).await,
                     ))
                 }
-                ManagementCall::Environment(_) => Err(OpError::new(
+                ManagementCall::Environment(_) | ManagementCall::Inspect(_) => Err(OpError::new(
                     Code::UsageError,
                     "not a form this fixture session carries",
                 )),
@@ -1948,6 +2096,21 @@ mod grant_path {
             context: None,
             covered_only: false,
             pair_issuers: Vec::new(),
+        }
+    }
+
+    /// The runner's local owner on a session the runtime marked attended.
+    fn attended_owner(r: &Rig) -> Caller {
+        Caller {
+            context: CallerContext {
+                principal: PrincipalRef::UnixUser { uid: 1000 },
+                role: ClientRole::Owner,
+                remote_client: None,
+            },
+            attendance: heimdall_app::Attendance::Attended {
+                since: r.w.clock.wall(),
+            },
+            interaction: InteractionMode::Interactive,
         }
     }
 
@@ -2132,6 +2295,9 @@ mod grant_path {
                 Forwarded::Pending { .. } => {
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }
+                other @ Forwarded::Submitted { .. } => {
+                    panic!("an issuing role's forward answered as a submission: {other:?}")
+                }
             }
         }
         let data = ready.expect("the runner's ensure settles once its certificate is installed");
@@ -2283,10 +2449,12 @@ mod grant_path {
     /// the runner's own local owner asked for waits, and the runner's authority report lists
     /// it. A standing policy held **on the controller** that names the runner environment
     /// authorizes issuance for it within the policy's scope: the record is written from the
-    /// controller's policy (the grant's pairs, an expiry inside the policy's window), the
-    /// hosted pass signs for it, and the runner's waiting `ensure` settles. A pending grant
-    /// with a pair outside that policy is never signed, and neither is one while the policy
-    /// names another environment only.
+    /// controller's policy (the grant's pairs, the grant's deadline, the policy it came
+    /// from), the hosted pass signs for it, and the runner's waiting `ensure` settles. A
+    /// pending grant with a pair outside that policy is never signed; neither is one while
+    /// the policy names another environment only, ⟨M06 W5⟩ nor one whose deadline is later
+    /// than the policy's maximum lifetime (nothing is clamped). Once the policy is paused,
+    /// nothing more is issued under a record written from it.
     #[tokio::test]
     async fn a_standing_policy_on_the_controller_authorizes_a_runner_originated_grant() {
         let (r, _materialized) = runner_rig().await;
@@ -2328,6 +2496,7 @@ mod grant_path {
             .unwrap();
         assert_eq!(reported.pairs, BTreeSet::from([pair("h1")]));
         assert_eq!(reported.profile, profile());
+        let deadline = reported.expires_at;
 
         // A policy here that names another environment only: nothing is adopted.
         let elsewhere = heimdall_contract::ids::EnvironmentId::from_random_bytes([0x44; 16]);
@@ -2346,13 +2515,30 @@ mod grant_path {
                 .is_empty()
         );
 
-        // The owner names the runner in the policy (h1 only, a 30 minute window).
+        // The owner names the runner in the policy (h1 only, a 30 minute window): the
+        // grant's hour is later than the policy's maximum lifetime, so it is not covered.
         held.environments = BTreeSet::from([r.w.env.clone()]);
         held.revision = heimdall_domain::policy::PolicyRevision(2);
         a.store
             .transaction(|tx| tx.upsert_policy(&held, false))
             .unwrap();
-        let adopted_at = a.now();
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        assert!(m.issued.is_empty() && m.failed.is_empty(), "{:?}", m.failed);
+        assert!(
+            a.store
+                .transaction(|tx| tx.delivered_grants(Some(&r.w.env)))
+                .unwrap()
+                .is_empty(),
+            "a deadline outside the policy is not clamped: nothing is recorded"
+        );
+        assert!(r.w.runner.issuance().keys().public_key(&inside).is_none());
+
+        // A two hour window holds the grant's deadline.
+        held.max_window = 2 * HOUR;
+        held.revision = heimdall_domain::policy::PolicyRevision(3);
+        a.store
+            .transaction(|tx| tx.upsert_policy(&held, false))
+            .unwrap();
         let m = pass(&d, &a, &mut s, &issuer).await;
         assert!(m.failed.is_empty(), "{:?}", m.failed);
         assert_eq!(m.issued.len(), 1);
@@ -2364,11 +2550,8 @@ mod grant_path {
         assert_eq!(records.len(), 1, "only the grant inside the policy");
         assert_eq!(records[0].grant, inside);
         assert_eq!(records[0].pairs, BTreeSet::from([pair("h1")]));
-        assert_eq!(
-            records[0].expires_at,
-            plus(adopted_at, 30 * MINUTE),
-            "the policy's window, not the grant's hour"
-        );
+        assert_eq!(records[0].expires_at, deadline, "the grant's own deadline");
+        assert_eq!(records[0].policy, Some(held.id.clone()));
         let entries = a
             .store
             .transaction(|tx| tx.issuance_entries(&inside))
@@ -2416,6 +2599,34 @@ mod grant_path {
                 .collect::<Vec<_>>(),
             vec![outside]
         );
+
+        // ⟨M06 W5⟩ The owner pauses the policy: the record written from it authorizes no
+        // further issue, and the runner is asked for nothing.
+        held.pause = heimdall_domain::policy::PauseState::Paused { since: a.now() };
+        held.revision = heimdall_domain::policy::PolicyRevision(4);
+        a.store
+            .transaction(|tx| tx.upsert_policy(&held, false))
+            .unwrap();
+        let outcome = d.on_session(&a.pin, &mut s).await.unwrap();
+        let again = heimdall_app::remote_status_driver::RemoteIssueInput {
+            grant: inside.clone(),
+            grant_generation: outcome.report.authority_generation,
+            lifetime: HOUR,
+        };
+        let mut channel = SessionChannel::new(&mut s).unwrap();
+        let refused = d
+            .issue(&a.pin, &mut channel, &issuer, &again)
+            .await
+            .unwrap_err();
+        assert_eq!(refused.code, Code::CapabilityUnavailable, "{refused:?}");
+        assert!(refused.message.contains("standing policy"), "{refused:?}");
+        assert_eq!(
+            a.store
+                .transaction(|tx| tx.issuance_entries(&inside))
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     /// ⟨M06 W4; m06-plan §2 item 1⟩ A pair a forwarded `ensure` names a CA for is a managed
@@ -2441,11 +2652,7 @@ mod grant_path {
         // A CA this runner trusts for nobody.
         let stranger = r.w.ca_b.fingerprint().unwrap();
         // ⟨ADR-0006 §18.8 item 1⟩ Not even for the runner's local owner.
-        let owner = Caller::unattended(CallerContext {
-            principal: PrincipalRef::UnixUser { uid: 1000 },
-            role: ClientRole::Owner,
-            remote_client: None,
-        });
+        let owner = attended_owner(&r);
         let mut unknown_ca = ensure_request(&r, "owner-names-stranger", &["h1"]);
         unknown_ca.pair_issuers = vec![heimdall_contract::request::PairIssuer {
             pair: pair("h1"),
@@ -2490,11 +2697,9 @@ mod grant_path {
             .await
             .unwrap_err();
         untrusted(&e);
-        let local = Caller::unattended(CallerContext {
-            principal: PrincipalRef::UnixUser { uid: 1000 },
-            role: ClientRole::LimitedConsumer,
-            remote_client: None,
-        });
+        // (Attended: an unattended local caller is refused before trust is read.)
+        let mut local = attended_owner(&r);
+        local.context.role = ClientRole::LimitedConsumer;
         untrusted(
             &r.ops
                 .ensure(&local, named("local-names-a"))
@@ -2532,16 +2737,29 @@ mod grant_path {
         let a = issuing_controller(&r);
         let d = driver(&a);
         let issuer = FixtureIssuer { ca: &r.w.ca_a };
-        let owner = Caller::unattended(CallerContext {
-            principal: PrincipalRef::UnixUser { uid: 1000 },
-            role: ClientRole::Owner,
-            remote_client: None,
-        });
         let mut request = ensure_request(&r, "owner-names-a", &["h1"]);
         request.pair_issuers = vec![heimdall_contract::request::PairIssuer {
             pair: pair("h1"),
             ca_fingerprint: ca_of(&r),
         }];
+        // ⟨M06 W5 ruling⟩ The runtime itself refuses it from an unattended local owner,
+        // whatever client sent it: nothing is admitted, and the same request ID is still
+        // free for the attended request below.
+        let unattended = Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 1000 },
+            role: ClientRole::Owner,
+            remote_client: None,
+        });
+        let before = r.w.runner.pending_grants().len();
+        let e = r
+            .ops
+            .ensure(&unattended, request.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, Code::InteractionRequired, "{e:?}");
+        assert_eq!(e.effect_status, heimdall_contract::EffectStatus::None);
+        assert_eq!(r.w.runner.pending_grants().len(), before);
+        let owner = attended_owner(&r);
         let e = r.ops.ensure(&owner, request).await.unwrap_err();
         assert_eq!(e.code, Code::Accepted, "{e:?}");
         let grant = GrantId::parse(e.resource.unwrap().id.as_deref().unwrap()).unwrap();
@@ -2750,6 +2968,133 @@ mod grant_path {
         assert_eq!(materialized.made.lock().unwrap().len(), 3);
     }
 
+    /// ⟨M06 W5; M06-W4-R04⟩ A second forwarded `ensure` that attaches to a grant (one of
+    /// its pairs, an earlier deadline) does not narrow what this controller delivered for
+    /// it: the record keeps both pairs and its expiry. After a pause this controller
+    /// delivered is lifted at the runner and acknowledged here, the next pass re-issues
+    /// for **both** pairs, the first binding's other pair included. An ask that is not
+    /// inside the record still only narrows it.
+    #[tokio::test]
+    async fn a_narrower_second_attach_does_not_narrow_what_the_first_binding_relies_on() {
+        let (r, materialized) = runner_rig().await;
+        let a = issuing_controller(&r);
+        let d = driver(&a);
+        let issuer = FixtureIssuer { ca: &r.w.ca_a };
+        let mut s = managed(&r, &controller_a());
+        d.on_session(&a.pin, &mut s).await.unwrap();
+        let Forwarded::Pending {
+            grant,
+            record: first,
+            ..
+        } = d
+            .forward_ensure(
+                &a.pin,
+                &mut s,
+                &ensure_request(&r, "fwd-wide", &["h1", "h2"]),
+                &ca_of(&r),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("pending");
+        };
+        let both: BTreeSet<AccessPairRef> = [pair("h1"), pair("h2")].into();
+        assert_eq!(first.pairs, both);
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        assert_eq!(m.issued.len(), 1, "{:?}", m.failed);
+        for _ in 0..500 {
+            if grant_state(&r, &grant) == GrantState::Active {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(grant_state(&r, &grant), GrantState::Active);
+        let serials = || -> std::collections::BTreeMap<AccessPairRef, u64> {
+            r.w.runner
+                .issuance()
+                .keys()
+                .certificates(&grant)
+                .into_iter()
+                .map(|(pair, c)| (pair, c.serial))
+                .collect()
+        };
+        let before = serials();
+        assert_eq!(before.keys().cloned().collect::<BTreeSet<_>>(), both);
+
+        // The second, narrower request: another binding on the same grant.
+        let mut narrow = ensure_request(&r, "fwd-narrow", &["h1"]);
+        narrow.work_id = WorkId::parse("job-2").unwrap();
+        narrow.until = Some(DeadlineIntent::Duration("30m".into()));
+        let attached = d
+            .forward_ensure(&a.pin, &mut s, &narrow, &ca_of(&r))
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        let Forwarded::Ready { grant: again, .. } = attached else {
+            panic!("the second request was not served by the live grant: {attached:?}");
+        };
+        assert_eq!(again, grant, "it attached");
+        assert_eq!(materialized.made.lock().unwrap().len(), 2);
+        let delivered = || {
+            a.store
+                .transaction(|tx| tx.delivered_grant(&r.w.env, &grant))
+                .unwrap()
+                .unwrap()
+        };
+        assert_eq!(delivered().pairs, both, "the record was narrowed");
+        assert_eq!(delivered().expires_at, first.expires_at);
+
+        // A pause this controller delivers, lifted at the runner and acknowledged here.
+        let paused = a
+            .produce(&Narrowing::PausePolicy {
+                policy: policy_id(),
+            })
+            .unwrap();
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        assert!(m.issued.is_empty());
+        assert_eq!(a.pending(), 0);
+        lift_at_the_runner(
+            &r,
+            PolicyAction::Resume {
+                policy_id: Some(policy_id()),
+                target: None,
+            },
+        )
+        .await;
+        let named = std::slice::from_ref(&paused.effect);
+        resume_issuance_named(&a.store, &r.w.env, named, true, a.now()).unwrap();
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        assert!(m.failed.is_empty(), "{:?}", m.failed);
+        assert_eq!(m.issued.len(), 1, "the resume re-issues for the grant");
+        let after = serials();
+        assert_eq!(
+            after.keys().cloned().collect::<BTreeSet<_>>(),
+            both,
+            "the first binding's other pair was not re-issued"
+        );
+        for pair in &both {
+            assert_ne!(after[pair], before[pair], "{pair:?}: a new certificate");
+        }
+
+        // An ask that is not inside the record (another pair) only narrows it.
+        let narrowed = a
+            .store
+            .transaction(|tx| {
+                heimdall_app::remote_status_driver::deliver_runner_grant(
+                    tx,
+                    &a.pin,
+                    &grant,
+                    &[pair("h1"), pair("h3")].into(),
+                    &first.extensions,
+                    first.expires_at,
+                    a.now(),
+                )
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(narrowed.pairs, [pair("h1")].into());
+        assert_eq!(narrowed.expires_at, first.expires_at);
+    }
+
     /// ⟨M06 W4; m06-plan §2 items 2 and 5; ADR-0012 §7.4 ⟨2026-11-21⟩⟩ The way out,
     /// acknowledgement first, and the re-issue. A cutoff this controller delivered fires at
     /// the runner: the grant ends there and its certificate goes with K_env. The owner's
@@ -2914,5 +3259,272 @@ mod grant_path {
         let m = pass(&d, &a, &mut s, &issuer).await;
         assert!(m.issued.is_empty() && m.failed.is_empty());
         assert!(r.w.runner.issuance().keys().installed().is_empty());
+    }
+
+    /// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ What a requester's session sees of the rig's
+    /// runner: its `ensure` reaches the runner's real pipeline as a paired client that is
+    /// not an owner; no `runner/1` form is carried.
+    struct RequesterSession {
+        ops: Operations,
+        hello: SessionHello,
+        sent: Arc<Mutex<Vec<EnsureRequest>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ManagementSession for RequesterSession {
+        fn hello(&self) -> &SessionHello {
+            &self.hello
+        }
+
+        async fn call(
+            &mut self,
+            call: ManagementCall,
+        ) -> Result<Envelope<serde_json::Value>, OpError> {
+            let ManagementCall::Ensure(request) = call else {
+                return Err(OpError::new(
+                    Code::UsageError,
+                    "not a form a requester's fixture session carries",
+                ));
+            };
+            self.sent.lock().unwrap().push((*request).clone());
+            let caller = Caller::unattended(CallerContext {
+                principal: PrincipalRef::UnixUser { uid: 1000 },
+                role: ClientRole::LimitedConsumer,
+                remote_client: self.hello.client.clone(),
+            });
+            Ok(heimdall_runtime::dispatch::render(
+                self.ops.ensure(&caller, *request).await,
+            ))
+        }
+    }
+
+    /// Opens [`RequesterSession`]s, and keeps what each was opened as and sent.
+    struct RequesterSessions {
+        ops: Operations,
+        hello: SessionHello,
+        opened: Mutex<Vec<SessionStanding>>,
+        sent: Arc<Mutex<Vec<EnsureRequest>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ManagementSessions for RequesterSessions {
+        async fn open(
+            &self,
+            target: &SessionTarget,
+        ) -> Result<Box<dyn ManagementSession>, OpError> {
+            self.opened.lock().unwrap().push(target.standing);
+            Ok(Box::new(RequesterSession {
+                ops: self.ops.clone(),
+                hello: self.hello.clone(),
+                sent: self.sent.clone(),
+            }))
+        }
+    }
+
+    /// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ A requester's pending request is never signed with
+    /// no owner record. The requester's controller submits the `ensure` over a session of
+    /// its limited standing: it names no CA and writes no record. The runner admits it
+    /// under its own standing policy and the grant waits. An owner controller that holds
+    /// no record for it (it forwarded nothing and no policy here names the runner) signs
+    /// nothing, pass after pass, and by name; the request stays pending. Only the owner's
+    /// own record (source (b): a standing policy naming the runner) gets it signed, and the
+    /// requester's same request then reads the result. A viewer, and an owner record, are
+    /// not submitted this way; a requester naming a CA sends nothing.
+    #[tokio::test]
+    async fn a_requesters_pending_request_is_never_signed_with_no_owner_record() {
+        let (r, materialized) = runner_rig().await;
+        let a = issuing_controller(&r);
+        let d = driver(&a);
+        let issuer = FixtureIssuer { ca: &r.w.ca_a };
+
+        // The requester's device: its own store, its record of the runner as `requester`.
+        let requester = ClientId::from_random_bytes([0x72; 16]);
+        let q = controller(&r, &requester, Role::Requester);
+        record_pin(&q);
+        let dq = driver(&q);
+        let sessions = RequesterSessions {
+            ops: r.ops.clone(),
+            hello: SessionHello {
+                environment: r.w.env.clone(),
+                role: Some(Role::Requester),
+                client: Some(requester.clone()),
+            },
+            opened: Mutex::default(),
+            sent: Arc::default(),
+        };
+        let nothing_recorded_by_the_requester = || {
+            q.store
+                .transaction(|tx| {
+                    Ok((
+                        tx.delivered_grants(None)?.len(),
+                        tx.remote_effect_outbox(None, false)?.len(),
+                    ))
+                })
+                .unwrap()
+        };
+
+        // Submitted: admitted by the runner, pending, with nothing recorded and no CA.
+        let request = ensure_request(&r, "requester-1", &["h1"]);
+        let submitted = dq.submit_ensure(&sessions, &q.pin, &request).await.unwrap();
+        let Forwarded::Submitted { grant, operation } = submitted else {
+            panic!("the requester's request did not stay pending: {submitted:?}");
+        };
+        assert!(operation.is_some());
+        assert_eq!(
+            *sessions.opened.lock().unwrap(),
+            vec![SessionStanding::Limited]
+        );
+        {
+            let sent = sessions.sent.lock().unwrap();
+            assert_eq!(sent.len(), 1);
+            assert!(
+                sent[0].pair_issuers.is_empty(),
+                "a CA was named: {:?}",
+                sent[0]
+            );
+            assert_eq!(sent[0].scope, request.scope);
+            assert_eq!(sent[0].interaction, InteractionMode::NonInteractive);
+        }
+        assert_eq!(nothing_recorded_by_the_requester(), (0, 0));
+        assert!(
+            q.store
+                .transaction(|tx| tx.issuance_entries(&grant))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(grant_state(&r, &grant), GrantState::Preparing);
+        // The answer the requester's own CLI gets says who can complete it.
+        let answer =
+            heimdall_app::remote_status_driver::submitted_pending(&grant, operation.as_ref());
+        assert_eq!(answer.code, Code::Accepted);
+        assert_eq!(answer.data["refresh_dependency"], "controller");
+        assert_eq!(answer.data["remote_pending"], serde_json::json!([grant]));
+        assert!(answer.data["error"]["reason"].is_null(), "{}", answer.data);
+
+        // The owner controller holds no record for it: it signs nothing, however often
+        // its hosted pass runs, and by name.
+        let mut s = managed(&r, &controller_a());
+        for _ in 0..2 {
+            let m = pass(&d, &a, &mut s, &issuer).await;
+            assert!(m.issued.is_empty() && m.failed.is_empty(), "{:?}", m.failed);
+        }
+        let refused = {
+            let mut channel = SessionChannel::new(&mut s).unwrap();
+            d.issue(
+                &a.pin,
+                &mut channel,
+                &issuer,
+                &RemoteIssueInput {
+                    grant: grant.clone(),
+                    grant_generation: r.w.generation(),
+                    lifetime: Duration::from_secs(1800),
+                },
+            )
+            .await
+            .unwrap_err()
+        };
+        assert!(
+            refused.message.contains("holds no record of delivering"),
+            "{}",
+            refused.message
+        );
+        assert!(
+            a.store
+                .transaction(|tx| tx.delivered_grants(Some(&r.w.env)))
+                .unwrap()
+                .is_empty(),
+            "the owner controller recorded a grant on the requester's word"
+        );
+        assert!(
+            a.store
+                .transaction(|tx| tx.issuance_entries(&grant))
+                .unwrap()
+                .is_empty(),
+            "a requester's pending request was signed with no owner record"
+        );
+        assert!(r.w.runner.issuance().keys().public_key(&grant).is_none());
+        assert!(r.w.runner.issuance().keys().installed().is_empty());
+        assert!(materialized.made.lock().unwrap().is_empty());
+        // Still pending for the requester, who reads its state with the same request.
+        let again = dq.submit_ensure(&sessions, &q.pin, &request).await.unwrap();
+        assert!(
+            matches!(&again, Forwarded::Submitted { grant: g, .. } if *g == grant),
+            "{again:?}"
+        );
+        assert_eq!(grant_state(&r, &grant), GrantState::Preparing);
+        assert_eq!(nothing_recorded_by_the_requester(), (0, 0));
+
+        // The owner's own record covers it (source (b)): a standing policy held on the
+        // owner controller that names the runner. Now, and only now, it is signed.
+        let mut held = policy(&r.w.env, None, 1);
+        held.scope.pairs = BTreeSet::from([pair("h1")]);
+        held.max_window = 2 * HOUR;
+        a.store
+            .transaction(|tx| tx.upsert_policy(&held, false))
+            .unwrap();
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        assert!(m.failed.is_empty(), "{:?}", m.failed);
+        assert_eq!(m.issued.len(), 1);
+        assert_eq!(m.issued[0].grant, grant);
+        let records = a
+            .store
+            .transaction(|tx| tx.delivered_grants(Some(&r.w.env)))
+            .unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].policy,
+            Some(held.id.clone()),
+            "the owner's record"
+        );
+        let mut ready = None;
+        for _ in 0..500 {
+            match dq.submit_ensure(&sessions, &q.pin, &request).await.unwrap() {
+                Forwarded::Ready { grant: g, data } => {
+                    assert_eq!(g, grant);
+                    ready = Some(data);
+                    break;
+                }
+                _ => tokio::time::sleep(Duration::from_millis(10)).await,
+            }
+        }
+        let data =
+            ready.expect("the requester's request settles once the owner's record covers it");
+        assert_eq!(data["credential_mechanism"], "managed_certificate");
+        assert_eq!(nothing_recorded_by_the_requester(), (0, 0));
+
+        // Not submitted this way: a viewer, an owner record, and a request naming a CA.
+        let before = sessions.opened.lock().unwrap().len();
+        for role in [Role::Viewer, Role::Owner] {
+            let other = controller(&r, &requester, role);
+            let e = dq
+                .submit_ensure(
+                    &sessions,
+                    &other.pin,
+                    &ensure_request(&r, "other-role", &["h1"]),
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(e.code, Code::CapabilityUnavailable, "{role:?}: {e:?}");
+            assert_eq!(
+                e.reason.as_deref(),
+                Some(reason::ROLE_INSUFFICIENT),
+                "{role:?}"
+            );
+        }
+        let mut named = ensure_request(&r, "requester-names-a-ca", &["h1"]);
+        named.pair_issuers = vec![heimdall_contract::request::PairIssuer {
+            pair: pair("h1"),
+            ca_fingerprint: ca_of(&r),
+        }];
+        let e = dq
+            .submit_ensure(&sessions, &q.pin, &named)
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, Code::UsageError, "{e:?}");
+        assert_eq!(
+            sessions.opened.lock().unwrap().len(),
+            before,
+            "a refused submission opened a session"
+        );
     }
 }

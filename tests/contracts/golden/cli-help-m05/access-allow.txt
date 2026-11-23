@@ -3,11 +3,12 @@ Owner-initiated review that may widen a workspace's, profile's or policy's stand
 Usage: heimdall access allow [OPTIONS] <--policy <POLICY>|--profile <PROFILE>|--workspace>
 
 Options:
-      --json               Machine output: one JSON envelope on stdout (NDJSON for event streams)
-      --policy <POLICY>    Review this policy
-      --non-interactive    Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
-      --profile <PROFILE>  Review the policies of this profile
-      --home <DIR>         Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
-      --workspace          Review the workspace you are in (or the one `--cwd` names)
-      --cwd <PATH>         The directory whose workspace `--workspace` names (default the working directory)
-  -h, --help               Print help
+      --json                       Machine output: one JSON envelope on stdout (NDJSON for event streams)
+      --policy <POLICY>            Review this policy
+      --non-interactive            Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --profile <PROFILE>          Review the policies of this profile
+      --home <DIR>                 Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+      --workspace                  Review the workspace you are in (or the one `--cwd` names)
+      --cwd <PATH>                 The directory whose workspace `--workspace` names (default the working directory)
+      --environment <ENVIRONMENT>  M06, with `--profile`: review a new policy that names this paired runner environment. It only lets this controller issue for grants that runner admits for the profile; it activates nothing on this device
+  -h, --help                       Print help

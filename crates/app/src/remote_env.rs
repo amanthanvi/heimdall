@@ -227,7 +227,11 @@ pub trait EnvironmentRegistry: Send + Sync {
 /// per hop; a label of 1 to 64 bytes without control characters) and inserts or replaces it,
 /// keyed by its environment, with the runner hop's first pinned key's fingerprint
 /// (`host_fingerprint`, the crypto staying in `heimdall-credential`); `remove_environment`
-/// forgets one (`removed: false` when there was none). Who may send it (the local owner
+/// forgets one (`removed: false` when there was none) and, ⟨M06 W5⟩ in the same
+/// transaction, every standing policy held here that names it (`remove_policies_naming`;
+/// `now` dates their last history row) and, ⟨M06-W4-R03⟩ this controller's outbox rows,
+/// lift acknowledgements and delivered grants for it, and ⟨ADR-0006 §18.9 item 7⟩ its
+/// contact record (the last report and the held state). Who may send it (the local owner
 /// only) is the caller's check. Answers `{environment, put: true}` or `{environment,
 /// removed}`.
 ///
@@ -238,6 +242,7 @@ pub fn apply_controller_record(
     store: &heimdall_store::Store,
     request: &ControllerRecordRequest,
     host_fingerprint: &dyn Fn(&str) -> Option<KeyFingerprint>,
+    now: heimdall_contract::Timestamp,
 ) -> Result<serde_json::Value, OpError> {
     let unwritable = || {
         OpError::new(
@@ -287,7 +292,22 @@ pub fn apply_controller_record(
         }
         ControllerRecordRequest::RemoveEnvironment { environment } => {
             let removed = store
-                .transaction(|tx| tx.remove_remote_environment_pin(environment))
+                .transaction(|tx| {
+                    let removed = tx.remove_remote_environment_pin(environment)?;
+                    remove_policies_naming(tx, environment, now)?;
+                    // ⟨M06 W5; M06-W4-R03⟩ What this controller produced for and delivered
+                    // to that runner goes with its record: the outbox rows (pending and
+                    // acknowledged), the owner's lift acknowledgements, and the delivered
+                    // grants. A later record of the same environment starts clean: it
+                    // inherits no hold, no acknowledgement and nothing to issue for.
+                    tx.forget_remote_effect_outbox(environment)?;
+                    tx.forget_delivered_grants(environment)?;
+                    // ⟨M06 W5; ADR-0006 §18.9 item 7⟩ And what this controller last saw
+                    // of it: the contact record (last seen, last failure, the last report,
+                    // the refused pending grants, the held-session marker).
+                    tx.forget_remote_contact(environment)?;
+                    Ok(removed)
+                })
                 .map_err(|_| unwritable())?;
             Ok(serde_json::json!({ "environment": environment, "removed": removed }))
         }
@@ -295,6 +315,50 @@ pub fn apply_controller_record(
             "this controller-record form is not known to this build",
         )),
     }
+}
+
+/// ⟨M06 W5 ruling, 2026-11-22; m06-plan §2 item 3 "As built and ruled in W5"⟩ Delete every
+/// standing policy held here that names the runner `environment`, in the caller's
+/// transaction (the one that removes the runner's record): a policy that names a runner
+/// is this controller's authorization to sign for that runner and nothing else, so it
+/// goes with the record and a later record of the same environment never finds it. Each
+/// gets one last history row, the record as removed, whose cause names the removed
+/// environment; its cooldowns go with it. A runner's policy is never a default and has no
+/// workspace (`trust_m05::admit_create`), so nothing local rests on it. Also run when no
+/// record was left, so a policy an earlier build left behind goes too.
+fn remove_policies_naming(
+    tx: &mut heimdall_store::Txn<'_>,
+    environment: &EnvironmentId,
+    now: heimdall_contract::Timestamp,
+) -> heimdall_store::Result<()> {
+    use heimdall_domain::policy::{PolicyRevision, PolicySource};
+    use heimdall_domain::workspace::{PolicyChangeCause, PolicyHistoryEntry};
+    // This installation's own environment is never a runner record's.
+    if tx.self_environment()?.as_ref() == Some(environment) {
+        return Ok(());
+    }
+    for mut p in tx.policies()? {
+        if !p.environments.contains(environment) {
+            continue;
+        }
+        tx.delete_policy(&p.id)?;
+        for c in tx.decision_cooldowns_for_policy(&p.id)? {
+            tx.delete_decision_cooldown(&c.key)?;
+        }
+        p.revision = PolicyRevision(p.revision.0.saturating_add(1));
+        p.source = PolicySource::OwnerDecision { decided_at: now };
+        p.default = false;
+        tx.append_policy_history(&PolicyHistoryEntry {
+            policy: p.id.clone(),
+            revision: p.revision,
+            record: p.clone(),
+            cause: PolicyChangeCause::EnvironmentRemoved {
+                environment: environment.clone(),
+            },
+            at: now,
+        })?;
+    }
+    Ok(())
 }
 
 /// The owner's existing, independently host-verified access to a runner account
@@ -363,6 +427,83 @@ pub enum SessionName {
     Bootstrap(DestinationId),
 }
 
+/// ⟨M06 W5 D1⟩ What this controller's own records say about the session it opens. It
+/// selects what the hello requires ([`SessionCapabilities::of`]) and nothing else: the
+/// runner takes a session's role from its role table, never from the hello, and checks
+/// every request against that role.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionStanding {
+    /// The record's role is `owner`, or the session is the bootstrap's first (the owner
+    /// enrollment `environment add` just confirmed).
+    Owner,
+    /// The record's role is a limited one (`requester`, `viewer`).
+    Limited,
+    /// No record yet: an invitation being joined. The client is pending on the runner, and a
+    /// pending session negotiates only the capability that carries the probe and `join`.
+    Joining,
+}
+
+impl SessionStanding {
+    /// The standing of a recorded runner on which this controller holds `role`.
+    #[must_use]
+    pub fn of_record(role: Role) -> Self {
+        if role == Role::Owner {
+            SessionStanding::Owner
+        } else {
+            SessionStanding::Limited
+        }
+    }
+}
+
+/// ⟨M06 W5 D1⟩ What a management session's hello offers and requires (ADR-0006 §18.5
+/// reading 5; ADR-0012 §3.8). The one rule, shared by every platform's opener:
+///
+/// * [`SessionStanding::Owner`] and [`SessionStanding::Joining`] **require**
+///   [`MANAGEMENT_CAPABILITY`] and offer `runner/1` (which the runner negotiates for an
+///   owner session only). A runner whose role table gives this client less refuses the
+///   hello (`role_insufficient`): an owner record never opens a session without it.
+/// * [`SessionStanding::Limited`] requires nothing and offers the base capabilities only:
+///   neither `remote-control/1` nor `runner/1` is offered, so no form that needs one can be
+///   dispatched on that session whatever the runner would grant. The session gets the
+///   intersection of the base set with its role's set, and each request is still checked
+///   against the role at the runner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionCapabilities {
+    /// The hello's `capabilities`.
+    pub offered: std::collections::BTreeSet<String>,
+    /// The hello's `required`.
+    pub required: std::collections::BTreeSet<String>,
+}
+
+impl SessionCapabilities {
+    /// The hello's sets for `standing`; `base` is this build's ordinary offer.
+    #[must_use]
+    pub fn of(standing: SessionStanding, base: std::collections::BTreeSet<String>) -> Self {
+        let mut offered = base;
+        // A base set never carries an owner capability into a limited session.
+        offered.remove(MANAGEMENT_CAPABILITY);
+        offered.remove(heimdall_contract::ipc::capability::RUNNER_V1);
+        let mut required = std::collections::BTreeSet::new();
+        match standing {
+            SessionStanding::Owner | SessionStanding::Joining => {
+                required.insert(MANAGEMENT_CAPABILITY.to_owned());
+                offered.insert(MANAGEMENT_CAPABILITY.to_owned());
+                offered.insert(heimdall_contract::ipc::capability::RUNNER_V1.to_owned());
+            }
+            SessionStanding::Limited => {}
+        }
+        Self { offered, required }
+    }
+
+    /// Whether a session that negotiated `negotiated` may be used for the standing these
+    /// sets were made for: everything required was granted. The opener refuses otherwise,
+    /// whatever the server's hello said.
+    #[must_use]
+    pub fn granted(&self, negotiated: &std::collections::BTreeSet<String>) -> bool {
+        self.required.is_subset(negotiated)
+    }
+}
+
 /// Where a management session goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionTarget {
@@ -370,6 +511,8 @@ pub struct SessionTarget {
     pub name: SessionName,
     /// The route and pins.
     pub route: ManagementRoute,
+    /// ⟨M06 W5 D1⟩ What this controller's records say its role there is.
+    pub standing: SessionStanding,
 }
 
 /// What the runner's hello reported.
@@ -396,6 +539,52 @@ pub const PROBE_INCONCLUSIVE_JOIN: &str = "this device's limited-role join was n
 pub const PROBE_INCONCLUSIVE_RECHECK: &str =
     "nothing was sent to the runner, and its owner-only state is unchanged; try again";
 
+/// ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ What `environment add` says when the
+/// bootstrap session completed and the management session that follows it could not be
+/// opened: the enrollment stands on the runner, nothing is recorded here, and the next step
+/// is named. There is no silent second pass.
+pub const AFTER_BOOTSTRAP_NO_SESSION: &str = "the runner confirmed the enrollment, but this \
+     controller could not open its management session, so nothing was recorded on this \
+     controller. The usual cause is that the runner's runtime is not running (the bootstrap \
+     session says so and offers to start it): start it on the runner, then run `environment add` \
+     again with the same arguments; it repairs the record after the same confirmation";
+
+/// The first session's failure after a completed bootstrap, with its code, reason and
+/// effect kept and [`AFTER_BOOTSTRAP_NO_SESSION`] in front of its own message.
+fn after_bootstrap(mut e: OpError) -> OpError {
+    e.message = format!(
+        "{AFTER_BOOTSTRAP_NO_SESSION}. The session's error: {}",
+        e.message
+    );
+    e
+}
+
+/// ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 paragraph⟩ Why a Windows controller's session
+/// runs no confirming probe ([`ManagementSession::probes_unavailable`]): it is a property of
+/// the build, not of this connection, so the message says so instead of "inconclusive, try
+/// again".
+pub const PROBES_NOT_ON_WINDOWS: &str = "the confirming probes of a management session do not \
+     run on Windows in this release, so a Windows device can be an owner controller of a runner, \
+     not a limited client (viewer or requester)";
+
+/// The rest of the join's message when the probes cannot run on this device at all.
+pub const PROBES_UNAVAILABLE_JOIN: &str = "this device's limited-role join was not sent and \
+     nothing was joined; join from a macOS or Linux device, or have the runner's owner invite \
+     this device as an owner";
+
+/// The rest of the recheck's message when the probes cannot run on this device at all.
+pub const PROBES_UNAVAILABLE_RECHECK: &str = "nothing was sent to the runner, and its owner-only \
+     state is unchanged; run `environment recheck` from a macOS or Linux owner controller of \
+     this runner";
+
+/// The refusal of an operation that needs the confirming probes on a device whose sessions
+/// run none (`why`, [`ManagementSession::probes_unavailable`]): `CAPABILITY_UNAVAILABLE`,
+/// effect `none`. Repeating it cannot succeed, unlike an inconclusive probe.
+fn probes_unavailable(why: &str, rest: &str) -> OpError {
+    OpError::new(Code::CapabilityUnavailable, format!("{why}: {rest}"))
+        .with_effect(heimdall_contract::envelope::EffectStatus::None)
+}
+
 /// A request a management session may carry: the revision-6 management forms only. There
 /// is no `Decide` and no `Attend` form, so the controller can never decide on a runner
 /// (ADR-0012 §3.10).
@@ -413,6 +602,10 @@ pub enum ManagementCall {
     /// admits it as a paired client's request, under its own standing policy or a decision
     /// confirmed at the runner; the session never decides.
     Ensure(Box<heimdall_contract::request::EnsureRequest>),
+    /// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ A read-only `inspect` (the role table's `view`):
+    /// what a limited role's `environment status <env>` reads of the runner's own view
+    /// ([`RemoteEnvController::runner_view`]). It needs no capability beyond the base one.
+    Inspect(Box<heimdall_contract::request::InspectRequest>),
 }
 
 impl ManagementCall {
@@ -423,6 +616,7 @@ impl ManagementCall {
             ManagementCall::Environment(r) => Request::RemoteEnvironment(r),
             ManagementCall::Runner(r) => Request::Runner(r),
             ManagementCall::Ensure(r) => Request::Ensure(*r),
+            ManagementCall::Inspect(r) => Request::Inspect(*r),
         }
     }
 }
@@ -444,6 +638,15 @@ pub trait ManagementSession: Send {
     /// with this session's key over this session's route, and report what they observed.
     /// `None` when the opener runs none, or when any probe was inconclusive.
     async fn probe(&mut self) -> Option<heimdall_contract::remote::ProbeObservation> {
+        None
+    }
+
+    /// ⟨M06 W5⟩ `Some(why)` when this session's opener can never run the confirming probes
+    /// on this device (a Windows controller: [`PROBES_NOT_ON_WINDOWS`]), as opposed to a
+    /// probe that ran and was inconclusive. A limited-role join and a policy re-check then
+    /// refuse with `why` before anything is sent. `None` (the default): [`Self::probe`]
+    /// decides.
+    fn probes_unavailable(&self) -> Option<&'static str> {
         None
     }
 
@@ -493,6 +696,10 @@ pub enum Confirmation {
     RetireDevice {
         /// The environments this device is enrolled on.
         environments: Vec<EnvironmentId>,
+        /// ⟨M06 W5 `w5m` L3⟩ Those of them whose record holds a limited role: retiring
+        /// only **forgets** them on this device (a limited role cannot revoke a client), so
+        /// the confirmation says so and names the command an owner must run for each.
+        forgotten_only: Vec<StillEnrolled>,
         /// K_mgmt's fingerprint.
         fingerprint: KeyFingerprint,
     },
@@ -633,6 +840,21 @@ pub struct StatusReport {
     pub environments: Vec<EnvironmentStatus>,
 }
 
+/// `remove`'s outcome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RemoveOutcome {
+    /// The environment whose record was forgotten.
+    pub environment: EnvironmentId,
+    /// This device's client there.
+    pub client: ClientId,
+    /// The role the record held.
+    pub role: Role,
+    /// Whether this device's client was revoked on the runner first. `false` for a
+    /// limited record: it is forgotten here only, and an owner must still revoke that
+    /// client on the runner.
+    pub revoked_on_runner: bool,
+}
+
 /// `retire`'s outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RetireOutcome {
@@ -640,6 +862,50 @@ pub struct RetireOutcome {
     pub revoked_on: Vec<EnvironmentId>,
     /// Whether K_mgmt was destroyed (only after every revocation succeeded).
     pub key_destroyed: bool,
+    /// ⟨M06 W5 `w5l`; ADR-0006 §18.9 item 6⟩ The runners whose record held a **limited**
+    /// role: forgotten on this device with no revoke (revoking a client is an owner's
+    /// form), so this device's client is still enrolled there until an owner revokes it.
+    /// Omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub still_enrolled_on: Vec<StillEnrolled>,
+}
+
+/// A runner this device was retired from without a revoke ([`RetireOutcome`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StillEnrolled {
+    /// The runner environment.
+    pub environment: EnvironmentId,
+    /// This device's client there, which an owner must still revoke.
+    pub client: ClientId,
+    /// The role its record held.
+    pub role: Role,
+}
+
+impl RetireOutcome {
+    /// The outcome in words. For each runner whose record held a limited role it says that
+    /// an owner must still revoke this device's client there, and names the command.
+    #[must_use]
+    pub fn line(&self) -> String {
+        let mut line = format!(
+            "retired: revoked on {} runner(s); management key destroyed",
+            self.revoked_on.len()
+        );
+        if !self.still_enrolled_on.is_empty() {
+            line.push_str(
+                ". This device's role on the following runner(s) cannot revoke a client, so \
+                 they were forgotten on this device only and its client is still enrolled \
+                 there: an owner must still revoke it on each, on an owner controller:",
+            );
+            for s in &self.still_enrolled_on {
+                line.push_str(&format!(
+                    " `heimdall environment revoke-client {} {}`",
+                    s.environment.as_str(),
+                    s.client.as_str()
+                ));
+            }
+        }
+        line
+    }
 }
 
 // --- the controller ------------------------------------------------------------------------
@@ -651,6 +917,14 @@ pub struct RemoteEnvController<'a> {
 
 fn refuse(code: Code, message: &str, why: &str) -> OpError {
     OpError::new(code, message).with_reason(why)
+}
+
+/// A role's wire name, for a message.
+fn role_name(role: Role) -> String {
+    serde_json::to_value(role)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "limited".to_owned())
 }
 
 /// Map a runner's response: `OK` is its data; `APPROVAL_REQUIRED` or `INTERACTION_REQUIRED`
@@ -756,6 +1030,7 @@ impl<'a> RemoteEnvController<'a> {
             .open(&SessionTarget {
                 name: SessionName::Environment(record.environment.clone()),
                 route: record.route.clone(),
+                standing: SessionStanding::of_record(record.role),
             })
             .await?;
         if session.hello().environment != record.environment {
@@ -780,6 +1055,32 @@ impl<'a> RemoteEnvController<'a> {
             ));
         }
         Ok(session)
+    }
+
+    /// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ An owner command on a record whose role is a
+    /// limited one is refused here, on the controller, from the record: `role_insufficient`,
+    /// before K_mgmt is touched or a session opens (the runner would refuse it per request
+    /// too; a session that negotiated no owner capability could only answer
+    /// `SCHEMA_UNSUPPORTED`, which says nothing about the role).
+    fn owner_record(
+        &self,
+        environment: &EnvironmentId,
+        what: &str,
+    ) -> Result<RemoteEnvironmentRecord, OpError> {
+        let record = self.record(environment)?;
+        if record.role != Role::Owner {
+            return Err(refuse(
+                Code::CapabilityUnavailable,
+                &format!(
+                    "{what} is an owner's command, and this device's role on that runner \
+                     is {}: nothing was sent",
+                    role_name(record.role)
+                ),
+                reason::ROLE_INSUFFICIENT,
+            )
+            .with_effect(heimdall_contract::envelope::EffectStatus::None));
+        }
+        Ok(record)
     }
 
     async fn call_recorded(
@@ -849,8 +1150,10 @@ impl<'a> RemoteEnvController<'a> {
             .open(&SessionTarget {
                 name: SessionName::Bootstrap(input.destination.clone()),
                 route: access.route.clone(),
+                standing: SessionStanding::Owner,
             })
-            .await?;
+            .await
+            .map_err(after_bootstrap)?;
         let hello = session.hello().clone();
         drop(session);
         if hello.role.is_some_and(|r| r != Role::Owner) {
@@ -905,10 +1208,11 @@ impl<'a> RemoteEnvController<'a> {
     ///
     /// # Errors
     /// [`OpError`]: the owner did not confirm the fingerprint (`INTERACTION_REQUIRED`), a
-    /// fingerprint that does not match the key (`USAGE_ERROR`), a locked K_mgmt store, or the
-    /// runner's refusal.
+    /// fingerprint that does not match the key (`USAGE_ERROR`), a locked K_mgmt store, the
+    /// runner's refusal, or `role_insufficient` (nothing asked, nothing sent) for a record
+    /// whose role is limited.
     pub async fn invite(&self, input: &InviteInput) -> Result<InviteOutcome, OpError> {
-        let record = self.record(&input.environment)?;
+        let record = self.owner_record(&input.environment, "inviting a client")?;
         if self.fingerprint(&input.public_key)? != input.key_fingerprint {
             return Err(OpError::new(
                 Code::UsageError,
@@ -1030,6 +1334,7 @@ impl<'a> RemoteEnvController<'a> {
             .open(&SessionTarget {
                 name: SessionName::Environment(bundle.environment.clone()),
                 route: bundle.route.clone(),
+                standing: SessionStanding::Joining,
             })
             .await?;
         let mismatched_client = session
@@ -1044,6 +1349,14 @@ impl<'a> RemoteEnvController<'a> {
                  nothing sent",
                 reason::ENVIRONMENT_IDENTITY_MISMATCH,
             ));
+        }
+        // ⟨M06 W5⟩ A device whose sessions run no confirming probe (a Windows controller)
+        // cannot join in a limited role: refused here, with the reason, before the
+        // activation probe or anything else is sent. An owner join needs no probe.
+        if bundle.role != Role::Owner
+            && let Some(why) = session.probes_unavailable()
+        {
+            return Err(probes_unavailable(why, PROBES_UNAVAILABLE_JOIN));
         }
         if let Some(nonce) = &bundle.nonce {
             runner_result(
@@ -1103,12 +1416,13 @@ impl<'a> RemoteEnvController<'a> {
     /// runner's client never touches K_mgmt.
     ///
     /// # Errors
-    /// [`OpError`].
+    /// [`OpError`]; `role_insufficient`, nothing sent, for a record whose role is limited.
     pub async fn revoke_client(
         &self,
         environment: &EnvironmentId,
         client: &ClientId,
     ) -> Result<serde_json::Value, OpError> {
+        self.owner_record(environment, "revoking a client")?;
         self.call_recorded(
             environment,
             ManagementCall::Environment(RemoteEnvironmentRequest::RevokeClient {
@@ -1194,6 +1508,9 @@ impl<'a> RemoteEnvController<'a> {
         }
         self.key_ready()?;
         let mut session = self.open_recorded(&record).await?;
+        if let Some(why) = session.probes_unavailable() {
+            return Err(probes_unavailable(why, PROBES_UNAVAILABLE_RECHECK));
+        }
         let Some(probe) = session.probe().await else {
             return Err(OpError::new(
                 Code::DestinationUnreachable,
@@ -1216,13 +1533,61 @@ impl<'a> RemoteEnvController<'a> {
     /// `environment remove`: revoke this device's client on that runner, then forget the
     /// record (pins included). K_mgmt is kept: it may serve other runners.
     ///
+    /// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ A record whose role is limited is forgotten
+    /// **locally, without the revoke**: revoking a client is an owner's form, so this
+    /// device cannot remove its own line. No session is opened and K_mgmt is not needed;
+    /// the outcome says the client is still enrolled on the runner
+    /// ([`RemoveOutcome::revoked_on_runner`] is `false`), and an owner must revoke it there.
+    ///
     /// # Errors
     /// [`OpError`]: the revocation failed (nothing is forgotten, so it can be retried).
-    pub async fn remove(&self, environment: &EnvironmentId) -> Result<(), OpError> {
+    pub async fn remove(&self, environment: &EnvironmentId) -> Result<RemoveOutcome, OpError> {
         let record = self.record(environment)?;
-        self.revoke_client(environment, &record.client).await?;
+        let revoked_on_runner = record.role == Role::Owner;
+        if revoked_on_runner {
+            self.revoke_client(environment, &record.client).await?;
+        }
         self.ports.registry.remove(environment).await?;
-        Ok(())
+        Ok(RemoveOutcome {
+            environment: environment.clone(),
+            client: record.client,
+            role: record.role,
+            revoked_on_runner,
+        })
+    }
+
+    /// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ The runner's own view for a record whose role is a
+    /// limited one: `environment status <env>` opens one management session of that
+    /// standing and sends read-only forms only (`inspect environments`, the role table's
+    /// `view`). `None` for an owner record: its status is this controller's own view, and
+    /// no session is opened for it (unchanged).
+    ///
+    /// # Errors
+    /// [`OpError`]: no such record, K_mgmt unavailable, the session's failure, a runner
+    /// whose identity does not match the record, or the runner's refusal.
+    pub async fn runner_view(
+        &self,
+        environment: &EnvironmentId,
+    ) -> Result<Option<serde_json::Value>, OpError> {
+        let record = self.record(environment)?;
+        if record.role == Role::Owner {
+            return Ok(None);
+        }
+        self.key_ready()?;
+        let mut session = self.open_recorded(&record).await?;
+        let view = runner_result(
+            session
+                .call(ManagementCall::Inspect(Box::new(
+                    heimdall_contract::request::InspectRequest {
+                        subject: heimdall_contract::request::InspectSubject::Environments,
+                        preview: None,
+                        cwd: None,
+                        redact: false,
+                    },
+                )))
+                .await?,
+        )?;
+        Ok(Some(view))
     }
 
     /// `environment update`: the runner's explicit, checksum-verified binary update
@@ -1231,6 +1596,7 @@ impl<'a> RemoteEnvController<'a> {
     /// # Errors
     /// [`OpError`].
     pub async fn update(&self, environment: &EnvironmentId) -> Result<serde_json::Value, OpError> {
+        self.owner_record(environment, "updating the runner")?;
         self.call_recorded(
             environment,
             ManagementCall::Environment(RemoteEnvironmentRequest::Update {
@@ -1277,7 +1643,9 @@ impl<'a> RemoteEnvController<'a> {
 
     /// `device retire` (module docs; ADR-0012 §3.4): a locally attended decision, then this
     /// device's client revoked on every recorded runner, then K_mgmt destroyed only if every
-    /// revocation succeeded.
+    /// revocation succeeded. ⟨M06 W5 `w5l`⟩ A record whose role is limited is forgotten
+    /// locally with no revoke, as `remove` does; the outcome lists those runners
+    /// ([`RetireOutcome::still_enrolled_on`]): an owner must still revoke this client there.
     ///
     /// # Errors
     /// [`OpError`]: not confirmed (`INTERACTION_REQUIRED`, nothing sent); a locked K_mgmt
@@ -1290,6 +1658,15 @@ impl<'a> RemoteEnvController<'a> {
         records.sort_by(|a, b| a.environment.cmp(&b.environment));
         let confirmed = self.ports.confirm.confirm(&Confirmation::RetireDevice {
             environments: records.iter().map(|r| r.environment.clone()).collect(),
+            forgotten_only: records
+                .iter()
+                .filter(|r| r.role != Role::Owner)
+                .map(|r| StillEnrolled {
+                    environment: r.environment.clone(),
+                    client: r.client.clone(),
+                    role: r.role,
+                })
+                .collect(),
             fingerprint: key.fingerprint.clone(),
         });
         if !confirmed {
@@ -1299,7 +1676,20 @@ impl<'a> RemoteEnvController<'a> {
             ));
         }
         let mut revoked_on = Vec::new();
+        let mut still_enrolled_on = Vec::new();
         for record in &records {
+            // ⟨M06 W5 `w5l`; ADR-0006 §18.9 item 6⟩ A limited record is forgotten locally:
+            // revoking a client is an owner's form, so no session is opened and nothing is
+            // sent for it. An owner record keeps revoke-then-forget.
+            if record.role != Role::Owner {
+                self.ports.registry.remove(&record.environment).await?;
+                still_enrolled_on.push(StillEnrolled {
+                    environment: record.environment.clone(),
+                    client: record.client.clone(),
+                    role: record.role,
+                });
+                continue;
+            }
             let outcome = async {
                 let mut session = self.open_recorded(record).await?;
                 runner_result(
@@ -1340,6 +1730,7 @@ impl<'a> RemoteEnvController<'a> {
         Ok(RetireOutcome {
             revoked_on,
             key_destroyed: true,
+            still_enrolled_on,
         })
     }
 }

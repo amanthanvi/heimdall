@@ -272,6 +272,21 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
         launch_flow::confirm_binding_active(&mut client, &data.binding_id)
             .await
             .map_err(|f| (f, Some(ids.clone())))?;
+        // ⟨M06 W5 `w5n`; ADR-0012 §4 item 5 ⟨2026-11-22⟩⟩ On a runner, an existing-access
+        // pair whose alias's `IdentityAgent` the static pass cannot determine is not
+        // launched unattended (the same rule and refusal as `run` and `connect`).
+        if let Some(refusal) = launch_flow::runner_undetermined_agent(
+            ctx,
+            &mut client,
+            hooks,
+            &bound_data.consumer.pairs,
+        )
+        .await
+        .map_err(|f| (f, Some(ids.clone())))?
+        .and_then(|u| u.refusal(!ctx.interactive()))
+        {
+            return Err((refusal, Some(ids)));
+        }
         drop(client);
         launch_flow::report_deadline(ctx, &bound_data);
         #[cfg(windows)]
@@ -283,6 +298,11 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
         let contained = false;
         let mut delta = EnvDelta::from_integration(&bound_data.consumer, &env, &git, platform);
         confine(&mut delta, &env, platform);
+        // ⟨M06 W5⟩ On a remote runner the worker starts from the clean environment, still
+        // without the locators `confine` keeps out (`launch_flow::runner_work`).
+        let managed = bound_data.credential_mechanism == launch_flow::MANAGED_CERTIFICATE;
+        let delta = launch_flow::runner_work(ctx, &bound_data.consumer, managed, delta, &env)
+            .map_err(|f| (f, Some(ids.clone())))?;
         Ok(Prepared {
             program,
             args: owned_args,

@@ -15,6 +15,18 @@
 #   HM_RUN_PREFIX  the scratch directory prefix, hm-m0<N> (default hm-m02)
 #   HM_EXTRA_REMOTE a file of bash defining hm_extra_facts, sent with remote-lib.sh and
 #                  run on the host after the version facts (key=value lines only)
+#   ⟨M06 W5c⟩ HM_FEATURE_UNIT comma-separated package names (tests/native/m06/run-linux.sh sets
+#                  `heimdall-transport-iroh`): with HM_FEATURE, each package's own unit tests are
+#                  built with the feature too and run as `<crate>-unit` in place of the
+#                  default-feature build's (lib.sh m02_feature_build, M02_FEATURE_UNIT).
+#   ⟨M06 W5⟩ HM_FEATURE a Cargo feature (tests/native/m06/run-linux.sh sets `iroh`): after the
+#                  workspace build, the test targets whose required-features name it are
+#                  built too (lib.sh m02_feature_build) and run with the others. They run
+#                  against that build's own heimdall (feature/heimdall in the scratch
+#                  directory); every other target keeps the default-feature one. A feature
+#                  target that does not build is recorded as `feature-blocked-<target>=<reason>`
+#                  in host.txt (the evidence row is blocked on it) and the harness exits 6
+#                  when nothing else failed. Unset: nothing changes.
 #
 # Steps:
 #   1. `uname -m` on the host (anything but x86_64 stops with exit 3, nothing copied).
@@ -81,6 +93,11 @@ M02_EVIDENCE=${HM_EVIDENCE:-m02-evidence.py}
 prefix=${HM_RUN_PREFIX:-hm-m02}
 case "$prefix" in hm-m0[0-9]) ;; *) echo "bad HM_RUN_PREFIX" >&2; exit 2 ;; esac
 extra=${HM_EXTRA_REMOTE:-}
+feature=${HM_FEATURE:-}
+case "$feature" in *[!a-z0-9-]*) echo "bad HM_FEATURE" >&2; exit 2 ;; esac
+feature_unit=${HM_FEATURE_UNIT:-}
+case "$feature_unit" in *[!a-z0-9,-]*) echo "bad HM_FEATURE_UNIT" >&2; exit 2 ;; esac
+[ -z "$feature_unit" ] || [ -n "$feature" ] || { echo "HM_FEATURE_UNIT needs HM_FEATURE" >&2; exit 2; }
 [ -z "$extra" ] || [ -f "$extra" ] || { echo "HM_EXTRA_REMOTE is not a file" >&2; exit 2; }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -135,6 +152,23 @@ m02_record "$commands" "cargo test --target $triple --profile ${HM_CARGO_PROFILE
 redact_build_log() { m02_redact "$out/build.txt" "$out/build.txt" "$shim" "<shim>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" "$(id -un)" "<user>"; }
 [ "$rc" = 0 ] || { redact_build_log; exit "$rc"; }
 m02_artifacts "$shim" || { echo "the heimdall or hm-fixture-hook binary was not built" >&2; redact_build_log; exit 5; }
+feature_rc=0
+: >"$shim/feature-facts.txt"
+if [ -n "$feature" ]; then
+    set +e
+    M02_FEATURE_UNIT=$feature_unit m02_feature_build "$triple" "$shim" "$out/build.txt" "$feature"
+    feature_rc=$?
+    set -e
+    case "$feature_rc" in
+        0) m02_record "$commands" "cargo test --target $triple --profile ${HM_CARGO_PROFILE:-native-test} -p <package> --features $feature --test <each target that requires it> --no-run --locked${feature_unit:+, and --lib for the unit tests of $feature_unit} ($(wc -l <"$shim/feature.tsv" | tr -d ' ') targets built)" 0 ;;
+        6) m02_record "$commands" "record the $feature-feature targets that did not build as blocked ($(wc -l <"$shim/feature-blocked.tsv" | tr -d ' '); host.txt feature-blocked-<target> keeps cargo's exit code and first error)" 0 ;;
+        *) m02_record "$commands" "list and build the test targets that require feature $feature" "$feature_rc"
+           redact_build_log
+           exit "$feature_rc" ;;
+    esac
+    m02_feature_facts "$shim" "$feature" >"$shim/feature-facts.raw"
+    m02_redact "$shim/feature-facts.raw" "$shim/feature-facts.txt" "$shim" "<shim>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" "$(id -un)" "<user>"
+fi
 set +e
 m02_plan "$hdir" linux "$shim" "$out"
 rc=$?
@@ -147,10 +181,15 @@ if [ -n "${HM_ONLY:-}" ]; then
     mv "$shim/run.only" "$shim/run.tsv"
 fi
 m02_hashes "$shim" "$out" ""
+if [ -s "$shim/feature-cli.txt" ]; then
+    echo "heimdall ($feature feature; HEIMDALL_E2E_BIN for the targets that require it) sha256: $(shasum -a 256 "$(cat "$shim/feature-cli.txt")" | cut -d' ' -f1)" >>"$out/build.txt"
+fi
 echo "toolchain: $(rustc --version); zig $(zig version); target $triple (glibc floor 2.31)" >>"$out/build.txt"
 if [ "$build_only" = 1 ]; then
+    cat "$shim/feature-facts.txt" >>"$out/build.txt"
     redact_build_log
     echo "test binaries planned: $(wc -l <"$shim/run.tsv" | tr -d ' '); skipped entries: $(wc -l <"$out/skipped.txt" | tr -d ' ')"
+    [ "$feature_rc" = 0 ] || { cat "$shim/feature-facts.txt"; exit "$feature_rc"; }
     exit 0
 fi
 
@@ -165,6 +204,13 @@ m02_record "$commands" "ssh <linuxhost> mkdir (exclusive) ~/$prefix-<random> and
 scratch=$name
 
 m02_stage "$shim" ""
+if [ -n "$feature" ]; then
+    # The feature targets' names, and that build's own CLI beside the default one.
+    cut -f1 "$shim/feature.tsv" >"$shim/stage/feature-targets.txt"
+    if [ -s "$shim/feature-cli.txt" ]; then
+        mkdir "$shim/stage/feature" && ln -s "$(cat "$shim/feature-cli.txt")" "$shim/stage/feature/heimdall"
+    fi
+fi
 set +e
 nrepo=$(m02_stage_repo "$repo" "$shim/stage")
 rc=$?
@@ -209,6 +255,12 @@ else
 fi
 chmod 700 ./heimdall ./hm-fixture-hook
 export HEIMDALL_E2E_BIN=$scratch/heimdall HM_FIXTURE_HOOK=$scratch/hm-fixture-hook
+# ⟨M06 W5⟩ HM_FEATURE: the feature build's own CLI, for the targets feature-targets.txt names.
+fbin=""
+if [ -f "$scratch/feature/heimdall" ]; then
+    chmod 700 "$scratch/feature/heimdall"
+    fbin=$scratch/feature/heimdall
+fi
 # The repository files the tests read (heimdall_testkit::repo; ADR-0007 §12.32 item 3).
 [ -d "$scratch/repo" ] || { echo "the repository copy is missing"; return 1; }
 export HM_REPO_ROOT=$scratch/repo
@@ -223,6 +275,10 @@ for b in "$@"; do
     [ $# -gt 0 ] && set -- --exact "$@"
     # --show-output keeps the `observation` lines of passing tests (the settled [I]/[U] facts).
     set -- "$@" --show-output
+    HEIMDALL_E2E_BIN=$scratch/heimdall
+    if [ -n "$fbin" ] && grep -qxF -- "$b" "$scratch/feature-targets.txt" 2>/dev/null; then
+        HEIMDALL_E2E_BIN=$fbin
+    fi
     echo "### $b"
     timeout "$timeout_s" nice -n 10 "./$b" "$@" 2>&1
     brc=$?
@@ -232,7 +288,7 @@ done
 echo "all-tests-exit=$arc"
 echo "---after---"
 leftover=0
-for b in heimdall hm-fixture-hook $bins; do
+for b in heimdall hm-fixture-hook ${fbin:+feature/heimdall} $bins; do
     # Count only (nothing is signalled): processes still running a binary of this run.
     n=$(pgrep -u "$(id -u)" -f "^$scratch/$b( |\$)|^\./$b( |\$)" 2>/dev/null | wc -l)
     leftover=$((leftover + n))
@@ -263,6 +319,7 @@ sed -i.bak -E "s/$prefix-[0-9a-f]{12}/$prefix-<random>/g" "$shim/redacted.txt" &
 {
     sed -n '1,/^---tests---$/p' "$shim/redacted.txt" | sed '$d'
     cat "$shim/host-arch.txt"
+    cat "$shim/feature-facts.txt"
     sed -n '/^---after---$/,$p' "$shim/redacted.txt" | sed '1d'
 } >"$out/host.txt"
 sed -n '/^---tests---$/,/^---after---$/p' "$shim/redacted.txt" | sed '1d;$d' >"$out/tests.txt"
@@ -283,4 +340,6 @@ m02_record "$commands" "leak scan: saved files still naming the host, user or a 
 cat "$out/host.txt"
 grep -E '^### |^test result' "$out/tests.txt" || true
 [ "$hits" = 0 ] && [ "$lrc" = 0 ] && [ "$same" = 1 ] || exit 1
-exit "$rc"
+[ "$rc" = 0 ] || exit "$rc"
+# ⟨M06 W5⟩ 6: everything that ran passed, but a feature target did not build (blocked).
+exit "$feature_rc"

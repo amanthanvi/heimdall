@@ -532,11 +532,21 @@ where
         client_failure: None,
     };
     let mut attempts: Vec<RouteAttempt> = Vec::new();
-    let failed = |route: &PlannedRoute, class| RouteAttempt {
+    // ⟨rev6.5; ADR-0006 §18.9 item 11⟩ Each attempt reports how long it took, bounded.
+    let took = |started: tokio::time::Instant| {
+        Some(
+            u32::try_from(started.elapsed().as_millis())
+                .unwrap_or(u32::MAX)
+                .min(heimdall_contract::route::ROUTE_ATTEMPT_DURATION_MAX_MS),
+        )
+    };
+    let failed = |route: &PlannedRoute, class, started: tokio::time::Instant| RouteAttempt {
         route: route.id.clone(),
         failure: Some(class),
+        duration_ms: took(started),
     };
     for route in routes {
+        let started = tokio::time::Instant::now();
         let client_first = matches!(route.leg, LegPlan::Iroh { .. });
         // ⟨M06 U56; M06-W2-R06⟩ An Iroh leg is sent the client's identification line, and
         // only that, before the server's (module docs, item 5). The line is read and
@@ -566,21 +576,25 @@ where
         let mut leg = match dialer.dial(route, config.connect_timeout).await {
             Ok(leg) => leg,
             Err(DialFailure::Refused) => {
-                attempts.push(failed(route, RouteFailureClass::Refused));
+                attempts.push(failed(route, RouteFailureClass::Refused, started));
                 continue;
             }
             Err(DialFailure::Timeout) => {
-                attempts.push(failed(route, RouteFailureClass::Timeout));
+                attempts.push(failed(route, RouteFailureClass::Timeout, started));
                 continue;
             }
             // ⟨M06-W1-R05⟩ A leg's own host-key or authentication failure while dialing is
             // its own class (rev 6.1), as before identification: never failed over.
             Err(DialFailure::Terminal) => {
-                attempts.push(failed(route, RouteFailureClass::AuthenticationOrTrust));
+                attempts.push(failed(
+                    route,
+                    RouteFailureClass::AuthenticationOrTrust,
+                    started,
+                ));
                 break;
             }
             Err(DialFailure::AdmissionRefused) => {
-                attempts.push(failed(route, RouteFailureClass::AdmissionRefused));
+                attempts.push(failed(route, RouteFailureClass::AdmissionRefused, started));
                 continue;
             }
         };
@@ -589,7 +603,7 @@ where
             let sent = send_identification(&mut leg, line, deadline).await;
             if !sent {
                 let (class, terminal) = ended_before_identification(&mut leg).await;
-                attempts.push(failed(route, class));
+                attempts.push(failed(route, class, started));
                 if let Some(mut e) = leg.ending.take() {
                     drop(leg);
                     e.abort().await;
@@ -602,7 +616,7 @@ where
         }
         match establish(&mut leg, deadline, config).await {
             Establish::Failed(class, terminal) => {
-                attempts.push(failed(route, class));
+                attempts.push(failed(route, class, started));
                 if let Some(mut e) = leg.ending.take() {
                     drop(leg);
                     e.abort().await;
@@ -615,6 +629,7 @@ where
                 attempts.push(RouteAttempt {
                     route: route.id.clone(),
                     failure: None,
+                    duration_ms: took(started),
                 });
                 let established = payload(destination, account, &attempts, Some(&route.id));
                 record(established.clone()).await;
@@ -644,6 +659,25 @@ where
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    /// The attempts without their durations, after checking that each was measured and is
+    /// inside the contract's bound (⟨rev6.5; ADR-0006 §18.9 item 11⟩).
+    fn untimed(attempts: &[RouteAttempt]) -> Vec<RouteAttempt> {
+        attempts
+            .iter()
+            .map(|a| {
+                assert!(
+                    a.duration_ms.is_some_and(
+                        |ms| ms <= heimdall_contract::route::ROUTE_ATTEMPT_DURATION_MAX_MS
+                    ),
+                    "{a:?}"
+                );
+                RouteAttempt {
+                    duration_ms: None,
+                    ..a.clone()
+                }
+            })
+            .collect()
+    }
     use std::collections::BTreeMap;
     use std::sync::{Arc, Mutex};
 
@@ -899,15 +933,17 @@ mod tests {
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0].kind, RouteEventKind::FailedOver);
         assert_eq!(
-            recorded[0].attempts,
+            untimed(&recorded[0].attempts),
             [
                 RouteAttempt {
                     route: planned(1).id,
-                    failure: Some(RouteFailureClass::IdentificationTimeout)
+                    failure: Some(RouteFailureClass::IdentificationTimeout),
+                    duration_ms: None,
                 },
                 RouteAttempt {
                     route: planned(2).id,
-                    failure: None
+                    failure: None,
+                    duration_ms: None,
                 },
             ]
         );
@@ -934,10 +970,11 @@ mod tests {
         );
         assert_eq!(recorded.len(), 2);
         assert_eq!(
-            recorded[1].attempts,
+            untimed(&recorded[1].attempts),
             [RouteAttempt {
                 route: planned(1).id,
-                failure: Some(RouteFailureClass::TerminalAfterForwarding)
+                failure: Some(RouteFailureClass::TerminalAfterForwarding),
+                duration_ms: None,
             }]
         );
         assert_eq!(recorded[1].final_route, Some(planned(1).id));
@@ -965,10 +1002,11 @@ mod tests {
             // ⟨M06-W1-R05⟩ Both a dial-time and a pre-identification host-key or
             // authentication failure are recorded `authentication_or_trust`.
             assert_eq!(
-                recorded[0].attempts,
+                untimed(&recorded[0].attempts),
                 [RouteAttempt {
                     route: planned(1).id,
-                    failure: Some(RouteFailureClass::AuthenticationOrTrust)
+                    failure: Some(RouteFailureClass::AuthenticationOrTrust),
+                    duration_ms: None,
                 }],
                 "{first:?}"
             );
@@ -1247,10 +1285,11 @@ mod tests {
             assert_eq!(recorded.len(), 1);
             assert_eq!(recorded[0].kind, RouteEventKind::FailedOver);
             assert_eq!(
-                recorded[0].attempts[0],
+                untimed(std::slice::from_ref(&recorded[0].attempts[0]))[0],
                 RouteAttempt {
                     route: first,
-                    failure: Some(class)
+                    failure: Some(class),
+                    duration_ms: None,
                 },
                 "{dies:?}"
             );
@@ -1337,10 +1376,11 @@ mod tests {
         assert_eq!(seen(&log, &first), 0);
         assert!(got.starts_with(IDENT));
         assert_eq!(
-            recorded[0].attempts,
+            untimed(&recorded[0].attempts),
             [RouteAttempt {
                 route: second,
-                failure: None
+                failure: None,
+                duration_ms: None,
             }]
         );
     }

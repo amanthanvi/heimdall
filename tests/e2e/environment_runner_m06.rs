@@ -35,6 +35,9 @@
 //! the controller catalog and a terminal, so the controller half is driven at the library
 //! level with the same adapters the CLI wires.
 //!
+//! ⟨M06 W5 U7⟩ The installations, sessions and fixture calls these cases use live in
+//! `exit_m06/world.rs`, shared with the exit suite (`exit_m06.rs`); nothing else changed.
+//!
 //! **Isolation.** The runner processes get a cleared environment with a scratch `HOME`,
 //! `HEIMDALL_HOME` and `HEIMDALL_TEST_SSH_HOME`; the fixture sshd is unprivileged on
 //! 127.0.0.1 with per-run host keys; the controller's `ssh` reads only the rendered scratch
@@ -46,11 +49,13 @@
 #![cfg(unix)]
 
 use std::collections::BTreeSet;
-use std::io::Read as _;
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::path::Path;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+
+#[path = "exit_m06/world.rs"]
+mod world;
+use world::*;
 
 use heimdall_contract::ids::ClientId;
 use heimdall_contract::ipc::{PeerInfo, capability};
@@ -60,402 +65,10 @@ use heimdall_contract::request::{
 };
 use heimdall_credential::mgmt::{MgmtKey, MgmtSigner, SessionAgent};
 use heimdall_ipc::session::ControlClient;
-use heimdall_sshconf::mgmt::{
-    HopIdentity, MgmtHop, MgmtTarget, PinnedKey, render_mgmt_config, render_mgmt_pin_file,
-};
-use heimdall_sshconf::render::{HostName, PathStyle, RenderPath};
 use heimdall_testkit::assert_no_canary;
 use heimdall_testkit::home::{Scratch, find_program};
 use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig, current_account};
 use serde_json::Value;
-
-fn bin() -> String {
-    std::env::var("HEIMDALL_E2E_BIN")
-        .ok()
-        .filter(|p| !p.is_empty())
-        .unwrap_or_else(|| env!("CARGO_BIN_EXE_heimdall").to_owned())
-}
-
-/// [`Runner::remote_init`]'s answer for a case that must be refused before it is asked.
-const NEVER_ASKED: &str = "<never asked>";
-
-/// The runner installation: its Heimdall home and account home.
-struct Runner {
-    home: PathBuf,
-    account: PathBuf,
-    runtime: Option<Child>,
-    /// ⟨M06 W3⟩ `HEIMDALL_TEST_RUNNER_SSHD_CONFIG` for the runtime, when the case has one.
-    sshd_config: Option<PathBuf>,
-}
-
-impl Runner {
-    fn new(scratch: &Scratch) -> Runner {
-        Runner {
-            home: scratch.subdir("rh").unwrap(),
-            account: scratch.subdir("ra").unwrap(),
-            runtime: None,
-            sshd_config: None,
-        }
-    }
-
-    /// A second, separate runner installation under `scratch` (`tag` names its directories).
-    fn named(scratch: &Scratch, tag: &str) -> Runner {
-        Runner {
-            home: scratch.subdir(&format!("{tag}h")).unwrap(),
-            account: scratch.subdir(&format!("{tag}a")).unwrap(),
-            runtime: None,
-            sshd_config: None,
-        }
-    }
-
-    fn command(&self) -> Command {
-        let mut cmd = Command::new(bin());
-        cmd.env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("HOME", &self.account)
-            .env("HEIMDALL_HOME", &self.home)
-            .env("HEIMDALL_TEST_SSH_HOME", &self.account)
-            .env("HEIMDALL_TEST_TIME_SYNC", "synchronized")
-            .arg("--home")
-            .arg(&self.home);
-        if let Some(config) = &self.sshd_config {
-            cmd.env("HEIMDALL_TEST_RUNNER_SSHD_CONFIG", config);
-        }
-        cmd
-    }
-
-    /// `heimdall remote init …` on a pseudo-terminal (`script(1)`), answering `answer` to the
-    /// confirmation; the transcript.
-    fn remote_init(&self, client: &ClientId, key: &str, answer: &str) -> String {
-        self.remote_init_with(client, key, answer, &[])
-    }
-
-    /// [`Self::remote_init`] with more arguments (`--iroh-endpoint <id>`).
-    fn remote_init_with(
-        &self,
-        client: &ClientId,
-        key: &str,
-        answer: &str,
-        extra: &[&str],
-    ) -> String {
-        let mut args = vec![
-            "remote".to_owned(),
-            "init".to_owned(),
-            "--owner-client".to_owned(),
-            client.as_str().to_owned(),
-            "--owner-key".to_owned(),
-            key.to_owned(),
-        ];
-        args.extend(extra.iter().map(|a| (*a).to_owned()));
-        self.on_terminal(&args, answer)
-    }
-
-    /// `heimdall --json --home <home> <args…>` on a pseudo-terminal (`script(1)`), answering
-    /// `answer` to its typed confirmation; the transcript.
-    fn on_terminal(&self, args: &[String], answer: &str) -> String {
-        let mut argv = vec![
-            bin(),
-            "--json".to_owned(),
-            "--home".to_owned(),
-            self.home.to_string_lossy().into_owned(),
-        ];
-        argv.extend(args.iter().cloned());
-        let mut cmd = Command::new("script");
-        cmd.env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("HOME", &self.account)
-            .env("HEIMDALL_TEST_SSH_HOME", &self.account);
-        if cfg!(target_os = "linux") {
-            let quoted: Vec<String> = argv
-                .drain(..)
-                .map(|a| format!("'{}'", a.replace('\'', r"'\''")))
-                .collect();
-            cmd.args(["-q", "-e", "-c", &quoted.join(" "), "/dev/null"]);
-        } else {
-            cmd.args(["-q", "/dev/null"]).args(&argv);
-        }
-        let mut child = cmd
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("blocked: script(1) is needed for the runner-local confirmation");
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let mut stdout = child.stdout.take().unwrap();
-        let sink = seen.clone();
-        let reader = std::thread::spawn(move || {
-            let mut buf = [0u8; 4096];
-            while let Ok(n) = stdout.read(&mut buf) {
-                if n == 0 {
-                    break;
-                }
-                sink.lock().unwrap().extend_from_slice(&buf[..n]);
-            }
-        });
-        let text = || String::from_utf8_lossy(&seen.lock().unwrap()).into_owned();
-        let start = Instant::now();
-        // `NEVER_ASKED`: the case expects a refusal before the confirmation.
-        let mut asked = true;
-        while !text().contains("Type yes to continue") {
-            if child.try_wait().unwrap().is_some() {
-                assert_eq!(
-                    answer,
-                    NEVER_ASKED,
-                    "remote init exited before asking: {}",
-                    text()
-                );
-                asked = false;
-                break;
-            }
-            assert!(
-                start.elapsed() < Duration::from_secs(60),
-                "no prompt: {}",
-                text()
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        if asked {
-            use std::io::Write as _;
-            assert_ne!(answer, NEVER_ASKED, "asked: {}", text());
-            let stdin = child.stdin.as_mut().unwrap();
-            stdin.write_all(answer.as_bytes()).unwrap();
-            stdin.write_all(b"\n").unwrap();
-            stdin.flush().unwrap();
-        }
-        let start = Instant::now();
-        while child.try_wait().unwrap().is_none() {
-            assert!(
-                start.elapsed() < Duration::from_secs(60),
-                "remote init did not exit"
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        drop(child.stdin.take());
-        reader.join().unwrap();
-        let out = text();
-        assert_no_canary(&out);
-        assert!(!out.contains("panicked"), "{out}");
-        out
-    }
-
-    /// Start `service run --runner` and wait until it serves.
-    fn start(&mut self) {
-        let child = self
-            .command()
-            .args(["service", "run", "--runner"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(std::fs::File::create(self.account.join("runtime.stderr")).unwrap())
-            .spawn()
-            .unwrap();
-        self.runtime = Some(child);
-        let start = Instant::now();
-        loop {
-            let status = self
-                .command()
-                .args(["--json", "service", "status"])
-                .stdin(Stdio::null())
-                .output()
-                .unwrap();
-            if status.status.success() {
-                return;
-            }
-            assert!(
-                start.elapsed() < Duration::from_secs(60),
-                "the runner runtime did not start: {}",
-                std::fs::read_to_string(self.account.join("runtime.stderr")).unwrap_or_default()
-            );
-            std::thread::sleep(Duration::from_millis(100));
-        }
-    }
-}
-
-impl Drop for Runner {
-    fn drop(&mut self) {
-        if let Some(mut child) = self.runtime.take() {
-            let _ = self
-                .command()
-                .args(["--json", "service", "stop"])
-                .stdin(Stdio::null())
-                .output();
-            let start = Instant::now();
-            while child.try_wait().ok().flatten().is_none()
-                && start.elapsed() < Duration::from_secs(30)
-            {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            // Only this test's own child, by its handle, if it is still running.
-            if child.try_wait().ok().flatten().is_none() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
-    }
-}
-
-/// The last JSON object in a transcript (the envelope).
-fn envelope(transcript: &str) -> Value {
-    transcript
-        .lines()
-        .rev()
-        .find_map(|l| {
-            let l = l.trim();
-            l.find('{')
-                .and_then(|i| serde_json::from_str::<Value>(&l[i..]).ok())
-        })
-        .unwrap_or_else(|| panic!("no envelope: {transcript}"))
-}
-
-fn rpath(p: &Path) -> RenderPath {
-    RenderPath::absolute(p, PathStyle::Unix).unwrap()
-}
-
-/// `<type> <base64>` of the fixture's known-hosts line.
-fn host_key(sshd: &LoopbackSshd) -> String {
-    let mut words = sshd.host_key_line.split_ascii_whitespace().skip(1);
-    format!("{} {}", words.next().unwrap(), words.next().unwrap())
-}
-
-/// A management session through the isolated configuration and K_mgmt's session agent.
-struct Session {
-    client: MgmtClient,
-    _child: tokio::process::Child,
-    agent: SessionAgent,
-}
-
-async fn open_session(
-    dir: &Path,
-    sshd: &LoopbackSshd,
-    account: &str,
-    key: MgmtKey,
-    environment_name: &str,
-) -> Result<Session, String> {
-    let public = key.public().unwrap();
-    let signer =
-        MgmtSigner::with_host_key_lines(key, [account.to_owned()], &[host_key(sshd)]).unwrap();
-    let agent = SessionAgent::start(&dir.join("a.sock"), signer).unwrap();
-    match connect(dir, sshd, account, &public.openssh_line, environment_name).await {
-        Ok((client, child)) => Ok(Session {
-            client,
-            _child: child,
-            agent,
-        }),
-        Err(e) => {
-            agent.stop().await;
-            Err(e)
-        }
-    }
-}
-
-type MgmtClient =
-    ControlClient<tokio::io::Join<tokio::process::ChildStdout, tokio::process::ChildStdin>>;
-
-/// A management connection through the isolated configuration, with the session agent at
-/// `dir/a.sock` already serving the key whose public line is `public_line`.
-async fn connect(
-    dir: &Path,
-    sshd: &LoopbackSshd,
-    account: &str,
-    public_line: &str,
-    environment_name: &str,
-) -> Result<(MgmtClient, tokio::process::Child), String> {
-    connect_offering(dir, sshd, account, public_line, environment_name, false).await
-}
-
-/// [`connect`], also offering `runner/1` when `offer_runner` (as the CLI's session opener
-/// does: offered, not required; the runner negotiates it for an owner session only).
-async fn connect_offering(
-    dir: &Path,
-    sshd: &LoopbackSshd,
-    account: &str,
-    public_line: &str,
-    environment_name: &str,
-    offer_runner: bool,
-) -> Result<(MgmtClient, tokio::process::Child), String> {
-    let pin = host_key(sshd);
-    let pub_file = dir.join("k_mgmt.pub");
-    std::fs::write(&pub_file, format!("{public_line}\n")).unwrap();
-    let target = MgmtTarget {
-        environment: environment_name.to_owned(),
-        hop: MgmtHop {
-            hostname: HostName::parse(&sshd.host).unwrap(),
-            port: Some(sshd.port),
-            user: account.to_owned(),
-            pins: vec![PinnedKey::parse(&pin).unwrap()],
-            identity: HopIdentity::new(rpath(&dir.join("a.sock")), rpath(&pub_file)).unwrap(),
-        },
-        jump: None,
-    };
-    let pins = dir.join("known_hosts");
-    std::fs::write(&pins, render_mgmt_pin_file(&target).unwrap()).unwrap();
-    let config = dir.join("mgmt.conf");
-    std::fs::write(
-        &config,
-        render_mgmt_config(&target, &rpath(&pins), PathStyle::Unix).unwrap(),
-    )
-    .unwrap();
-    let args: Vec<std::ffi::OsString> = vec![
-        "-F".into(),
-        config.into_os_string(),
-        "-T".into(),
-        "-o".into(),
-        "BatchMode=yes".into(),
-        "-o".into(),
-        "CertificateFile=none".into(),
-        "--".into(),
-        target.alias().into(),
-    ];
-    let child = heimdall_app::remote_env::ssh::spawn_management(
-        &find_program("ssh").expect("an OpenSSH client"),
-        &args,
-    )
-    .map_err(|e| e.message)?;
-    let heimdall_app::remote_env::ssh::ManagementChild {
-        child,
-        stdin,
-        stdout,
-        stderr,
-    } = child;
-    let required: BTreeSet<String> = [capability::REMOTE_CONTROL_V1.to_owned()].into();
-    let mut capabilities = heimdall_ipc::session::server_capabilities();
-    capabilities.extend(required.iter().cloned());
-    if offer_runner {
-        capabilities.insert(capability::RUNNER_V1.to_owned());
-    }
-    let handshake = tokio::time::timeout(
-        Duration::from_secs(30),
-        ControlClient::handshake_hello(
-            tokio::io::join(stdout, stdin),
-            heimdall_contract::ipc::ClientHello {
-                protocol: heimdall_contract::PROTOCOL_VERSION,
-                schema_version: heimdall_contract::SchemaVersion::current(),
-                client: PeerInfo {
-                    name: "heimdall-cli".into(),
-                    version: "test".into(),
-                },
-                capabilities,
-                required,
-                interaction: InteractionMode::NonInteractive,
-                remote_client: None,
-            },
-        ),
-    )
-    .await;
-    match handshake {
-        Ok(Ok(client)) => Ok((client, child)),
-        other => {
-            let kept = String::from_utf8_lossy(&stderr.lock().unwrap()).into_owned();
-            assert_no_canary(&kept);
-            Err(format!(
-                "handshake failed ({}): {kept}",
-                match other {
-                    Ok(Err(e)) => e.to_string(),
-                    _ => "timeout".into(),
-                }
-            ))
-        }
-    }
-}
 
 #[tokio::test]
 async fn a_controller_reaches_a_real_runner_through_its_management_line() {
@@ -1103,19 +716,6 @@ fn the_bridge_refuses_a_session_with_a_terminal_or_a_forwarded_agent() {
     }
 }
 
-/// ⟨ADR-0006 §18.7 item 18⟩ The cause token of the owner-only downgrade recorded in the
-/// state database of the runner home `home` (read-only; `None` without the row).
-fn recorded_downgrade(home: &Path) -> Option<String> {
-    let db = heimdall_runtime::Paths::under(home)
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
-    heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
-        .unwrap()
-        .transaction(|tx| tx.runner_downgrade())
-        .unwrap()
-        .map(|d| d.cause)
-}
-
 // --- ⟨M06 W3 `driver`⟩ the controller's sync and issuance driver over a real session --------
 
 /// ⟨M06 W3 `driver`; ADR-0012 §4.2, §7.4; ADR-0006 §18.7 items 11–13⟩ The controller's
@@ -1182,12 +782,6 @@ mod driver_e2e {
 
     use super::*;
 
-    const HOUR: Duration = Duration::from_secs(3600);
-
-    fn plus(t: Timestamp, d: Duration) -> Timestamp {
-        Timestamp::from_second(t.as_second() + i64::try_from(d.as_secs()).unwrap()).unwrap()
-    }
-
     fn pair() -> AccessPairRef {
         AccessPairRef {
             destination: DestinationId::parse("h1").unwrap(),
@@ -1200,24 +794,6 @@ mod driver_e2e {
             pairs: [pair()].into_iter().collect(),
             capabilities: [Capability::SshAuthentication].into_iter().collect(),
         }
-    }
-
-    /// The runner's state database (written by `remote init`).
-    fn state_db(home: &Path) -> PathBuf {
-        fn find(dir: &Path) -> Option<PathBuf> {
-            for entry in std::fs::read_dir(dir).ok()?.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    if let Some(found) = find(&path) {
-                        return Some(found);
-                    }
-                } else if path.file_name().is_some_and(|n| n == "state.db") {
-                    return Some(path);
-                }
-            }
-            None
-        }
-        find(home).expect("the runner's state database")
     }
 
     /// Admission is the runner's: one grant under a standing policy of the runner, written
@@ -1330,10 +906,6 @@ mod driver_e2e {
             .unwrap();
         (env, grant)
     }
-
-    /// The scratch secret store's directory inside a state directory (the CLI's
-    /// `SCRATCH_STORE_DIR`, selected by `HEIMDALL_TEST_SECRET_STORE=scratch`).
-    const SCRATCH_STORE_DIR: &str = "scratch-secret-store";
 
     /// The controller's production issuer over `home`: K_ca registered `active` in `store`
     /// and held in the scratch secret store, the runtime's time anchor persisted, and the
@@ -1802,148 +1374,6 @@ mod driver_e2e {
         drop(sshd);
     }
 
-    /// A controller installation whose **runtime** hosts the driver (`service run`): its
-    /// home, its account home, and the fixture file its K_mgmt lives in.
-    struct ControllerRuntime {
-        home: PathBuf,
-        account: PathBuf,
-        mgmt: PathBuf,
-        runtime: Option<Child>,
-    }
-
-    impl ControllerRuntime {
-        fn command(&self) -> Command {
-            let mut cmd = Command::new(bin());
-            cmd.env_clear()
-                .env("PATH", "/usr/bin:/bin")
-                .env("HOME", &self.account)
-                .env("HEIMDALL_HOME", &self.home)
-                .env("HEIMDALL_TEST_SSH_HOME", &self.account)
-                .env("HEIMDALL_TEST_TIME_SYNC", "synchronized")
-                .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
-                .env(
-                    "HEIMDALL_TEST_MGMT_STORE",
-                    format!("fixture-file:{}", self.mgmt.display()),
-                )
-                .arg("--home")
-                .arg(&self.home)
-                .stdin(Stdio::null());
-            cmd
-        }
-
-        fn json(&self, args: &[&str]) -> Value {
-            let out = self.command().arg("--json").args(args).output().unwrap();
-            serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
-                panic!(
-                    "{args:?}: {} {}",
-                    String::from_utf8_lossy(&out.stdout),
-                    String::from_utf8_lossy(&out.stderr)
-                )
-            })
-        }
-
-        fn start(&mut self) {
-            let child = self
-                .command()
-                .args(["service", "run"])
-                .stdout(Stdio::null())
-                .stderr(std::fs::File::create(self.account.join("runtime.stderr")).unwrap())
-                .spawn()
-                .unwrap();
-            self.runtime = Some(child);
-            let start = Instant::now();
-            while !self
-                .command()
-                .args(["--json", "service", "status"])
-                .output()
-                .unwrap()
-                .status
-                .success()
-            {
-                assert!(
-                    start.elapsed() < Duration::from_secs(60),
-                    "the controller runtime did not start: {}",
-                    self.stderr()
-                );
-                std::thread::sleep(Duration::from_millis(100));
-            }
-        }
-
-        fn stderr(&self) -> String {
-            std::fs::read_to_string(self.account.join("runtime.stderr")).unwrap_or_default()
-        }
-
-        /// Stop the runtime this test started (`service stop`, then its own child is
-        /// waited for), leaving the installation for a later [`Self::start`].
-        fn runtime_stop(&mut self) {
-            if let Some(mut child) = self.runtime.take() {
-                let _ = self.command().args(["service", "stop"]).output();
-                let start = Instant::now();
-                while start.elapsed() < Duration::from_secs(30) {
-                    if matches!(child.try_wait(), Ok(Some(_))) {
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
-
-        /// This controller's entry for `environment` in `environment status --json`.
-        fn status(&self, environment: &EnvironmentId) -> Value {
-            let report = self.json(&["environment", "status"]);
-            report["data"]["environments"]
-                .as_array()
-                .and_then(|all| {
-                    all.iter()
-                        .find(|e| e["environment"] == environment.as_str())
-                        .cloned()
-                })
-                .unwrap_or_else(|| panic!("no entry for the runner: {report}"))
-        }
-
-        /// Poll `environment status` until `done` holds for the runner's entry.
-        fn wait_for(
-            &self,
-            environment: &EnvironmentId,
-            what: &str,
-            done: impl Fn(&Value) -> bool,
-        ) -> Value {
-            let start = Instant::now();
-            loop {
-                let entry = self.status(environment);
-                if done(&entry) {
-                    return entry;
-                }
-                assert!(
-                    start.elapsed() < Duration::from_secs(90),
-                    "{what}: {entry}\n{}",
-                    self.stderr()
-                );
-                std::thread::sleep(Duration::from_millis(200));
-            }
-        }
-    }
-
-    impl Drop for ControllerRuntime {
-        fn drop(&mut self) {
-            // Only the runtime this test started, through its own handle.
-            if let Some(mut child) = self.runtime.take() {
-                let _ = self.command().args(["service", "stop"]).output();
-                let start = Instant::now();
-                while start.elapsed() < Duration::from_secs(10) {
-                    if matches!(child.try_wait(), Ok(Some(_))) {
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
-    }
-
     /// ⟨M06 W3 host⟩ Remote issuance in the product: the controller's **runtime** hosts the
     /// driver. A real `heimdall service run` on the controller (scratch home, K_mgmt in a
     /// fixture file store, K_ca in the scratch secret store) reconnects to the recorded
@@ -2153,133 +1583,6 @@ mod driver_e2e {
 
     // --- ⟨M06 W4 grant-e2e⟩ the journey with real binaries -----------------------------------
 
-    /// The runner's catalog as its owner set it up, written while no runtime runs: the
-    /// permissions of its own environment, one profile with one pair, the standing policy
-    /// that admits work for it, and the destination. **No grant**: the grant comes from the
-    /// controller's forwarded `ensure`.
-    fn seed_runner_catalog(home: &Path, now: Timestamp, pair: &AccessPairRef) -> EnvironmentId {
-        let store = Store::open(&state_db(home), Arc::new(NoFaults)).unwrap();
-        let profile = ProfileId::parse("runner-profile").unwrap();
-        let scope = Scope {
-            pairs: [pair.clone()].into_iter().collect(),
-            capabilities: [Capability::SshAuthentication].into_iter().collect(),
-        };
-        store
-            .transaction(|tx| {
-                let env = tx.self_environment()?.expect("a runner environment");
-                let mut e = tx.environment(&env)?.unwrap();
-                e.permissions = heimdall_domain::environment::EnvironmentPermissions {
-                    automatic_activation: true,
-                    managed_signing: true,
-                    issuer_access: true,
-                };
-                tx.upsert_environment(&e)?;
-                tx.upsert_profile(&ProfileDefinition {
-                    id: profile.clone(),
-                    revision: 1,
-                    scope: scope.clone(),
-                    label: None,
-                })?;
-                tx.upsert_policy(
-                    &StandingPolicy {
-                        id: PolicyId::parse("runner-pol").unwrap(),
-                        revision: PolicyRevision(1),
-                        profile: profile.clone(),
-                        workspace: None,
-                        scope: scope.clone(),
-                        environments: [env.clone()].into_iter().collect(),
-                        max_window: 4 * HOUR,
-                        pause: PauseState::Active,
-                        cutoff_at: None,
-                        source: PolicySource::SetupDefault,
-                        lock_behavior: LockBehavior::Continue,
-                        connection: ConnectionPolicy::default(),
-                        default: false,
-                    },
-                    false,
-                )?;
-                tx.upsert_destination(&DestinationRecord {
-                    id: pair.destination.clone(),
-                    alias: pair.destination.as_str().to_owned(),
-                    revision: 1,
-                    definition: DestinationDefinition::Observed,
-                    label: None,
-                    updated_at: now,
-                })?;
-                Ok(env)
-            })
-            .unwrap()
-    }
-
-    /// The identities an agent endpoint lists (`ssh-add -L`), one line each. An endpoint
-    /// that is gone, or lists nothing, gives none.
-    fn listed_identities(endpoint: &str) -> Vec<String> {
-        let out = Command::new(find_program("ssh-add").expect("ssh-add"))
-            .arg("-L")
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("SSH_AUTH_SOCK", endpoint)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap();
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .filter(|l| l.starts_with("ssh-") || l.starts_with("ecdsa-") || l.starts_with("sk-"))
-            .map(str::to_owned)
-            .collect()
-    }
-
-    /// One onward login from the runner to the fixture destination through a binding's
-    /// endpoint, with the fixture isolation options: no configuration but an empty scratch
-    /// file, the binding's certificate as the only identity, the binding's endpoint as the
-    /// only agent, the destination's per-run host key pinned, no multiplexing. `(succeeded,
-    /// output)`.
-    fn onward_login(
-        dir: &Path,
-        destination: &LoopbackSshd,
-        account: &str,
-        endpoint: &str,
-        certificate_line: &str,
-    ) -> (bool, String) {
-        std::fs::create_dir_all(dir).unwrap();
-        let config = dir.join("ssh_config");
-        std::fs::write(&config, "").unwrap();
-        let known = dir.join("known_hosts");
-        std::fs::write(&known, format!("{}\n", destination.host_key_line)).unwrap();
-        let identity = dir.join("id-cert.pub");
-        std::fs::write(&identity, format!("{certificate_line}\n")).unwrap();
-        let out = Command::new(find_program("ssh").expect("an OpenSSH client"))
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("HOME", dir)
-            .arg("-F")
-            .arg(&config)
-            .args(["-T", "-o", "BatchMode=yes"])
-            .args(["-o", &format!("IdentityFile={}", identity.display())])
-            .args(["-o", "IdentitiesOnly=yes"])
-            .args(["-o", &format!("IdentityAgent={endpoint}")])
-            .args(["-o", "CertificateFile=none"])
-            .args(["-o", &format!("UserKnownHostsFile={}", known.display())])
-            .args(["-o", "GlobalKnownHostsFile=/dev/null"])
-            .args(["-o", "StrictHostKeyChecking=yes"])
-            .args(["-o", "ControlMaster=no", "-o", "ControlPath=none"])
-            .args(["-o", "PreferredAuthentications=publickey"])
-            .args(["-o", "ConnectTimeout=20"])
-            .args(["-p", &destination.port.to_string()])
-            .arg(format!("{account}@{}", destination.host))
-            .arg("echo hm-onward")
-            .stdin(Stdio::null())
-            .output()
-            .unwrap();
-        let text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        );
-        assert_no_canary(&text);
-        (out.status.success() && text.contains("hm-onward"), text)
-    }
-
     /// ⟨M06 W4 `grant-e2e`; m06-plan §2 "What W3 carries" items 1 and 4; ADR-0012 §4 item 2
     /// ⟨2026-11-21⟩, §7; ADR-0005 §3.5 "Remote reservations"; spec A24's core⟩ **The journey,
     /// with real binaries on both sides.**
@@ -2303,180 +1606,13 @@ mod driver_e2e {
     ///    `environment status`, the endpoint lists nothing, and an onward login fails.
     #[tokio::test]
     async fn a_forwarded_ensure_reaches_onward_ssh_from_the_runner_with_the_controller_stopped() {
-        let scratch = Scratch::new().unwrap();
-        let destination_scratch = Scratch::new().unwrap();
-        let mut runner = Runner::new(&scratch);
-        let key = MgmtKey::generate().unwrap();
-        let public = key.public().unwrap();
-        let key_text = public
-            .openssh_line
-            .rsplit_once(' ')
-            .map(|(k, _)| k.to_owned())
-            .unwrap();
-        let client = ClientId::from_random_bytes([0x5e; 16]);
-        let ca = SecretCaKey::generate().unwrap();
-        let ca_line = ca.public_openssh().unwrap();
-        let ca_fingerprint = ca.fingerprint().unwrap();
-        let first = envelope(&runner.remote_init_with(
-            &client,
-            &key_text,
-            "yes",
-            &["--issuer-ca", ca_line.trim()],
-        ));
-        assert_eq!(first["code"], "OK", "{first}");
-        let clock: Arc<dyn Clock> = Arc::new(heimdall_runtime::platform::SystemClock);
-        let seeded_at = clock.wall();
-
-        // The management sshd (the runner account's authorized_keys) and the destination
-        // (it trusts the controller's CA for the pair's principal, as its administrator set).
-        let blocked = |why: &str| {
-            #[allow(clippy::print_stderr)] // the blocked row's reason
-            {
-                eprintln!("m06 grant e2e: blocked ({why})");
-            }
+        let Some(mut j) = journey(|_| Vec::new(), 4 * HOUR) else {
+            return;
         };
-        let sshd = match LoopbackSshd::start(
-            &scratch,
-            SshdConfig {
-                registry_seed: Some(Vec::new()),
-                ..SshdConfig::default()
-            },
-        ) {
-            Ok(s) => s,
-            Err(e) => return blocked(&format!("no fixture sshd: {e}")),
-        };
-        let Some(account) = sshd.login_account().or_else(current_account) else {
-            return blocked("the fixture account is unknown");
-        };
-        let Some(registry) = sshd.registry_path().map(Path::to_path_buf) else {
-            return blocked("the fixture sshd has no local registry");
-        };
-        let pair = AccessPairRef {
-            destination: DestinationId::parse("h1").unwrap(),
-            account: AccountName::parse(&account).unwrap(),
-        };
-        let principal = heimdall_domain::issuance::principal_for(&pair);
-        let ca_keys = destination_scratch
-            .subdir("ca-keys")
-            .unwrap()
-            .join("trusted_user_ca_keys");
-        std::fs::write(&ca_keys, b"").unwrap();
-        let destination = match LoopbackSshd::start(
-            &destination_scratch,
-            SshdConfig {
-                trusted_user_ca_keys: Some(ca_keys),
-                authorized_principals: Some(
-                    [(account.clone(), vec![principal.clone()])]
-                        .into_iter()
-                        .collect(),
-                ),
-                ..SshdConfig::default()
-            },
-        ) {
-            Ok(s) => s,
-            Err(e) => return blocked(&format!("no fixture destination sshd: {e}")),
-        };
-        destination.trust_user_ca(ca_line.trim()).unwrap();
-        // The management sshd reads the runner account's authorized_keys through its
-        // registry path; an empty file there makes the runner unreachable for new sessions.
-        let runner_keys = runner.account.join(".ssh/authorized_keys");
-        let reachable = |on: bool| {
-            let _ = std::fs::remove_file(&registry);
-            if on {
-                std::os::unix::fs::symlink(&runner_keys, &registry).unwrap();
-            } else {
-                std::fs::write(&registry, b"").unwrap();
-            }
-        };
-        reachable(true);
-
-        let environment = seed_runner_catalog(&runner.home, seeded_at, &pair);
-        assert_eq!(first["data"]["environment"], environment.as_str());
-        runner.start();
-
-        // The controller installation: K_mgmt, its CA, its record of the runner, and its
-        // own copy of the profile (the forwarded scope is resolved from it).
-        let mut controller = ControllerRuntime {
-            home: scratch.subdir("ch").unwrap(),
-            account: scratch.subdir("ca").unwrap(),
-            mgmt: scratch.subdir("cm").unwrap().join("k_mgmt.fixture"),
-            runtime: None,
-        };
-        {
-            use heimdall_credential::mgmt::MgmtKeyStore as _;
-            heimdall_credential::mgmt::fixture::FixtureMgmtStore::file(controller.mgmt.clone())
-                .put(&key)
-                .unwrap();
-        }
-        let paths = heimdall_runtime::Paths::under(&controller.home);
-        paths.ensure().unwrap();
-        let pin = RemoteEnvironmentPin {
-            environment: environment.clone(),
-            destination: DestinationId::parse("runner1").unwrap(),
-            route: ManagementRoute {
-                runner: ManagementHop {
-                    hostname: sshd.host.clone(),
-                    port: Some(sshd.port),
-                    account: AccountName::parse(&account).unwrap(),
-                    host_keys: vec![host_key(&sshd)],
-                },
-                jump: None,
-            },
-            client: client.clone(),
-            role: Role::Owner,
-            key_fingerprint: public.fingerprint.clone(),
-            label: None,
-            pinned_at: seeded_at,
-        };
-        {
-            let store = Store::open(
-                &paths
-                    .state_dir
-                    .join(heimdall_runtime::service::STATE_DB_FILE),
-                Arc::new(NoFaults),
-            )
-            .unwrap();
-            let secrets = paths.state_dir.join(SCRATCH_STORE_DIR);
-            std::fs::create_dir_all(&secrets).unwrap();
-            heimdall_testkit::scratch_store::ScratchSecretStore::new(secrets)
-                .put(&ca_fingerprint, &ca)
-                .unwrap();
-            store
-                .transaction(|tx| {
-                    tx.init_self_environment(&EnvironmentId::from_random_bytes([0x2e; 16]))?;
-                    tx.insert_issuer(&heimdall_store::IssuerRecord {
-                        ca_fingerprint: ca_fingerprint.clone(),
-                        public_key: ca.public_openssh().unwrap(),
-                        state: heimdall_contract::issuer::CaState::Active,
-                        store_kind: heimdall_contract::issuer::StoreKind::LinuxSecretService,
-                        backup_sha256: "ab".repeat(32),
-                        backup_created_at: seeded_at,
-                        restored_without_log: false,
-                        created_at: seeded_at,
-                        retired_at: None,
-                    })?;
-                    tx.upsert_profile(&ProfileDefinition {
-                        id: ProfileId::parse("runner-profile").unwrap(),
-                        revision: 1,
-                        scope: Scope {
-                            pairs: [pair.clone()].into_iter().collect(),
-                            capabilities: [Capability::SshAuthentication].into_iter().collect(),
-                        },
-                        label: None,
-                    })?;
-                    tx.put_remote_environment_pin(
-                        &pin.environment,
-                        &pin.destination,
-                        &pin.route.runner.account,
-                        &pin.key_fingerprint,
-                        &serde_json::to_string(&pin).unwrap(),
-                        pin.pinned_at,
-                    )
-                })
-                .unwrap();
-        }
-        drop(ca);
-        controller.start();
+        let environment = j.environment.clone();
+        let account = j.account.clone();
+        let principal = j.principal.clone();
+        let ca_fingerprint = j.ca_fingerprint.clone();
 
         // 1. The owner's `ensure --environment <runner>`, naming no pair.
         let forward = [
@@ -2493,7 +1629,7 @@ mod driver_e2e {
             "--request-id",
             "fwd-1",
         ];
-        let mut answer = controller.json(&forward);
+        let mut answer = j.controller.json(&forward);
         if answer["code"] == "ACCEPTED" {
             // The pending state: no reason, the refresh dependency, the grant pending; the
             // operation it names is driven by `operation wait`.
@@ -2508,15 +1644,17 @@ mod driver_e2e {
                 .as_str()
                 .unwrap_or_else(|| panic!("the pending answer names no operation: {answer}"))
                 .to_owned();
-            answer = controller.json(&["operation", "wait", &operation, "--timeout-ms", "60000"]);
+            answer = j
+                .controller
+                .json(&["operation", "wait", &operation, "--timeout-ms", "60000"]);
         }
         assert_eq!(
             answer["code"],
             "OK",
             "{answer}\n{}\n{}\n{}",
-            controller.stderr(),
-            std::fs::read_to_string(runner.account.join("runtime.stderr")).unwrap_or_default(),
-            controller.status(&environment)
+            j.controller.stderr(),
+            std::fs::read_to_string(j.runner.account.join("runtime.stderr")).unwrap_or_default(),
+            j.controller.status(&environment)
         );
         let ready = answer["data"].clone();
         let grant = GrantId::parse(ready["grant_id"].as_str().unwrap()).unwrap();
@@ -2524,19 +1662,22 @@ mod driver_e2e {
         assert_eq!(ready["credential_mechanism"], "managed_certificate");
         assert_eq!(ready["refresh_dependency"], "controller");
         // The same request again reads the same grant and reserves nothing more.
-        let again = controller.json(&forward);
+        let again = j.controller.json(&forward);
         assert_eq!(again["code"], "OK", "{again}");
         assert_eq!(again["data"]["grant_id"], grant.as_str());
-        let status = controller.wait_for(&environment, "the grant is not reported", |e| {
-            e["last_known_readiness"]
-                .as_array()
-                .is_some_and(|r| r.iter().any(|g| g["grant"] == grant.as_str()))
-        });
+        let status = j
+            .controller
+            .wait_for(&environment, "the grant is not reported", |e| {
+                e["last_known_readiness"]
+                    .as_array()
+                    .is_some_and(|r| r.iter().any(|g| g["grant"] == grant.as_str()))
+            });
         assert_eq!(status["connectivity"]["state"], "connected", "{status}");
         assert!(status.get("issuance_failures").is_none(), "{status}");
 
         // 2. On the runner: a local `ensure` covered by the live grant attaches to it.
-        let local = runner
+        let local = j
+            .runner
             .command()
             .args([
                 "--json",
@@ -2590,7 +1731,7 @@ mod driver_e2e {
         assert!(facts.key_id.contains(grant.as_str()), "{}", facts.key_id);
         assert_ne!(
             facts.subject_fingerprint,
-            public.fingerprint.as_str(),
+            j.mgmt_fingerprint.as_str(),
             "never K_mgmt"
         );
         // The binding the forwarded request created lists the same single identity.
@@ -2598,36 +1739,38 @@ mod driver_e2e {
         assert_eq!(listed_identities(forwarded_endpoint), listed);
 
         // 3. The controller is stopped; the runner goes on.
-        controller.runtime_stop();
-        let dir = scratch.subdir("onward").unwrap();
-        let mark = destination.log_mark();
-        let (ok, out) = onward_login(&dir, &destination, &account, &endpoint, &listed[0]);
+        j.controller.runtime_stop();
+        let dir = j.scratch.subdir("onward").unwrap();
+        let mark = j.destination.log_mark();
+        let (ok, out) = onward_login(&dir, &j.destination, &account, &endpoint, &listed[0]);
         assert!(
             ok,
             "onward ssh with the controller stopped: {out}\n{}",
-            std::fs::read_to_string(runner.account.join("runtime.stderr")).unwrap_or_default()
+            std::fs::read_to_string(j.runner.account.join("runtime.stderr")).unwrap_or_default()
         );
-        let accepted = destination.accepted_certificates();
+        let accepted = j.destination.accepted_certificates();
         assert!(
             accepted.iter().any(|c| c.key_id == facts.key_id
                 && c.serial == facts.serial
                 && c.ca_fingerprint == ca_fingerprint.as_str()),
             "{accepted:?} {:?}",
-            destination.log_lines_since(mark, "Accepted")
+            j.destination.log_lines_since(mark, "Accepted")
         );
 
         // 4. The controller is back, the runner unreachable: the revoke is pending.
-        reachable(false);
-        controller.start();
-        let away = controller.wait_for(&environment, "the runner is still reachable", |e| {
-            e["connectivity"]["state"] != "connected"
-        });
+        j.reachable(false);
+        j.controller.start();
+        let away = j
+            .controller
+            .wait_for(&environment, "the runner is still reachable", |e| {
+                e["connectivity"]["state"] != "connected"
+            });
         assert_eq!(away["issuance"], "awaiting_resync", "{away}");
-        let revoked = controller.json(&["access", "revoke", grant.as_str()]);
+        let revoked = j.controller.json(&["access", "revoke", grant.as_str()]);
         assert_eq!(revoked["code"], "OK", "{revoked}");
         assert_eq!(revoked["data"]["local_applied"], false);
         assert_eq!(revoked["data"]["remote_pending"][0], grant.as_str());
-        let pending = controller.status(&environment);
+        let pending = j.controller.status(&environment);
         assert_eq!(
             pending["remote_pending"].as_array().unwrap().len(),
             1,
@@ -2635,18 +1778,20 @@ mod driver_e2e {
         );
         // Not applied yet: the runner still serves the grant.
         assert_eq!(listed_identities(&endpoint), listed);
-        let (ok, out) = onward_login(&dir, &destination, &account, &endpoint, &listed[0]);
+        let (ok, out) = onward_login(&dir, &j.destination, &account, &endpoint, &listed[0]);
         assert!(ok, "the revoke is only pending: {out}");
 
         // Reachable again: an owner-awaited pass (the same forwarded request) reconnects
         // at once; the reconnect order delivers the revoke before anything else.
-        reachable(true);
-        let _ = controller.json(&forward);
-        let applied = controller.wait_for(&environment, "the revoke was not applied", |e| {
-            e["residuals"]
-                .as_array()
-                .is_some_and(|r| r.iter().any(|x| x["acknowledged"] == true))
-        });
+        j.reachable(true);
+        let _ = j.controller.json(&forward);
+        let applied = j
+            .controller
+            .wait_for(&environment, "the revoke was not applied", |e| {
+                e["residuals"]
+                    .as_array()
+                    .is_some_and(|r| r.iter().any(|x| x["acknowledged"] == true))
+            });
         assert!(
             applied["remote_pending"].as_array().unwrap().is_empty(),
             "{applied}"
@@ -2656,37 +1801,371 @@ mod driver_e2e {
             listed_identities(&endpoint).is_empty(),
             "nothing after the revoke"
         );
-        let (ok, out) = onward_login(&dir, &destination, &account, &endpoint, &listed[0]);
+        let (ok, out) = onward_login(&dir, &j.destination, &account, &endpoint, &listed[0]);
         assert!(!ok, "no onward login after the revoke: {out}");
-        drop(controller);
-        drop(destination);
-        drop(sshd);
+        drop(j);
     }
-}
 
-/// A local session on a runner runtime's own control endpoint, attended.
-async fn attend_at(runner: &Runner) -> ControlClient<tokio::net::UnixStream> {
-    let info = heimdall_runtime::instance::InstanceInfo::read_valid(
-        &heimdall_runtime::Paths::under(&runner.home).runtime_dir,
-    )
-    .unwrap()
-    .expect("the runner runtime's advertisement");
-    let stream = heimdall_ipc::unix::connect(Path::new(&info.control_endpoint))
-        .await
-        .unwrap();
-    let mut client = ControlClient::handshake(
-        stream,
-        PeerInfo {
-            name: "heimdall-cli".into(),
-            version: "test".into(),
-        },
-        BTreeSet::new(),
-        InteractionMode::Interactive,
-    )
-    .await
-    .unwrap();
-    assert_eq!(client.attend().await.unwrap().code.as_str(), "OK");
-    client
+    /// ⟨M06 W5 `sourceb`; m06-plan §2 item 3 "Record source (b)"; ADR-0005 §3.5 condition 8
+    /// (b); ADR-0012 §4 item 2 ⟨2026-11-21⟩; spec A07's unattended shape⟩ **Record source
+    /// (b), with real binaries on both sides and no forwarded `ensure`.**
+    ///
+    /// 1. On the controller, the owner at a terminal reviews and approves a personal policy
+    ///    that names the runner (`access allow --profile <p> --environment <runner>`). The
+    ///    same command without a terminal applies nothing. The policy activates nothing on
+    ///    the controller: a local `ensure` for the profile there is not covered by it.
+    /// 2. On the runner, its local owner at a terminal makes `ensure` requests that name the
+    ///    controller's CA (`--issuer-ca`, a CA in the runner's `issuer_trust`); the runner
+    ///    admits each under its own standing policy as a **pending** grant. Without a
+    ///    terminal the flag sends nothing. Three of them are outside the controller's
+    ///    policy: a pair it does not hold, a principal it does not hold, and a deadline
+    ///    later than its expiry (the cutoff the owner set on it). One is inside. (A
+    ///    deadline later than the policy's maximum lifetime cannot be produced here: both
+    ///    runtimes cap a window at 12 h. `integration_controller_driver_m06` covers it.)
+    /// 3. The controller's host, which forwarded nothing, signs for the grant inside its
+    ///    policy, and only for that one: the runner installs the certificate and the
+    ///    waiting `ensure` settles. The three outside are never recorded, reserved or
+    ///    signed, and stay pending.
+    /// 4. **The controller is stopped.** An onward `ssh` from the runner through the
+    ///    binding's endpoint to the fixture destination succeeds.
+    #[tokio::test]
+    async fn a_controller_policy_naming_the_runner_issues_for_a_runner_originated_grant() {
+        // The runner's own policy admits more than the controller's copy of the profile
+        // holds: a second destination, a second account, and a day's window.
+        let Some(mut j) = journey(
+            |account| {
+                vec![
+                    AccessPairRef {
+                        destination: DestinationId::parse("h2").unwrap(),
+                        account: AccountName::parse(account).unwrap(),
+                    },
+                    AccessPairRef {
+                        destination: DestinationId::parse("h1").unwrap(),
+                        account: AccountName::parse("hm-other").unwrap(),
+                    },
+                ]
+            },
+            24 * HOUR,
+        ) else {
+            return;
+        };
+        let environment = j.environment.clone();
+        let account = j.account.clone();
+        let ca = j.ca_fingerprint.as_str().to_owned();
+        let inside_pair = format!(
+            "{}:{}",
+            j.pair.destination.as_str(),
+            j.pair.account.as_str()
+        );
+
+        // 1. The controller's policy naming the runner. Without a terminal: a decision to
+        // approve, nothing applied.
+        let allow = [
+            "access",
+            "allow",
+            "--profile",
+            "runner-profile",
+            "--environment",
+            environment.as_str(),
+        ];
+        let unattended = j.controller.json(&allow);
+        assert!(
+            matches!(
+                unattended["code"].as_str(),
+                Some("INTERACTION_REQUIRED" | "APPROVAL_REQUIRED")
+            ),
+            "{unattended}"
+        );
+        let policies = |c: &ControllerRuntime| {
+            let store = Store::open_read_only(&state_db(&c.home), Arc::new(NoFaults)).unwrap();
+            // The debug build seeds its own environment's fixture policies: only the
+            // policies for this profile count here.
+            let mut all = store.transaction(|tx| tx.policies()).unwrap();
+            all.retain(|p| p.profile.as_str() == "runner-profile");
+            all
+        };
+        assert!(
+            policies(&j.controller).is_empty(),
+            "nothing applied unattended: {unattended} {:?}",
+            policies(&j.controller)
+        );
+        // Declined at the terminal: nothing applied either.
+        let (_, declined) = j.controller.attended(&allow, Some("no"));
+        assert_ne!(declined["code"], "OK", "{declined}");
+        assert!(
+            policies(&j.controller).is_empty(),
+            "nothing applied on `no`"
+        );
+        // Reviewed and approved by the owner at the terminal.
+        let (code, allowed) = j.controller.attended(&allow, Some("yes"));
+        assert_eq!(allowed["code"], "OK", "exit {code}: {allowed}");
+        let held = policies(&j.controller);
+        assert_eq!(held.len(), 1, "{held:?}");
+        assert_eq!(held[0].environments, BTreeSet::from([environment.clone()]));
+        assert_eq!(held[0].scope.pairs, BTreeSet::from([j.pair.clone()]));
+        assert!(!held[0].default && held[0].workspace.is_none());
+        // The owner bounds it: no grant may run past this instant under it.
+        let expiry = plus(
+            heimdall_runtime::platform::SystemClock.wall(),
+            Duration::from_secs(20 * 60),
+        );
+        let cut = j.controller.json(&[
+            "access",
+            "cutoff",
+            held[0].id.as_str(),
+            "--at",
+            &expiry.to_string(),
+        ]);
+        assert_eq!(cut["code"], "OK", "{cut}");
+        assert!(policies(&j.controller)[0].cutoff_at.is_some(), "{cut}");
+        // It activates nothing here: the controller's own environment has no policy for
+        // the profile, so a local `ensure` is not covered.
+        let local = j.controller.json(&[
+            "access",
+            "ensure",
+            "--profile",
+            "runner-profile",
+            "--work-id",
+            "job-controller-local",
+            "--for",
+            "10m",
+            "--request-id",
+            "ctl-local-1",
+        ]);
+        assert!(
+            !matches!(
+                local["code"].as_str(),
+                Some("OK" | "ACCESS_READY" | "ACCEPTED")
+            ),
+            "{local}"
+        );
+
+        // 2. The runner's local owner names the controller's CA. Never without a terminal.
+        let ensure = |work: &str, request: &str, pair: &str, lifetime: &str| {
+            [
+                "access",
+                "ensure",
+                "--profile",
+                "runner-profile",
+                "--pair",
+                pair,
+                "--work-id",
+                work,
+                "--for",
+                lifetime,
+                "--request-id",
+                request,
+                "--issuer-ca",
+                ca.as_str(),
+            ]
+            .map(str::to_owned)
+        };
+        let refs = |args: &[String]| -> Vec<String> { args.to_vec() };
+        let no_terminal = j
+            .runner
+            .command()
+            .arg("--json")
+            .args(refs(&ensure("job-nt", "nt-1", &inside_pair, "30m")))
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let no_terminal: Value = serde_json::from_slice(&no_terminal.stdout).unwrap();
+        assert_eq!(no_terminal["code"], "INTERACTION_REQUIRED", "{no_terminal}");
+        let attended = |args: [String; 14]| {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            runner_attended(&j.runner, &args)
+        };
+        // Outside the controller's policy: a pair, a principal, a deadline.
+        let (_, a) = attended(ensure(
+            "job-pair",
+            "out-pair",
+            &format!("h2:{account}"),
+            "10m",
+        ));
+        let outside_pair = pending_grant(&a);
+        let (_, a) = attended(ensure(
+            "job-principal",
+            "out-principal",
+            "h1:hm-other",
+            "10m",
+        ));
+        let outside_principal = pending_grant(&a);
+        let (_, a) = attended(ensure("job-deadline", "out-deadline", &inside_pair, "30m"));
+        let outside_deadline = pending_grant(&a);
+        // Inside it.
+        let (_, mut answer) = attended(ensure("job-b", "b-1", &inside_pair, "10m"));
+        let grant = if answer["code"] == "ACCEPTED" {
+            let grant = pending_grant(&answer);
+            let operation = answer["operation_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("the pending answer names no operation: {answer}"))
+                .to_owned();
+            // 3. Nothing was forwarded: the controller's host adopts and signs on its own
+            // pass (every 30 s).
+            let waited = j
+                .runner
+                .command()
+                .args(["--json", "operation", "wait", &operation])
+                .args(["--timeout-ms", "120000"])
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            answer = serde_json::from_slice(&waited.stdout).unwrap_or_else(|_| {
+                panic!(
+                    "{} {}",
+                    String::from_utf8_lossy(&waited.stdout),
+                    String::from_utf8_lossy(&waited.stderr)
+                )
+            });
+            grant
+        } else {
+            GrantId::parse(answer["data"]["grant_id"].as_str().unwrap_or_default()).unwrap()
+        };
+        assert!(
+            matches!(answer["code"].as_str(), Some("OK" | "ACCESS_READY")),
+            "{answer}\n{}\n{}\n{}",
+            j.controller.stderr(),
+            std::fs::read_to_string(j.runner.account.join("runtime.stderr")).unwrap_or_default(),
+            j.controller.status(&environment)
+        );
+        // `operation wait` answers the operation, with the `ensure` result inside.
+        let ready = match answer["data"].get("result") {
+            Some(result) => result.clone(),
+            None => answer["data"].clone(),
+        };
+        assert_eq!(ready["grant_id"], grant.as_str(), "{answer}");
+        assert_eq!(ready["credential_mechanism"], "managed_certificate");
+        assert_eq!(ready["refresh_dependency"], "controller");
+        let endpoint = ready["consumer"]["signing_endpoint"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the binding names no endpoint: {ready}"))
+            .to_owned();
+        let listed = listed_identities(&endpoint);
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        let facts =
+            heimdall_issuer::remote::read_certificate(&listed[0]).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(facts.ca_fingerprint, j.ca_fingerprint);
+        assert_eq!(facts.principals, vec![j.principal.clone()]);
+        assert!(facts.key_id.contains(grant.as_str()), "{}", facts.key_id);
+        assert_ne!(
+            facts.subject_fingerprint, j.mgmt_fingerprint,
+            "never K_mgmt"
+        );
+
+        // The pass that adopted this grant read a report listing all four (the three
+        // outside were admitted first). The controller is stopped.
+        j.controller.runtime_stop();
+
+        // The controller's records: the one grant, from its policy, and nothing reserved
+        // for the three outside it.
+        {
+            let store =
+                Store::open_read_only(&state_db(&j.controller.home), Arc::new(NoFaults)).unwrap();
+            let records = store
+                .transaction(|tx| tx.delivered_grants(Some(&environment)))
+                .unwrap();
+            assert_eq!(records.len(), 1, "{records:?}");
+            assert_eq!(records[0].grant, grant);
+            assert_eq!(records[0].policy, Some(held[0].id.clone()));
+            assert_eq!(records[0].pairs, BTreeSet::from([j.pair.clone()]));
+            for (what, outside) in [
+                ("pair", &outside_pair),
+                ("principal", &outside_principal),
+                ("deadline", &outside_deadline),
+            ] {
+                let entries = store
+                    .transaction(|tx| tx.issuance_entries(outside))
+                    .unwrap();
+                assert!(entries.is_empty(), "{what} outside the policy: {entries:?}");
+            }
+            assert_eq!(
+                store
+                    .transaction(|tx| tx.issuance_entries(&grant))
+                    .unwrap()
+                    .len(),
+                1
+            );
+        }
+        // ⟨M06 W5 ruling, 2026-11-22⟩ The owner reads why the grant with the late
+        // deadline was refused: `environment status` names the limit it exceeds (the
+        // cutoff the owner set), and nothing for the two no policy holds.
+        let status = j.controller.status(&environment);
+        let failures = status["issuance_failures"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no refusal is shown: {status}"));
+        assert_eq!(failures.len(), 1, "{status}");
+        assert_eq!(failures[0]["grant"], outside_deadline.as_str(), "{status}");
+        let said = failures[0]["reason"].as_str().unwrap();
+        assert!(
+            said.starts_with("deadline_exceeds_policy_cutoff: ")
+                && said.contains(&format!("of policy {}", held[0].id.as_str())),
+            "{said}"
+        );
+        // On the runner they are still waiting for their issuer.
+        for (request, work, pair, lifetime) in [
+            ("out-pair", "job-pair", format!("h2:{account}"), "10m"),
+            (
+                "out-principal",
+                "job-principal",
+                "h1:hm-other".to_owned(),
+                "10m",
+            ),
+            ("out-deadline", "job-deadline", inside_pair.clone(), "30m"),
+        ] {
+            let (_, still) = attended(ensure(work, request, &pair, lifetime));
+            assert_eq!(still["code"], "ACCEPTED", "{request}: {still}");
+        }
+
+        // 4. The controller is stopped; the runner goes on.
+        let dir = j.scratch.subdir("onward-b").unwrap();
+        let mark = j.destination.log_mark();
+        let (ok, out) = onward_login(&dir, &j.destination, &account, &endpoint, &listed[0]);
+        assert!(
+            ok,
+            "onward ssh with the controller stopped: {out}\n{}",
+            std::fs::read_to_string(j.runner.account.join("runtime.stderr")).unwrap_or_default()
+        );
+        let accepted = j.destination.accepted_certificates();
+        assert!(
+            accepted.iter().any(|c| c.key_id == facts.key_id
+                && c.serial == facts.serial
+                && c.ca_fingerprint == j.ca_fingerprint.as_str()),
+            "{accepted:?} {:?}",
+            j.destination.log_lines_since(mark, "Accepted")
+        );
+
+        // ⟨M06 W5 ruling, 2026-11-22⟩ `environment remove` forgets the runner and, in the
+        // same transaction, the policy that names it; its last history row says why.
+        let removed = j
+            .controller
+            .json(&["environment", "remove", environment.as_str()]);
+        assert_eq!(removed["code"], "OK", "{removed}");
+        assert!(
+            policies(&j.controller).is_empty(),
+            "the policy went with the record: {removed}"
+        );
+        let store =
+            Store::open_read_only(&state_db(&j.controller.home), Arc::new(NoFaults)).unwrap();
+        let (pins, history) = store
+            .transaction(|tx| {
+                Ok((
+                    tx.remote_environment_pins()?,
+                    tx.policy_history(&held[0].id)?,
+                ))
+            })
+            .unwrap();
+        assert!(pins.is_empty(), "the record is gone");
+        assert_eq!(
+            history.last().map(|h| h.cause.clone()),
+            Some(
+                heimdall_domain::workspace::PolicyChangeCause::EnvironmentRemoved {
+                    environment: environment.clone()
+                }
+            ),
+            "{history:?}"
+        );
+        drop(j);
+    }
 }
 
 /// ⟨M06 W3; ADR-0012 §3.2; ADR-0006 §18.7 "Also ruled"⟩ The runner's effective sshd policy
@@ -3083,4 +2562,153 @@ async fn remote_init_refuses_and_reports_what_it_never_changes() {
         .permissions()
         .mode();
     assert_eq!(mode & 0o777, 0o775, "doctor changes nothing");
+}
+
+/// Stops, through `service stop` on its own scratch home, the runtime a bootstrap offer
+/// started (the test holds no child handle for it), pass or fail.
+struct StopOnDrop<'a>(&'a Runner);
+
+impl Drop for StopOnDrop<'_> {
+    fn drop(&mut self) {
+        let _ = self
+            .0
+            .command()
+            .args(["--json", "service", "stop"])
+            .stdin(Stdio::null())
+            .output();
+    }
+}
+
+/// ⟨M06 W5k; ADR-0012 §2.6, the 2026-11-22 bullets⟩ The bootstrap's offer, on a
+/// pseudo-terminal, through the real binary (`remote init --offer-runtime-start`, the
+/// command a controller's `environment add` runs in its attended session):
+///
+/// * the runner's runtime does not run: the session says so plainly and offers to start
+///   it; **declined**, nothing is started, no runtime serves, and the next step (the exact
+///   start command, then `environment add` again) is on the terminal;
+/// * the repair, **accepted with a typed yes**: the runtime is started in that same
+///   session, serves when the command returns, and the session says so;
+/// * with the runtime running the session says it runs and asks nothing more;
+/// * a `remote init` without the flag (the runner's owner by hand) offers nothing.
+///
+/// The started runtime is a debug build under a scratch home, account home and SSH home,
+/// stopped through `service stop` on that home.
+#[test]
+fn the_bootstrap_offers_to_start_the_runner_runtime_in_its_attended_session() {
+    const CONFIRM: &str = "Type yes to continue";
+    const OFFER: &str = "Type yes to start it";
+    let scratch = Scratch::new().unwrap();
+    let key = MgmtKey::generate().unwrap().public().unwrap();
+    let key_text = key
+        .openssh_line
+        .rsplit_once(' ')
+        .map(|(k, _)| k.to_owned())
+        .unwrap();
+    let client = ClientId::from_random_bytes([0x51; 16]);
+    let runner = Runner::named(&scratch, "o");
+    let _stop = StopOnDrop(&runner);
+    let init = |offer: bool| -> Vec<String> {
+        let mut args: Vec<String> = [
+            "remote",
+            "init",
+            "--owner-client",
+            client.as_str(),
+            "--owner-key",
+            &key_text,
+        ]
+        .map(str::to_owned)
+        .into();
+        if offer {
+            args.push("--offer-runtime-start".to_owned());
+        }
+        args
+    };
+    let serving = || {
+        runner
+            .command()
+            .args(["--json", "service", "status"])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+            .status
+            .code()
+    };
+    let start_line = format!(
+        "--home {} service run --runner --detach",
+        runner.home.display()
+    );
+
+    // Declined: said plainly, nothing started, the next step left on the terminal.
+    let declined = runner.on_terminal_dialog(&init(true), &[(CONFIRM, "yes"), (OFFER, "no")]);
+    let flat = declined.replace(['\r', '\n'], " ");
+    assert!(
+        flat.contains("The runner's runtime is NOT running on this installation"),
+        "{declined}"
+    );
+    assert!(flat.contains("Start it now"), "{declined}");
+    assert!(
+        flat.contains("The runner's runtime was not started. Next step:"),
+        "{declined}"
+    );
+    assert!(flat.contains(&start_line), "{declined}");
+    assert!(flat.contains("`heimdall environment add`"), "{declined}");
+    assert!(
+        flat.contains("this installation is remote runner"),
+        "the enrollment itself stands: {declined}"
+    );
+    assert_eq!(
+        serving(),
+        Some(5),
+        "no runtime serves after a declined offer"
+    );
+
+    // The repair, accepted: started in the same session, serving when it returns.
+    let accepted = runner.on_terminal_dialog(&init(true), &[(CONFIRM, "yes"), (OFFER, "yes")]);
+    let flat = accepted.replace(['\r', '\n'], " ");
+    assert!(
+        flat.contains("The runner's runtime is running on this installation (started now)."),
+        "{accepted}"
+    );
+    assert!(!flat.contains("was not started"), "{accepted}");
+    assert_eq!(serving(), Some(0), "the runtime serves: {accepted}");
+
+    // Running: said, and nothing more is asked (one prompt only; a second would time out).
+    let running = runner.on_terminal_dialog(&init(true), &[(CONFIRM, "yes")]);
+    let flat = running.replace(['\r', '\n'], " ");
+    assert!(
+        flat.contains("The runner's runtime is running on this installation."),
+        "{running}"
+    );
+    assert!(!flat.contains(OFFER), "{running}");
+    assert_eq!(serving(), Some(0));
+
+    // Without the flag nothing is said about the runtime and nothing is offered.
+    let other = Runner::named(&scratch, "p");
+    let by_hand = other.on_terminal_dialog(&init(false), &[(CONFIRM, "yes")]);
+    assert!(
+        by_hand.contains("this installation is remote runner"),
+        "{by_hand}"
+    );
+    assert!(
+        !by_hand.contains("runtime is") && !by_hand.contains(OFFER),
+        "{by_hand}"
+    );
+    assert_eq!(
+        other
+            .command()
+            .args(["--json", "service", "status"])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+            .status
+            .code(),
+        Some(5)
+    );
+    #[allow(clippy::print_stdout)]
+    {
+        println!(
+            "m06 observation: bootstrap runtime-offer: declined=not_started_next_step_named \
+             accepted=started_in_session_serving running=stated_no_offer by_hand=no_offer"
+        );
+    }
 }

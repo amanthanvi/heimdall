@@ -651,7 +651,7 @@ mod tests {
                         relays: vec!["https://relay.invalid".into()],
                     },
                     direct_fallback: true,
-                    port: None,
+                    ..ExposurePolicy::default()
                 },
             },
             recorded_at: now("2026-11-21T10:00:00Z"),

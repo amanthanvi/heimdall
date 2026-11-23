@@ -500,19 +500,35 @@ impl<'a> Builder<'a> {
             return Ok(());
         }
         let changes_before = self.changes.len();
-        let mut sections = Vec::new();
+        // ⟨M06 W5 `w5n`; ADR-0012 §5.3⟩ The aliases whose destination needs the route
+        // helper (a managed-certificate pair with more than one approved route, or any
+        // Iroh route). Every other alias renders exactly as before.
+        let helpers = self.helper_routes(&managed)?;
+        // ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ An existing-access alias keeps its native
+        // rendering whatever its destination's routes; the plan says when that leaves
+        // approved routes unused by ordinary `ssh`.
+        if let Some(source) = self.config.managed.clone() {
+            for (a, m) in self.spec.aliases.iter().zip(&managed) {
+                if m.is_none()
+                    && source
+                        .routes_need_helper(a)
+                        .map_err(|e| PreviewError::Unavailable(format!("route helper: {e}")))?
+                {
+                    self.findings
+                        .push(routes_unused_finding(&a.alias, &a.destination));
+                }
+            }
+        }
+        let mut plain = Vec::new();
         let mut key_steps: Vec<FileStep> = Vec::new();
         let mut disclosures = Vec::new();
         for (a, m) in self.spec.aliases.iter().zip(&managed) {
             if let Some(m) = m {
-                sections.push(Self::routed(a, self.managed_certificate(a, m)?)?);
+                plain.push(self.managed_certificate(a, m)?);
                 disclosures.push(slot_free_disclosure(&a.alias, &a.destination));
                 continue;
             }
-            sections.push(Self::routed(
-                a,
-                Section::ExistingAccess(self.managed_alias(a)?),
-            )?);
+            plain.push(Section::ExistingAccess(self.managed_alias(a)?));
             let key = self.key_bytes(a)?;
             if key.bytes().len() > bounds::KEY_FILE_MAX {
                 return Err(PreviewError::TooLarge);
@@ -523,6 +539,10 @@ impl<'a> Builder<'a> {
             if let Some(step) = self.whole_step(FileRole::Key, Path::new(&a.key_file), key)? {
                 key_steps.push(step);
             }
+        }
+        let (sections, pins) = self.route_sections(&p_path, plain, &managed, &helpers)?;
+        if let Some(step) = self.pin_file_step(&pins)? {
+            key_steps.push(step);
         }
         let p = render::rendered_sections(&sections, self.style, self.identity_form())
             .map_err(|e| PreviewError::Unavailable(format!("render: {e}")))?;
@@ -1730,6 +1750,244 @@ impl<'a> Builder<'a> {
         })
     }
 
+    // --- ⟨M06 W5 `w5n`⟩ the route helper (ADR-0012 §5.2, §5.3) ----------------------------
+
+    /// Each alias's route helper, in spec order: `None` for an existing-access alias (its
+    /// ordinary alias has no binding the helper could resolve, so it keeps its native
+    /// rendering), for a destination whose routes need no helper, and without a source.
+    fn helper_routes(
+        &self,
+        managed: &[Option<ManagedSectionSpec>],
+    ) -> Result<Vec<Option<super::HelperRouteSpec>>, PreviewError> {
+        let Some(source) = self.config.managed.as_ref() else {
+            return Ok(vec![None; self.spec.aliases.len()]);
+        };
+        self.spec
+            .aliases
+            .iter()
+            .zip(managed)
+            .map(|(a, m)| {
+                if m.is_none() {
+                    return Ok(None);
+                }
+                source
+                    .helper_route(a)
+                    .map_err(|e| PreviewError::Unavailable(format!("route helper: {e}")))
+            })
+            .collect()
+    }
+
+    /// The sections of P from the plain ones: each alias with a route helper is rendered
+    /// through it **only when the planned configuration holds its catalog pin**
+    /// (`heimdall_sshconf::routes::static_pin_defeat`, evaluated statically over the user
+    /// file as this plan leaves it and the candidate P; nothing executes). An alias whose
+    /// pin a setting of the user's configuration defeats keeps its native rendering, so it
+    /// is never left running the helper under trust the catalog does not control, and the
+    /// plan carries a `host_pin_defeated` finding naming the alias and the setting. An
+    /// automatic projection keeps its include block above every directive of the user file
+    /// (ADR-0007 §3), so this arises when the block is no longer first (`include_conditional`)
+    /// or in manual mode; the helper checks again, with `ssh -G`, before every connection.
+    /// Returns the sections and the pins of the helper aliases rendered.
+    fn route_sections(
+        &mut self,
+        p_path: &Path,
+        plain: Vec<Section>,
+        managed: &[Option<ManagedSectionSpec>],
+        helpers: &[Option<super::HelperRouteSpec>],
+    ) -> Result<RoutedSections, PreviewError> {
+        // The helper takes its endpoint literally (ADR-0012 §5.4), so a helper alias names
+        // the environment endpoint by its absolute path, never `~/…`.
+        let mut absolute = plain.clone();
+        for ((section, m), h) in absolute.iter_mut().zip(managed).zip(helpers) {
+            if let (Section::ManagedCertificate { endpoint, .. }, Some(m), Some(_)) =
+                (section, m, h)
+                && m.environment_endpoint.kind != EndpointKind::NamedPipe
+            {
+                *endpoint = self.absolute_path(Path::new(&m.environment_endpoint.locator))?;
+            }
+        }
+        let helper_plain = absolute;
+        let refused = |e: render::RenderError| PreviewError::Unavailable(format!("render: {e}"));
+        let pin_file = self.absolute_path(&self.config.host_pins_path())?;
+        let build =
+            |this: &Self, native: &BTreeSet<String>| -> Result<Vec<Section>, PreviewError> {
+                this.spec
+                    .aliases
+                    .iter()
+                    .zip(plain.iter().cloned().zip(helper_plain.iter().cloned()))
+                    .zip(helpers)
+                    .map(|((a, (section, through_helper)), helper)| match helper {
+                        Some(h) if !native.contains(&a.alias) => Ok(Section::Helper {
+                            route: heimdall_sshconf::routes::HelperRoute::new(
+                                this.absolute_path(&h.program)?,
+                                a.destination.as_str(),
+                                pin_file.clone(),
+                            )
+                            .map_err(refused)?,
+                            section: Box::new(through_helper),
+                        }),
+                        _ => Self::routed(a, section),
+                    })
+                    .collect()
+            };
+        let mut native = BTreeSet::new();
+        if helpers.iter().any(Option::is_some) {
+            let candidate =
+                render::render_sections(&build(self, &native)?, self.style, self.identity_form())
+                    .map_err(refused)?;
+            let user = self.gate_user_bytes(p_path)?;
+            let aliases: Vec<(String, heimdall_contract::ids::DestinationId)> = self
+                .spec
+                .aliases
+                .iter()
+                .zip(helpers)
+                .filter(|(_, h)| h.is_some())
+                .map(|(a, _)| (a.alias.clone(), a.destination.clone()))
+                .collect();
+            for (alias, destination) in aliases {
+                use heimdall_sshconf::routes::StaticPin;
+                match self.static_pin_status(&user, &candidate, &alias) {
+                    StaticPin::Holds => {}
+                    StaticPin::Defeated(setting) => {
+                        self.findings.push(host_pin_defeated_finding(
+                            &alias,
+                            &destination,
+                            setting,
+                        ));
+                        native.insert(alias);
+                    }
+                    // ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ The static check cannot
+                    // decide (a `Match exec`, for example): the alias is rendered through
+                    // the helper, the plan shows its pin status as `undetermined`, and the
+                    // helper's own `ssh -G` check before any route attempt is the backstop.
+                    StaticPin::Undetermined(setting) => {
+                        self.findings.push(host_pin_undetermined_finding(
+                            &alias,
+                            &destination,
+                            setting,
+                        ));
+                    }
+                }
+            }
+        }
+        let sections = build(self, &native)?;
+        let pins = self
+            .spec
+            .aliases
+            .iter()
+            .zip(helpers)
+            .filter(|(a, _)| !native.contains(&a.alias))
+            .filter_map(|(_, h)| h.as_ref())
+            .flat_map(|h| h.pins.iter().cloned())
+            .collect();
+        Ok((sections, pins))
+    }
+
+    /// The user file as the pin check reads it: with the include block where a first
+    /// adoption inserts it, when the file holds none and the plan can insert one; in every
+    /// other case as it is (one intact block first, which the plan leaves unchanged; a
+    /// block below a directive or inside a section, a duplicate, or a file in manual mode,
+    /// where the owner's own configuration decides whether and where P is read).
+    fn gate_user_bytes(&self, p_path: &Path) -> Result<Vec<u8>, PreviewError> {
+        let bytes = read_file(&self.config.paths.user_config)?;
+        let current = bytes.clone().unwrap_or_default();
+        if self.manual_for.is_some() || !edit::find_blocks(&current).is_empty() {
+            return Ok(current);
+        }
+        let newline = bytes
+            .as_deref()
+            .and_then(edit::detect_newline)
+            .unwrap_or(Newline::Lf);
+        // The position is what the check reads, not the marker's value.
+        let Ok(marker) = MarkerId::parse("hm-0000000000000000") else {
+            return Ok(current);
+        };
+        let Ok(block) = self.include_block(&marker, p_path, newline)? else {
+            return Ok(current);
+        };
+        Ok(edit::plan_insert(
+            bytes.as_deref(),
+            &IncludeBlock {
+                marker,
+                bytes: block.bytes().to_vec(),
+            },
+        )
+        .map_or(current, |plan| plan.bytes))
+    }
+
+    /// `alias`'s static pin verdict with the user file `user` and P `candidate`, the worst
+    /// over every invocation profile (`heimdall_sshconf::routes::StaticPin`).
+    fn static_pin_status(
+        &self,
+        user: &[u8],
+        candidate: &[u8],
+        alias: &str,
+    ) -> heimdall_sshconf::routes::StaticPin {
+        let paths = &self.config.paths;
+        let inner = BoundedSource::new(paths.clone(), self.config.env.clone(), Limits::default());
+        let mut planned = BTreeMap::new();
+        planned.insert(paths.user_config.clone(), Some(user.to_vec()));
+        planned.insert(self.config.managed_ssh_path(), Some(candidate.to_vec()));
+        let source = Overlay {
+            inner: &inner,
+            files: &planned,
+        };
+        let mut roots = Roots::new(
+            Some(paths.user_config.clone()),
+            Some(paths.system_config.clone()),
+        );
+        roots.managed = Some(self.config.managed_ssh_path());
+        let client_version = self
+            .config
+            .clients
+            .selected(ClientKind::Ssh)
+            .and_then(|c| c.version)
+            .unwrap_or(OpenSshVersion::MINIMUM);
+        Invocation::consent_profiles()
+            .into_iter()
+            .map(|invocation| {
+                let query = Query {
+                    host: alias.to_owned(),
+                    user: None,
+                    local_user: self.account.clone(),
+                    client_version,
+                    invocation,
+                };
+                let mut set = ConfigSet::new();
+                heimdall_sshconf::routes::static_pin_status(&heimdall_sshconf::eval::evaluate(
+                    &mut set,
+                    &source,
+                    &roots,
+                    &query,
+                    &Limits::default(),
+                ))
+            })
+            .fold(
+                heimdall_sshconf::routes::StaticPin::Holds,
+                heimdall_sshconf::routes::StaticPin::worse,
+            )
+    }
+
+    /// The pin file's step: the pins of the helper aliases this plan renders, through the
+    /// same file transaction as P (a key-file step: public keys only). With no helper alias
+    /// an existing pin file is emptied (it trusts nothing), never left stale; none is
+    /// created.
+    fn pin_file_step(
+        &mut self,
+        pins: &[(String, String)],
+    ) -> Result<Option<FileStep>, PreviewError> {
+        let path = self.config.host_pins_path();
+        if pins.is_empty() && read_file(&path)?.is_none() {
+            return Ok(None);
+        }
+        let rendered = render::rendered_pin_file(pins)
+            .map_err(|e| PreviewError::Unavailable(format!("render: {e}")))?;
+        if rendered.bytes().len() > bounds::KEY_FILE_MAX {
+            return Err(PreviewError::TooLarge);
+        }
+        self.whole_step(FileRole::Key, &path, rendered)
+    }
+
     /// ⟨M03⟩ Each alias's managed section, in spec order (`None`: existing access).
     fn managed_sections(&self) -> Result<Vec<Option<ManagedSectionSpec>>, PreviewError> {
         let Some(source) = self.config.managed.as_ref() else {
@@ -2614,6 +2872,113 @@ pub fn slot_free_disclosure(
         },
         reason: None,
     }
+}
+
+/// ⟨M06 W5 `w5n`⟩ P's sections, and the pins `(destination ID, "<type> <base64>")` of the
+/// helper aliases among them.
+type RoutedSections = (Vec<Section>, Vec<(String, String)>);
+
+/// ⟨M06 W5 `w5n`; ADR-0012 §5.2⟩ The `host_pin_defeated` finding of a helper alias: the
+/// configuration decides `setting` before (or apart from) P's own section, so the catalog
+/// pin would not hold. `setting` is named as `ssh -G` prints it (`proxycommand` also when
+/// the configuration does not load P for the alias at all). The preview lists it and
+/// renders the alias natively; the doctor reports the same finding for an applied alias.
+#[must_use]
+pub fn host_pin_defeated_finding(
+    alias: &str,
+    destination: &heimdall_contract::ids::DestinationId,
+    setting: &str,
+) -> Finding {
+    Finding {
+        code: heimdall_contract::envelope::reason::HOST_PIN_DEFEATED.to_owned(),
+        severity: FindingSeverity::Problem,
+        subject: ResourceRef {
+            kind: "destination".to_owned(),
+            id: Some(destination.to_string()),
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!(
+            "the SSH configuration decides `{setting}` for `{alias}` outside Heimdall's own \
+             section, so the destination's catalog host-key pin would not hold \
+             (host_pin_defeated: {setting}); its approved routes are not used by ordinary \
+             `ssh {alias}` until that setting no longer applies to this alias"
+        ),
+        next: NextAction::for_code(Code::CapabilityUnavailable),
+        reason: Some(heimdall_contract::envelope::reason::HOST_PIN_DEFEATED.to_owned()),
+    }
+}
+
+/// ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩ "the pin check"⟩ The finding of a helper alias
+/// whose pin the static check **cannot decide**: `setting` depends on a condition that is
+/// never run statically. Its code is the existing `dynamic_match_unresolved`; it is a
+/// warning, the alias is rendered through the helper, and the message states the pin
+/// status as `undetermined` and names the backstop. `setup apply --allow-config-commands`
+/// runs the real `ssh -G` check at projection time.
+#[must_use]
+pub fn host_pin_undetermined_finding(
+    alias: &str,
+    destination: &heimdall_contract::ids::DestinationId,
+    setting: &str,
+) -> Finding {
+    Finding {
+        code: heimdall_contract::doctor::finding::DYNAMIC_MATCH_UNRESOLVED.to_owned(),
+        severity: FindingSeverity::Warning,
+        subject: ResourceRef {
+            kind: "destination".to_owned(),
+            id: Some(destination.to_string()),
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!(
+            "`{alias}`: host-key pin status: undetermined. Whether `{setting}` is decided \
+             by Heimdall's own section depends on a condition this check does not run (a \
+             `Match exec`, for example). Heimdall's route helper checks the effective \
+             configuration before it tries any route and refuses `ssh {alias}` if the pin \
+             does not hold; `heimdall setup apply --allow-config-commands` checks it now"
+        ),
+        next: NextAction::for_code(Code::Ok),
+        reason: None,
+    }
+}
+
+/// ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ The code of the finding that an existing-access
+/// alias's approved routes are not used by ordinary `ssh` (preview and doctor). Not one of
+/// `heimdall_contract::doctor::finding::ALL` and not an envelope reason.
+pub const ROUTES_NOT_USED_BY_ORDINARY_SSH: &str = "routes_not_used_by_ordinary_ssh";
+
+/// ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ An existing-access alias whose destination has
+/// approved routes only the route helper can use: the alias keeps its native rendering,
+/// so ordinary `ssh <alias>` reaches the destination as its own definition says and uses
+/// none of those routes.
+#[must_use]
+pub fn routes_unused_finding(
+    alias: &str,
+    destination: &heimdall_contract::ids::DestinationId,
+) -> Finding {
+    Finding {
+        code: ROUTES_NOT_USED_BY_ORDINARY_SSH.to_owned(),
+        severity: FindingSeverity::Warning,
+        subject: ResourceRef {
+            kind: "destination".to_owned(),
+            id: Some(destination.to_string()),
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: routes_unused_message(alias),
+        next: NextAction::for_code(Code::Ok),
+        reason: None,
+    }
+}
+
+/// The text of [`routes_unused_finding`] (the doctor says the same).
+#[must_use]
+pub fn routes_unused_message(alias: &str) -> String {
+    format!(
+        "`{alias}` uses existing access, so it keeps its own SSH configuration: the routes \
+         approved for its destination are not used by ordinary `ssh {alias}`. Only an alias \
+         with managed certificates is connected through Heimdall's approved routes"
+    )
 }
 
 /// ⟨M03⟩ ADR-0008 D8 item 6 (F15): the graceful text for an `exclusive` selection

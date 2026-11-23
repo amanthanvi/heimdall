@@ -720,7 +720,14 @@ pub(crate) fn jump_pairs_of(
     if scope.is_empty() {
         return Ok(BTreeSet::new());
     }
-    let view = route_view(tx)?;
+    // ⟨M06 W5 `w5n`; ADR-0012 §5.4⟩ With the stored route lists: a helper alias's jump leg
+    // is the same single-hop dependency as M04's native jump, so the jump pair of every
+    // approved jump route in scope carries `permit-port-forwarding`
+    // (`jump_pairs_in_scope`). Without them only a definition's own jump was seen, and a
+    // jump route approved by `route add` could authenticate at its bastion and never
+    // forward.
+    let mut view = route_view(tx)?;
+    view.routes = tx.all_destination_routes()?;
     Ok(jump_pairs_in_scope(scope, &view))
 }
 

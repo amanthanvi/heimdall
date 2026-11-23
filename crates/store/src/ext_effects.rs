@@ -229,6 +229,22 @@ pub struct PolicyRevisionRecord {
     /// lifts it). Omitted when the cutoff did not fire early.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fired_uncertain_at: Option<Timestamp>,
+    /// ⟨M06 W5; ADR-0006 §18.9 item 4⟩ Whether this delivered effect is **still in force**
+    /// on the runner. `true` from the apply on; cleared, and then never set again, only
+    /// once the runner's own owner lifted it there ([`Txn::note_lifted_policy_revisions`]).
+    /// Omitted when `true`, so a row or a report written before the field existed reads as
+    /// in force (fail closed).
+    #[serde(default = "in_force_default", skip_serializing_if = "is_in_force")]
+    pub in_force: bool,
+}
+
+fn in_force_default() -> bool {
+    true
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_in_force(in_force: &bool) -> bool {
+    *in_force
 }
 
 /// What [`Txn::record_remote_policy_revision`] did.
@@ -298,6 +314,12 @@ pub struct RemoteContact {
     /// readiness, which the controller computes forward).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_report: Option<ObservedReport>,
+    /// ⟨M06 W5⟩ The grants of the runner's last report that wait for their issuer and that
+    /// a standing policy held here refused **for their deadline** ([`RefusedPending`]).
+    /// Replaced whole at every hosted pass; omitted when empty, so every earlier record
+    /// decodes unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refused_pending: Vec<RefusedPending>,
     /// ⟨M06 W3⟩ The management session the controller's runtime holds to the runner now, as
     /// that runtime last wrote it ([`Txn::note_remote_session`]). It says nothing once that
     /// runtime is gone: a reader counts it only while the same runtime instance still runs.
@@ -342,6 +364,23 @@ pub struct PreparedBinding {
     pub prepared_at: Timestamp,
 }
 
+/// ⟨M06 W5; m06-plan §2 item 3 "As built and ruled in W5"⟩ A runner-originated pending
+/// grant this controller did not record under its standing policy because the grant's
+/// deadline is later than that policy allows. Nothing is clamped: the grant stays pending
+/// until its owner asks for a deadline inside the limit, or the policy's owner moves it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefusedPending {
+    /// The grant, as the runner names it.
+    pub grant: GrantId,
+    /// When this controller first refused it for this limit.
+    pub at: Timestamp,
+    /// The limit exceeded: `deadline_exceeds_policy_max_lifetime` or
+    /// `deadline_exceeds_policy_cutoff`.
+    pub limit: String,
+    /// The sentence for the owner: the policy, the limit's instant and the deadline asked.
+    pub detail: String,
+}
+
 /// ⟨M06 W3⟩ Why the last remote issuance for a delivered grant did not complete.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IssuanceFailure {
@@ -374,6 +413,12 @@ pub struct DeliveredGrant {
     /// The last issuance failure since the last success.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_failure: Option<IssuanceFailure>,
+    /// ⟨M06 W5; ADR-0005 §3.5 condition 8 (b)⟩ The standing policy held on this controller
+    /// the record was written from, when its source is (b). Issuance for the grant then
+    /// also needs that policy to still authorize it. `None` for a forwarded `ensure`
+    /// (source (a)); omitted when `None`, so every earlier record decodes unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<heimdall_contract::ids::PolicyId>,
 }
 
 /// What the runner's last authority report showed installed (an observation).
@@ -398,6 +443,12 @@ pub struct ObservedReport {
     /// before this field existed (not known).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub standing: Option<Vec<ReportedPolicy>>,
+    /// ⟨M06 W5; ADR-0006 §18.9 item 4⟩ The delivered pauses and cutoffs as the report
+    /// stated them, each with whether it is still in force: what `environment
+    /// resume-issuance` tells the owner about a lift. An observation, as `standing` is.
+    /// `None` in a record written before this field existed (not known).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revisions: Option<Vec<PolicyRevisionRecord>>,
 }
 
 /// A failed attempt to reach a runner.
@@ -865,6 +916,8 @@ impl Txn<'_> {
         )?;
         let mut stored = row.clone();
         stored.runner_seq = codec::uint(last)?.saturating_add(1);
+        // A delivered effect is in force from its apply on, whatever the caller's row says.
+        stored.in_force = true;
         self.tx.execute(
             "INSERT INTO remote_policy_revisions (scope_key, producer, revision, runner_seq,
                  kind, effect_id, received_at, record_json)
@@ -883,6 +936,112 @@ impl Txn<'_> {
         Ok(RevisionOutcome::Recorded(stored))
     }
 
+    /// ⟨M06 W5; ADR-0006 §18.9 item 4⟩ Clear `in_force` on every delivered pause or cutoff
+    /// the runner's own owner has lifted; the number of rows cleared. A paired session can
+    /// only narrow, so a policy the effect was applied to that is no longer blocked was
+    /// released by a runner-local attended `resume` (a pause) or `clear_cutoff` (a cutoff).
+    /// The effect is lifted when, of the policies the runner's acknowledgement says it
+    /// applied to, at least one still exists and none that exists is still paused (a
+    /// pause) or still carries a cutoff (a cutoff).
+    ///
+    /// Fail closed everywhere else: a row with no recorded acknowledgement, one that
+    /// applied to **no** policy (a runner without a standing policy in the scope: there is
+    /// nothing its owner could have lifted), and one whose policies are all gone stay in
+    /// force. A policy added to the scope later does not count. Once cleared the flag is
+    /// never set again: a later local pause or cutoff is the runner's own and shows in the
+    /// report's standing policies.
+    pub fn note_lifted_policy_revisions(&mut self) -> Result<usize> {
+        let policies = self.policies()?;
+        let mut cleared = 0;
+        for mut row in self.remote_policy_revisions()? {
+            if !row.in_force {
+                continue;
+            }
+            let kind = match row.kind {
+                PolicyRevisionKind::Pause => "policy_pause",
+                PolicyRevisionKind::Cutoff => "policy_cutoff",
+            };
+            let ack: Option<EffectAck> = self.one_doc(
+                "SELECT ack_json FROM remote_effect_acks
+                 WHERE producer = ?1 AND effect_id = ?2 AND target_kind = ?3
+                   AND target_ref = ?4 AND target_generation = ?5",
+                rusqlite::params![
+                    row.producer.as_str(),
+                    row.effect.as_str(),
+                    kind,
+                    row.scope_key,
+                    codec::int(row.revision)?,
+                ],
+            )?;
+            let Some(AppliedRecord::PolicyRevision {
+                policies: applied, ..
+            }) = ack.map(|a| a.record)
+            else {
+                continue;
+            };
+            let mut left = policies
+                .iter()
+                .filter(|p| applied.contains(&p.id))
+                .peekable();
+            if left.peek().is_none() {
+                continue;
+            }
+            let blocked = left.any(|p| match row.kind {
+                PolicyRevisionKind::Pause => {
+                    matches!(p.pause, heimdall_domain::policy::PauseState::Paused { .. })
+                }
+                PolicyRevisionKind::Cutoff => p.cutoff_at.is_some(),
+            });
+            if blocked {
+                continue;
+            }
+            row.in_force = false;
+            self.tx.execute(
+                "UPDATE remote_policy_revisions SET record_json = ?4
+                 WHERE scope_key = ?1 AND producer = ?2 AND revision = ?3",
+                rusqlite::params![
+                    row.scope_key,
+                    row.producer.as_str(),
+                    codec::int(row.revision)?,
+                    codec::doc(&row)?,
+                ],
+            )?;
+            cleared += 1;
+        }
+        Ok(cleared)
+    }
+
+    /// ⟨M06 W5 `w5m` L1⟩ The runner's own owner lifted, by an attended decision that named
+    /// it, the one delivered effect `(scope_key, producer, revision)`: clear its flag.
+    /// Whether it was in force (and so cleared now); a row that does not exist or was
+    /// already lifted is `false` and nothing is written. The caller holds the owner's
+    /// decision; nothing here checks it.
+    pub fn lift_remote_policy_revision(
+        &mut self,
+        scope_key: &str,
+        producer: &ClientId,
+        revision: u64,
+    ) -> Result<bool> {
+        let Some(mut row) = self.remote_policy_revision(scope_key, producer, revision)? else {
+            return Ok(false);
+        };
+        if !row.in_force {
+            return Ok(false);
+        }
+        row.in_force = false;
+        self.tx.execute(
+            "UPDATE remote_policy_revisions SET record_json = ?4
+             WHERE scope_key = ?1 AND producer = ?2 AND revision = ?3",
+            rusqlite::params![
+                row.scope_key,
+                row.producer.as_str(),
+                codec::int(row.revision)?,
+                codec::doc(&row)?,
+            ],
+        )?;
+        Ok(true)
+    }
+
     // --- the runner's authority report ------------------------------------------------------
 
     /// ⟨M06 U4⟩ Every grant tombstone, in the order applied (the authority report).
@@ -896,11 +1055,13 @@ impl Txn<'_> {
     /// ⟨M06 U4⟩ The store's part of the runner's authority report (ADR-0012 §7.4 step 3):
     /// tombstones, delivered policy revisions and the standing policies as they are now. The
     /// caller adds the installed certificates. `None` on a store with no environment of its
-    /// own.
+    /// own. ⟨W5⟩ It first records which delivered effects the runner's owner has lifted
+    /// ([`Self::note_lifted_policy_revisions`]), so each row states whether it is in force.
     pub fn authority_report(&mut self) -> Result<Option<AuthorityReport>> {
         let Some(environment) = self.self_environment()? else {
             return Ok(None);
         };
+        self.note_lifted_policy_revisions()?;
         let tombstones = self
             .tombstones()?
             .into_iter()
@@ -989,7 +1150,33 @@ impl Txn<'_> {
                 .collect(),
             policies: report.policies.iter().map(|p| p.policy.clone()).collect(),
             standing: Some(report.policies.clone()),
+            revisions: Some(report.policy_revisions.clone()),
         });
+        self.set_meta(&contact_key(environment), &codec::doc(&c)?)
+    }
+
+    /// ⟨M06 W5⟩ The pending grants of `environment` refused for their deadline at this
+    /// pass (the whole list; an entry already recorded for the same grant and limit keeps
+    /// its first instant). Nothing is written when nothing changes.
+    pub fn set_refused_pending(
+        &mut self,
+        environment: &EnvironmentId,
+        mut refused: Vec<RefusedPending>,
+    ) -> Result<()> {
+        let mut c = self.remote_contact(environment)?;
+        for r in &mut refused {
+            if let Some(old) = c
+                .refused_pending
+                .iter()
+                .find(|o| o.grant == r.grant && o.limit == r.limit)
+            {
+                r.at = old.at;
+            }
+        }
+        if c.refused_pending == refused {
+            return Ok(());
+        }
+        c.refused_pending = refused;
         self.set_meta(&contact_key(environment), &codec::doc(&c)?)
     }
 
@@ -1121,6 +1308,7 @@ mod tests {
             received_at: t("2026-11-21T09:00:00Z"),
             cutoff_at: Some(t(at)),
             fired_uncertain_at: None,
+            in_force: true,
         }
     }
 
@@ -1137,6 +1325,160 @@ mod tests {
                 owned_admissions: ComponentResidual::Closed,
             },
         }
+    }
+
+    /// ⟨M06 W5; ADR-0006 §18.9 item 4⟩ The authority report states, per delivered pause or
+    /// cutoff, whether it is still in force, and only the runner's own owner clears that:
+    /// a policy the effect was applied to that is no longer blocked. A runner with no
+    /// standing policy keeps reporting it in force; so does a row with no acknowledgement,
+    /// and one whose policies are gone. A policy added later does not lift it. Once
+    /// cleared it stays cleared; a redelivery of the same key does not set it again.
+    #[test]
+    fn the_report_says_which_delivered_effects_are_still_in_force() {
+        use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
+        let at = t("2026-11-21T09:00:00Z");
+        // Each write is the policy's next revision.
+        let revision = std::cell::Cell::new(0u64);
+        let policy = |id: &str, paused: bool, cutoff: bool| StandingPolicy {
+            id: PolicyId::parse(id).unwrap(),
+            revision: {
+                revision.set(revision.get() + 1);
+                PolicyRevision(revision.get())
+            },
+            profile: heimdall_contract::ids::ProfileId::parse("default").unwrap(),
+            workspace: None,
+            scope: heimdall_domain::scope::Scope::empty(),
+            environments: std::collections::BTreeSet::new(),
+            max_window: std::time::Duration::from_secs(3600),
+            pause: if paused {
+                PauseState::Paused { since: at }
+            } else {
+                PauseState::Active
+            },
+            cutoff_at: cutoff.then_some(at),
+            source: PolicySource::SetupDefault,
+            lock_behavior: Default::default(),
+            connection: Default::default(),
+            default: false,
+        };
+        // Deliver a cutoff of every policy (`n`), acknowledged as applied to `applied`.
+        let deliver = |tx: &mut Txn<'_>, n: u8, applied: &[&str]| -> Result<()> {
+            let row = cutoff_row(1, n, u64::from(n), "2026-11-21T09:00:00Z");
+            tx.record_remote_policy_revision(&row)?;
+            tx.record_remote_effect_ack(&EffectAck {
+                key: EffectKey {
+                    producer: client(1),
+                    effect: effect(n),
+                    target: EffectTarget::PolicyCutoff {
+                        scope: PolicyTarget::All,
+                        at,
+                        revision: u64::from(n),
+                    },
+                },
+                applied_at: at,
+                record: AppliedRecord::PolicyRevision {
+                    scope_key: "all".into(),
+                    runner_seq: u64::from(n),
+                    policies: applied
+                        .iter()
+                        .map(|p| PolicyId::parse(p).unwrap())
+                        .collect(),
+                    cutoff_at: Some(at),
+                    fired: true,
+                },
+            })
+        };
+        let in_force = |tx: &mut Txn<'_>| -> Result<Vec<bool>> {
+            Ok(tx
+                .authority_report()?
+                .unwrap()
+                .policy_revisions
+                .iter()
+                .map(|r| r.in_force)
+                .collect())
+        };
+
+        // A runner with no standing policy: nothing its owner could have lifted.
+        let s = store();
+        s.transaction(|tx| {
+            tx.init_self_environment(&env())?;
+            deliver(tx, 1, &[])?;
+            assert_eq!(in_force(tx)?, vec![true]);
+            // A policy added to the scope later is not a lift of the delivered effect.
+            tx.upsert_policy(&policy("later", false, false), false)?;
+            assert_eq!(in_force(tx)?, vec![true]);
+            // A row whose acknowledgement was never recorded stays in force.
+            tx.record_remote_policy_revision(&cutoff_row(1, 2, 2, "2026-11-21T09:00:00Z"))?;
+            assert_eq!(in_force(tx)?, vec![true, true]);
+            Ok(())
+        })
+        .unwrap();
+
+        // A runner with policies: in force while any policy it applied to carries a cutoff.
+        let s = store();
+        s.transaction(|tx| {
+            tx.init_self_environment(&env())?;
+            tx.upsert_policy(&policy("a", false, true), true)?;
+            tx.upsert_policy(&policy("b", false, true), true)?;
+            deliver(tx, 1, &["a", "b"])?;
+            assert_eq!(in_force(tx)?, vec![true]);
+            // The runner's owner cleared one of the two: still in force.
+            tx.upsert_policy(&policy("a", false, false), false)?;
+            assert_eq!(in_force(tx)?, vec![true]);
+            // A pause is not a cutoff: resuming or pausing changes nothing here.
+            tx.upsert_policy(&policy("a", true, false), true)?;
+            assert_eq!(in_force(tx)?, vec![true]);
+            // Both cleared: lifted, and the row says so in the report and in the store.
+            tx.upsert_policy(&policy("b", false, false), false)?;
+            assert_eq!(in_force(tx)?, vec![false]);
+            assert!(!tx.remote_policy_revisions()?[0].in_force);
+            // Sticky: a later local cutoff is the runner's own, not the delivered effect.
+            tx.upsert_policy(&policy("b", false, true), true)?;
+            assert_eq!(in_force(tx)?, vec![false]);
+            // A redelivery of the same key keeps the row as it is.
+            let again =
+                tx.record_remote_policy_revision(&cutoff_row(1, 1, 1, "2026-11-21T09:00:00Z"))?;
+            assert!(matches!(again, RevisionOutcome::Existing(r) if !r.in_force));
+            // A new effect is in force from its apply on, whatever the caller's row says.
+            let mut lifted_row = cutoff_row(1, 3, 3, "2026-11-21T09:00:00Z");
+            lifted_row.in_force = false;
+            let stored = tx.record_remote_policy_revision(&lifted_row)?;
+            assert!(stored.record().in_force);
+            Ok(())
+        })
+        .unwrap();
+
+        // Every policy the effect applied to is gone: it stays in force.
+        let s = store();
+        s.transaction(|tx| {
+            tx.init_self_environment(&env())?;
+            tx.upsert_policy(&policy("a", false, true), true)?;
+            deliver(tx, 1, &["a"])?;
+            tx.delete_policy(&PolicyId::parse("a").unwrap())?;
+            assert_eq!(in_force(tx)?, vec![true]);
+            Ok(())
+        })
+        .unwrap();
+
+        // The wire form: omitted while in force, so an earlier row or report reads in force.
+        let row = cutoff_row(1, 1, 1, "2026-11-21T09:00:00Z");
+        let json = serde_json::to_value(&row).unwrap();
+        assert!(json.get("in_force").is_none(), "{json}");
+        assert!(
+            serde_json::from_value::<PolicyRevisionRecord>(json)
+                .unwrap()
+                .in_force
+        );
+        let lifted = PolicyRevisionRecord {
+            in_force: false,
+            ..row
+        };
+        let json = serde_json::to_value(&lifted).unwrap();
+        assert_eq!(json["in_force"], false, "{json}");
+        assert_eq!(
+            serde_json::from_value::<PolicyRevisionRecord>(json).unwrap(),
+            lifted
+        );
     }
 
     /// The outbox keeps one row per key, lists pending rows in production order, and an

@@ -1,0 +1,39 @@
+Approve a route for a destination.
+
+A route that adds exposure (an Iroh route beyond the minimal policy) needs a decision at this host.
+
+Usage: heimdall route add [OPTIONS] <--direct <HOST[:PORT]>|--jump <DESTINATION>|--iroh <ENDPOINT>> <DESTINATION>
+
+Arguments:
+  <DESTINATION>
+          The catalog destination
+
+Options:
+      --direct <HOST[:PORT]>
+          A direct TCP route: `host` or `host:port` (`[v6]:port` for an IPv6 literal)
+
+      --json
+          Machine output: one JSON envelope on stdout (NDJSON for event streams)
+
+      --jump <DESTINATION>
+          A single-hop jump through another catalog destination
+
+      --non-interactive
+          Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+
+      --home <DIR>
+          Override the Heimdall home directory (fixtures and tests)
+          
+          [env: HEIMDALL_HOME=]
+
+      --iroh <ENDPOINT>
+          An Iroh route to a serving endpoint ID (under the minimal exposure policy)
+
+      --address <IP:PORT>
+          The Iroh endpoint's direct address (`ip:port`), repeatable
+
+      --relay <URL>
+          A relay this Iroh route may use (`https://…` or `http://…`), repeatable. Each relay adds exposure: the route then needs a decision approved on a terminal at this host, which names every relay. A URL with a user name or password, a query string or a fragment is refused
+
+  -h, --help
+          Print help (see a summary with '-h')

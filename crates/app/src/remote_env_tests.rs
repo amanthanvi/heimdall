@@ -216,6 +216,11 @@ struct FakeSessions {
     echo_name: bool,
     /// What each session's confirming probes report (`None`: inconclusive, or none run).
     probe: Option<heimdall_contract::remote::ProbeObservation>,
+    /// ⟨M06 W5⟩ Why this device's sessions can never run the probes (a Windows controller).
+    probes_unavailable: Option<&'static str>,
+    /// ⟨M06 W5⟩ The session that follows a bootstrap cannot be opened (the runner's runtime
+    /// is not running).
+    bootstrap_unreachable: bool,
 }
 
 /// What the probes observe on a restricted session.
@@ -239,6 +244,8 @@ impl FakeSessions {
             unreachable: Vec::new(),
             echo_name: false,
             probe: Some(PROBES_AGREE),
+            probes_unavailable: None,
+            bootstrap_unreachable: false,
         }
     }
     fn sent(&self) -> Vec<(SessionName, Request)> {
@@ -252,12 +259,16 @@ struct FakeSession {
     responder: Arc<Responder>,
     sent: Arc<Mutex<Vec<(SessionName, Request)>>>,
     probe: Option<heimdall_contract::remote::ProbeObservation>,
+    probes_unavailable: Option<&'static str>,
 }
 
 #[async_trait::async_trait]
 impl ManagementSession for FakeSession {
     fn hello(&self) -> &SessionHello {
         &self.hello
+    }
+    fn probes_unavailable(&self) -> Option<&'static str> {
+        self.probes_unavailable
     }
     async fn probe(&mut self) -> Option<heimdall_contract::remote::ProbeObservation> {
         self.probe
@@ -279,6 +290,10 @@ impl ManagementSessions for FakeSessions {
         {
             return Err(OpError::new(Code::DestinationUnreachable, "unreachable"));
         }
+        if matches!(target.name, SessionName::Bootstrap(_)) && self.bootstrap_unreachable {
+            return Err(OpError::new(Code::DestinationUnreachable, "unreachable")
+                .with_effect(EffectStatus::None));
+        }
         let environment = match (&target.name, self.echo_name) {
             (SessionName::Environment(e), true) => e.clone(),
             _ => self.hello.clone(),
@@ -294,6 +309,7 @@ impl ManagementSessions for FakeSessions {
             responder,
             sent: self.sent.clone(),
             probe: self.probe,
+            probes_unavailable: self.probes_unavailable,
         }))
     }
 }
@@ -426,6 +442,52 @@ async fn add_refuses_an_unverified_host_key_before_anything_runs() {
     assert!(w.bootstrap.0.lock().unwrap().is_empty());
     assert!(w.sessions.opened.lock().unwrap().is_empty());
     assert!(w.registry.ids().is_empty());
+}
+
+/// ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ A first `add` whose bootstrap completed
+/// while the runner's runtime does not run (the offer to start it was declined): the session
+/// that follows cannot be opened. The refusal keeps the session's code and effect, records
+/// nothing, and names the next step plainly; it is never a silent second pass.
+#[tokio::test]
+async fn add_names_the_next_step_when_the_runner_runtime_does_not_answer_after_the_bootstrap() {
+    let mut sessions = FakeSessions::new(env_id(9), always_ok());
+    sessions.bootstrap_unreachable = true;
+    let w = World {
+        key: FakeKey::default(),
+        registry: FakeRegistry::default(),
+        catalog: FakeCatalog(Some(access(&[HOST]))),
+        bootstrap: FakeBootstrap::default(),
+        sessions,
+        confirm: FakeConfirm::yes(),
+    };
+    let e = w.controller().add(&add_input()).await.unwrap_err();
+    assert_eq!(e.code, Code::DestinationUnreachable);
+    assert_eq!(e.effect_status, EffectStatus::None);
+    assert!(
+        e.message.starts_with(super::AFTER_BOOTSTRAP_NO_SESSION),
+        "{}",
+        e.message
+    );
+    for said in [
+        "nothing was recorded on this controller",
+        "the runner's runtime is not running",
+        "start it on the runner",
+        "run `environment add` again",
+    ] {
+        assert!(e.message.contains(said), "{said}: {}", e.message);
+    }
+    assert!(e.message.ends_with("The session's error: unreachable"));
+    assert_eq!(
+        w.bootstrap.0.lock().unwrap().len(),
+        1,
+        "one bootstrap, no retry"
+    );
+    assert_eq!(
+        w.sessions.opened.lock().unwrap().len(),
+        1,
+        "one session attempt"
+    );
+    assert!(w.registry.list().unwrap().is_empty(), "nothing recorded");
 }
 
 /// `add`: K_mgmt created once, the bootstrap plan carries the catalog pins, the owner key and
@@ -1015,9 +1077,12 @@ impl FormRegistry {
 
     fn apply(&self, form: &ControllerRecordRequest) -> Result<serde_json::Value, OpError> {
         self.forms.lock().unwrap().push(form.kind());
-        apply_controller_record(&self.store, form, &|line| {
-            FakeKey::default().fingerprint_of(line)
-        })
+        apply_controller_record(
+            &self.store,
+            form,
+            &|line| FakeKey::default().fingerprint_of(line),
+            removal_time(),
+        )
     }
 
     fn ids(&self) -> Vec<EnvironmentId> {
@@ -1053,6 +1118,341 @@ impl EnvironmentRegistry for FormRegistry {
         })?;
         Ok(v["removed"] == serde_json::json!(true))
     }
+}
+
+fn removal_time() -> heimdall_contract::Timestamp {
+    heimdall_contract::Timestamp::from_second(1_800_000_000).unwrap()
+}
+
+/// Fails the commit of every transaction while armed.
+#[derive(Default)]
+struct FailCommit(std::sync::atomic::AtomicBool);
+
+impl heimdall_store::FaultHook for FailCommit {
+    fn at(&self, point: heimdall_store::FaultPoint) -> heimdall_store::FaultAction {
+        if point == heimdall_store::FaultPoint::BeforeCommit
+            && self.0.load(std::sync::atomic::Ordering::SeqCst)
+        {
+            heimdall_store::FaultAction::Fail
+        } else {
+            heimdall_store::FaultAction::Continue
+        }
+    }
+}
+
+/// ⟨M06 W5 ruling, 2026-11-22; m06-plan §2 item 3 "As built and ruled in W5"⟩ `environment
+/// remove` deletes every standing policy that names the removed runner in the transaction
+/// that removes its record:
+/// * the policy and the record go together, and the policy's last history row says why;
+/// * a removal whose transaction fails leaves both;
+/// * recording the same environment again does not bring the policy back;
+/// * a policy for another runner, and this installation's own, are untouched.
+#[test]
+fn removing_a_runner_record_deletes_the_policies_that_name_it() {
+    use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
+    use heimdall_domain::scope::{Capability, Scope};
+    use heimdall_domain::workspace::PolicyChangeCause;
+    let faults = Arc::new(FailCommit::default());
+    let r = FormRegistry {
+        store: heimdall_store::Store::open_in_memory(faults.clone()).unwrap(),
+        forms: Mutex::new(Vec::new()),
+    };
+    let own = env_id(9);
+    r.store
+        .transaction(|tx| tx.init_self_environment(&own))
+        .unwrap();
+    for n in [1, 2] {
+        r.apply(&ControllerRecordRequest::PutEnvironment { record: record(n) })
+            .unwrap();
+    }
+    let policy = |id: &str, environment: &EnvironmentId| StandingPolicy {
+        id: heimdall_contract::ids::PolicyId::parse(id).unwrap(),
+        revision: PolicyRevision(1),
+        profile: heimdall_contract::ids::ProfileId::parse("p").unwrap(),
+        workspace: None,
+        scope: Scope {
+            pairs: std::collections::BTreeSet::new(),
+            capabilities: [Capability::SshAuthentication].into_iter().collect(),
+        },
+        environments: [environment.clone()].into_iter().collect(),
+        max_window: std::time::Duration::from_secs(3600),
+        pause: PauseState::Active,
+        cutoff_at: None,
+        source: PolicySource::SetupDefault,
+        lock_behavior: heimdall_contract::managed::LockBehavior::Continue,
+        connection: heimdall_contract::managed::ConnectionPolicy::default(),
+        default: false,
+    };
+    r.store
+        .transaction(|tx| {
+            tx.upsert_policy(&policy("pol-runner-1", &env_id(1)), false)?;
+            tx.upsert_policy(&policy("pol-runner-2", &env_id(2)), false)?;
+            tx.upsert_policy(&policy("pol-own", &own), false)
+        })
+        .unwrap();
+    let held = || -> Vec<String> {
+        r.store
+            .transaction(|tx| tx.policies())
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id.as_str().to_owned())
+            .collect()
+    };
+    let remove = |n: u8| {
+        r.apply(&ControllerRecordRequest::RemoveEnvironment {
+            environment: env_id(n),
+        })
+    };
+
+    // A removal that fails leaves the record and the policy.
+    faults.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    let e = remove(1).unwrap_err();
+    assert_eq!(e.code, Code::StateUnavailable, "{e:?}");
+    faults.0.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(r.ids(), vec![env_id(1), env_id(2)]);
+    assert_eq!(held(), ["pol-own", "pol-runner-1", "pol-runner-2"]);
+
+    // The record and the policy go together; nothing else does.
+    assert_eq!(remove(1).unwrap()["removed"], true);
+    assert_eq!(r.ids(), vec![env_id(2)]);
+    assert_eq!(held(), ["pol-own", "pol-runner-2"]);
+    let history = r
+        .store
+        .transaction(|tx| {
+            tx.policy_history(&heimdall_contract::ids::PolicyId::parse("pol-runner-1").unwrap())
+        })
+        .unwrap();
+    let last = history.last().expect("a history row for the removal");
+    assert_eq!(
+        last.cause,
+        PolicyChangeCause::EnvironmentRemoved {
+            environment: env_id(1)
+        }
+    );
+    assert_eq!(last.revision, PolicyRevision(2));
+    assert_eq!(last.at, removal_time());
+    assert_eq!(
+        serde_json::to_value(&last.cause).unwrap(),
+        serde_json::json!({"kind": "environment_removed", "environment": env_id(1)})
+    );
+
+    // The same environment recorded again: the policy does not come back.
+    r.apply(&ControllerRecordRequest::PutEnvironment { record: record(1) })
+        .unwrap();
+    assert_eq!(r.ids(), vec![env_id(1), env_id(2)]);
+    assert_eq!(held(), ["pol-own", "pol-runner-2"]);
+
+    // No record names this installation's own environment: its policy stays.
+    assert_eq!(
+        r.apply(&ControllerRecordRequest::RemoveEnvironment {
+            environment: own.clone()
+        })
+        .unwrap()["removed"],
+        false
+    );
+    assert_eq!(held(), ["pol-own", "pol-runner-2"]);
+}
+
+/// ⟨M06 W5; M06-W4-R03⟩ `environment remove` forgets, in the transaction that removes the
+/// record, what this controller produced for and delivered to that runner: its outbox rows
+/// (a delivered hold and a pending effect), the owner's lift acknowledgements and the
+/// delivered grants, and ⟨ADR-0006 §18.9 item 7⟩ the contact record (last seen, last
+/// failure, the last report, the refused pending grants, the held-session marker). A
+/// removal whose transaction fails leaves all of it. Recording the same
+/// environment again inherits no hold: nothing is listed for the owner to acknowledge, an
+/// earlier acknowledgement is gone, and the issuer's barrier holds no delivered cutoff
+/// against it. Another runner's rows stay.
+#[test]
+fn removing_a_runner_record_forgets_its_holds_and_a_re_add_starts_clean() {
+    use heimdall_contract::ids::{EffectId, GrantId, PolicyId};
+    use heimdall_contract::remote::EffectTarget;
+    use heimdall_contract::trust::PolicyTarget;
+    use heimdall_store::ext_effects::{
+        AppliedRecord, AuthorityReport, DeliveredGrant, EffectAck, EffectKey, HostedSession,
+        RefusedPending, RemoteContact,
+    };
+
+    use crate::remote_status_barrier::{BarrierRefusal, IssuerBarrier, Reconciliation};
+    use crate::remote_status_driver::delivered_holds;
+
+    let faults = Arc::new(FailCommit::default());
+    let r = FormRegistry {
+        store: heimdall_store::Store::open_in_memory(faults.clone()).unwrap(),
+        forms: Mutex::new(Vec::new()),
+    };
+    for n in [1, 2] {
+        r.apply(&ControllerRecordRequest::PutEnvironment { record: record(n) })
+            .unwrap();
+    }
+    let at = removal_time();
+    let cutoff = |n: u8, effect: u8| EffectKey {
+        producer: record(n).client,
+        effect: EffectId::from_random_bytes([effect; 16]),
+        target: EffectTarget::PolicyCutoff {
+            scope: PolicyTarget::All,
+            at,
+            revision: u64::from(effect),
+        },
+    };
+    let grant = GrantId::from_random_bytes([7; 16]);
+    // For each runner: a delivered cutoff of every policy whose lift the owner
+    // acknowledged, a pending one, and a delivered grant.
+    for n in [1, 2] {
+        let (delivered, pending) = (cutoff(n, 10 + n), cutoff(n, 20 + n));
+        let ack = EffectAck {
+            key: delivered.clone(),
+            applied_at: at,
+            record: AppliedRecord::PolicyRevision {
+                scope_key: "all".into(),
+                runner_seq: 1,
+                policies: vec![PolicyId::parse("pol").unwrap()],
+                cutoff_at: Some(at),
+                fired: true,
+            },
+        };
+        r.store
+            .transaction(|tx| {
+                assert!(tx.enqueue_remote_effect(&env_id(n), &delivered, at)?);
+                assert!(tx.acknowledge_remote_effect(&ack, at)?);
+                assert!(tx.acknowledge_remote_lift(&env_id(n), &delivered, at)?);
+                assert!(tx.enqueue_remote_effect(&env_id(n), &pending, at)?);
+                tx.put_delivered_grant(&DeliveredGrant {
+                    environment: env_id(n),
+                    grant: grant.clone(),
+                    pairs: std::collections::BTreeSet::new(),
+                    extensions: std::collections::BTreeSet::new(),
+                    expires_at: at,
+                    delivered_at: at,
+                    prepared: None,
+                    last_failure: None,
+                    policy: None,
+                })?;
+                // What this controller last saw of the runner: every part of the contact
+                // record.
+                tx.note_remote_seen(&env_id(n), at)?;
+                tx.note_remote_report(
+                    &env_id(n),
+                    at,
+                    &AuthorityReport {
+                        environment: env_id(n),
+                        authority_generation: 1,
+                        tombstones: Vec::new(),
+                        policy_revisions: Vec::new(),
+                        policies: Vec::new(),
+                        certificates: Vec::new(),
+                        time_bounded: true,
+                        pending_grants: Vec::new(),
+                    },
+                )?;
+                tx.note_remote_failure(&env_id(n), at, "destination_unreachable")?;
+                tx.set_refused_pending(
+                    &env_id(n),
+                    vec![RefusedPending {
+                        grant: grant.clone(),
+                        at,
+                        limit: "deadline_exceeds_policy_cutoff".into(),
+                        detail: "fixture".into(),
+                    }],
+                )?;
+                tx.note_remote_session(
+                    &env_id(n),
+                    Some(HostedSession {
+                        instance: "fixture-instance".into(),
+                        since: at,
+                    }),
+                )
+            })
+            .unwrap();
+    }
+    let contact = |n: u8| {
+        r.store
+            .transaction(|tx| tx.remote_contact(&env_id(n)))
+            .unwrap()
+    };
+    let seen = contact(1);
+    assert!(
+        seen.last_seen_at.is_some()
+            && seen.last_failure.is_some()
+            && seen.last_report.is_some()
+            && seen.hosted.is_some()
+            && seen.refused_pending.len() == 1,
+        "{seen:?}"
+    );
+    // (outbox rows, holds listed, lift acknowledgement of the delivered one, delivered grants)
+    let held = |n: u8| {
+        r.store
+            .transaction(|tx| {
+                Ok((
+                    tx.remote_effect_outbox(Some(&env_id(n)), false)?.len(),
+                    delivered_holds(tx, &env_id(n))?.len(),
+                    tx.remote_lift_ack(&cutoff(n, 10 + n))?.is_some(),
+                    tx.delivered_grants(Some(&env_id(n)))?.len(),
+                ))
+            })
+            .unwrap()
+    };
+    assert_eq!(held(1), (2, 2, true, 1));
+    let remove = || {
+        r.apply(&ControllerRecordRequest::RemoveEnvironment {
+            environment: env_id(1),
+        })
+    };
+
+    // A removal that fails leaves everything.
+    faults.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(remove().unwrap_err().code, Code::StateUnavailable);
+    faults.0.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(held(1), (2, 2, true, 1));
+    assert_eq!(
+        contact(1),
+        seen,
+        "a failed removal forgot the contact record"
+    );
+
+    // The record and its rows go together; the other runner's stay.
+    assert_eq!(remove().unwrap()["removed"], true);
+    assert_eq!(held(1), (0, 0, false, 0));
+    assert_eq!(held(2), (2, 2, true, 1));
+    // ⟨ADR-0006 §18.9 item 7⟩ The contact record went in the same transaction.
+    assert_eq!(
+        contact(1),
+        RemoteContact::default(),
+        "the removed runner's contact record (last report, held state) was kept"
+    );
+    assert!(contact(2).last_report.is_some() && contact(2).hosted.is_some());
+
+    // Recorded again: no stale hold. The barrier, on a report that shows nothing in force,
+    // holds no delivered cutoff against the runner (the other runner's pending effect
+    // still closes its own).
+    r.apply(&ControllerRecordRequest::PutEnvironment { record: record(1) })
+        .unwrap();
+    assert_eq!(held(1), (0, 0, false, 0));
+    assert_eq!(contact(1), RemoteContact::default());
+    let barrier = IssuerBarrier::new();
+    for n in [1, 2] {
+        barrier.admit(Reconciliation {
+            environment: env_id(n),
+            at,
+            report: AuthorityReport {
+                environment: env_id(n),
+                authority_generation: 1,
+                tombstones: Vec::new(),
+                policy_revisions: Vec::new(),
+                policies: Vec::new(),
+                certificates: Vec::new(),
+                time_bounded: true,
+                pending_grants: Vec::new(),
+            },
+            revoked: Vec::new(),
+        });
+    }
+    let permit = |n: u8| {
+        r.store
+            .transaction(|tx| barrier.permit_answer(tx, &env_id(n), &grant, None, at))
+            .unwrap()
+    };
+    assert!(permit(1).is_ok(), "{:?}", permit(1));
+    assert_eq!(permit(2), Err(BarrierRefusal::OutboxPending));
 }
 
 /// ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The form's writer checks what it writes and round-trips
@@ -1375,6 +1775,83 @@ async fn recheck_sends_what_the_probes_observed_and_nothing_when_inconclusive() 
     assert_eq!(e.code, Code::NotFound);
 }
 
+/// ⟨M06 W5; ADR-0012 §2.6⟩ A Windows controller's sessions run no confirming probe. A
+/// limited-role join and a policy re-check from such a device are refused with a message
+/// that says why (the probes do not run on Windows; a Windows device can be an owner
+/// controller, not a limited client), `CAPABILITY_UNAVAILABLE` with effect `none`, and
+/// nothing at all is sent: not the activation probe, not the join, not the re-check. An
+/// owner join from the same device is unaffected. (Platform-neutral: the session reports
+/// the fact; `heimdall`'s opener reports it on Windows only.)
+#[tokio::test]
+async fn a_device_whose_sessions_run_no_probes_says_why_and_sends_nothing() {
+    use super::{PROBES_NOT_ON_WINDOWS, PROBES_UNAVAILABLE_JOIN, PROBES_UNAVAILABLE_RECHECK};
+    assert!(PROBES_NOT_ON_WINDOWS.contains("do not run on Windows"));
+    assert!(PROBES_NOT_ON_WINDOWS.contains("can be an owner controller"));
+    assert!(PROBES_NOT_ON_WINDOWS.contains("not a limited client"));
+    let bundle = |role| InvitationBundle {
+        environment: env_id(4),
+        route: route(&[HOST]),
+        destination: dest("lab4"),
+        invitation: heimdall_contract::ids::InvitationId::parse("inv_4").unwrap(),
+        client: ClientId::from_random_bytes([4; 16]),
+        role,
+        generation: 2,
+        key_fingerprint: fp('K'),
+        nonce: Some("abc".into()),
+        iroh_admission: false,
+    };
+    let world = |registry: FakeRegistry| {
+        let mut sessions = FakeSessions::new(
+            env_id(4),
+            Box::new(|_: &Request| ok(serde_json::json!({ "recorded": true }))),
+        );
+        // No observation either, as the Windows opener reports.
+        sessions.probe = None;
+        sessions.probes_unavailable = Some(PROBES_NOT_ON_WINDOWS);
+        World {
+            key: FakeKey::existing(),
+            registry,
+            catalog: FakeCatalog(None),
+            bootstrap: FakeBootstrap::default(),
+            sessions,
+            confirm: FakeConfirm::yes(),
+        }
+    };
+    for role in [Role::Viewer, Role::Requester] {
+        let w = world(FakeRegistry::default());
+        let e = w.controller().join(&bundle(role)).await.unwrap_err();
+        assert_eq!(e.code, Code::CapabilityUnavailable, "{role:?}");
+        assert_eq!(e.effect_status, EffectStatus::None);
+        assert_eq!(
+            e.message,
+            format!("{PROBES_NOT_ON_WINDOWS}: {PROBES_UNAVAILABLE_JOIN}")
+        );
+        assert!(!e.message.contains("inconclusive") && !e.message.contains("try again"));
+        assert!(w.sessions.sent().is_empty(), "{role:?}: nothing was sent");
+        assert!(w.registry.list().unwrap().is_empty(), "nothing recorded");
+    }
+    // An owner join needs no probe: it goes through, without an observation.
+    let w = world(FakeRegistry::default());
+    w.controller().join(&bundle(Role::Owner)).await.unwrap();
+    assert!(w.sessions.sent().iter().any(|(_, r)| matches!(
+        r,
+        Request::RemoteEnvironment(RemoteEnvironmentRequest::Join { probe: None, .. })
+    )));
+    // The policy re-check, from an owner record on that device.
+    let w = world(FakeRegistry::with(&[RemoteEnvironmentRecord {
+        role: Role::Owner,
+        ..record(4)
+    }]));
+    let e = w.controller().recheck(&env_id(4)).await.unwrap_err();
+    assert_eq!(e.code, Code::CapabilityUnavailable);
+    assert_eq!(e.effect_status, EffectStatus::None);
+    assert_eq!(
+        e.message,
+        format!("{PROBES_NOT_ON_WINDOWS}: {PROBES_UNAVAILABLE_RECHECK}")
+    );
+    assert!(w.sessions.sent().is_empty(), "no re-check was sent");
+}
+
 /// ⟨rev6.3; ADR-0006 §18.7 item 4⟩ `transport rotate`'s announcement goes to every recorded
 /// runner; one that refuses (its invitation did not admit Iroh) or cannot be reached is
 /// reported, and the others still get it.
@@ -1445,4 +1922,332 @@ async fn the_endpoint_announcement_reports_each_runner() {
         .filter(|(_, r)| r.kind() == "remote_environment.rotate_endpoint")
         .collect();
     assert_eq!(sent.len(), 2, "every reachable runner got it");
+}
+
+/// ⟨M06 W5 D1⟩ The session opener's role rule: `remote-control/1` is required exactly when
+/// this controller's record says owner (and for the bootstrap's session and a join, which
+/// have no limited record); a limited record's session requires nothing and offers neither
+/// owner capability, whatever the base offer holds. Each caller names its standing from the
+/// record, never from what the runner says.
+#[tokio::test]
+async fn the_session_rule_requires_the_owner_capability_for_owner_records_only() {
+    use heimdall_contract::ipc::capability::{OPERATIONS_V1, RUNNER_V1};
+    let base: std::collections::BTreeSet<String> =
+        [OPERATIONS_V1, MANAGEMENT_CAPABILITY, RUNNER_V1]
+            .map(str::to_owned)
+            .into();
+    for standing in [SessionStanding::Owner, SessionStanding::Joining] {
+        let caps = SessionCapabilities::of(standing, base.clone());
+        assert!(
+            caps.required.contains(MANAGEMENT_CAPABILITY),
+            "{standing:?}"
+        );
+        assert!(caps.offered.contains(MANAGEMENT_CAPABILITY) && caps.offered.contains(RUNNER_V1));
+        // A session the runner gave less than that is not used: an owner record never
+        // works over a limited session.
+        let limited: std::collections::BTreeSet<String> = [OPERATIONS_V1.to_owned()].into();
+        assert!(!caps.granted(&limited), "{standing:?}");
+        assert!(caps.granted(&caps.offered));
+    }
+    let caps = SessionCapabilities::of(SessionStanding::Limited, base);
+    assert!(caps.required.is_empty());
+    assert_eq!(
+        caps.offered,
+        [OPERATIONS_V1.to_owned()].into(),
+        "no owner capability is offered for a limited record"
+    );
+    assert!(caps.granted(&caps.offered));
+    assert_eq!(
+        SessionStanding::of_record(Role::Owner),
+        SessionStanding::Owner
+    );
+    for role in [Role::Requester, Role::Viewer] {
+        assert_eq!(SessionStanding::of_record(role), SessionStanding::Limited);
+    }
+
+    // The callers: a recorded runner by its record's role, the bootstrap as owner, a join
+    // as joining.
+    let viewer = RemoteEnvironmentRecord {
+        role: Role::Viewer,
+        ..record(2)
+    };
+    let mut sessions = FakeSessions::new(env_id(1), always_ok());
+    sessions.echo_name = true;
+    let w = World {
+        key: FakeKey::existing(),
+        registry: FakeRegistry::with(&[record(1), viewer]),
+        catalog: FakeCatalog(Some(access(&[HOST]))),
+        bootstrap: FakeBootstrap::default(),
+        sessions,
+        confirm: FakeConfirm::yes(),
+    };
+    // (The endpoint announcement: a form every role's session carries, ADR-0006 §18.9
+    // item 5.)
+    let endpoint = heimdall_contract::ids::IrohEndpointId::parse(&"cd".repeat(32)).unwrap();
+    for n in [1, 2] {
+        w.controller()
+            .announce_endpoint_to(&env_id(n), &endpoint)
+            .await
+            .unwrap();
+    }
+    let bundle = InvitationBundle {
+        environment: env_id(4),
+        route: route(&[HOST]),
+        destination: dest("lab4"),
+        invitation: heimdall_contract::ids::InvitationId::parse("inv_4").unwrap(),
+        client: ClientId::from_random_bytes([4; 16]),
+        role: Role::Viewer,
+        generation: 2,
+        key_fingerprint: fp('K'),
+        nonce: None,
+        iroh_admission: false,
+    };
+    w.controller().join(&bundle).await.unwrap();
+    let standings: Vec<SessionStanding> = w
+        .sessions
+        .opened
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|t| t.standing)
+        .collect();
+    assert_eq!(
+        standings,
+        [
+            SessionStanding::Owner,
+            SessionStanding::Limited,
+            SessionStanding::Joining
+        ]
+    );
+}
+
+/// ⟨M06 W5; ADR-0006 §18.9 items 5 and 6⟩ What a record whose role is limited does on the
+/// controller. `runner_view` opens one session of the limited standing and sends one
+/// read-only `inspect`; an owner record opens none. An owner command (`invite`,
+/// `revoke-client`, `update`, `recheck`) is refused here, `role_insufficient`, before the
+/// owner is asked anything, K_mgmt is touched or a session opens. `remove` forgets the
+/// record locally without the revoke, needs neither K_mgmt nor a session, and says the
+/// client was not revoked. The endpoint announcement is every role's.
+#[tokio::test]
+async fn a_limited_record_reads_the_runners_view_and_forgets_locally() {
+    for role in [Role::Viewer, Role::Requester] {
+        let limited = RemoteEnvironmentRecord { role, ..record(2) };
+        let mut sessions = FakeSessions::new(
+            env_id(1),
+            Box::new(|r: &Request| match r {
+                Request::Inspect(_) => ok(serde_json::json!({ "environment_id": "the-runner" })),
+                _ => ok(serde_json::json!({})),
+            }),
+        );
+        sessions.echo_name = true;
+        sessions.role = Some(role);
+        let w = World {
+            key: FakeKey::existing(),
+            registry: FakeRegistry::with(&[record(1), limited.clone()]),
+            catalog: FakeCatalog(None),
+            bootstrap: FakeBootstrap::default(),
+            sessions,
+            confirm: FakeConfirm::yes(),
+        };
+        let c = w.controller();
+
+        // The runner's own view: one limited session, one read-only form.
+        let view = c.runner_view(&env_id(2)).await.unwrap();
+        assert_eq!(
+            view,
+            Some(serde_json::json!({ "environment_id": "the-runner" }))
+        );
+        let sent = w.sessions.sent();
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert!(
+            matches!(&sent[0].1, Request::Inspect(i)
+                if i.subject == heimdall_contract::request::InspectSubject::Environments),
+            "{sent:?}"
+        );
+        assert_eq!(sent[0].1.required_capability(), None);
+        assert_eq!(
+            w.sessions.opened.lock().unwrap()[0].standing,
+            SessionStanding::Limited
+        );
+        // An owner record's status is this controller's own view: no session.
+        assert_eq!(c.runner_view(&env_id(1)).await.unwrap(), None);
+        assert_eq!(w.sessions.opened.lock().unwrap().len(), 1);
+
+        // Owner commands: refused from the record, nothing asked, nothing opened or sent.
+        let asked_before = w.confirm.asked.lock().unwrap().len();
+        let refusals = [
+            c.invite(&InviteInput {
+                environment: env_id(2),
+                role: Role::Viewer,
+                public_key: NEW_KEY.into(),
+                key_fingerprint: w.key.fingerprint_of(NEW_KEY).unwrap(),
+                request_id: RequestId::parse("req-limited-invite").unwrap(),
+                iroh_admission: false,
+            })
+            .await
+            .map(|_| ())
+            .unwrap_err(),
+            c.revoke_client(&env_id(2), &record(1).client)
+                .await
+                .unwrap_err(),
+            c.update(&env_id(2)).await.unwrap_err(),
+            c.recheck(&env_id(2)).await.unwrap_err(),
+        ];
+        for e in &refusals {
+            assert_eq!(e.code, Code::CapabilityUnavailable, "{role:?}: {e:?}");
+            assert_eq!(
+                e.reason.as_deref(),
+                Some(reason::ROLE_INSUFFICIENT),
+                "{role:?}: {e:?}"
+            );
+        }
+        assert_eq!(w.confirm.asked.lock().unwrap().len(), asked_before);
+        assert_eq!(w.sessions.opened.lock().unwrap().len(), 1, "{role:?}");
+        assert_eq!(w.sessions.sent().len(), 1, "{role:?}");
+        assert_eq!(w.registry.ids(), vec![env_id(1), env_id(2)]);
+
+        // `remove`: forgotten here only. No revoke is sent, no session is opened, and a
+        // locked K_mgmt store does not stop it.
+        w.key.lock();
+        let removed = c.remove(&env_id(2)).await.unwrap();
+        assert_eq!(
+            removed,
+            RemoveOutcome {
+                environment: env_id(2),
+                client: limited.client.clone(),
+                role,
+                revoked_on_runner: false,
+            }
+        );
+        assert_eq!(w.registry.ids(), vec![env_id(1)]);
+        assert_eq!(w.sessions.opened.lock().unwrap().len(), 1, "{role:?}");
+        assert_eq!(w.sessions.sent().len(), 1, "{role:?}");
+    }
+
+    // An owner record's `remove` is unchanged: the revoke first, then the record.
+    let mut sessions = FakeSessions::new(env_id(1), always_ok());
+    sessions.echo_name = true;
+    let w = World {
+        key: FakeKey::existing(),
+        registry: FakeRegistry::with(&[record(1)]),
+        catalog: FakeCatalog(None),
+        bootstrap: FakeBootstrap::default(),
+        sessions,
+        confirm: FakeConfirm::yes(),
+    };
+    let removed = w.controller().remove(&env_id(1)).await.unwrap();
+    assert!(removed.revoked_on_runner);
+    let sent = w.sessions.sent();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].1.kind(), "remote_environment.revoke_client");
+    assert!(w.registry.ids().is_empty());
+}
+
+/// ⟨M06 W5 `w5l`; ADR-0006 §18.9 item 6⟩ `device retire` on a device holding limited
+/// records: those are forgotten locally with no session and no revoke (an owner's form),
+/// the owner records keep revoke-then-forget, K_mgmt is destroyed, and the outcome and its
+/// line say an owner must still revoke this device's client on each such runner. An owner
+/// runner that cannot be reached still stops the retirement with K_mgmt kept.
+#[tokio::test]
+async fn retirement_forgets_limited_records_without_a_revoke() {
+    let viewer = RemoteEnvironmentRecord {
+        role: Role::Viewer,
+        ..record(2)
+    };
+    let requester = RemoteEnvironmentRecord {
+        role: Role::Requester,
+        ..record(3)
+    };
+    let world = |unreachable: Vec<EnvironmentId>| {
+        let mut sessions = FakeSessions::new(env_id(1), always_ok());
+        sessions.echo_name = true;
+        sessions.unreachable = unreachable;
+        World {
+            key: FakeKey::existing(),
+            registry: FakeRegistry::with(&[record(1), viewer.clone(), requester.clone()]),
+            catalog: FakeCatalog(None),
+            bootstrap: FakeBootstrap::default(),
+            sessions,
+            confirm: FakeConfirm::yes(),
+        }
+    };
+
+    let w = world(Vec::new());
+    let outcome = w.controller().retire().await.unwrap();
+    assert_eq!(outcome.revoked_on, vec![env_id(1)]);
+    assert!(outcome.key_destroyed);
+    assert_eq!(w.key.destroyed(), 1);
+    assert!(w.registry.ids().is_empty());
+    // Exactly one session and one request: the owner record's revoke.
+    assert_eq!(w.sessions.opened.lock().unwrap().len(), 1);
+    let sent = w.sessions.sent();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert!(matches!(
+        &sent[0].1,
+        Request::RemoteEnvironment(RemoteEnvironmentRequest::RevokeClient { environment, client })
+            if *environment == env_id(1) && *client == record(1).client
+    ));
+    assert_eq!(
+        outcome.still_enrolled_on,
+        vec![
+            StillEnrolled {
+                environment: env_id(2),
+                client: viewer.client.clone(),
+                role: Role::Viewer,
+            },
+            StillEnrolled {
+                environment: env_id(3),
+                client: requester.client.clone(),
+                role: Role::Requester,
+            },
+        ]
+    );
+    // ⟨M06 W5 `w5m` L3⟩ The confirmation the owner answered named the limited records as
+    // forgotten only, before anything was sent.
+    let asked = w.confirm.asked.lock().unwrap().clone();
+    assert!(
+        matches!(&asked[0], Confirmation::RetireDevice { environments, forgotten_only, .. }
+            if environments.len() == 3 && *forgotten_only == outcome.still_enrolled_on),
+        "{asked:?}"
+    );
+    let line = outcome.line();
+    assert!(line.contains("an owner must still revoke"), "{line}");
+    for limited in [&viewer, &requester] {
+        assert!(
+            line.contains(&format!(
+                "heimdall environment revoke-client {} {}",
+                limited.environment.as_str(),
+                limited.client.as_str()
+            )),
+            "{line}"
+        );
+    }
+    let json = serde_json::to_value(&outcome).unwrap();
+    assert_eq!(json["still_enrolled_on"][0]["role"], "viewer", "{json}");
+
+    // No limited record: the line and the JSON are as before.
+    let plain = RetireOutcome {
+        revoked_on: vec![env_id(1)],
+        key_destroyed: true,
+        still_enrolled_on: Vec::new(),
+    };
+    assert_eq!(
+        plain.line(),
+        "retired: revoked on 1 runner(s); management key destroyed"
+    );
+    assert!(
+        serde_json::to_value(&plain)
+            .unwrap()
+            .get("still_enrolled_on")
+            .is_none()
+    );
+
+    // The owner runner is unreachable: stopped, K_mgmt kept, the owner record kept for
+    // the retry. Nothing was sent for a limited record.
+    let w = world(vec![env_id(1)]);
+    let err = w.controller().retire().await.unwrap_err();
+    assert_eq!(err.code, Code::OutcomeUnknown);
+    assert_eq!(w.key.destroyed(), 0);
+    assert!(w.registry.ids().contains(&env_id(1)));
+    assert!(w.sessions.sent().is_empty());
 }

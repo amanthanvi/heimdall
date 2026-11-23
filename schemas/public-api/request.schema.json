@@ -2204,6 +2204,13 @@
           "format": "uint16",
           "maximum": 65535,
           "minimum": 0
+        },
+        "sshd_port": {
+          "description": "⟨rev6.5; ADR-0006 §18.9 item 1⟩ The local sshd port a serving endpoint forwards to\n(ADR-0012 §2.3 item 2 ⟨2026-11-22⟩; `heimdall transport enable --serve --sshd-port\n<n>`), 1–65535. Omitted when it is the default, 22. `0` is refused. The target host\nis `127.0.0.1` and is not part of any policy. Meaningful only with `serve`; changing\nit is `disable` then `enable`.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 1
         }
       },
       "required": [
@@ -4127,7 +4134,7 @@
           ]
         },
         {
-          "description": "⟨rev6.3⟩ Set or replace the session's own client's Iroh endpoint ID (ADR-0012 §2.3\nitem 1): only when its consumed invitation had `iroh_admission`. A replacement moves\nthe runner's admission authority generation in the same transaction; the same\nendpoint again is a no-op. Any role, the session's own client only. Kind\n`remote_environment.rotate_endpoint`.",
+          "description": "⟨rev6.3⟩ Set or replace the session's own client's Iroh endpoint ID (ADR-0012 §2.3\nitem 1): only when its consumed invitation had `iroh_admission`. A replacement moves\nthe runner's admission authority generation in the same transaction; the same\nendpoint again is a no-op. Any role, the session's own client only. ⟨rev6.5; ADR-0006\n§18.9 item 5⟩ It needs no capability beyond the base one, so a limited role's session\ncan send it. Kind `remote_environment.rotate_endpoint`.",
           "type": "object",
           "properties": {
             "action": {
@@ -4459,6 +4466,132 @@
         }
       ]
     },
+    "RouteAttempt": {
+      "description": "One tried route of an attempt.",
+      "type": "object",
+      "properties": {
+        "duration_ms": {
+          "description": "⟨rev6.5; ADR-0006 §18.9 item 11⟩ How long the attempt took, in milliseconds, at\nmost [`ROUTE_ATTEMPT_DURATION_MAX_MS`]; omitted when it was not measured.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "maximum": 600000,
+          "minimum": 0
+        },
+        "failure": {
+          "description": "Its failure; absent when this route was used.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RouteFailureClass"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "route": {
+          "description": "The route.",
+          "$ref": "#/$defs/RouteId"
+        }
+      },
+      "required": [
+        "route"
+      ]
+    },
+    "RouteEventKind": {
+      "description": "What a `route` event reports.",
+      "oneOf": [
+        {
+          "description": "`route.health`: one attempt's structured result, written for every attempt.",
+          "type": "string",
+          "const": "health"
+        },
+        {
+          "description": "`route.failed_over`: the subtype of `route.health` for an attempt that moved past\na failed route.",
+          "type": "string",
+          "const": "failed_over"
+        }
+      ]
+    },
+    "RouteFailureClass": {
+      "description": "Why one route attempt failed (ADR-0012 §5.5 item 4).",
+      "oneOf": [
+        {
+          "description": "Connect refused (or the jump leg exited) before identification.",
+          "type": "string",
+          "const": "refused"
+        },
+        {
+          "description": "Connect timed out.",
+          "type": "string",
+          "const": "timeout"
+        },
+        {
+          "description": "No SSH identification line within the route's bound.",
+          "type": "string",
+          "const": "identification_timeout"
+        },
+        {
+          "description": "The Iroh serving side refused admission before identification.",
+          "type": "string",
+          "const": "admission_refused"
+        },
+        {
+          "description": "A failure after the first forwarded byte: terminal for the attempt, never failed\nover.",
+          "type": "string",
+          "const": "terminal_after_forwarding"
+        },
+        {
+          "description": "⟨rev6.1⟩ The jump leg failed SSH host-key verification or authentication at the jump\nhost before identification: terminal, never failed over (ADR-0012 §5.5 item 3).",
+          "type": "string",
+          "const": "authentication_or_trust"
+        }
+      ]
+    },
+    "RouteHealthPayload": {
+      "description": "Payload of `EventType::Route` (not emitted by wave 0), also readable through\n`inspect`. The helper's exit codes stay internal (ADR-0012 §1.5).",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "The account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "attempts": {
+          "description": "Each tried route, in order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RouteAttempt"
+          }
+        },
+        "destination": {
+          "description": "The destination.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "final_route": {
+          "description": "The route finally used; absent when none was.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RouteId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "description": "The kind.",
+          "$ref": "#/$defs/RouteEventKind"
+        }
+      },
+      "required": [
+        "kind",
+        "destination",
+        "account",
+        "attempts"
+      ]
+    },
     "RouteId": {
       "description": "⟨M06⟩ Revision 6 (ADR-0012 §5.1): one approved route of a destination. Reachability\ndata only; a route grants nothing and never changes host identity.",
       "type": "string"
@@ -4588,6 +4721,36 @@
             "destination",
             "account",
             "endpoint"
+          ]
+        },
+        {
+          "description": "⟨rev6.5; ADR-0006 §18.9 item 11⟩ The route helper's report of one connect (ADR-0012\n§5.5 item 4, §5.2). Kind `route.record_health`.\n\n* **Who may report:** only the caller for whom `endpoint` resolves, by\n  `resolve_binding`'s own rule, to the one binding that serves this pair there (the\n  helper acting for that binding). Any other caller is refused, a paired session and\n  another local client without that binding included.\n* **Typed:** every attempt names a route of the destination's stored, approved list\n  and an outcome class, with an optional duration of at most\n  [`ROUTE_ATTEMPT_DURATION_MAX_MS`]; at most [`ROUTE_HEALTH_ATTEMPTS_MAX`] attempts;\n  `host_pin_defeated` is one of [`HOST_PIN_SETTINGS`]. An unknown route, an unknown\n  setting or a value past a bound refuses the whole report. It carries no host name\n  and no free text.\n* **What it can do:** nothing but inform. A report never adds, removes or approves a\n  route and never relaxes a pin check: the routes a connect may use are the stored,\n  owner-approved, pinned ones, whatever was reported.\n* **Kept in memory only**, bounded per binding and in total, and lost when the\n  runtime restarts. The runtime emits the `route.health` event (the durable record)\n  and shows the latest result through `inspect destinations`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "record_health"
+            },
+            "endpoint": {
+              "description": "The binding endpoint the alias renders (as in `resolve_binding`): what the\nruntime resolves the reporting binding from.",
+              "type": "string"
+            },
+            "host_pin_defeated": {
+              "description": "The setting that defeated the destination's catalog pin (`host_pin_defeated`),\none of [`HOST_PIN_SETTINGS`]; absent when the pin held.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "result": {
+              "description": "The attempt's result.",
+              "$ref": "#/$defs/RouteHealthPayload"
+            }
+          },
+          "required": [
+            "action",
+            "endpoint",
+            "result"
           ]
         }
       ]

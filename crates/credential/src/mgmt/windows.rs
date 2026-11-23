@@ -231,6 +231,26 @@ pub(crate) mod test_links {
             }
         }
 
+        /// How many sub-cases have failed so far (the mark [`SubCases::ran`] compares with).
+        pub(crate) fn failures(&self) -> usize {
+            self.0.len()
+        }
+
+        /// ⟨M06 W5⟩ Say that a reparse sub-case **ran and asserted**: one stable line on the
+        /// test's captured standard output, `m06 observation: reparse <store> <sub-case>:
+        /// refused` when none of its checks failed since `mark`, `... : FAILED` otherwise.
+        /// A sub-case that could not be created prints [`skipped`]'s line instead, so a log
+        /// shows each sub-case as exactly one of the three.
+        #[allow(clippy::print_stdout)] // the marker is the test's evidence line
+        pub(crate) fn ran(&self, mark: usize, store: &str, sub_case: &str) {
+            let result = if self.0.len() == mark {
+                "refused"
+            } else {
+                "FAILED"
+            };
+            println!("m06 observation: reparse {store} {sub_case}: {result}");
+        }
+
         /// Fail the test with every failed sub-case.
         pub(crate) fn finish(self) {
             assert!(
@@ -486,11 +506,13 @@ mod tests {
         let via = scratch.path().join("via");
         std::fs::create_dir(&via).unwrap();
         if file_symlink(&real.join(BLOB_FILE), &via.join(BLOB_FILE)) {
+            let mark = cases.failures();
             cases.check(
                 "a file symlink at the blob's name is corrupt, never followed",
                 &load(&via),
                 &Err(MgmtStoreError::Corrupt),
             );
+            cases.ran(mark, "mgmt", "file-symlink");
         } else {
             skipped(
                 TEST,
@@ -502,6 +524,7 @@ mod tests {
         // A directory symlink, and a junction, at the store directory's path.
         let linked = scratch.path().join("linked");
         if dir_symlink(&real, &linked) {
+            let mark = cases.failures();
             let store = WindowsDpapiMgmt::in_dir(&linked, &environment());
             cases.check(
                 "a directory symlink is refused",
@@ -518,6 +541,7 @@ mod tests {
                 &store.ensure_dir(),
                 &Err(MgmtStoreError::Failed),
             );
+            cases.ran(mark, "mgmt", "directory-symlink");
         } else {
             skipped(
                 TEST,
@@ -527,6 +551,7 @@ mod tests {
         }
         let joined = scratch.path().join("joined");
         if junction(&real, &joined) {
+            let mark = cases.failures();
             let store = WindowsDpapiMgmt::in_dir(&joined, &environment());
             cases.check(
                 "a junction is refused",
@@ -543,6 +568,7 @@ mod tests {
                 &store.ensure_dir(),
                 &Err(MgmtStoreError::Failed),
             );
+            cases.ran(mark, "mgmt", "junction");
         } else {
             skipped(
                 TEST,

@@ -911,3 +911,449 @@ async fn t06_renewal_without_an_issuer_is_capability_unavailable() {
     assert_eq!(out.acknowledged.len(), 1);
     assert_eq!(r.policy().cutoff_at, Some(now));
 }
+
+// --- ⟨M06 W5 `w5l`⟩ lifting on a policy-less runner; two owner controllers ---------------------
+
+/// The runner's own owner, attended at the runner.
+fn runner_owner(r: &Rig) -> Caller {
+    Caller {
+        context: CallerContext::local(PrincipalRef::UnixUser { uid: 501 }, ClientRole::Owner),
+        attendance: heimdall_app::Attendance::Attended {
+            since: r.w.clock.wall(),
+        },
+        interaction: heimdall_contract::request::InteractionMode::Interactive,
+    }
+}
+
+fn clear_every_cutoff() -> heimdall_contract::request::PolicyAction {
+    heimdall_contract::request::PolicyAction::ClearCutoff {
+        policy_id: None,
+        target: Some(PolicyTarget::All),
+    }
+}
+
+/// The attended local `policy clear-cutoff --all` at the runner, approved by its owner.
+async fn clear_cutoff_at_the_runner(r: &Rig) {
+    let owner = runner_owner(r);
+    let pending = r
+        .ops
+        .policy(&owner, clear_every_cutoff())
+        .await
+        .unwrap_err();
+    assert_eq!(pending.code, Code::ApprovalRequired, "{}", pending.message);
+    let decision =
+        heimdall_contract::ids::DecisionId::parse(pending.next.decision_ref.as_deref().unwrap())
+            .unwrap();
+    r.ops
+        .decide(
+            &owner,
+            heimdall_contract::request::DecideRequest {
+                decision_id: decision,
+                verdict: heimdall_contract::request::Verdict::Approve,
+            },
+        )
+        .await
+        .unwrap();
+}
+
+/// A rig whose runner holds **no** standing policy, with bounded time.
+async fn policy_less_rig() -> Rig {
+    let r = rig().await;
+    r.w.store
+        .transaction(|tx| tx.delete_policy(&policy_id()))
+        .unwrap();
+    r.w.good_sample();
+    r
+}
+
+/// An owner controller of `r` that holds its record of the runner.
+fn owner_controller(r: &Rig, client: &heimdall_contract::ids::ClientId) -> Controller {
+    let c = controller(r, client, Role::Owner);
+    c.store
+        .transaction(|tx| {
+            tx.put_remote_environment_pin(
+                &c.pin.environment,
+                &c.pin.destination,
+                &c.pin.route.runner.account,
+                &c.pin.key_fingerprint,
+                &serde_json::to_string(&c.pin).unwrap(),
+                t0(),
+            )
+        })
+        .unwrap();
+    c
+}
+
+/// Reconnect `c` and ask its barrier whether it may reserve for a fresh grant.
+async fn may_issue(r: &Rig, c: &Controller, n: u8) -> Result<(), BarrierRefusal> {
+    let mut s = r.session(&c.pin.client);
+    c.resync(&mut s).await.unwrap();
+    let grant = GrantId::from_random_bytes([n; 16]);
+    c.reserve(&grant, None, plus(c.now(), HOUR)).map(|_| ())
+}
+
+/// The owner of controller `c` acknowledges the lift of `key` (attended).
+fn acknowledge(c: &Controller, key: &heimdall_store::ext_effects::EffectKey) {
+    let done = heimdall_app::remote_status_driver::resume_issuance_named(
+        &c.store,
+        &c.pin.environment,
+        std::slice::from_ref(&key.effect),
+        true,
+        c.now(),
+    )
+    .unwrap();
+    assert_eq!(done["acknowledged"].as_array().unwrap().len(), 1, "{done}");
+}
+
+/// The in-force flags of the runner's delivered revisions, as its report states them.
+fn in_force(r: &Rig) -> Vec<bool> {
+    r.w.store
+        .transaction(|tx| tx.authority_report())
+        .unwrap()
+        .unwrap()
+        .policy_revisions
+        .iter()
+        .map(|row| row.in_force)
+        .collect()
+}
+
+/// ⟨ADR-0012 §7.4 ⟨2026-11-22⟩ "The in-force flag"; ADR-0006 §18.9 item 4⟩ A runner with no
+/// standing policy. With nothing delivered, the attended `clear-cutoff --all` answers as
+/// before (`policy_target_empty`). A delivered cutoff of every policy blocks the delivering
+/// controller; its owner's acknowledgement alone resumes nothing. A paired session's
+/// `clear_cutoff` lifts nothing. The runner's own attended `clear-cutoff --all` then
+/// succeeds for the empty set and clears that revision's flag, and issuance resumes. A
+/// second clear answers as before again.
+#[tokio::test]
+async fn a_policy_less_runner_is_lifted_by_its_owners_clear_cutoff_and_the_ack() {
+    let r = policy_less_rig().await;
+    let a = owner_controller(&r, &controller_a());
+    assert_eq!(may_issue(&r, &a, 0x41).await, Ok(()));
+
+    // Nothing delivered: the local form answers as before.
+    let owner = runner_owner(&r);
+    let empty = r
+        .ops
+        .policy(&owner, clear_every_cutoff())
+        .await
+        .unwrap_err();
+    assert_eq!(empty.code, Code::NotFound);
+    assert_eq!(reason_of(&empty), Some(reason::POLICY_TARGET_EMPTY));
+
+    let cutoff = a
+        .produce(&Narrowing::Cutoff {
+            scope: PolicyTarget::All,
+            at: a.now(),
+        })
+        .unwrap();
+    assert_eq!(
+        may_issue(&r, &a, 0x42).await,
+        Err(BarrierRefusal::PolicyCutoff)
+    );
+    assert_eq!(in_force(&r), vec![true]);
+
+    // The owner's acknowledgement alone: still blocked, the runner reports it in force.
+    acknowledge(&a, &cutoff);
+    assert_eq!(
+        may_issue(&r, &a, 0x43).await,
+        Err(BarrierRefusal::PolicyCutoff),
+        "the acknowledgement alone resumed issuance on a runner nobody lifted"
+    );
+    assert_eq!(in_force(&r), vec![true]);
+
+    // A paired session lifts nothing, and a resume is not a cutoff's lift.
+    let paired = r
+        .ops
+        .policy(&Rig::caller(&controller_a()), clear_every_cutoff())
+        .await
+        .unwrap_err();
+    assert_eq!(reason_of(&paired), Some(reason::POLICY_TARGET_EMPTY));
+    let resume = r
+        .ops
+        .policy(
+            &owner,
+            heimdall_contract::request::PolicyAction::Resume {
+                policy_id: None,
+                target: Some(PolicyTarget::All),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(reason_of(&resume), Some(reason::POLICY_TARGET_EMPTY));
+    assert_eq!(in_force(&r), vec![true]);
+
+    // The runner's own owner lifts it: the flag clears, and issuance resumes.
+    clear_cutoff_at_the_runner(&r).await;
+    assert_eq!(in_force(&r), vec![false]);
+    assert_eq!(may_issue(&r, &a, 0x44).await, Ok(()));
+
+    // Nothing in force any more: the local form answers as before.
+    let again = r
+        .ops
+        .policy(&owner, clear_every_cutoff())
+        .await
+        .unwrap_err();
+    assert_eq!(reason_of(&again), Some(reason::POLICY_TARGET_EMPTY));
+}
+
+/// A standing policy `id` of the runner with no pause and no cutoff, written as its owner
+/// would add one.
+fn add_policy(r: &Rig, id: &str) {
+    let mut p = policy(r.ops.environment(), None, 1);
+    p.id = heimdall_contract::ids::PolicyId::parse(id).unwrap();
+    r.w.store
+        .transaction(|tx| tx.upsert_policy(&p, false))
+        .unwrap();
+}
+
+/// The delivered effects the pending decision `decision` names, as the owner is shown them
+/// (`inspect decisions`, `lifted_effects`).
+async fn lifted_effects_shown(r: &Rig, decision: &str) -> serde_json::Value {
+    let listed = r
+        .ops
+        .inspect(
+            &runner_owner(r),
+            heimdall_contract::request::InspectRequest {
+                subject: heimdall_contract::request::InspectSubject::Decisions,
+                preview: None,
+                cwd: None,
+                redact: false,
+            },
+        )
+        .await
+        .unwrap();
+    listed.data["decisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["decision_id"] == decision)
+        .unwrap_or_else(|| panic!("the decision is not listed: {}", listed.data))["lifted_effects"]
+        .clone()
+}
+
+/// ⟨M06 W5 `w5m` L1 (i), L2; the ruling on `w5l` Q2, Q3⟩ A policy-less runner gets an `all`
+/// cutoff; its owner later adds a policy. The target of `clear-cutoff --all` is then not
+/// empty, and the policy it names carries no cutoff: without the local lift the request
+/// changes nothing and the delivered effect stays in force for good. With it, the attended
+/// local `clear-cutoff --all` is a decision that names the delivered effect (its scope, the
+/// controller that delivered it and when), and approving it clears the flag; a paired
+/// session's request and the owner's acknowledgement alone lift nothing; `--all` does not
+/// lift an effect delivered for another scope.
+#[tokio::test]
+async fn a_policy_added_after_an_all_cutoff_does_not_keep_the_cutoff_in_force() {
+    let r = policy_less_rig().await;
+    let a = owner_controller(&r, &controller_a());
+    let cutoff = a
+        .produce(&Narrowing::Cutoff {
+            scope: PolicyTarget::All,
+            at: a.now(),
+        })
+        .unwrap();
+    let cut = Err(BarrierRefusal::PolicyCutoff);
+    assert_eq!(may_issue(&r, &a, 0x71).await, cut);
+    assert_eq!(in_force(&r), vec![true]);
+    add_policy(&r, "pol-later");
+    acknowledge(&a, &cutoff);
+    assert_eq!(
+        may_issue(&r, &a, 0x72).await,
+        cut,
+        "the ack alone lifted it"
+    );
+
+    // A paired session's `clear_cutoff --all`: the later policy is unchanged, nothing lifts.
+    let paired = r
+        .ops
+        .policy(&Rig::caller(&controller_a()), clear_every_cutoff())
+        .await
+        .unwrap();
+    assert_eq!(paired.data["changed"], false, "{}", paired.data);
+    assert_eq!(in_force(&r), vec![true]);
+    // The local owner naming another scope lifts nothing either (exact scope only).
+    let other_scope = r
+        .ops
+        .policy(
+            &runner_owner(&r),
+            heimdall_contract::request::PolicyAction::ClearCutoff {
+                policy_id: None,
+                target: Some(PolicyTarget::Profile { profile: profile() }),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(other_scope.data["changed"], false, "{}", other_scope.data);
+    assert_eq!(in_force(&r), vec![true]);
+
+    // The local owner's `clear-cutoff --all`: a decision that names the delivered effect.
+    let owner = runner_owner(&r);
+    let pending = r
+        .ops
+        .policy(&owner, clear_every_cutoff())
+        .await
+        .unwrap_err();
+    assert_eq!(pending.code, Code::ApprovalRequired, "{}", pending.message);
+    let decision = pending.next.decision_ref.clone().unwrap();
+    let shown = lifted_effects_shown(&r, &decision).await;
+    assert_eq!(shown.as_array().map(Vec::len), Some(1), "{shown}");
+    assert_eq!(shown[0]["scope"]["kind"], "all", "{shown}");
+    assert_eq!(shown[0]["scope_key"], "all", "{shown}");
+    assert_eq!(shown[0]["kind"], "cutoff", "{shown}");
+    assert_eq!(shown[0]["controller"], controller_a().as_str(), "{shown}");
+    assert_eq!(shown[0]["effect"], cutoff.effect.as_str(), "{shown}");
+    assert!(shown[0]["delivered_at"].is_string(), "{shown}");
+    assert_eq!(in_force(&r), vec![true], "a pending decision lifted it");
+    clear_cutoff_at_the_runner(&r).await;
+    assert_eq!(in_force(&r), vec![false]);
+    assert_eq!(may_issue(&r, &a, 0x73).await, Ok(()));
+    // Nothing is in force any more: the same request changes nothing and asks nothing.
+    let again = r.ops.policy(&owner, clear_every_cutoff()).await.unwrap();
+    assert_eq!(again.data["changed"], false, "{}", again.data);
+}
+
+/// ⟨M06 W5 `w5m` L1 (ii); the ruling on `w5l` Q2⟩ A delivered `all` cutoff applied to the
+/// runner's one policy. That policy is then removed and another one exists. The runner can
+/// no longer read a lift from the policy the effect applied to, and the policy that exists
+/// carries no cutoff: without the local lift the effect stays in force for good. With it,
+/// the attended local `clear-cutoff --all` lifts it.
+#[tokio::test]
+async fn an_effect_whose_policies_were_all_removed_is_lifted_by_the_local_clear() {
+    let r = rig().await;
+    r.w.good_sample();
+    let a = owner_controller(&r, &controller_a());
+    let cutoff = a
+        .produce(&Narrowing::Cutoff {
+            scope: PolicyTarget::All,
+            at: a.now(),
+        })
+        .unwrap();
+    let cut = Err(BarrierRefusal::PolicyCutoff);
+    assert_eq!(may_issue(&r, &a, 0x81).await, cut);
+    assert!(
+        r.policy().cutoff_at.is_some(),
+        "the cutoff applied to the policy"
+    );
+    r.w.store
+        .transaction(|tx| tx.delete_policy(&policy_id()))
+        .unwrap();
+    add_policy(&r, "pol-other");
+    acknowledge(&a, &cutoff);
+    assert_eq!(may_issue(&r, &a, 0x82).await, cut);
+    assert_eq!(in_force(&r), vec![true]);
+
+    clear_cutoff_at_the_runner(&r).await;
+    assert_eq!(in_force(&r), vec![false]);
+    assert_eq!(may_issue(&r, &a, 0x83).await, Ok(()));
+}
+
+/// T06 ⟨ADR-0012 §7.4 ⟨2026-11-22⟩ "Two owner controllers"⟩ Controller A's cutoff of every
+/// policy blocks controller B while the runner reports it in force. After the runner-local
+/// lift B resumes with no acknowledgement of its own (the effect is not B's); A, which
+/// delivered it, stays blocked until its own owner acknowledges the lift.
+#[tokio::test]
+async fn t06_another_controllers_lifted_cutoff_does_not_block_the_second_controller() {
+    let r = policy_less_rig().await;
+    let a = owner_controller(&r, &controller_a());
+    let b = owner_controller(&r, &controller_b());
+    let cutoff = a
+        .produce(&Narrowing::Cutoff {
+            scope: PolicyTarget::All,
+            at: a.now(),
+        })
+        .unwrap();
+    let cut = Err(BarrierRefusal::PolicyCutoff);
+    assert_eq!(may_issue(&r, &a, 0x51).await, cut);
+    assert_eq!(
+        may_issue(&r, &b, 0x52).await,
+        cut,
+        "in force: B is blocked too"
+    );
+
+    clear_cutoff_at_the_runner(&r).await;
+    assert_eq!(
+        may_issue(&r, &b, 0x53).await,
+        Ok(()),
+        "B is still blocked by A's cutoff that the runner reports lifted"
+    );
+    assert_eq!(
+        may_issue(&r, &a, 0x54).await,
+        cut,
+        "A resumed without its own owner's acknowledgement"
+    );
+    // B cannot acknowledge an effect it did not deliver.
+    let not_bs = heimdall_app::remote_status_driver::resume_issuance_named(
+        &b.store,
+        &b.pin.environment,
+        std::slice::from_ref(&cutoff.effect),
+        true,
+        b.now(),
+    )
+    .unwrap_err();
+    assert_eq!(not_bs.code, Code::NotFound);
+
+    acknowledge(&a, &cutoff);
+    assert_eq!(may_issue(&r, &a, 0x55).await, Ok(()));
+    assert_eq!(may_issue(&r, &b, 0x56).await, Ok(()));
+}
+
+/// ⟨ADR-0012 §7.4 ⟨2026-11-22⟩ "The in-force flag"⟩ A delivered pause names one policy. On
+/// a runner that does not hold it, the attended `resume` of that policy (the form
+/// `access resume --policy` sends) lifts the delivered pause; a `resume` of another policy
+/// answers as before (`NOT_FOUND`), and so does a paired session's.
+#[tokio::test]
+async fn a_delivered_pause_of_a_policy_the_runner_does_not_hold_is_lifted_by_resume() {
+    use heimdall_contract::request::PolicyAction;
+    let r = policy_less_rig().await;
+    let a = owner_controller(&r, &controller_a());
+    let paused = a
+        .produce(&Narrowing::PausePolicy {
+            policy: policy_id(),
+        })
+        .unwrap();
+    let grant = |n: u8| GrantId::from_random_bytes([n; 16]);
+    let mut s = r.session(&controller_a());
+    a.resync(&mut s).await.unwrap();
+    assert_eq!(
+        a.reserve(&grant(0x61), Some(&policy_id()), plus(a.now(), HOUR)),
+        Err(BarrierRefusal::PolicyPaused)
+    );
+    acknowledge(&a, &paused);
+    assert_eq!(in_force(&r), vec![true]);
+
+    let owner = runner_owner(&r);
+    let resume = |policy: &str| PolicyAction::Resume {
+        policy_id: Some(heimdall_contract::ids::PolicyId::parse(policy).unwrap()),
+        target: None,
+    };
+    let other = r.ops.policy(&owner, resume("other")).await.unwrap_err();
+    assert_eq!(other.code, Code::NotFound);
+    let paired = r
+        .ops
+        .policy(&Rig::caller(&controller_a()), resume("pol"))
+        .await
+        .unwrap_err();
+    assert_eq!(paired.code, Code::NotFound);
+    assert_eq!(in_force(&r), vec![true]);
+
+    let pending = r.ops.policy(&owner, resume("pol")).await.unwrap_err();
+    assert_eq!(pending.code, Code::ApprovalRequired, "{}", pending.message);
+    let decision =
+        heimdall_contract::ids::DecisionId::parse(pending.next.decision_ref.as_deref().unwrap())
+            .unwrap();
+    r.ops
+        .decide(
+            &owner,
+            heimdall_contract::request::DecideRequest {
+                decision_id: decision,
+                verdict: heimdall_contract::request::Verdict::Approve,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(in_force(&r), vec![false]);
+    let mut s = r.session(&controller_a());
+    a.resync(&mut s).await.unwrap();
+    // The runner still lists no such policy, so an answer naming it is not held by a pause.
+    assert_ne!(
+        a.reserve(&grant(0x62), Some(&policy_id()), plus(a.now(), HOUR)),
+        Err(BarrierRefusal::PolicyPaused)
+    );
+}

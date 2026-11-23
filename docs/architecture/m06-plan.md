@@ -376,6 +376,14 @@ W5  source (b) first │ U7 combined exit suite, native runs, records
      - **Coverage:** every pair of the pending grant falls inside this one policy's pairs (no union, no workspace-bound policies); principals and extensions are a subset of the policy's; the deadline is no later than the policy's maximum lifetime and expiry.
      - **Admission stays the runner's:** under its own standing policy or a runner-local decision. (b) replaces only the controller-side record.
      - **The runner CLI** gets the hidden local-owner path to set `pair_issuers`.
+     - **As built and ruled in W5 (2026-11-22):**
+       - the form is `access allow --profile <P> --environment <RUNNER>`, the existing standing-policy path;
+       - a policy names exactly one runner; a mixed set or `default` is refused;
+       - a too-late deadline is refused, not clamped, and the refusal names the limit exceeded (the policy's maximum lifetime, or the cutoff);
+       - the maximum lifetime is measured from the controller's clock at adoption; `valid_before` stays the minimum of the grant, the cutoff and the runner's residual;
+       - `environment remove` deletes the runner-naming policy in the same transaction, with a history row; a re-pairing never revives it;
+       - delivered records name their policy, and issuance re-checks it in the reserve transaction;
+       - the runtime itself refuses `pair_issuers` from an unattended local owner.
   4. **The attach rule:** only the runner's local owner or the forwarding client may attach a local `ensure` to a live grant; the pairs must be a subset and the deadline no later; attaching creates a new binding on the same grant.
   5. **The way out of the sticky issuance block** (ruling on M06-W3-R02, 2026-11-21): a controller-side, attended lift acknowledgement (`heimdall environment resume-issuance <env>`). Issuance after a delivered pause or cutoff resumes only when the runner's report shows the lift **and** the owner confirms on the controller, recorded as a controller-held row. Tests: report-only, acknowledgement-only, and both.
   6. **`transport disable`'s help** says: to remove one client's Iroh access permanently, revoke that client (ADR-0012 §2.5).
@@ -421,6 +429,8 @@ W5  source (b) first │ U7 combined exit suite, native runs, records
 | A07 runner rows | U4 model + `a07_runner_disconnected`: revoke, pause and cutoff while disconnected (typed effects; per-component residuals with the counted history); reconnect with uncertain time, where narrowing still applies; the issuer's barrier; namespaced acknowledgements; no stale reactivation; a fresh work ID refused after a reconciled cutoff | Runner |
 | G07 closure rows | g07 §1.1 (A24, A25, A07 runner rows, one real incompatibility run, native K_mgmt stores, the declared runner lifecycle) | As g07 §1.1 |
 | G06 closure rows and transport scope | A26 + ADR-0012 §2.6 per-path Windows outcomes + the §2.7 ruling (not adopted in V1); claims-table rows per platform | — |
+
+**Windows controller rows (the owner's scope decision, 2026-11-22):** a Windows controller of runners is in this release (ADR-0012 §2.6). The Windows-controller rows of A24 and T06, and U2's native Windows row, are `in_progress` until the W5 candidate's PC run. Their evidence is the Windows journey in `tests/native/m06/run-windows-local.ps1`: a Windows controller driving a fixture Linux runner in a WSL scratch distribution, through the product CLI (pair, a forwarded `ensure`, issue, onward ssh, revoke on reconnect, then the controller stopped and the runner still working). The cross-machine "Runner" rows are the Mac-to-devbox journey. **T06 on Windows** is `blocked` on a second Windows account (owner input B2): the Windows evidence is A24's controller journey, and T06's second controller is covered on macOS and Linux.
 
 ## 4. Fixtures (plan §6.2)
 

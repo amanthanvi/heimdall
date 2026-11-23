@@ -353,6 +353,11 @@ fn setup_and_catalog_need_setup_1_and_preview_is_read_only() {
             // (`contracts::rev6`).
             // ⟨rev6.3⟩ ADR-0006 §18.7 item 7: `runner_local` is `remote-control/1`'s too;
             // `controller_record` (item 6) needs none and falls to the last arm.
+            // ⟨rev6.5⟩ ADR-0006 §18.9 item 5: `remote_environment.rotate_endpoint` alone
+            // is on the base capability.
+            "remote_environment" if r.kind() == "remote_environment.rotate_endpoint" => {
+                assert_eq!(r.required_capability(), None);
+            }
             "remote_environment" | "device" | "runner_local" => {
                 assert_eq!(r.required_capability(), Some(capability::REMOTE_CONTROL_V1));
             }

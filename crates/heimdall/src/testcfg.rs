@@ -68,6 +68,16 @@
 //! |---|---|
 //! | `HEIMDALL_TEST_RUNNER_SSHD_CONFIG` | Absolute path of a fixture `sshd_config`, used only as the `sshd -T` check's `-f` path: a runner runtime under `HEIMDALL_TEST_SSH_HOME` (required with it) then checks its effective sshd policy for that scratch home, instead of running no check. |
 //!
+//! **⟨M06 W5⟩ real Iroh traffic on loopback without the platform key store.** Two
+//! variables, debug builds only; a release `service run` refuses them like the others
+//! ([`M06_ENV`]), and a release build's K_iroh store selection answers a set
+//! `HEIMDALL_TEST_IROH_KEY_STORE` with a store that refuses every operation, so no other
+//! command honours or silently ignores it either:
+//!
+//! | Variable | Meaning |
+//! |---|---|
+//! | `HEIMDALL_TEST_IROH_KEY_STORE` | Absolute path of an existing owner-only scratch directory: the fixture K_iroh store (kind `fixture_store`), read by every process that selects the K_iroh store (`service run`, its serve child, `route connect`, `transport rotate`, `environment join`). Never a fallback to or from the platform store. Mechanism evidence only: every observation made with it says `fixture_store`. |
+//!
 //! The fake adapter's credential reference carries a synthetic
 //! `HEIMDALL_CANARY_*` value built at runtime; it must never reach an envelope,
 //! event or log line (the e2e suite scans every byte the binary prints).
@@ -296,9 +306,48 @@ pub const WSL_ENV: [&str; 6] = [
 /// check. The value is used only as the check's configuration path. Debug builds only.
 pub const RUNNER_SSHD_CONFIG_ENV: &str = "HEIMDALL_TEST_RUNNER_SSHD_CONFIG";
 
+/// ⟨M06 W5⟩ Absolute path of an existing owner-only scratch directory: the debug build's
+/// fixture store for K_iroh (`heimdall_credential::iroh::fixture_store`, store kind
+/// `fixture_store`), so the processes of one test run real Iroh traffic without the
+/// account's platform key store. While it is set it is the only K_iroh store used (a missing
+/// or unusable directory is `transport_key_store_unavailable`, never the platform store);
+/// while it is unset the fixture store is unreachable. Used only for K_iroh. Everything
+/// observed with it is mechanism evidence and must be labelled `fixture_store`, never
+/// product persistence. The same name as `heimdall_credential::iroh::FIXTURE_STORE_ENV`
+/// (a test holds them equal).
+pub const IROH_KEY_STORE_ENV: &str = "HEIMDALL_TEST_IROH_KEY_STORE";
+
+/// ⟨M06 W5 `w5m`; ruling on `w5k` Q4⟩ `fixture-file:<absolute path>`: the debug build's
+/// fixture store for K_mgmt (`heimdall_credential::mgmt::fixture`), read by the CLI where it
+/// selects the K_mgmt store (`m06_cmd::mgmt_store`). A release build **refuses** it like
+/// every other test variable, never ignores it: `service run` through [`requested_by`],
+/// and the `environment` and `device` commands through [`mgmt_store_refusal`]. The same
+/// name as `heimdall_credential::scratch_guard::MGMT_FIXTURE_ENV` (a test holds them
+/// equal).
+pub const MGMT_STORE_ENV: &str = "HEIMDALL_TEST_MGMT_STORE";
+
 /// ⟨M06⟩ Every variable the M06 test configuration adds. [`requested_by`] covers it, so a
 /// release build refuses them like every other test variable.
-pub const M06_ENV: [&str; 1] = [RUNNER_SSHD_CONFIG_ENV];
+pub const M06_ENV: [&str; 3] = [RUNNER_SSHD_CONFIG_ENV, IROH_KEY_STORE_ENV, MGMT_STORE_ENV];
+
+/// ⟨M06 W5 `w5m`⟩ The refusal a build that cannot honour the test configuration gives when
+/// [`MGMT_STORE_ENV`] is set (`None` in a debug build, and when it is unset). Checked by
+/// every command that selects the K_mgmt store before it reads anything.
+#[must_use]
+pub fn mgmt_store_refusal_in(
+    available: bool,
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<&'static str> {
+    refusal(available, env(MGMT_STORE_ENV).is_some())
+}
+
+/// [`mgmt_store_refusal_in`] for this build.
+#[must_use]
+pub fn mgmt_store_refusal(
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<&'static str> {
+    mgmt_store_refusal_in(AVAILABLE, env)
+}
 
 /// ⟨M04 W2⟩ The WSL host [`WSL_DIRECT_ENV`] describes, or `None` when it is unset. Debug only.
 ///
@@ -1464,6 +1513,44 @@ mod enabled {
             assert!(options.runner.sshd.is_none());
         }
 
+        /// ⟨M06 W5⟩ The fixture K_iroh store's variable is the credential crate's and is
+        /// part of the refused set (a release build refuses it, alone or with others); it
+        /// moves nothing in the wiring. No test variable names the serve target: its port is
+        /// product configuration (`transport enable --serve --sshd-port`, ADR-0006 §18.9
+        /// item 1), so the M06 set holds exactly the three variables below.
+        #[test]
+        #[allow(clippy::unwrap_used)]
+        fn the_iroh_key_store_variable_is_refused_in_release_and_none_names_the_serve_target() {
+            use super::super::{IROH_KEY_STORE_ENV, M06_ENV};
+            assert_eq!(
+                IROH_KEY_STORE_ENV,
+                heimdall_credential::iroh::FIXTURE_STORE_ENV
+            );
+            assert!(M06_ENV.contains(&IROH_KEY_STORE_ENV));
+            let only = |n: &str| (n == IROH_KEY_STORE_ENV).then(|| "/x".into());
+            assert!(super::super::requested_by(&only));
+            assert_eq!(
+                super::super::refusal(false, super::super::requested_by(&only)),
+                Some("the HEIMDALL_TEST_* test configuration is not available in release builds"),
+                "a release build refuses it"
+            );
+            assert_eq!(
+                M06_ENV,
+                [
+                    super::super::RUNNER_SSHD_CONFIG_ENV,
+                    IROH_KEY_STORE_ENV,
+                    super::super::MGMT_STORE_ENV
+                ]
+            );
+            // The key store variable alone moves nothing in the wiring: the store is
+            // selected where K_iroh is used.
+            let dir = tempfile::tempdir().unwrap();
+            let paths = Paths::under(&dir.path().join("heimdall"));
+            let mut options = ServiceOptions::production().unwrap();
+            isolate_projection(&mut options, &paths, &only).unwrap();
+            assert!(options.transport.unwrap().keys.is_none());
+        }
+
         /// ⟨M02⟩ W4 integration: a runtime started under the test configuration
         /// never wires the account's real SSH configuration. With a scratch SSH home
         /// its projection reads only that home; without one, no projection is wired.
@@ -1519,6 +1606,31 @@ mod enabled {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ⟨M06 W5 `w5m`; ruling on `w5k` Q4⟩ `HEIMDALL_TEST_MGMT_STORE` is a test variable like
+    /// the others: `service run`'s gate sees it, a build without the test configuration
+    /// refuses it with the fixed text (alone, whatever its value), a debug build does not,
+    /// and an unset variable refuses nothing. It is the credential crate's name.
+    #[test]
+    fn the_mgmt_store_variable_is_refused_by_a_release_build() {
+        assert_eq!(
+            MGMT_STORE_ENV,
+            heimdall_credential::scratch_guard::MGMT_FIXTURE_ENV
+        );
+        assert!(M06_ENV.contains(&MGMT_STORE_ENV));
+        let only =
+            |n: &str| (n == MGMT_STORE_ENV).then(|| std::ffi::OsString::from("fixture-file:/x"));
+        assert!(requested_by(&only));
+        assert_eq!(
+            mgmt_store_refusal_in(false, &only),
+            Some("the HEIMDALL_TEST_* test configuration is not available in release builds")
+        );
+        assert_eq!(mgmt_store_refusal_in(true, &only), None);
+        assert_eq!(mgmt_store_refusal_in(false, &|_| None), None);
+        let other = |n: &str| (n == IROH_KEY_STORE_ENV).then(|| std::ffi::OsString::from("/x"));
+        assert_eq!(mgmt_store_refusal_in(false, &other), None);
+        assert_eq!(mgmt_store_refusal(&only).is_some(), !AVAILABLE);
+    }
 
     #[test]
     fn detection_sees_every_variable_and_nothing_else() {

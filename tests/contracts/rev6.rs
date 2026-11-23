@@ -21,6 +21,11 @@
 //!   event types and payloads, the route and residual types: each omitted when absent, each
 //!   round-tripping and validating where a public schema carries it.
 //!
+//! * `rev6_5_decision_documents`: revision 6.5's typed parts of a decision document
+//!   (`golden/rev6-5-decisions.golden.json`): a `remote_widening` decision's `request` with
+//!   its `origin`, and a `widen_policy` decision's `lifted_effects`, each against its
+//!   published schema.
+//!
 //! The idempotency, cursor and visibility rules are proven where they are computed:
 //! `heimdall_domain::idempotency::tests::remote_client_namespaces_the_key_and_none_keeps_the_old_encoding`,
 //! `heimdall_app::events::tests::remote_client_scopes_cursors_and_visibility` and
@@ -184,12 +189,14 @@ fn rev6_request_forms() {
             Admission::ReadOnly => "read_only",
         };
         assert_eq!(admission, row["admission"].as_str().unwrap(), "{what}");
-        let capability = r.required_capability().expect("a revision-6 capability");
-        assert_eq!(capability, row["capability"].as_str().unwrap(), "{what}");
-        assert!(
-            capability::REVISION_6_DECLARED.contains(&capability),
-            "{what}"
-        );
+        let capability = r.required_capability();
+        assert_eq!(capability, row["capability"].as_str(), "{what}");
+        match capability {
+            Some(c) => assert!(capability::REVISION_6_DECLARED.contains(&c), "{what}"),
+            // ⟨rev6.5; ADR-0006 §18.9 item 5⟩ The one form of these ops on the base
+            // capability: any role announces its own client's endpoint.
+            None => assert_eq!(r.kind(), "remote_environment.rotate_endpoint", "{what}"),
+        }
         assert!(!r.requires_attended_session(), "{what}");
         assert!(!r.is_widening_policy_action(), "{what}");
         // Unknown fields are tolerated (ADR-0006 §9) and not re-emitted.
@@ -223,8 +230,9 @@ fn rev6_request_forms() {
     // 21 forms at revision 6; revision 6.1 (M06 wave 1) adds `remote_environment.activation_probe`;
     // revision 6.3 (M06 wave 3) adds `remote_environment.rotate_endpoint`,
     // `remote_environment.runner_policy_recheck`, `transport.rotate` and the six
-    // `runner_local` forms.
-    assert_eq!(from_schema.len(), 31);
+    // `runner_local` forms. ⟨M06 W5 `w5n`⟩ `route.record_health` (the route helper's
+    // route-health report).
+    assert_eq!(from_schema.len(), 32);
     // Revision 6.3's `controller_record` forms (ADR-0006 §18.7 item 6): revision-6 forms
     // that need no capability beyond `operations/1`, so they are not in `requests`. Every
     // other assertion of the loop above holds for them.
@@ -645,4 +653,129 @@ fn rev6_additive_documents() {
         .is_err(),
         "the destination-clock error is required"
     );
+}
+
+/// ⟨rev6.5⟩ ADR-0006 §18.9 item 8: `origin` is a contract field of the widening decision
+/// document, with a published schema; so is the lift view's `lifted_effects` entry. From the
+/// golden (transcribed from the ruling): `origin` is `local` or `paired` and nothing else,
+/// omitted exactly when `paired` (so a document written before the revision is unchanged
+/// and reads as `paired`); `client` is absent exactly when `origin` is `local`; a document
+/// whose origin and client disagree is not consistent; both documents round-trip
+/// byte-identically and validate against `decision.remote-widening` /
+/// `decision.lifted-effect`.
+#[test]
+fn rev6_5_decision_documents() {
+    use heimdall_contract::decision::{LiftedEffect, RemoteWidening, WideningOrigin};
+
+    let golden = load("tests/contracts/golden/rev6-5-decisions.golden.json");
+    let widening_schema = schema("decision.remote-widening");
+    assert!(
+        widening_schema["properties"].get("origin").is_some(),
+        "`origin` is in the published schema"
+    );
+    assert!(
+        !widening_schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|k| k == "origin" || k == "client"),
+        "`origin` and `client` are optional"
+    );
+    let origin_text = serde_json::to_string(&widening_schema).unwrap();
+    assert!(origin_text.contains("\"local\"") && origin_text.contains("\"paired\""));
+    for (token, origin) in [
+        ("local", WideningOrigin::Local),
+        ("paired", WideningOrigin::Paired),
+    ] {
+        assert_eq!(serde_json::to_value(origin).unwrap(), json!(token));
+        assert_eq!(origin.as_str(), token);
+    }
+    assert!(serde_json::from_value::<WideningOrigin>(json!("remote")).is_err());
+
+    let rows = golden["views"].as_array().unwrap();
+    let mut seen = BTreeSet::new();
+    for row in rows {
+        let what = row["what"].as_str().unwrap();
+        let view = &row["json"];
+        assert_eq!(view["kind"], "remote_widening", "{what}");
+        let doc = &view["request"];
+        assert_eq!(doc["kind"], "remote_widening", "{what}");
+        if let Err(e) = validate(&widening_schema, doc) {
+            panic!("{what} against decision.remote-widening: {e:?}");
+        }
+        // The document is the type plus the decision kind's own tag.
+        let mut fields = doc.clone();
+        fields.as_object_mut().unwrap().remove("kind");
+        let typed: RemoteWidening = exact(what, &fields, Some("decision.remote-widening"));
+        let expected = row["origin"].as_str().unwrap();
+        assert_eq!(typed.origin.as_str(), expected, "{what}");
+        assert!(typed.origin_is_consistent(), "{what}");
+        assert_eq!(doc.get("origin").is_some(), expected == "local", "{what}");
+        assert_eq!(doc.get("client").is_some(), expected == "paired", "{what}");
+        // The recorded request is a request of the contract, and names the record's kind.
+        assert_eq!(typed.request.kind(), typed.request_kind, "{what}");
+        if let Err(e) = validate(&schema("request"), &doc["request"]) {
+            panic!("{what}: the recorded request: {e:?}");
+        }
+        // An unknown origin is refused, not read as the default.
+        let mut unknown = fields.clone();
+        unknown["origin"] = json!("controller");
+        assert!(
+            serde_json::from_value::<RemoteWidening>(unknown.clone()).is_err(),
+            "{what}: an unknown origin"
+        );
+        assert!(validate(&widening_schema, &unknown).is_err(), "{what}");
+        // Origin and client that disagree: readable, never consistent.
+        let mut crossed = fields.clone();
+        if expected == "local" {
+            crossed["client"] = json!("cl_b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2");
+        } else {
+            crossed.as_object_mut().unwrap().remove("client");
+        }
+        let crossed: RemoteWidening = serde_json::from_value(crossed).unwrap();
+        assert!(!crossed.origin_is_consistent(), "{what}");
+        seen.insert(expected.to_owned());
+    }
+    assert_eq!(
+        seen,
+        ["local".to_owned(), "paired".to_owned()]
+            .into_iter()
+            .collect()
+    );
+
+    let lift_schema = schema("decision.lifted-effect");
+    let mut lifting = 0;
+    for row in golden["lift_views"].as_array().unwrap() {
+        let what = row["what"].as_str().unwrap();
+        let view = &row["json"];
+        assert_eq!(view["kind"], "widen_policy", "{what}");
+        let expected = row["lifts"].as_u64().unwrap() as usize;
+        let Some(list) = view.get("lifted_effects") else {
+            assert_eq!(expected, 0, "{what}: omitted only when empty");
+            continue;
+        };
+        let list = list.as_array().unwrap();
+        assert!(!list.is_empty(), "{what}: never written empty");
+        assert_eq!(list.len(), expected, "{what}");
+        for entry in list {
+            let typed: LiftedEffect = exact(what, entry, Some("decision.lifted-effect"));
+            assert!(matches!(typed.kind.as_str(), "pause" | "cutoff"), "{what}");
+            for key in [
+                "scope",
+                "scope_key",
+                "kind",
+                "controller",
+                "revision",
+                "effect",
+                "delivered_at",
+            ] {
+                assert!(entry.get(key).is_some(), "{what}: {key} is always written");
+            }
+            let mut partial = entry.clone();
+            partial.as_object_mut().unwrap().remove("controller");
+            assert!(validate(&lift_schema, &partial).is_err(), "{what}");
+        }
+        lifting += 1;
+    }
+    assert_eq!(lifting, 1);
 }
