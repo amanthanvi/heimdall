@@ -94,8 +94,17 @@ remap=(
     "--remap-path-prefix=$cargo_home=/cargo"
     "--remap-path-prefix=$repo=/heimdall"
 )
-encoded=$(IFS=$sep; echo "${remap[*]}")
 flags_text="--remap-path-prefix=<home>=/builder --remap-path-prefix=<rustup-home>=/rustup --remap-path-prefix=<cargo-home>=/cargo --remap-path-prefix=<checkout>=/heimdall"
+# macOS (W2-6): ld64 derives LC_UUID from a hash of the output it writes, before rustc strips
+# it (`strip = true`). That output still holds the debug map, whose object paths name the
+# checkout and rustc's temporary directory, so two checkouts got two UUIDs. `-S` tells the
+# linker to write no debug information at all; the stripped result is the same without it.
+case "$target" in
+    *-apple-darwin)
+        remap+=("-Clink-arg=-Wl,-S")
+        flags_text="$flags_text -Clink-arg=-Wl,-S" ;;
+esac
+encoded=$(IFS=$sep; echo "${remap[*]}")
 cflags="-ffile-prefix-map=$HOME=/builder -ffile-prefix-map=$rustup_home=/rustup -ffile-prefix-map=$cargo_home=/cargo -ffile-prefix-map=$repo=/heimdall"
 t_env=$(echo "$target" | tr '-' '_')
 t_ENV=$(echo "$t_env" | tr '[:lower:]' '[:upper:]')
