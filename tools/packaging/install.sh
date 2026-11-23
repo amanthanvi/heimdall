@@ -83,8 +83,20 @@ runtime_state() {
 # list; it signals nothing. (The first two words of each command line are compared, so a
 # script run through an interpreter is seen too. A runtime started from some OTHER path is
 # not seen here; that case needs the product to report "advertised but unreachable".)
+# A process started from the installed executable. Compared as files, not strings (review
+# M08-W1-R06): `[ a -ef b ]` is true when both names reach the same device and inode, so a
+# relative --prefix, a prefix through a symbolic link, or a process started through a link
+# to the installed file all match. Each of the first two words of a process's command line
+# (the executable, or the interpreter and its script) that is an absolute path is checked.
+# Not covered, and said: a process started through a relative path or by name from PATH
+# shows no absolute path, and is caught only by the runtime query that follows.
 live_from_cur() {
-    ps -u "$(id -u)" -o pid= -o args= 2>/dev/null | awk -v exe="$cur" -v self="$$" '$1 != self && ($2 == exe || $3 == exe) { print $1 }'
+    ps -u "$(id -u)" -o pid= -o args= 2>/dev/null | while read -r pid w1 w2 rest; do
+        [ "$pid" != "$$" ] || continue
+        for w in "$w1" "$w2"; do
+            case "$w" in /*) if [ "$w" -ef "$cur" ]; then echo "$pid"; break; fi ;; esac
+        done
+    done
 }
 require_stopped() {
     live=$(live_from_cur | tr '\n' ' ')

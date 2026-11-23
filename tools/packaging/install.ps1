@@ -37,16 +37,21 @@
 # under the .previous names, discarding the older .previous pair first, and puts a complete
 # new pair in place, so .previous always holds exactly the one pair that was in place. A
 # REPAIR (the executable is this version, the helper is missing or different) replaces the
-# helper in place and leaves .previous untouched. A failure part-way puts BOTH halves back,
-# and a rerun checks both digests against the manifest before it says "already installed".
-# -Rollback refuses, changing nothing, unless .previous holds a complete pair.
+# helper in place and leaves .previous untouched. During an update a failure part-way puts
+# BOTH halves back; a repair that fails leaves the executable as it was and the helper
+# possibly missing, and running the script again repairs it (review M08-W1-R05). A rerun
+# checks both digests against the manifest before it says "already installed". -Rollback
+# refuses unless .previous holds a complete pair; it first finishes or undoes an interrupted
+# rollback, and otherwise changes nothing.
 #
 # WINDOWS ORDER. A running executable cannot be overwritten or deleted, but it can be
 # renamed, so the current pair is RENAMED aside and the staged pair renamed into place.
 # Between those renames the install path holds no heimdall.exe for an instant. A failure
-# there is undone. A process killed exactly there leaves the complete previous pair under
-# its .previous names; running the script again finishes the update. (install.sh's single
-# atomic rename is not available for a mapped image on NTFS.)
+# there is undone. A process killed there leaves the previous executable under its
+# .previous name and, if it stopped before the helper's rename, the previous helper still at
+# the current name: running the same archive's script again finishes the update (review
+# M08-W1-R05). (install.sh's single atomic rename is not available for a mapped image on
+# NTFS.)
 [CmdletBinding()]
 param(
     [string]$Prefix = "",
@@ -214,11 +219,48 @@ function Runtime-State {
     if ($out -match '"message":"no runtime is running"') { return 'none' }
     return 'unknown'
 }
+# The full path of `p` with every symbolic link and junction in it replaced by its target
+# (review M08-W1-R06), so a relative -Prefix, forward slashes, '..', or a prefix or a process
+# path that passes through a link compare equal. Nothing is written; a component that cannot
+# be inspected or resolved is left as it is. Not resolved, and said: a subst drive letter and
+# an 8.3 short name; a process started that way is caught only by the runtime query.
+function Resolve-Final([string]$p) {
+    try { $p = [System.IO.Path]::GetFullPath($p) } catch { return $p }
+    for ($n = 0; $n -lt 40; $n++) {
+        $root = [System.IO.Path]::GetPathRoot($p)
+        $parts = $p.Substring($root.Length).Split([char[]]@('\', '/'), [System.StringSplitOptions]::RemoveEmptyEntries)
+        $at = $root; $moved = $false
+        for ($i = 0; $i -lt $parts.Length; $i++) {
+            $next = Join-Path $at $parts[$i]
+            $isLink = $false
+            try { $a = [System.IO.FileInfo]::new($next).Attributes; $isLink = ([int]$a -ne -1) -and ($a -band [System.IO.FileAttributes]::ReparsePoint) } catch { }
+            if ($isLink) {
+                $t = $null
+                try { $t = (Get-Item -LiteralPath $next -Force).Target } catch { }
+                if ($t -is [array]) { $t = $t[0] }
+                if (-not $t) { return $p }
+                if (-not [System.IO.Path]::IsPathRooted($t)) { $t = Join-Path $at $t }
+                $rest = @(); if ($i + 1 -lt $parts.Length) { $rest = $parts[($i + 1)..($parts.Length - 1)] }
+                foreach ($r in $rest) { $t = Join-Path $t $r }
+                try { $p = [System.IO.Path]::GetFullPath($t) } catch { return $p }
+                $moved = $true; break
+            }
+            $at = $next
+        }
+        if (-not $moved) { return $p }
+    }
+    return $p
+}
 function Live-FromCur {
     if ($env:HM_INSTALL_TEST_LIVE) { return @([int]$env:HM_INSTALL_TEST_LIVE) }
+    $want = Resolve-Final $cur
+    # The self-test hands in process paths (pid=path;...) to exercise the comparison.
+    $procs = if ($env:HM_INSTALL_TEST_PROCESS_PATHS) {
+        foreach ($e in $env:HM_INSTALL_TEST_PROCESS_PATHS.Split(';')) { $k = $e.Split('=', 2); [pscustomobject]@{ Id = [int]$k[0]; Path = $k[1] } }
+    } else { Get-Process -ErrorAction SilentlyContinue }
     $ids = @()
-    foreach ($p in Get-Process -ErrorAction SilentlyContinue) {
-        try { if ($p.Path -and ($p.Path -ieq $cur) -and $p.Id -ne $PID) { $ids += $p.Id } } catch { }
+    foreach ($p in $procs) {
+        try { if ($p.Path -and $p.Id -ne $PID -and ((Resolve-Final $p.Path) -ieq $want)) { $ids += $p.Id } } catch { }
     }
     return $ids
 }
@@ -297,7 +339,7 @@ if ($Rollback) {
         }
         if ($missing.Count -gt 0) {
             Say "the previous pair is incomplete: missing $($missing -join ', ')"
-            Die "a rollback would leave the executable without its WSL helper. Nothing was changed. To go back, install the older archive again with its own install.ps1."
+            Die "a rollback would leave the executable without its WSL helper. Nothing was changed. If an update was interrupted, run that archive's install.ps1 again to finish it. To go back to the older version, install the older archive again with its own install.ps1."
         }
     }
     # W1-F1-ROLLBACK-END
@@ -341,6 +383,12 @@ if (-not $wantExe) { Die "MANIFEST.sha256 does not list the executable" }
 $script:helperFiles = @($wantHelper.Keys | Sort-Object)
 
 Settle-InterruptedRollback
+# An update stopped between the executable's rename (3a) and the helper's (3b) leaves: no
+# current executable, the previous executable, the old helper still at the current name, no
+# .previous helper, and the run's own staged executable. That last one is what tells it from
+# a lost executable beside an older .previous one (review M08-W1-R04), so it is decided here,
+# before the leftovers are cleared.
+$interruptedUpdate = ((Kind $cur) -eq 'absent') -and ((Kind $new) -eq 'file') -and ((Kind $prev) -eq 'file') -and ((Kind $curH) -eq 'dir') -and ((Kind $prevH) -eq 'absent')
 # Leftovers of an interrupted install: a staged file is removed as a file; a staged helper
 # directory only through Remove-OwnedHelper.
 if ((Kind $new) -eq 'file') { [System.IO.File]::Delete($new); Say "removed a leftover staged file from an interrupted run" }
@@ -366,7 +414,10 @@ if ($exeOk -and $helperOk) { Say "this version is already installed at $cur"; ex
 # after the executable's rename and before the helper's leaves the old helper at the current
 # name, with no current executable and no .previous helper. Finish that rename first, so the
 # old pair is complete under the .previous names (M08-W1-F1).
-if (-not $exeOk -and (Kind $cur) -eq 'absent' -and (Kind $prev) -eq 'file' -and (Kind $curH) -eq 'dir' -and (Kind $prevH) -eq 'absent') {
+# W2-R04-BEGIN (the revert proof replaces the recorded evidence with file presence alone)
+$finishMove = $interruptedUpdate
+# W2-R04-END
+if (-not $exeOk -and $finishMove) {
     [System.IO.Directory]::Move($curH, $prevH)
     Say "finished an interrupted update: the previous pair is complete under the .previous names"
 }
@@ -412,6 +463,16 @@ try {
     if ($env:HM_INSTALL_TEST_STOP_AFTER -eq "1") { Say "stopped after 1 (test)"; exit 1 }
     # 2. Check the staged copies.
     if ($stageExe -and (Sha $new) -ne $wantExe) { throw "the staged executable does not match the manifest" }
+    # The staged helper files too (ADR-0014 section 4.3 step 2; review M08-W1-R07).
+    if ($env:HM_INSTALL_TEST_TAMPER_STAGED -and $stageHelper) { [System.IO.File]::AppendAllText((Join-Path $newH "heimdall"), "x") }
+    # W2-R07-BEGIN
+    if ($stageHelper) {
+        foreach ($rel in $wantHelper.Keys) {
+            $f = Resolve-Under $newH $rel
+            if (-not $f -or (Kind $f) -ne 'file' -or (Sha $f) -ne $wantHelper[$rel]) { throw "the staged helper file $rel does not match the manifest" }
+        }
+    }
+    # W2-R07-END
     if ($env:HM_INSTALL_TEST_STOP_AFTER -eq "2") { Say "stopped after 2 (test)"; exit 1 }
     # 3. Move the current pair aside, as one unit (a running image can be renamed, not
     #    overwritten). The older .previous pair is discarded first, helper then executable:
@@ -435,6 +496,7 @@ try {
     Undo-Recorded
     if ((Kind $new) -eq 'file') { [System.IO.File]::Delete($new) }
     Remove-OwnedHelper $newH
+    if (-not $update) { Die "the helper repair failed: $why. The executable is unchanged; the helper may now be missing. Run this script again to repair it." }
     Die "the update failed and was undone, executable and helper together (an older .previous pair, if there was one, had already been discarded): $why"
 }
 

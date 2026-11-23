@@ -238,6 +238,51 @@ try {
     $r = Install $a3x $E6
     Check "W1-F1: an update whose older .previous helper holds a foreign file refuses before any write" (($r.Code -eq 1) -and ($r.Out -match "did not put there") -and ((Snapshot $E6) -eq $snap))
 
+    # --- W2 (review M08-W1-R04): a lost executable beside an older .previous executable
+    # that has no helper is not an interrupted update: the current helper is never paired
+    # with the older executable.
+    $L4 = Join-Path $T "prefix-r04"; [void](Install $a2 $L4)
+    [System.IO.File]::WriteAllText((Join-Path $L4 "heimdall.previous.exe"), "fake heimdall 1.0.0-nohelper")
+    [System.IO.File]::Delete((Join-Path $L4 "heimdall.exe"))
+    $r = Install $a2 $L4
+    $noMix = ($r.Out -notmatch "finished an interrupted update") -and ((PrevHelper $L4) -eq "")
+    Check "W2-R04: a lost executable beside an older .previous one is not finished as an interrupted update" (($r.Code -eq 0) -and $noMix -and ((Pair $L4) -eq (V "2.0.0")) -and ((PrevExe $L4) -eq "fake heimdall 1.0.0-nohelper"))
+    $r = Install $a2 $L4 @("-Rollback")
+    Check "W2-R04: and a rollback then refuses instead of installing the older executable with the newer helper" (($r.Code -eq 1) -and ((Pair $L4) -eq (V "2.0.0")) -and ($r.Out -match "run that archive's install.ps1 again"))
+
+    # --- W2 (review M08-W1-R05): a repair whose last rename fails says what it left.
+    $L5 = Join-Path $T "prefix-r05"; [void](Install $a2 $L5)
+    [System.IO.File]::WriteAllText((P $L5 @("linux-x86_64", "heimdall")), "damaged helper")
+    $r = Install $a2 $L5 @() @{ HM_INSTALL_TEST_FAIL_AT = "4b" }
+    Check "W2-R05: a repair that fails at its last rename says the helper may be missing, not that both halves were put back" (($r.Code -eq 1) -and ($r.Out -match "the helper repair failed") -and ($r.Out -notmatch "executable and helper together") -and ((Exe $L5) -eq "fake heimdall 2.0.0"))
+    $r = Install $a2 $L5
+    Check "W2-R05: and running the script again repairs the helper" (($r.Code -eq 0) -and ((Pair $L5) -eq (V "2.0.0")))
+
+    # --- W2 (review M08-W1-R07): a staged helper that does not match the manifest is never
+    # put in place.
+    $L7 = Join-Path $T "prefix-r07"; [void](Install $a1 $L7)
+    $r = Install $a2 $L7 @() @{ HM_INSTALL_TEST_TAMPER_STAGED = "1" }
+    Check "W2-R07: a staged helper file that does not match the manifest stops the update before any rename" (($r.Code -eq 1) -and ($r.Out -match "staged helper file heimdall does not match") -and ((Pair $L7) -eq (V "1.0.0")) -and ((PrevExe $L7) -eq "") -and -not (Test-Path -LiteralPath (Join-Path $L7 ".heimdall.new.exe")) -and -not (Test-Path -LiteralPath (Join-Path $L7 ".linux-x86_64.new")))
+
+    # --- W2 (review M08-W1-R06): the live-process check compares resolved full paths. The
+    # process paths are handed in; the comparison is what is tested.
+    $L6 = Join-Path $T "prefix-r06"; [void](Install $a1 $L6)
+    $canon = Join-Path (Resolve-Path -LiteralPath $L6).ProviderPath "heimdall.exe"
+    # A link to the scratch directory, so the prefix passes through it (a prefix that is
+    # itself a link is refused before anything else, as before).
+    $LT = Join-Path $T "via-link"; [void][System.IO.Directory]::CreateDirectory($LT); Link (Join-Path $LT "up") $T
+    Push-Location $T
+    try { $r = Install $a2 "prefix-r06" @("-AssumeStopped") @{ HM_INSTALL_TEST_PROCESS_PATHS = "4242=$canon" } } finally { Pop-Location }
+    Check "W2-R06: a relative -Prefix still finds a process started from the installed executable" (($r.Code -eq 1) -and ($r.Out -match "a process started from") -and ((Pair $L6) -eq (V "1.0.0")))
+    $r = Install $a2 (P $LT @("up", "prefix-r06")) @("-AssumeStopped") @{ HM_INSTALL_TEST_PROCESS_PATHS = "4242=$canon" }
+    Check "W2-R06: a -Prefix that passes through a link (a junction on Windows) still finds it" (($r.Code -eq 1) -and ($r.Out -match "a process started from") -and ((Pair $L6) -eq (V "1.0.0")))
+    $viaLink = P $LT @("up", "prefix-r06", "heimdall.exe")
+    $r = Install $a2 $L6 @("-AssumeStopped") @{ HM_INSTALL_TEST_PROCESS_PATHS = "4242=$viaLink" }
+    Check "W2-R06: a process started through a link to the install directory is found" (($r.Code -eq 1) -and ($r.Out -match "a process started from") -and ((Pair $L6) -eq (V "1.0.0")))
+    $other = Join-Path (Join-Path $T "elsewhere") "heimdall.exe"
+    $r = Install $a2 $L6 @("-AssumeStopped") @{ HM_INSTALL_TEST_PROCESS_PATHS = "4242=$other" }
+    Check "W2-R06: a heimdall.exe elsewhere does not block the update" (($r.Code -eq 0) -and ((Pair $L6) -eq (V "2.0.0")))
+
     # Interrupted install after each step, then a rerun finishes it as a pair.
     foreach ($tag in "1", "2", "3a", "3b", "4a", "4b") {
         # ($IP, not $R: PowerShell variable names are case-insensitive, and $r is the result.)

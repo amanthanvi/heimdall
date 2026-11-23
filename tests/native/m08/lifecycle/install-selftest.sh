@@ -173,6 +173,14 @@ sh "$T/a2/install.sh" --prefix "$A" >"$T/oa" 2>&1; rc=$?
 check "a live process from the installed path refuses the update although status says none" '[ "$rc" = 1 ] && grep -q "a process started from" "$T/oa" && [ ! -e "$A/.heimdall.new" ] && [ ! -e "$A/heimdall.previous" ]'
 sh "$T/a2/install.sh" --prefix "$A" --assume-stopped >"$T/oa2" 2>&1; rc=$?
 check "--assume-stopped does not override a live process" '[ "$rc" = 1 ] && grep -q "does not override" "$T/oa2"'
+# Review M08-W1-R06: the same process is found through a relative --prefix and through a
+# prefix that is a symbolic link to the install directory.
+(cd "$T" && sh "$T/a2/install.sh" --prefix "prefix-alive" --assume-stopped) >"$T/oa3" 2>&1; rc=$?
+check "R06: a relative --prefix still finds the live process" '[ "$rc" = 1 ] && grep -q "a process started from" "$T/oa3" && [ ! -e "$A/heimdall.previous" ]'
+ln -s "$A" "$T/prefix-alive-link"
+sh "$T/a2/install.sh" --prefix "$T/prefix-alive-link" --assume-stopped >"$T/oa4" 2>&1; rc=$?
+check "R06: a --prefix through a symbolic link still finds the live process" '[ "$rc" = 1 ] && grep -q "a process started from" "$T/oa4" && [ ! -e "$A/heimdall.previous" ]'
+rm -f "$T/prefix-alive-link"
 kill "$alive" 2>/dev/null; wait "$alive" 2>/dev/null
 sh "$T/a2/install.sh" --prefix "$A" >/dev/null 2>&1; rc=$?
 check "once that process has ended, the update proceeds" '[ "$rc" = 0 ] && [ "$("$A/heimdall")" = "heimdall 2.0.0" ]'

@@ -30,8 +30,8 @@ This lists what stopping the runtime interrupts and changes nothing. In short:
    the install path still holds a complete executable, the old one or the new one (macOS and
    Linux). On Windows a running program cannot be replaced in one step, so for an instant
    the install path has no `heimdall.exe`; if the install stops exactly there, your previous
-   executable and its WSL helper are complete under their `.previous` names, and running the
-   script again finishes the update. On every platform the executable and its helper are
+   executable is under its `.previous` name and its WSL helper may still be at the current
+   name, and running the same archive's script again finishes the update. On every platform the executable and its helper are
    replaced together, never one without the other. On Windows the previous executable and
    its WSL helper are kept as one pair, `heimdall.previous.exe` and
    `linux-x86_64.previous`: an update replaces that whole pair with the one that was in
@@ -51,10 +51,14 @@ first.
 - **Same state format:** put `heimdall.previous` back (rerun the older archive's install
   script). It serves the same state.
 - **Windows:** `install.ps1 -Rollback` swaps the current pair with the previous pair. It
-  refuses, and changes nothing, unless the previous pair is complete: the previous
+  first finishes or undoes a rollback that was interrupted. Then it refuses, and changes
+  nothing, unless the previous pair is complete: the previous
   executable and, whenever the current install has a WSL helper, the previous helper with
-  every helper file the archive's manifest names. When it refuses it names what is missing;
-  to go back, install the older archive again with its own `install.ps1`.
+  every helper file the archive's manifest names. When it refuses it names what is missing.
+  If an update was interrupted, run that archive's `install.ps1` again to finish it; to go
+  back to the older version, install the older archive again with its own `install.ps1`.
+  A repair of a damaged helper that fails part-way leaves the executable unchanged and the
+  helper possibly missing; running the script again repairs it.
 - **The state format changed:** the older executable refuses the newer state and changes
   nothing. Going back then means a restore (see `recovery.md`), which keeps your identity
   and settings and ends all access so that you approve it again.

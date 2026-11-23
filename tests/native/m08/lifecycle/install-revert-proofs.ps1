@@ -1,5 +1,5 @@
 # Revert proofs for install.ps1's merge-relevant fixes (review M08-W01-R01 and R02; PC job 40's
-# finding M08-W1-F1).
+# finding M08-W1-F1; the W1 review's R04 and R07).
 #
 # STATUS: rehearsed under PowerShell 7 on macOS only; the evidence is its run on the PC.
 #
@@ -85,6 +85,24 @@ $replaceHelper = -not $helperOk
     Write-Host "W1-F1 rollback check reverted: exit $($d.Code); failing cases:"; $d.Fails | ForEach-Object { Write-Host "   $_" }
     $want = @($d.Fails | Where-Object { $_ -match "W1-F1: a rollback with an incomplete .previous pair refuses" })
     if ($d.Code -eq 0 -or $want.Count -ne 1) { Write-Host "REVERT PROOF FAILED for W1-F1's rollback check: the incomplete-pair case did not fail without it"; $failed = 1 }
+
+    # W2-R04 reverted: the interrupted update decided from which files exist (the W1 rule).
+    $r04 = Between $text "# W2-R04-BEGIN" "# W2-R04-END" @'
+$finishMove = (Kind $cur) -eq 'absent' -and (Kind $prev) -eq 'file' -and (Kind $curH) -eq 'dir' -and (Kind $prevH) -eq 'absent'
+'@
+    $f5 = Join-Path $T "install-r04-reverted.ps1"; [System.IO.File]::WriteAllText($f5, $r04)
+    $e = Run $f5
+    Write-Host "W2-R04 reverted: exit $($e.Code); failing cases:"; $e.Fails | ForEach-Object { Write-Host "   $_" }
+    $want = @($e.Fails | Where-Object { $_ -match "W2-R04: and a rollback then refuses" })
+    if ($e.Code -eq 0 -or $want.Count -ne 1) { Write-Host "REVERT PROOF FAILED for W2-R04: the mixed-pair rollback did not fail without the fix"; $failed = 1 }
+
+    # W2-R07 reverted: the staged helper is not re-checked.
+    $r07 = Between $text "# W2-R07-BEGIN" "# W2-R07-END" ""
+    $f6 = Join-Path $T "install-r07-reverted.ps1"; [System.IO.File]::WriteAllText($f6, $r07)
+    $g = Run $f6
+    Write-Host "W2-R07 reverted: exit $($g.Code); failing cases:"; $g.Fails | ForEach-Object { Write-Host "   $_" }
+    $want = @($g.Fails | Where-Object { $_ -match "W2-R07: a staged helper file that does not match" })
+    if ($g.Code -eq 0 -or $want.Count -ne 1) { Write-Host "REVERT PROOF FAILED for W2-R07: the tampered-helper case did not fail without the fix"; $failed = 1 }
 } finally {
     Remove-Item -Recurse -Force -LiteralPath $T -ErrorAction SilentlyContinue
 }
