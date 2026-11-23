@@ -27,7 +27,7 @@
   - host alias collision;
   - a stopped service recovering with a stale signing handle.
 
-  A read-only search for both is running now. A row with no covering test is named as a gap, with the unit that fills it, and is never marked covered.
+  **Done (2026-11-23):** both rows are confirmed in m08-plan §7.1's table: host alias collision is **partly covered** and the stale signing handle is **mostly covered** for the runtime signer and partly for the issuer. Each row names its tests and its gaps, which U1b fills with new tests at the frozen tree.
 - **After the handoff (U1b):** fuzz boundaries 12 to 15 (M06's bridge frames and invitation records, the route helper's buffer, the `sshd -T` verifier, M07's page tokens and selectors), then the table confirmed at the frozen tree.
 
 ## W2-3. A34: benchmarks and the soak

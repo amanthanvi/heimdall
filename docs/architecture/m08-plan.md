@@ -544,13 +544,13 @@ Records live in `tests/evidence/m08-*.json`. The lowest-row rule applies. "All" 
 | Malformed and oversized agent messages | `agent_frames.rs`, `agent_client_frames.rs` |
 | Signing and control namespace confusion | `signer_requests.rs`; A14's endpoint rows |
 | Inherited authority across unrelated jobs | M05's A16 and A28 |
-| Host alias collision | to confirm in U1b |
+| Host alias collision | **Partly covered** (confirmed 2026-11-23, M08 W2-2): within Heimdall's own catalog and managed file, `catalog_alias_rename_keeps_destination_id` (`tests/model/setup.rs`), `duplicate_alias_is_refused` (`crates/sshconf/src/render.rs`, case variants), `one_alias_is_claimed_once` (`portable_m05.rs`) and the portable import's `alias_collision` reports; a user `Host *`, `Host m*` or same-name section capturing a managed alias's identity settings: `identity_selection_not_exclusive_with_inherited_identityfile_or_certificatefile` (`tests/model/sshconf_eval.rs`). **Gaps, for U1b:** no test puts a same-name `Host <alias>` in the user's `~/.ssh/config` or an included file and expects a refusal or a conflict report (the contract's doctor finding `alias_collision` and setup conflict `AliasCollision` have no producer in `crates/localenv`); the catalog's alias check is case-sensitive, so `Alpha` beside `alpha` is caught only when the managed file is rendered |
 | Stale configuration rollback | `projection_recovery` |
 | Expiry and revoke races | `tests/model/{revocation, timegate}.rs`; M03's A07 |
 | Another destination trusting the same CA | M03's A10 |
 | A child asking for a later deadline | `tests/model/authority.rs`; M05's delegation tests |
 | A repeated work ID after a cutoff | M05's A05 |
-| A stopped service recovering with a stale signing handle | to confirm in U1b (A17's groups) |
+| A stopped service recovering with a stale signing handle | **Mostly covered for the runtime signer** (confirmed 2026-11-23, M08 W2-2): `crash_after_install_makes_instance_lost_at_restart` (`tests/integration/managed_signer.rs`: the old instance is lost, the grant degraded, signing refused), `reissue_restores_binding_endpoint_files_and_slot_so_ssh_signs_with_the_new_key` (`managed_store/live_tests/pipeline.rs`: real `ssh` through the old slot fails until re-issue, which signs only at a new binding generation), `binding_endpoint_removed_by_generation`, and the same-boot restart tests in M03's `sleep-logout-reboot` group (not A17's). **Partly for the issuer:** `issuer_crash_mid_sign_reservation_counted_never_published`, `late_reply_after_drop_is_discarded_and_nothing_published`, `generation_only_refusal_re_reserves_within_bound` (`tests/integration/issuer_child.rs`). **Gaps, for U1b:** no test keeps a client connected to the old binding endpoint across the stop and then signs; no test replays a pre-restart issuer reservation against the restarted child |
 | A forwarding peer reaching identities outside the set | M04's A15 and A28 forwarding rows |
 
 - **Rows not run natively:** the cross-user rows (B2); the arm64 rows (B9).
