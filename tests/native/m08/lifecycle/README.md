@@ -185,5 +185,12 @@ The interrupted-rollback settle (`ra1` to `rc1`) and the interrupted update (aft
 | Rule 1: the `W1-F1` block replaced with the half-pair rule | 3: the executable-only update keeps the old pair; then a rollback restores it; the matched `.previous` after a full update |
 | The rollback check: the `W1-F1-ROLLBACK` block removed | 2: the incomplete-pair and the missing-directory rollbacks |
 
-These are rehearsals of the logic only. The evidence is the PC run under Windows PowerShell
-5.1 and PowerShell 7.
+These were rehearsals of the logic. **The evidence is PC job 43, at `3c8265c5` (2026-11-23):**
+
+| Run | Result |
+|---|---|
+| `install-selftest.ps1`, Windows PowerShell 5.1 and PowerShell 7 | PASS, 60 checks each; every W1-F1 case `ok` |
+| `install-revert-proofs.ps1`, both | PASS. Reverted, the self-test fails: W01-R01 11 cases, W01-R02 4 (the new repair case among them), W1-F1 3, W1-F1-ROLLBACK 2 |
+| The real Windows archive of `3c8265c5`, installed as files, every call with `-AssumeStopped` | Install, then again ("already installed"). An executable-only update to a marked copy keeps the whole old pair under `.previous` (`027f22fe…` and `3b90dfc9…`); `-Rollback` brings both back. An update to a marked copy that changes both halves, then `-Rollback`, restores the original pair with the marked one under `.previous`. With `linux-x86_64.previous\heimdall` deleted, `-Rollback` exits 1 with `the previous pair is incomplete: missing linux-x86_64.previous/heimdall`, and no digest changes. No staging name is left after any step. `heimdall.exe` was never run |
+
+**M08-W1-F1 is closed on Windows.**

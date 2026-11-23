@@ -135,6 +135,12 @@ Everything goes under `target/release-artifacts/`:
 | 36 | `7ec2d33a` | Provenance passed (226 components, 25 removed as unselected, compiled set checked); then `verify_artifact` failed: `heimdall.exe` imports `combase.dll` (`CoTaskMemFree`, linked there by windows-sys 0.61). No archive. Fixed in `5348551b` (`combase` allowed, with its reason) |
 | 40 | `5348551b` | **PASS.** Build exit 0; `verify_artifact` PASS on the stage, the zip and against the external index. Zip `heimdall-0.1.0-m01-x86_64-pc-windows-msvc.zip`, 22,343,623 bytes, sha256 `4b87c78e06d044fd86be5468568780dce7fb02f17c30334573d28dd9093e6a56`; `heimdall.exe` sha256 `fc1448be…` (30,905,344 bytes); the helper `linux-x86_64/heimdall` sha256 `3b90dfc9…`, the Linux archive's executable of `c3abefbf` (no product change since). Build record: commit `5348551b`, tree clean, Rust 1.99.1. Verified again on the Mac from the returned zip and `SHA256SUMS`: PASS. `LICENSE` and `SECURITY.md` are not packaged: not in the tree (B17, B18) |
 
+| 43 | `3c8265c5` | **PASS.** Build exit 0 in 295 s under Windows PowerShell 5.1; provenance as in job 40; `verify_artifact` PASS on the stage, the zip and the external index, and again on the Mac. Zip sha256 `6811f627f72de1ac94d8d8491735c3c4c8fcde487410f51796f7aefaa452f2a9`; `heimdall.exe` `027f22fe…` (30,905,344 bytes); helper `3b90dfc9…`. The installer runs of M08-W1-F1's fix: see the lifecycle README |
+
+**Two builds of the same product code differ.** Jobs 40 and 43 built `heimdall.exe` from the same product source with the same toolchain (Rust 1.99.1), and the results differ in 27 bytes: the PE link timestamp (the COFF header and three debug-directory entries, 05:31:53Z and 09:55:02Z, the link times) and the PDB GUID. MSVC's linker writes both unless it is told to be deterministic (`/Brepro`). So the Windows build is **not reproducible** today, and nothing claims it is (ADR-0014 §4.8). The fix and its check are W2 items.
+
+**Where the SBOM tool goes.** `build-release.ps1` takes `cargo-cyclonedx` only from `target\tools\bin` of the checkout (its error message gives the install command, `cargo install --locked --version =0.5.10 --root target\tools cargo-cyclonedx`). Job 43 installed it there, inside the scratch clone. That is the expected place, not a deviation.
+
 In every job `heimdall.exe` was never executed. The toolchain and cargo homes were scratch
 directories under the job's root, except one diagnostic `cargo tree` in job 36 that used the
 account's own cargo home and refreshed only its sparse-index cache (reported by the PC agent).
