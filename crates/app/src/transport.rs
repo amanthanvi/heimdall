@@ -25,6 +25,12 @@
 //!   ⟨M06 W3⟩ The policy may name the serve `port` (ADR-0012 §2.1 ⟨2026-11-21⟩; `0` is
 //!   refused); without one the serve child's first successful bind records it, and `disable`
 //!   forgets it, so changing the port is `disable` then `enable`.
+//!   ⟨M06 W5; ADR-0006 §18.9 item 1⟩ With `serve` the policy may name the local `sshd_port`
+//!   the serve child forwards to (1–65535, 22 when omitted; the host is always `127.0.0.1`).
+//!   It is part of the policy the serve consent records, so it is written in the same
+//!   transaction as the other serve settings and bound to the decision's exact delta; an
+//!   enabled endpoint with another sshd port is another configuration (`CONFIG_CONFLICT`:
+//!   `disable`, then `enable`).
 //! * **`disable`** narrows (no decision, §3.10): in one transaction it withdraws every
 //!   K_iroh reference and the serving endpoint's consents, and removes every route that
 //!   names one of this installation's endpoints with that route's consents; each of those
@@ -50,7 +56,8 @@ use heimdall_contract::ids::{
     ConsentId, DecisionId, DestinationId, EnvironmentId, IrohEndpointId, RouteId,
 };
 use heimdall_contract::route::{
-    BindScope, DestinationRoute, ExposurePolicy, InfrastructureProfile, RouteSpec, TransportRequest,
+    BindScope, DEFAULT_SSHD_PORT, DestinationRoute, ExposurePolicy, InfrastructureProfile,
+    RouteSpec, TransportRequest,
 };
 use heimdall_domain::catalog::DestinationDefinition;
 use heimdall_store::{Store, Txn};
@@ -191,6 +198,13 @@ pub struct NewTransportKey {
     /// The item's nonsecret locator.
     pub store_ref: String,
 }
+
+/// ⟨M06 W5⟩ `route.add`'s and `transport.adopt_roost`'s refusal of a non-default
+/// `exposure.sshd_port` (`USAGE_ERROR`, effect `none`): the port is the serve side's
+/// forward target (`transport enable --serve --sshd-port`), and a dialer has none.
+pub const SSHD_PORT_NOT_FOR_A_DIALER: &str = "the sshd port is a serve setting (`transport \
+     enable --serve --sshd-port`): a route or an adopted roost is dialed and has no local sshd \
+     target, so nothing was written";
 
 /// The key store refused (`transport_key_store_unavailable`); `detail` is the fixed doctor
 /// detail (`unsupported`, `locked`, `missing`, …).
@@ -438,7 +452,7 @@ pub struct AdoptResult {
 
 // --- the operations -----------------------------------------------------------------------
 
-fn random16() -> Result<[u8; 16], OpError> {
+pub(crate) fn random16() -> Result<[u8; 16], OpError> {
     let mut b = [0u8; 16];
     getrandom::fill(&mut b).map_err(|_| OpError::from(crate::ids::RandomnessUnavailable))?;
     Ok(b)
@@ -532,29 +546,8 @@ impl TransportOps<'_> {
         now: Timestamp,
     ) -> Result<EnableResult, OpError> {
         let after = exposure.unwrap_or_default();
-        if !after.port_is_valid() {
-            // ⟨ADR-0006 §18.7 item 5⟩ `0` is not a serve port.
-            return Err(OpError::new(Code::UsageError, "port 0 is not a serve port")
-                .with_effect(EffectStatus::None));
-        }
-        self.serve.check_policy(&after).map_err(policy_refused)?;
-        let state = self.store.transaction(endpoint_state)?;
-        if let Some(key) = &state.key {
-            if state.serve == serve && state.policy == after {
-                return Ok(EnableResult {
-                    endpoint: key.endpoint.clone(),
-                    store_kind: key.store_kind.clone(),
-                    serve,
-                    exposure: after,
-                    consent: state.consents.last().cloned(),
-                    already_enabled: true,
-                });
-            }
-            return Err(OpError::new(
-                Code::ConfigConflict,
-                "the transport is already enabled with another configuration; disable it first",
-            )
-            .with_effect(EffectStatus::None));
+        if let Some(already) = self.enable_checked(serve, &after)? {
+            return Ok(already);
         }
         // From the minimal, non-serving endpoint (no key is active).
         let delta = exposure_delta(None, &ExposurePolicy::default(), false, &after, serve, None);
@@ -564,6 +557,74 @@ impl TransportOps<'_> {
             None => None,
         };
         let created = self.keys.create().map_err(KeyStoreRefusal::into_op_error)?;
+        self.enable_record(serve, after, consent, consent_id, created, now)
+            .await
+    }
+
+    /// What `transport enable` answers before any consent, key or record: `Ok(Some(_))`
+    /// when the transport is already enabled with exactly this configuration, `Ok(None)`
+    /// when it would be enabled now. ⟨M06 W5⟩ Also run before a local decision record is
+    /// made, so a request that can never succeed creates none.
+    ///
+    /// # Errors
+    /// `USAGE_ERROR`, the policy's refusal, `CONFIG_CONFLICT`, or the store's.
+    pub fn enable_checked(
+        &self,
+        serve: bool,
+        after: &ExposurePolicy,
+    ) -> Result<Option<EnableResult>, OpError> {
+        if !after.port_is_valid() {
+            // ⟨ADR-0006 §18.7 item 5⟩ `0` is not a serve port.
+            return Err(OpError::new(Code::UsageError, "port 0 is not a serve port")
+                .with_effect(EffectStatus::None));
+        }
+        if !after.sshd_port_is_valid() {
+            // ⟨ADR-0006 §18.9 item 1⟩ 1–65535 only.
+            return Err(OpError::new(Code::UsageError, "port 0 is not an sshd port")
+                .with_effect(EffectStatus::None));
+        }
+        if !serve && after.sshd_port != DEFAULT_SSHD_PORT {
+            // The sshd port is a serve setting: without `serve` nothing forwards to it,
+            // and no consent would record it.
+            return Err(OpError::new(
+                Code::UsageError,
+                "the sshd port is a serve setting; name it with serve",
+            )
+            .with_effect(EffectStatus::None));
+        }
+        self.serve.check_policy(after).map_err(policy_refused)?;
+        let state = self.store.transaction(endpoint_state)?;
+        if let Some(key) = &state.key {
+            if state.serve == serve && state.policy == *after {
+                return Ok(Some(EnableResult {
+                    endpoint: key.endpoint.clone(),
+                    store_kind: key.store_kind.clone(),
+                    serve,
+                    exposure: after.clone(),
+                    consent: state.consents.last().cloned(),
+                    already_enabled: true,
+                }));
+            }
+            return Err(OpError::new(
+                Code::ConfigConflict,
+                "the transport is already enabled with another configuration; disable it first",
+            )
+            .with_effect(EffectStatus::None));
+        }
+        Ok(None)
+    }
+
+    /// The recording half of [`Self::enable`]: the new key's reference and the consent in
+    /// one transaction, then the serve child.
+    async fn enable_record(
+        &self,
+        serve: bool,
+        after: ExposurePolicy,
+        consent: Option<&ApprovedWidening>,
+        consent_id: Option<ConsentId>,
+        created: NewTransportKey,
+        now: Timestamp,
+    ) -> Result<EnableResult, OpError> {
         let record = TransportKeyRecord {
             endpoint: created.endpoint.clone(),
             store_kind: created.store_kind.clone(),
@@ -882,6 +943,15 @@ impl TransportOps<'_> {
         approved: Option<&ApprovedWidening>,
         now: Timestamp,
     ) -> Result<AdoptResult, OpError> {
+        if exposure
+            .as_ref()
+            .is_some_and(|e| e.sshd_port != DEFAULT_SSHD_PORT)
+        {
+            // ⟨M06 W5; ADR-0012 §2.3 item 2⟩ An adopted roost is dialed, never served
+            // from here: there is no local sshd target for the port to name.
+            return Err(OpError::new(Code::UsageError, SSHD_PORT_NOT_FOR_A_DIALER)
+                .with_effect(EffectStatus::None));
+        }
         let delta = Self::adopt_delta(endpoint, exposure.as_ref());
         let Some(approved) = consent_for(&delta, approved)? else {
             return Err(unconsented());
@@ -890,56 +960,120 @@ impl TransportOps<'_> {
         self.serve.check_policy(&policy).map_err(policy_refused)?;
         let route_id = RouteId::from_random_bytes(random16()?);
         let consent_id = ConsentId::from_random_bytes(random16()?);
-        let route = DestinationRoute {
-            id: route_id.clone(),
+        let route = Self::roost_route(&route_id, endpoint, policy, Some(&consent_id));
+        let consent = RouteConsentRecord {
+            consent: consent_id.clone(),
+            route: Some(route_id.clone()),
+            decision: approved.decision.clone(),
+            delta: approved.delta.clone(),
+            recorded_at: now,
+        };
+        let outcome = self
+            .store
+            .transaction(|tx| Self::adopt_in(tx, destination, &route, Some((&consent, now))))?;
+        Self::adopt_outcome(destination, outcome)?;
+        Ok(AdoptResult {
+            destination: destination.clone(),
+            route: route_id,
+            endpoint: endpoint.clone(),
+            consent: consent_id,
+            disclosure: ROOST_DISCLOSURE,
+        })
+    }
+
+    /// ⟨M06 W5⟩ What `transport adopt_roost` would refuse apart from the consent, writing
+    /// nothing. Run before a local decision record is made, so a request that can never
+    /// succeed creates none.
+    ///
+    /// # Errors
+    /// [`Self::adopt_roost`]'s, except `exposure_unconsented`.
+    pub fn adopt_checked(
+        &self,
+        destination: &DestinationId,
+        endpoint: &IrohEndpointId,
+        exposure: Option<&ExposurePolicy>,
+    ) -> Result<(), OpError> {
+        if exposure.is_some_and(|e| e.sshd_port != DEFAULT_SSHD_PORT) {
+            return Err(OpError::new(Code::UsageError, SSHD_PORT_NOT_FOR_A_DIALER)
+                .with_effect(EffectStatus::None));
+        }
+        let policy = exposure.cloned().unwrap_or_default();
+        self.serve.check_policy(&policy).map_err(policy_refused)?;
+        let route = Self::roost_route(
+            &RouteId::from_random_bytes(random16()?),
+            endpoint,
+            policy,
+            None,
+        );
+        let outcome = self
+            .store
+            .transaction(|tx| Self::adopt_in(tx, destination, &route, None))?;
+        Self::adopt_outcome(destination, outcome)
+    }
+
+    fn roost_route(
+        id: &RouteId,
+        endpoint: &IrohEndpointId,
+        policy: ExposurePolicy,
+        consent: Option<&ConsentId>,
+    ) -> DestinationRoute {
+        DestinationRoute {
+            id: id.clone(),
             route: RouteSpec::Iroh {
                 endpoint: endpoint.clone(),
                 direct_addresses: Vec::new(),
                 external_roost: true,
             },
             exposure: Some(policy),
-            consents: vec![consent_id.clone()],
+            consents: consent.into_iter().cloned().collect(),
             identification_timeout_ms: None,
+        }
+    }
+
+    /// Check that `route` (a roost) can join `destination`'s approved routes and, with
+    /// `write`, store the list and the consent.
+    fn adopt_in(
+        tx: &mut Txn<'_>,
+        destination: &DestinationId,
+        route: &DestinationRoute,
+        write: Option<(&RouteConsentRecord, Timestamp)>,
+    ) -> heimdall_store::Result<Result<(), Code>> {
+        let Some(record) = tx.destination(destination)? else {
+            return Ok(Err(Code::NotFound));
         };
-        let outcome = self.store.transaction(|tx| {
-            let Some(record) = tx.destination(destination)? else {
-                return Ok(Err(Code::NotFound));
-            };
-            if !matches!(record.definition, DestinationDefinition::Managed { .. }) {
-                return Ok(Err(Code::NotFound));
-            }
-            let stored = tx.destination_routes(destination)?;
-            let mut list = heimdall_domain::routes::approved_routes(&record, Some(&stored));
-            if list
-                .iter()
-                .any(|r| matches!(&r.route, RouteSpec::Iroh { endpoint: e, .. } if e == endpoint))
-            {
-                return Ok(Err(Code::ConfigConflict));
-            }
-            list.push(route.clone());
-            let mut view = crate::catalog::route_view(tx)?;
-            view.routes = tx.all_destination_routes()?;
-            if heimdall_domain::routes::check_route_list(&view, destination, &list).is_err() {
-                return Ok(Err(Code::ConfigConflict));
-            }
+        if !matches!(record.definition, DestinationDefinition::Managed { .. }) {
+            return Ok(Err(Code::NotFound));
+        }
+        let RouteSpec::Iroh { endpoint, .. } = &route.route else {
+            return Ok(Err(Code::ConfigConflict));
+        };
+        let stored = tx.destination_routes(destination)?;
+        let mut list = heimdall_domain::routes::approved_routes(&record, Some(&stored));
+        if list
+            .iter()
+            .any(|r| matches!(&r.route, RouteSpec::Iroh { endpoint: e, .. } if e == endpoint))
+        {
+            return Ok(Err(Code::ConfigConflict));
+        }
+        list.push(route.clone());
+        let mut view = crate::catalog::route_view(tx)?;
+        view.routes = tx.all_destination_routes()?;
+        if heimdall_domain::routes::check_route_list(&view, destination, &list).is_err() {
+            return Ok(Err(Code::ConfigConflict));
+        }
+        if let Some((consent, now)) = write {
             tx.put_destination_routes(destination, &list, now)?;
-            tx.insert_route_consent(&RouteConsentRecord {
-                consent: consent_id.clone(),
-                route: Some(route_id.clone()),
-                decision: approved.decision.clone(),
-                delta: approved.delta.clone(),
-                recorded_at: now,
-            })?;
-            Ok(Ok(()))
-        })?;
+            tx.insert_route_consent(consent)?;
+        }
+        Ok(Ok(()))
+    }
+
+    fn adopt_outcome(
+        destination: &DestinationId,
+        outcome: Result<(), Code>,
+    ) -> Result<(), OpError> {
         match outcome {
-            Ok(()) => Ok(AdoptResult {
-                destination: destination.clone(),
-                route: route_id,
-                endpoint: endpoint.clone(),
-                consent: consent_id,
-                disclosure: ROOST_DISCLOSURE,
-            }),
+            Ok(()) => Ok(()),
             Err(Code::NotFound) => Err(OpError::new(
                 Code::NotFound,
                 "no managed catalog destination with that ID",
@@ -951,6 +1085,44 @@ impl TransportOps<'_> {
                 "the roost cannot be added to this destination's routes",
             )
             .with_effect(EffectStatus::None)),
+        }
+    }
+
+    /// ⟨M06 W5⟩ What a widening `request` would answer apart from its consent, writing
+    /// nothing ([`Self::enable_checked`], [`Self::adopt_checked`]): `Ok(Some(_))` is the
+    /// answer of a request that changes nothing (already enabled exactly so).
+    ///
+    /// # Errors
+    /// The operation's, except `exposure_unconsented`.
+    pub fn precheck(
+        &self,
+        request: &TransportRequest,
+    ) -> Result<Option<serde_json::Value>, OpError> {
+        match request {
+            TransportRequest::Enable {
+                serve, exposure, ..
+            } => {
+                let after = exposure.clone().unwrap_or_default();
+                self.enable_checked(*serve, &after)?
+                    .map(|already| {
+                        serde_json::to_value(already).map_err(|_| {
+                            OpError::new(
+                                Code::InternalError,
+                                "a transport result cannot be rendered",
+                            )
+                        })
+                    })
+                    .transpose()
+            }
+            TransportRequest::AdoptRoost {
+                destination,
+                endpoint,
+                exposure,
+                ..
+            } => self
+                .adopt_checked(destination, endpoint, exposure.as_ref())
+                .map(|()| None),
+            _ => Ok(None),
         }
     }
 

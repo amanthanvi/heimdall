@@ -6,8 +6,8 @@
 # is recorded, nothing here is evidence.
 #
 # Usage, from inside the unpacked archive (Windows PowerShell 5.1 or PowerShell 7):
-#   powershell -ExecutionPolicy Bypass -File .\install.ps1                install or update
-#   powershell -ExecutionPolicy Bypass -File .\install.ps1 -Rollback      put the previous pair back
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1                install or update
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Rollback      put the previous pair back
 #   ... -Prefix <dir>          default: %LOCALAPPDATA%\Programs\Heimdall
 #   ... -AssumeStopped         you have checked that no Heimdall runtime is running, and the
 #                              installed executable cannot say so itself (it is broken)
@@ -31,10 +31,14 @@
 # files the archive's manifest names, then the directory if that left it empty; anything
 # else found inside stops the script with the directory left as it is.
 #
-# THE PAIR. heimdall.exe and the helper in linux-x86_64 are one unit (review M08-W01-R02).
-# They are replaced together, a failure part-way puts BOTH halves back, and a rerun checks
-# both digests against the manifest before it says "already installed", repairing whichever
-# half does not match.
+# THE PAIR. heimdall.exe and the helper in linux-x86_64 are one unit (review M08-W01-R02;
+# M08-W1-F1). An UPDATE (the executable is not this version) keeps the whole current pair
+# under the .previous names, discarding the older .previous pair first, and puts a complete
+# new pair in place, so .previous always holds exactly the one pair that was in place. A
+# REPAIR (the executable is this version, the helper is missing or different) replaces the
+# helper in place and leaves .previous untouched. A failure part-way puts BOTH halves back,
+# and a rerun checks both digests against the manifest before it says "already installed".
+# -Rollback refuses, changing nothing, unless .previous holds a complete pair.
 #
 # WINDOWS ORDER. A running executable cannot be overwritten or deleted, but it can be
 # renamed, so the current pair is RENAMED aside and the staged pair renamed into place.
@@ -143,6 +147,33 @@ function Remove-OwnedHelper([string]$dir) {
     [System.IO.Directory]::Delete($dir, $false)
 }
 
+# Whether a helper directory holds only files the manifest names (and their subdirectories),
+# all real files and directories. Reads only. So a removal that would stop half-way on a
+# foreign file is refused before anything is removed (M08-W1-F1: the older .previous pair is
+# discarded as one unit).
+function Test-OwnedHelper([string]$dir) {
+    if ((Kind $dir) -eq 'absent') { return $true }
+    $known = @{}
+    foreach ($rel in $script:helperFiles) {
+        $known[$rel] = 'file'
+        $parts = $rel.Split('/')
+        for ($i = 1; $i -lt $parts.Length; $i++) { $known[($parts[0..($i - 1)] -join '/')] = 'dir' }
+    }
+    $todo = New-Object System.Collections.Queue; $todo.Enqueue('')
+    while ($todo.Count -gt 0) {
+        $relDir = $todo.Dequeue()
+        $abs = $dir; if ($relDir) { foreach ($part in $relDir.Split('/')) { $abs = Join-Path $abs $part } }
+        foreach ($entry in [System.IO.Directory]::EnumerateFileSystemEntries($abs)) {
+            $name = [System.IO.Path]::GetFileName($entry)
+            $rel = if ($relDir) { "$relDir/$name" } else { $name }
+            $k = Kind $entry
+            if (-not $known.ContainsKey($rel) -or $known[$rel] -ne $k) { return $false }
+            if ($k -eq 'dir') { $todo.Enqueue($rel) }
+        }
+    }
+    return $true
+}
+
 # Renames are recorded so a failure can put every one of them back, newest first. Two test
 # switches: HM_INSTALL_TEST_FAIL_AT=<tag> makes that rename fail (an injected I/O error);
 # HM_INSTALL_TEST_STOP_AFTER=<tag> exits right after it, as a killed process would.
@@ -245,6 +276,30 @@ if ((Kind $Prefix) -eq 'absent') { [void][System.IO.Directory]::CreateDirectory(
 if ($Rollback) {
     Settle-InterruptedRollback
     if ((Kind $prev) -ne 'file') { Die "there is no previous executable at $prev" }
+    # W1-F1-ROLLBACK-BEGIN
+    # M08-W1-F1: a rollback puts back only a complete pair. When the current install has a
+    # helper, .previous must hold one too, with every helper file this archive's manifest
+    # names (the names, not their digests: the previous version's digests are not known
+    # here), or at least the helper executable when there is no manifest beside the script.
+    if ((Kind $curH) -ne 'absent') {
+        $names = @()
+        $mf = Join-Path $here "MANIFEST.sha256"
+        if ((Kind $mf) -eq 'file') {
+            foreach ($line in [System.IO.File]::ReadAllLines($mf)) {
+                if ($line -match '^[0-9a-f]{64}  (.+)$' -and (Test-ManifestName $Matches[1]) -and $Matches[1].StartsWith("$helperName/")) { $names += $Matches[1].Substring($helperName.Length + 1) }
+            }
+        }
+        if ($names.Count -eq 0) { $names = @("heimdall") }
+        $missing = @()
+        if ((Kind $prevH) -ne 'dir') { $missing = @("$helperName.previous") } else {
+            foreach ($rel in $names) { $f = Resolve-Under $prevH $rel; if (-not $f -or (Kind $f) -ne 'file') { $missing += "$helperName.previous/$rel" } }
+        }
+        if ($missing.Count -gt 0) {
+            Say "the previous pair is incomplete: missing $($missing -join ', ')"
+            Die "a rollback would leave the executable without its WSL helper. Nothing was changed. To go back, install the older archive again with its own install.ps1."
+        }
+    }
+    # W1-F1-ROLLBACK-END
     Require-Stopped
     try {
         if ((Kind $cur) -ne 'absent') { Move-Recorded $cur $swap "ra1" }
@@ -305,14 +360,46 @@ $exeOk = Exe-Ok
 $helperOk = Helper-Ok
 # W01-R02-END
 if ($exeOk -and $helperOk) { Say "this version is already installed at $cur"; exit 0 }
-if ($exeOk -and -not $helperOk) { Say "the executable is this version but its helper is missing or different: repairing the pair" }
-if (-not $exeOk -and $helperOk -and (Kind $cur) -ne 'absent') { Say "the helper is this version but the executable is not: repairing the pair" }
+
+# An update kept the current pair under the .previous names as one unit; a process stopped
+# after the executable's rename and before the helper's leaves the old helper at the current
+# name, with no current executable and no .previous helper. Finish that rename first, so the
+# old pair is complete under the .previous names (M08-W1-F1).
+if (-not $exeOk -and (Kind $cur) -eq 'absent' -and (Kind $prev) -eq 'file' -and (Kind $curH) -eq 'dir' -and (Kind $prevH) -eq 'absent') {
+    [System.IO.Directory]::Move($curH, $prevH)
+    Say "finished an interrupted update: the previous pair is complete under the .previous names"
+}
+
+# M08-W1-F1. Two kinds of run, never mixed:
+#   update  the executable is not this version. The whole current pair moves to the
+#           .previous names as one unit (the older .previous pair is discarded first, as one
+#           unit), and a complete new pair is put in place: the helper is staged from the
+#           archive even when its bytes already match. So .previous always holds exactly the
+#           one pair that was in place.
+#   repair  the executable is this version and the helper is missing or different: the
+#           helper is replaced in place and .previous is left untouched.
+# W1-F1-BEGIN (the revert proof replaces this block with the half-pair rule it fixed)
+$update = -not $exeOk
+$stageExe = $update
+$stageHelper = ($update -or -not $helperOk) -and $wantHelper.Count -gt 0
+$replaceHelper = $update -or -not $helperOk
+# W1-F1-END
+if ($update -and (Kind $cur) -ne 'absent') { Say "updating: the current pair will be kept under the .previous names" }
+if (-not $update) { Say "the executable is this version but its helper is missing or different: repairing the helper in place (the .previous pair is not touched)" }
 Require-Stopped
+# Every directory this run will remove must hold only what this script put there; checked
+# before any write, so a removal never stops half-way.
+if ($update -and (Kind $cur) -ne 'absent' -and -not (Test-OwnedHelper $prevH)) {
+    Die "$prevH holds something this script did not put there. It was left as it is; remove or move it yourself and run this again. Nothing was changed."
+}
+if ($replaceHelper -and -not ($update -and (Kind $cur) -ne 'absent') -and -not (Test-OwnedHelper $curH)) {
+    Die "$curH holds something this script did not put there. It was left as it is; remove or move it yourself and run this again. Nothing was changed."
+}
 
 try {
-    # 1. Stage whichever half is not already this version, beside the old one.
-    if (-not $exeOk) { [System.IO.File]::Copy($srcExe, $new) }
-    if (-not $helperOk -and $wantHelper.Count -gt 0) {
+    # 1. Stage the new pair (or, for a repair, the helper) beside the old one.
+    if ($stageExe) { [System.IO.File]::Copy($srcExe, $new) }
+    if ($stageHelper) {
         [void][System.IO.Directory]::CreateDirectory($newH)
         foreach ($rel in $wantHelper.Keys) {
             $src = Join-Path $here $helperName; $dst = $newH
@@ -323,27 +410,31 @@ try {
     }
     if ($env:HM_INSTALL_TEST_STOP_AFTER -eq "1") { Say "stopped after 1 (test)"; exit 1 }
     # 2. Check the staged copies.
-    if (-not $exeOk -and (Sha $new) -ne $wantExe) { throw "the staged executable does not match the manifest" }
+    if ($stageExe -and (Sha $new) -ne $wantExe) { throw "the staged executable does not match the manifest" }
     if ($env:HM_INSTALL_TEST_STOP_AFTER -eq "2") { Say "stopped after 2 (test)"; exit 1 }
-    # 3. Rename the current halves aside (a running image can be renamed, not overwritten).
-    #    The older .previous copies are discarded first: they are about to be replaced.
-    if (-not $exeOk -and (Kind $cur) -ne 'absent') {
+    # 3. Move the current pair aside, as one unit (a running image can be renamed, not
+    #    overwritten). The older .previous pair is discarded first, helper then executable:
+    #    it is about to be replaced. With no current executable there is no pair in place:
+    #    .previous is left as it is, and a stray current helper is removed.
+    if ($update -and (Kind $cur) -ne 'absent') {
+        # ($replaceHelper is always true for an update; the conditions name the halves so
+        # the revert proof can take the pair rule out by its marker block alone.)
+        if ($replaceHelper) { Remove-OwnedHelper $prevH }
         if ((Kind $prev) -eq 'file') { [System.IO.File]::Delete($prev) }
         Move-Recorded $cur $prev "3a"
-    }
-    if (-not $helperOk -and (Kind $curH) -ne 'absent') {
-        Remove-OwnedHelper $prevH
-        Move-Recorded $curH $prevH "3b"
+        if ($replaceHelper -and (Kind $curH) -ne 'absent') { Move-Recorded $curH $prevH "3b" }
+    } elseif ($replaceHelper) {
+        Remove-OwnedHelper $curH
     }
     # 4. Put the staged halves in place.
-    if (-not $exeOk) { Move-Recorded $new $cur "4a" }
-    if (-not $helperOk -and $wantHelper.Count -gt 0) { Move-Recorded $newH $curH "4b" }
+    if ($stageExe) { Move-Recorded $new $cur "4a" }
+    if ($stageHelper) { Move-Recorded $newH $curH "4b" }
 } catch {
     $why = $_.Exception.Message
     Undo-Recorded
     if ((Kind $new) -eq 'file') { [System.IO.File]::Delete($new) }
     Remove-OwnedHelper $newH
-    Die "the update failed and was undone, executable and helper together (an older .previous copy, if there was one, had already been discarded): $why"
+    Die "the update failed and was undone, executable and helper together (an older .previous pair, if there was one, had already been discarded): $why"
 }
 
 Say "installed $cur"

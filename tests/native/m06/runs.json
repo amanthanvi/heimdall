@@ -1,0 +1,215 @@
+{
+  "$comment": "Configuration of the M06 native runs (m06-plan §3) for m06-evidence.py (tests/native/m02/m02-evidence.py with the M06 constants). TEMPLATE: no native run has happened yet, and no record exists. The native-run step sets build_commit, started_at, artifacts_root (one directory per build, e.g. tests/evidence/artifacts/m06/exit-<commit>), environment, artifact digests and commands, regenerates tests/native/m06/required-inventory.json at that commit (tests/native/m06/refresh-inventory.sh: with fresh Linux and Windows scans, which add the platform-only tests the build host cannot list), and only then runs --write. Every logs, commands_logs and facts path below is relative to artifacts_root; a missing file stops the generator before anything is written. A platform that did not run gets \"unavailable\": \"<the exact missing platform or input>\" (its rows are then blocked on it); a platform that could not build the iroh-feature targets needs nothing here: its host.txt carries feature-blocked-<target> facts and the generator blocks those rows on them.",
+  "case_index": "tests/native/m06/case-index.json",
+  "required_inventory": "tests/native/m06/required-inventory.json",
+  "summary_out": "tests/evidence/artifacts/m06/exit-PENDING/case-summary.json",
+  "artifacts_root": "tests/evidence/artifacts/m06/exit-PENDING",
+  "build_commit": null,
+  "artifact_digest": null,
+  "started_at": null,
+  "environment": {},
+  "commands": [
+    "tests/native/m06/refresh-inventory.sh (regenerates tests/native/m06/required-inventory.json at the exit commit, with the Linux scan including the iroh-feature targets and the Windows scan)",
+    "tests/native/m06/run-macos.sh <artifacts_root> (check.sh: every workspace test, the observation pass, then the iroh-feature targets with --show-output)",
+    "tests/native/m06/run-linux.sh <artifacts_root>/linux <linuxhost> (the workspace test binaries and the iroh-feature targets, cross-built and run natively)",
+    "tests/native/m06/run-crosshost.sh <artifacts_root>/runner-crosshost <linuxhost> (the cross-host journey: the Mac as controller, the devbox as runner; builds both sides, or takes HM_XH_* prebuilt inputs)",
+    "on the PC, by a T3 agent at Medium integrity: pwsh -NoProfile -File tests/native/m06/run-windows-local.ps1 -Commit <exit commit> -ScratchRoot <scratch root>; then on the build host: python3 -I tests/native/m02/import-windows-bundle.py --bundle <report> --label <artifacts_root name> --commit <exit commit> --artifacts-root tests/evidence/artifacts/m06 --config <artifacts_root>/runs.json",
+    "python3 -I tests/native/m06/m06-evidence.py --config <artifacts_root>/runs.json --write",
+    "python3 -I tools/validation/validate-records.py"
+  ],
+  "evidence_paths": [
+    "tests/native/m06/case-index.json",
+    "tests/native/m06/runs.json",
+    "tests/native/m06/required-inventory.json",
+    "tests/native/m06/m06-evidence.py",
+    "tests/native/m06/refresh-inventory.sh",
+    "tests/native/m06/run-macos.sh",
+    "tests/native/m06/run-linux.sh",
+    "tests/native/m06/run-windows-local.ps1",
+    "tests/native/m06/run-crosshost.sh",
+    "tests/native/m06/crosshost-runner.sh",
+    "tests/native/m06/crosshost-tool.py",
+    "tests/native/m06/windows-controller-runner.sh",
+    "tests/native/m06/selftest.sh",
+    "tests/native/m05/m05-evidence.py",
+    "tests/native/m02/run-macos.sh",
+    "tests/native/m02/run-linux.sh",
+    "tests/native/m02/run-windows-local.ps1",
+    "tests/native/m02/import-windows-bundle.py",
+    "tests/native/m02/lib.sh",
+    "tests/native/m02/remote-lib.sh",
+    "tests/native/m02/platform-tests.py",
+    "tests/native/m02/refresh-inventory.sh",
+    "tests/native/m02/m02-evidence.py"
+  ],
+  "common_limitations": [
+    "Status discipline (m06-plan §3, M01 rule E15): verified rows mean the required tests ran and passed on that platform in this run; not an independent review of the units. The lowest-row rule applies: a blocked owner-input row (m06-plan §7) keeps its record blocked, a container, persistence or capture row without a run keeps it not_started, and no claim is widened to cover either.",
+    "Linux binaries are cross-built on the macOS host with zig and run natively on the devbox; Windows binaries are built and run natively on the PC. Tests that read the repository at its compile-time path read it through HM_REPO_ROOT, which the harnesses set.",
+    "The iroh-feature targets come from a second, feature-enabled build of their packages on each platform and run against that build's own heimdall; every other target runs against the default-feature build. A platform that could not build them has those rows blocked with cargo's exit code and first error.",
+    "Single-host journeys: on each platform the exit journeys run the controller, the runner and the fixture sshds on one host under one OS user with scratch homes. The devbox as a separate runner host, the Windows controller against a remote runner, the containers and the lifecycle rows are separate rows, blocked or not started until their own runs exist.",
+    "Iroh in these rows is loopback only: no public relay, no non-loopback listener, no real NAT.",
+    "Proptest regression files resolve at compile-time source paths: persisted regression seeds replay on macOS only; the fixed default seeds run everywhere.",
+    "Every fixture is disposable: per-run keys, the loopback fixture sshd, disposable ssh-agents with a scratch HOME, scratch configuration and Heimdall homes; the owners' keys, agents, keychains, ~/.ssh and Git configuration are never test material.",
+    "The cross-host journey (platform runner-crosshost): the controller's K_mgmt and K_iroh are the debug build's fixture stores, never a platform store; the controller's and the runner's fixture state (the verified enrollment, the profiles, the issuer on the scratch store, the runner's standing policy) is seeded as in the Windows controller journey; pairing, invitation, join, approval, issuance, narrowing and status are the product CLI. Its \"no silent controller socket\" row rests on what the account can read (the fixture sshd's own log, the port's connection table, the product's reports): the runtime is non-dumpable, so its descriptor table is not read."
+  ],
+  "platforms": {
+    "macos": {
+      "label": "macos-arm64 (build host, controller)",
+      "logs": [
+        "macos/check.txt",
+        "macos/observations.txt",
+        "macos/features.txt"
+      ],
+      "commands_logs": [
+        "macos/commands.txt"
+      ],
+      "facts": [
+        "macos/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "linux": {
+      "label": "linux-x86_64 (devbox, the runner; headless)",
+      "logs": [
+        "linux/tests.txt"
+      ],
+      "commands_logs": [
+        "linux/commands.txt"
+      ],
+      "facts": [
+        "linux/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "windows": {
+      "label": "windows-11-x86_64 (controller)",
+      "logs": [
+        "windows/tests.txt"
+      ],
+      "commands_logs": [
+        "windows/commands.txt"
+      ],
+      "facts": [
+        "windows/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "windows-controller": {
+      "label": "windows-11-x86_64 (controller journey: heimdall.exe, DPAPI K_mgmt, named-pipe session agent, in-box OpenSSH; fixture Linux runner in a scratch directory of the existing WSL distribution)",
+      "logs": [
+        "windows-controller/tests.txt"
+      ],
+      "commands_logs": [],
+      "facts": [
+        "windows-controller/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "runner-crosshost": {
+      "label": "macos-arm64 controller + linux-x86_64 runner on another host (the devbox): the cross-host journey, product CLI on both, management through an ssh forward to a fixture sshd on the runner's loopback",
+      "logs": [
+        "runner-crosshost/tests.txt"
+      ],
+      "commands_logs": [
+        "runner-crosshost/commands.txt"
+      ],
+      "facts": [
+        "runner-crosshost/host.txt"
+      ],
+      "artifact_digest": null
+    }
+  },
+  "extra_rows": {},
+  "records": {
+    "A24": {
+      "case_id": "A24",
+      "path": "tests/evidence/m06-a24-runner-without-controller.json",
+      "requirement_ids": [
+        "R-EN-05",
+        "R-AU-08"
+      ],
+      "summary": "A paired remote Linux runner continues approved onward SSH while the controller is gone: readiness with its earliest bound, conditions and residuals; new onward SSH to a managed pair and a fixed pair; managed access fails at the predicted bound once the issuer is stopped and the route blocked; a forwarded agent is never inherited; no silent controller socket (R-EN-05, R-AU-08).",
+      "limitations": [
+        "Blocked: the arm64 runner row and the runner lifecycle rows (m06-plan §7).",
+        "The Windows controller row needs the runner on another host (the runner is Unix-only in V1)."
+      ]
+    },
+    "A25": {
+      "case_id": "A25",
+      "path": "tests/evidence/m06-a25-roles-invitations.json",
+      "requirement_ids": [
+        "R-EN-08",
+        "R-SE-06"
+      ],
+      "summary": "Paired management roles are authenticated and bounded: limited clients cannot widen or reach a shell, PTY or forwarding; limited roles need a verified sshd policy; invitations cannot be replayed, delayed or rolled back; request IDs of two clients stay separate; widening is confirmed runner-locally; replaced keys are refused with no reset; version and capability mismatches are explicit (R-EN-08, R-SE-06).",
+      "limitations": [
+        "Blocked: the arm64 runner row; limited roles on a runner whose default sshd policy fails a check (owner-only there).",
+        "Not started until its own run exists: the limited management client in a container."
+      ]
+    },
+    "A26": {
+      "case_id": "A26",
+      "path": "tests/evidence/m06-a26-iroh-routes-trust.json",
+      "requirement_ids": [
+        "R-SS-05",
+        "R-SS-07",
+        "R-SS-08",
+        "R-SE-04",
+        "R-DI-07"
+      ],
+      "summary": "Direct, jump and Iroh routes to one destination with host trust unchanged: failover only before the identification string, exposure bounded by the approved policy, revocation applied only after the live connection closes, host pins never defeated, removal leaves nothing (R-SS-05, R-SS-07, R-SS-08, R-SE-04, R-DI-07).",
+      "limitations": [
+        "Loopback Iroh only in the cargo rows. Not started until their own runs exist: the container mechanism rows and traffic capture, the verified-store persistence journey, the n0-public capture row.",
+        "Blocked: Windows steps that may bind a non-loopback address (the owner at the console). Deferred (m06-plan §5): a direct path across real NATs."
+      ]
+    },
+    "T06": {
+      "case_id": "M06-T06",
+      "path": "tests/evidence/m06-t06-second-controller.json",
+      "requirement_ids": [
+        "R-EN-08",
+        "R-SE-06",
+        "R-EN-05"
+      ],
+      "summary": "Control from a second enrolled controller while the first is gone: typed narrowing from either owner, issuance only for the issuing controller's own grants on destinations that trust its CA, and explicit refusals for a wrong role, an invitation replay, a route substitution, an untrusted issuer and a renewal without an issuer.",
+      "limitations": [
+        "Blocked: the arm64 runner row.",
+        "The Windows controller row needs the runner on another host (the runner is Unix-only in V1)."
+      ]
+    },
+    "A07": {
+      "case_id": "A07",
+      "path": "tests/evidence/m06-a07-runner-disconnected.json",
+      "requirement_ids": [
+        "R-AU-04",
+        "R-RT-02",
+        "R-SE-07"
+      ],
+      "summary": "The A07 runner rows: revoke, pause and cutoff while the runner is disconnected, with typed effects and per-component residuals; reconnecting with uncertain time still narrows; the issuer's barrier; namespaced acknowledgements; no stale reactivation; a fresh work ID is refused after a reconciled cutoff (R-AU-04, R-RT-02, R-SE-07).",
+      "limitations": [
+        "The runner rows of A07 only; the local rows are earlier milestones' records.",
+        "Blocked: the arm64 runner row."
+      ]
+    },
+    "M06 exit cases (m06-plan §3)": {
+      "case_id": "m06-exit-claims",
+      "path": "tests/evidence/m06-exit-claims.json",
+      "requirement_ids": [
+        "R-AU-04",
+        "R-AU-08",
+        "R-DI-07",
+        "R-EN-05",
+        "R-EN-08",
+        "R-RT-02",
+        "R-SE-04",
+        "R-SE-06",
+        "R-SE-07",
+        "R-SS-05",
+        "R-SS-07",
+        "R-SS-08"
+      ],
+      "summary": "m06-plan §3: every M06 exit case per platform, all rows from one build. Blocked while any owner-input row of m06-plan §7 is blocked; never verified while a container, persistence or capture row has no run (the lowest-row rule).",
+      "limitations": []
+    }
+  }
+}

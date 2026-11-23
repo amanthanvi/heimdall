@@ -883,13 +883,36 @@ pub(crate) mod windows {
         }
         // SAFETY: CreateFileW succeeded; the handle is owned here alone.
         let handle = unsafe { OwnedHandle::from_raw_handle(raw as RawHandle) };
+        let sddl = handle_dacl(handle.as_raw_handle(), SE_FILE_OBJECT);
+        drop(handle);
+        sddl
+    }
+
+    /// ⟨M06 W5⟩ The DACL of the named pipe behind the open `handle` (either end) as SDDL,
+    /// for the K_mgmt session agent's tests. The handle must stay open for the call.
+    ///
+    /// # Errors
+    /// The OS error.
+    #[cfg(test)]
+    pub(crate) fn pipe_handle_dacl_sddl(handle: RawHandle) -> io::Result<String> {
+        handle_dacl(
+            handle,
+            windows_sys::Win32::Security::Authorization::SE_KERNEL_OBJECT,
+        )
+    }
+
+    /// The DACL of the object behind `handle`, which the caller keeps open for the call.
+    fn handle_dacl(
+        handle: RawHandle,
+        object_type: windows_sys::Win32::Security::Authorization::SE_OBJECT_TYPE,
+    ) -> io::Result<String> {
         let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
-        // SAFETY: the handle is open for the call; only the DACL is requested and the
-        // descriptor out-pointer is valid.
+        // SAFETY: the caller keeps the handle open for the call; only the DACL is
+        // requested and the descriptor out-pointer is valid.
         let rc = unsafe {
             GetSecurityInfo(
-                handle.as_raw_handle() as HANDLE,
-                SE_FILE_OBJECT,
+                handle as HANDLE,
+                object_type,
                 DACL_SECURITY_INFORMATION,
                 ptr::null_mut(),
                 ptr::null_mut(),
@@ -923,7 +946,6 @@ pub(crate) mod windows {
         let sddl = wide_to_string(text, 4096);
         drop(alloc);
         drop(descriptor);
-        drop(handle);
         sddl
     }
 }

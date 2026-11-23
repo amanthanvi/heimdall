@@ -1,0 +1,487 @@
+{
+  "description": "M06-U7 case index (m06-plan §3 \"Exit mapping\"): every M06 exit case mapped to its Cargo test targets and tests, per platform, in the M02 format (tests/native/m02/case-index.json description; read by tests/native/m06/m06-evidence.py, which is m02-evidence.py with the M06 constants, as m05-evidence.py is for M05). Patterns resolve into required-inventory.json from the build host's sources, never from run logs. Platform names (m06-plan §3): linux is the devbox (\"the runner\"), macos and windows are the controllers. The exit journeys are the tests of e2e_exit_m06 and e2e_exit_m06_iroh; the latter and integration_transport_supervise_m06 have required-features = [\"iroh\"] and are built by the harnesses' feature build (HM_FEATURE=iroh), and a platform that cannot build them gets a blocked row with the exact reason (m06-evidence.py). Rows this harness cannot run are blocked_rows: owner inputs of m06-plan §7 are blocked with the input named, the container and capture rows of §3 are not_started until their own runs exist, and §5's deferred items are deferred_with_decision. ⟨M06 W5g⟩ The cross-machine \"Runner\" rows of m06-plan §3 are the scenario crosshost-journey on the scenario platform runner-crosshost (tests/native/m06/run-crosshost.sh: the Mac as controller, the devbox as runner, the management sshd reached through an ssh forward); a case that names it requires its own steps there, and a platform without that run is blocked or in_progress, never inherited from a single-host run. G06 and G07 closure rows are hand-written gate records that cite these cases; they are not groups here.",
+  "build_host": "macos",
+  "observation_targets": [
+    "e2e_exit_m06"
+  ],
+  "platforms": {
+    "macos": {
+      "runs": "cargo"
+    },
+    "linux": {
+      "runs": "cargo"
+    },
+    "windows": {
+      "runs": "cargo"
+    },
+    "windows-controller": {
+      "runs": "scenario"
+    },
+    "runner-crosshost": {
+      "runs": "scenario"
+    }
+  },
+  "build_host_paths": {
+    "heimdall_testkit-unit::repo::tests::unset_or_empty_is_the_compile_time_root": {
+      "neutral": true,
+      "reason": "asserts that the compile-time repository root (the build host's checkout) holds Cargo.toml and schemas/, which exists only where the binary was built; the HM_REPO_ROOT resolution it covers is platform-neutral and its sibling tests run everywhere"
+    }
+  },
+  "platform_only": {
+    "e2e_environment_runner_m06": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#![cfg(unix)] (tests/e2e/environment_runner_m06.rs): every journey starts the runner runtime and an unprivileged fixture sshd on the same host, and the runner is Unix-only in V1 (m06-plan §5: a managed Windows remote runner is later); the Windows rows are the controller's, with the runner on another host"
+    },
+    "integration_controller_driver_m06::a_remotely_issued_grants_binding_lists_the_runners_k_env_identity_only": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/integration/controller_driver_m06.rs): the test materializes a runner grant's binding and reads its agent endpoint, a Unix socket in a scratch slot directory; the runner signer and its binding endpoints exist only on Unix (m06-plan §5: a managed Windows remote runner is later)"
+    },
+    "integration_runner_runtime_m06::a_runner_grants_binding_endpoint_lists_its_k_env_identity_only": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/integration/runner_runtime_m06.rs): a real agent client lists the runner grant's binding endpoint on its Unix socket; the runner runtime and its binding endpoints exist only on Unix (m06-plan §5: a managed Windows remote runner is later)"
+    },
+    "integration_runner_runtime_m06::a24_a_controller_dependent_signer_behind_an_ordinary_local_path_is_unknown": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/integration/runner_runtime_m06.rs): the A24 dependency row binds a Unix-socket signer at an ordinary local path and compares it with one inherited from the management session; that is the runner's environment, and the runner is Unix-only in V1 (m06-plan §5)"
+    },
+    "integration_remote_runtime_m06::the_runner_marker_decides_what_a_started_runtime_serves": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/integration/remote_runtime_m06.rs): it starts a real runtime marked by init_runner and speaks to its control socket as a paired client; a runner installation exists only on Unix (m06-plan §5), and the same session over the named-pipe transport is covered by the role-table tests that run everywhere"
+    },
+    "integration_transport_supervise_m06::the_runtime_killed_mid_revocation_orphan_exits_and_closure_is_replayed": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] in the target's own main() (tests/integration/transport_supervise_m06.rs): the fault row kills the supervising runtime process by signal and checks the orphaned serve child by PID; the Windows inventory scan does not build this iroh-feature target, so the exclusion is recorded here from the source"
+    },
+    "integration_remote_env_mgmt_m06": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#![cfg(unix)] (tests/integration/remote_env_mgmt_m06.rs): the management adapter is driven against an unprivileged fixture sshd started in the test process through Unix-only fixtures (a logging ssh wrapper script, Unix file modes on the scratch keys); native Windows has no such fixture sshd in process"
+    },
+    "e2e_exit_m06": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#![cfg(unix)] (tests/e2e/exit_m06.rs): each journey starts the runner runtime and unprivileged fixture sshds on the same host, and the runner is Unix-only in V1 (m06-plan §5); the Windows controller's rows are the windows-controller-journey scenario"
+    }
+  },
+  "macro_tests": {},
+  "child_entries": {},
+  "scenario_targets": {
+    "windows-controller-journey": {
+      "platforms": [
+        "windows-controller"
+      ],
+      "source": "tests/native/m06/run-windows-controller.ps1 (a Windows controller driving a fixture Linux runner in one scratch directory of the PC's existing WSL distribution through the product CLI; ADR-0012 §2.6, m06-plan §3 \"Windows controller rows\")",
+      "steps": {
+        "a24_pair": "pair: `environment add` on a pseudoconsole (the bootstrap session confirmed at the runner; the repair pass with the runner serving); K_mgmt in the DPAPI store under the scratch home; the session agent on its named pipe",
+        "a24_approve": "approve: the controller owner's forwarded `access ensure --environment`, admitted by the runner's standing policy and issued by the controller's issuer child",
+        "a07_issued": "issued: the grant in use on the runner; the binding lists one certificate signed by the controller's CA; onward ssh to the fixture destination succeeds",
+        "a07_disconnected": "disconnected: the management sshd stopped and the controller restarted; not connected, issuance awaiting resync",
+        "a07_revoke_pending": "revoke-pending: the owner's revoke while disconnected is one typed pending effect with its residual; the runner still serves the grant",
+        "a07_reconnect": "reconnect: the effect is delivered and acknowledged; the runner's endpoint lists nothing and an onward login is refused",
+        "a07_barrier": "barrier: issuance is open again only after the resynchronization",
+        "a24_controller_leaves": "controller-leaves: the controller runtime and its issuer child stopped, the management route blocked",
+        "a24_onward_managed": "onward-managed: a new onward ssh from the runner succeeds with the controller stopped",
+        "a24_no_controller_socket": "no-controller-socket: the binding's endpoint is under the runner's own home; the runner runtime is not a child of an sshd session"
+      }
+    },
+    "crosshost-journey": {
+      "platforms": [
+        "runner-crosshost"
+      ],
+      "source": "tests/native/m06/run-crosshost.sh (the Mac as controller, the devbox as runner: the product CLI on both, the management sshd an unprivileged fixture on the runner host's loopback reached through an ssh forward over the owner's alias; m06-plan §3 \"Runner\" rows, §4 \"Paired remote Linux runner\")",
+      "steps": {
+        "a24_pair": "pair: `environment add` on a pseudo-terminal on the Mac, its bootstrap ssh session through the forward, confirmed at the runner; the runner runtime started explicitly before the command's repair pass; K_mgmt in the debug build's fixture file store (never the login keychain)",
+        "a24_approve": "approve: the controller owner's forwarded `access ensure --environment`, admitted by the runner's standing policy and issued by the controller's issuer child",
+        "a24_readiness": "readiness: the answer's bound within the grant's deadline, the refresh dependency `controller`; the controller's status `within_bound`; the runner's own local request attaches to the same grant and names the same dependency",
+        "a24_work_clean_launch": "work-clean-launch: runner work through the real `heimdall run`, launched from a real ssh session from the controller host that forwards a disposable fixture agent: the clean allow-list only, the work's agent is its binding's endpoint, the forwarded agent is named controller_dependency and not inherited",
+        "a24_controller_leaves": "controller-leaves: the controller runtime and its issuer child stopped (their PIDs gone), the forward closed (its PID gone), nothing listening on the controller host's port",
+        "a24_onward_managed": "onward-managed: a new onward ssh from the runner to the fixture destination succeeds with the controller gone",
+        "a24_no_controller_socket": "no-controller-socket: the \"No silent controller socket\" row (the orchestrator's ruling), satisfied only if all three hold, shown in this order: (a) the controller fully gone, its runtime stopped and its `ssh -L` forward closed, each by its exact PID after that PID's identity was checked (start time and command), BEFORE the runner's onward ssh succeeded; (b) at that moment the runner host's connection table has no established connection from the controller host (the harness's own observation channel is counted apart) and none on the port the forward led to; (c) the fixture management sshd's log shows no connection and no management session during the window. Also: the binding's endpoint is under the runner's own home, the runner runtime is not a child of an sshd session, the controller host has no process of this controller. The runner runtime's descriptor table could not be read by its account (a non-dumpable process), which the line says. The other half of the row is the clean-launch exact-set test, heimdall_runtime-unit runner::launch::tests::a_real_child_gets_exactly_the_pass_list_and_never_the_parents_agent (no SSH_AUTH_SOCK of a parent reaches runner work), with the step a24_work_clean_launch, which runs before the controller leaves and says controller=running",
+        "a24_bound": "bound: at the predicted bound, with no controller, the onward login is refused and the controller's status reports `bound_passed`",
+        "a07_pair": "pair: as a24_pair, the A07 journey's own runner installation and controller home",
+        "a07_issued": "issued: the grant in use on the runner; one certificate signed by the controller's CA; onward ssh succeeds",
+        "a07_disconnected": "disconnected: the forward closed and the controller restarted; not connected, issuance awaiting resync",
+        "a07_revoke_pending": "revoke-pending: the owner's revoke while disconnected is one typed pending effect with its residual; the runner still serves the grant",
+        "a07_reconnect": "reconnect: the forward reopened; the effect is delivered and acknowledged; the runner's endpoint lists nothing and an onward login is refused",
+        "a07_barrier": "barrier: issuance is open again only after the resynchronization",
+        "a07_no_stale_reactivation": "no-stale-reactivation: the request that created the revoked grant, sent again, does not bring it back",
+        "a07_pause_pending": "pause-pending: disconnected again, the owner's pause of the runner's policy is one typed pending effect",
+        "a07_cutoff_pending": "cutoff-pending: the owner's cutoff is a second typed pending effect; neither is applied on the runner while disconnected",
+        "a07_uncertain_time": "uncertain-time: the runner restarted with an unsynchronized clock before the forward comes back; the reconnect still delivers both narrowings and they apply",
+        "a07_fresh_work_refused": "fresh-work-refused: a fresh work ID after the reconciled pause and cutoff is refused; nothing is issued",
+        "t06_pair": "pair: as a24_pair, the T06 journey's own runner installation and first controller home",
+        "t06_first_grant": "first-grant: the first controller's grant on the runner, issued under its CA",
+        "t06_second_owner": "second-owner: a second controller home on the Mac shows its key (`environment join --show-key`), is invited by the first owner (`environment invite` on a terminal), approved by the runner's local owner (`decision approve` on the runner's terminal) and joins with its own key (`environment join` on a terminal): the product CLI throughout",
+        "t06_first_controller_gone": "first-controller-gone: the first controller's runtime stopped for the rest",
+        "t06_narrowing": "narrowing: the second controller's revoke of the first controller's grant is applied on the runner and acknowledged to the second",
+        "t06_untrusted_issuer": "untrusted-issuer: the second controller's request under its own CA is refused `issuer_untrusted`; the first CA's trust does not carry over",
+        "t06_own_grant": "own-grant: once the runner's local owner trusts the second CA for the second client (`remote issuer-trust add` on the runner's terminal), the second controller's request is issued under its own CA",
+        "t06_destination_trust": "destination-trust: that certificate logs in only once the destination trusts the second CA",
+        "a25_pair": "pair: as a24_pair, the A25 journey's own runner installation and owner controller home",
+        "a25_sshd_policy_verified": "sshd-policy-verified: the runner host's own sshd binary, `sshd -T -f <fixture config> -h <scratch key> -C ...`, exits 0 and reports no agent or TCP forwarding, no `AcceptEnv *`, no ForceCommand and no AuthorizedKeysCommand",
+        "a25_limited_after_verification": "limited-after-verification: on that verified runner a viewer is invited, approved at the runner and joins from its own controller home through the product CLI; its record's role is viewer",
+        "a25_sshd_policy_unverified": "sshd-policy-unverified: three more runner installations, each paired by its own owner controller, whose policy check reads the management configuration plus an AuthorizedKeysCommand, a ForceCommand or `AcceptEnv *` from its first start: a viewer's invitation is refused `management_sshd_unverified` at the runner-local approval on each, and the owner's own record stays"
+      }
+    }
+  },
+  "groups": {
+    "A24": {
+      "title": "A24: a paired remote Linux runner continues approved onward SSH without the controller: pair, approve, readiness (earliest bound, conditions, residuals); the controller leaves; new onward SSH to a managed pair and a fixed pair; the issuer is stopped and the route blocked; managed access fails at the predicted bound; a forwarded agent is never inherited; a controller-dependent signer at an ordinary path is reported unknown; no silent controller socket (R-EN-05, R-AU-08)",
+      "requirement_ids": [
+        "R-EN-05",
+        "R-AU-08"
+      ],
+      "declared_platforms": [
+        "linux",
+        "macos",
+        "windows",
+        "windows-controller",
+        "runner-crosshost"
+      ],
+      "platform_required": {
+        "windows-controller": {
+          "windows-controller-journey": [
+            "a24_pair",
+            "a24_approve",
+            "a07_issued",
+            "a07_disconnected",
+            "a07_revoke_pending",
+            "a07_reconnect",
+            "a07_barrier",
+            "a24_controller_leaves",
+            "a24_onward_managed",
+            "a24_no_controller_socket"
+          ]
+        },
+        "runner-crosshost": {
+          "crosshost-journey": [
+            "a24_pair",
+            "a24_approve",
+            "a24_readiness",
+            "a24_work_clean_launch",
+            "a24_controller_leaves",
+            "a24_onward_managed",
+            "a24_no_controller_socket",
+            "a24_bound"
+          ]
+        }
+      },
+      "platform_required_note": "m06-plan §3 names Windows as a controller of this row (ADR-0012 §2.6, the 2026-11-22 paragraph). The runner is Unix-only in V1 (m06-plan §5), so the Windows controller's evidence is the journey of tests/native/m06/run-windows-controller.ps1 (platform windows-controller, scenario windows-controller-journey): the listed steps must pass there; until that run exists and passes the row is in_progress, never inherited from macOS. The e2e_exit_m06 tests are #![cfg(unix)] and hold no test on Windows",
+      "no_silent_controller_socket_note": "The row has two halves. (1) The cross-host step a24_no_controller_socket (tests/native/m06/run-crosshost.sh), satisfied only if its three parts hold in order: the controller gone by exact identity-checked PIDs before the onward login; no established connection from the controller host or on the forward's port at that moment; no management session in the fixture sshd's log during the window. (2) The clean-launch exact-set test heimdall_runtime-unit runner::launch::tests::a_real_child_gets_exactly_the_pass_list_and_never_the_parents_agent: a real child launched by the runner receives exactly the declared pass-list and never the parent's SSH_AUTH_SOCK. The runner runtime's own descriptor table is not readable by its account (non-dumpable), so (1) and (2) together stand in for reading it",
+      "crosshost_note": "m06-plan §3 names the runner (the devbox, a host of its own) as a platform of this row. On one host the controller and the runner are two scratch homes of one account, so the cross-machine evidence is the journey of tests/native/m06/run-crosshost.sh (platform runner-crosshost, scenario crosshost-journey): the listed steps must pass there; until that run exists and passes the row is in_progress or blocked on it, never inherited from the single-host suite",
+      "tests": {
+        "e2e_exit_m06": [
+          "a24_runner_without_controller"
+        ],
+        "e2e_environment_runner_m06": "*",
+        "integration_runner_runtime_m06": "*",
+        "heimdall_runtime-unit": [
+          "runner::launch::tests::a_real_child_gets_exactly_the_pass_list_and_never_the_parents_agent"
+        ],
+        "integration_controller_driver_m06": "*",
+        "integration_issuer_remote_m06": "*",
+        "windows-controller-journey": [
+          "a24_pair",
+          "a24_approve",
+          "a07_issued",
+          "a07_disconnected",
+          "a07_revoke_pending",
+          "a07_reconnect",
+          "a07_barrier",
+          "a24_controller_leaves",
+          "a24_onward_managed",
+          "a24_no_controller_socket"
+        ],
+        "crosshost-journey": [
+          "a24_pair",
+          "a24_approve",
+          "a24_readiness",
+          "a24_work_clean_launch",
+          "a24_controller_leaves",
+          "a24_onward_managed",
+          "a24_no_controller_socket",
+          "a24_bound"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "linux-arm64 runner row",
+          "status": "blocked",
+          "blocked_on": "a native linux-arm64 host for the arm64 runner row (m06-plan §7)"
+        },
+        {
+          "platform": "the runner lifecycle rows (no linger, KillUserProcesses=yes, reboot)",
+          "status": "blocked",
+          "blocked_on": "a disposable Linux lifecycle environment where linger and logind settings can be changed and which can be rebooted (m06-plan §7)"
+        }
+      ]
+    },
+    "A25": {
+      "title": "A25: paired management roles are authenticated and bounded: a limited client cannot widen or get a shell, PTY or forwarding; limited roles only after the sshd policy is verified; invitations (pending keys, expired, consumed, wrong key, delayed join, wall-clock rollback, crash recovery); request-ID collisions stay separate; runner-local widening only; a replaced endpoint key or host key is refused with no reset; old client and missing capability are refused explicitly (R-EN-08, R-SE-06)",
+      "requirement_ids": [
+        "R-EN-08",
+        "R-SE-06"
+      ],
+      "declared_platforms": [
+        "linux",
+        "macos",
+        "windows",
+        "runner-crosshost"
+      ],
+      "platform_required": {
+        "runner-crosshost": {
+          "crosshost-journey": [
+            "a25_pair",
+            "a25_sshd_policy_verified",
+            "a25_limited_after_verification",
+            "a25_sshd_policy_unverified"
+          ]
+        }
+      },
+      "crosshost_note": "m06-plan §3 names the runner (the devbox, a host of its own) as a platform of this row. On one host the controller and the runner are two scratch homes of one account, so the cross-machine evidence is the journey of tests/native/m06/run-crosshost.sh (platform runner-crosshost, scenario crosshost-journey): the listed steps must pass there; until that run exists and passes the row is in_progress or blocked on it, never inherited from the single-host suite",
+      "tests": {
+        "e2e_exit_m06": [
+          "a25_roles_invitations_decisions"
+        ],
+        "model_remote_roles": "*",
+        "integration_remote_env_mgmt_m06": "*",
+        "integration_paired_scope_m06": "*",
+        "integration_remote_runtime_m06": "*",
+        "e2e_environment_cli_m06": "*",
+        "integration_runner_effects_m06": [
+          "a_changed_host_key_gives_held_with_no_reset"
+        ],
+        "crosshost-journey": [
+          "a25_pair",
+          "a25_sshd_policy_verified",
+          "a25_limited_after_verification",
+          "a25_sshd_policy_unverified"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "linux-arm64 runner row",
+          "status": "blocked",
+          "blocked_on": "a native linux-arm64 host for the arm64 runner row (m06-plan §7)"
+        },
+        {
+          "platform": "containers (Docker on the Mac, linux-arm64): the limited management client",
+          "status": "not_started",
+          "not_configured": "m06-plan §3 and §4 declare this row (a Linux container running the product client with its own K_mgmt, invited as viewer or requester); it is a container fixture run with its own artifacts, not a row of the cargo harnesses, and no such run is configured"
+        },
+        {
+          "platform": "limited roles on a runner whose account default sshd policy fails a check",
+          "status": "blocked",
+          "blocked_on": "an operator-installed sshd drop-in on that host, which needs root: the owner's input for that host (m06-plan §7); without it that runner is owner-only"
+        }
+      ]
+    },
+    "A26": {
+      "title": "A26: direct, jump and Iroh routes to one destination with trust unchanged: Iroh direct and private-relay paths; serve restart and persistent endpoint identity; failover only before the identification string; unapproved hints and relays refused; exposure widening needs a local decision; revocation applied only after the live Iroh connection closes, replayed after a crash; host_pin_defeated combinations and two-hop substitution refused; a wrong host fails on every route; removal leaves nothing; a killed session is reported lost (R-SS-05, R-SS-07, R-SS-08, R-SE-04, R-DI-07)",
+      "requirement_ids": [
+        "R-SS-05",
+        "R-SS-07",
+        "R-SS-08",
+        "R-SE-04",
+        "R-DI-07"
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "tests": {
+        "e2e_exit_m06_iroh": [
+          "a26_iroh_routes_trust"
+        ],
+        "integration_transport_supervise_m06": "*",
+        "integration_route_m06": "*",
+        "integration_route_enroll_m06": "*",
+        "heimdall_transport_iroh-unit": "*"
+      },
+      "blocked_rows": [
+        {
+          "platform": "containers (Docker on the Mac): the Iroh direct and private-relay mechanism rows and the profile's own traffic capture",
+          "status": "not_started",
+          "not_configured": "m06-plan §3 and §4 declare these rows (internal Docker networks with a private iroh-relay --dev; fixture-store runs are mechanism evidence, never product persistence); they are container fixture runs with their own artifacts, not rows of the cargo harnesses, and no such run is configured"
+        },
+        {
+          "platform": "the endpoint persistence and restart journey with verified stores (macOS Keychain dialer, a verified-store server; the devbox as SSH target, relay host and the expected no-store refusal)",
+          "status": "not_started",
+          "not_configured": "m06-plan §3 declares this row; it is a cross-host procedure with product stores, not a row of the cargo harnesses, and no such run is configured"
+        },
+        {
+          "platform": "containers (internet): the n0-public capture row",
+          "status": "not_started",
+          "not_configured": "m06-plan §1 U56 and §3: the one authorized bounded capture (one container, at most 5 minutes, ephemeral keys, an allowlist, an echo target, no sshd), recorded in tests/evidence/m06-n0-public-capture.json; n0-public stays outside V1 unless it runs"
+        },
+        {
+          "platform": "Windows steps that may bind a non-loopback address (G06 §8 W4)",
+          "status": "blocked",
+          "blocked_on": "the owner at the Windows console to watch for, and decline, a firewall prompt (m06-plan §7)"
+        },
+        {
+          "platform": "an Iroh direct path across real NATs",
+          "status": "deferred_with_decision",
+          "decision": "m06-plan §5: deferred; it needs authorization for one public UDP endpoint with an allowlist (m06-plan §7)"
+        }
+      ]
+    },
+    "T06": {
+      "title": "T06: control from a second enrolled controller while the first is gone: the second delivers any typed narrowing effect; issuance only for its own grants, on destinations that trust its CA; wrong role, invitation replay, route substitution and an untrusted issuer are refused; renewal without an issuer gives CAPABILITY_UNAVAILABLE (M06-T06; ADR-0012 §8)",
+      "requirement_ids": [
+        "R-EN-08",
+        "R-SE-06",
+        "R-EN-05"
+      ],
+      "declared_platforms": [
+        "linux",
+        "macos",
+        "windows",
+        "runner-crosshost"
+      ],
+      "platform_required": {
+        "runner-crosshost": {
+          "crosshost-journey": [
+            "t06_pair",
+            "t06_first_grant",
+            "t06_second_owner",
+            "t06_first_controller_gone",
+            "t06_narrowing",
+            "t06_untrusted_issuer",
+            "t06_own_grant",
+            "t06_destination_trust"
+          ]
+        }
+      },
+      "windows_controller_note": "m06-plan §3 \"Windows controller rows\" (ADR-0012 §2.6, the 2026-11-22 paragraph): T06 on Windows is blocked on owner input B2, a second Windows account for the second controller. The Windows controller journey (tests/native/m06/run-windows-controller.ps1) has one controller, so its steps are A24's Windows evidence and are not required here; T06's second controller is covered on macOS and Linux and by the cross-host journey. The e2e_exit_m06 tests are #![cfg(unix)] and hold no test on Windows",
+      "crosshost_note": "m06-plan §3 names the runner (the devbox, a host of its own) as a platform of this row. On one host the controller and the runner are two scratch homes of one account, so the cross-machine evidence is the journey of tests/native/m06/run-crosshost.sh (platform runner-crosshost, scenario crosshost-journey): the listed steps must pass there; until that run exists and passes the row is in_progress or blocked on it, never inherited from the single-host suite",
+      "tests": {
+        "e2e_exit_m06": [
+          "t06_second_controller"
+        ],
+        "integration_runner_effects_m06": [
+          "t06_*"
+        ],
+        "crosshost-journey": [
+          "t06_pair",
+          "t06_first_grant",
+          "t06_second_owner",
+          "t06_first_controller_gone",
+          "t06_narrowing",
+          "t06_untrusted_issuer",
+          "t06_own_grant",
+          "t06_destination_trust"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "windows controller row (a second Windows controller)",
+          "status": "blocked",
+          "blocked_on": "owner input B2: a second Windows account for the second controller (m06-plan §3 \"Windows controller rows\", §7); the Windows controller's own evidence is A24's journey, and T06's second controller is covered on macOS and Linux"
+        },
+        {
+          "platform": "linux-arm64 runner row",
+          "status": "blocked",
+          "blocked_on": "a native linux-arm64 host for the arm64 runner row (m06-plan §7)"
+        }
+      ]
+    },
+    "A07": {
+      "title": "A07 runner rows: revoke, pause and cutoff while the runner is disconnected (typed effects; per-component residuals with the counted history); reconnect with uncertain time, where narrowing still applies; the issuer's barrier; namespaced acknowledgements; no stale reactivation; a fresh work ID refused after a reconciled cutoff (R-AU-04, R-RT-02, R-SE-07)",
+      "requirement_ids": [
+        "R-AU-04",
+        "R-RT-02",
+        "R-SE-07"
+      ],
+      "declared_platforms": [
+        "linux",
+        "runner-crosshost"
+      ],
+      "platform_required": {
+        "runner-crosshost": {
+          "crosshost-journey": [
+            "a07_pair",
+            "a07_issued",
+            "a07_disconnected",
+            "a07_revoke_pending",
+            "a07_reconnect",
+            "a07_barrier",
+            "a07_no_stale_reactivation",
+            "a07_pause_pending",
+            "a07_cutoff_pending",
+            "a07_uncertain_time",
+            "a07_fresh_work_refused"
+          ]
+        }
+      },
+      "crosshost_note": "m06-plan §3 names the runner (the devbox, a host of its own) as a platform of this row. On one host the controller and the runner are two scratch homes of one account, so the cross-machine evidence is the journey of tests/native/m06/run-crosshost.sh (platform runner-crosshost, scenario crosshost-journey): the listed steps must pass there; until that run exists and passes the row is in_progress or blocked on it, never inherited from the single-host suite",
+      "tests": {
+        "e2e_exit_m06": [
+          "a07_runner_disconnected"
+        ],
+        "model_remote_sync": "*",
+        "model_runner_delivery": "*",
+        "integration_runner_effects_m06": [
+          "reconnect_with_uncertain_time_still_applies_tombstones_and_policy_revisions",
+          "the_issuing_controller_reconnects_after_the_other_revoked_its_grant",
+          "paired_runner_requests_reach_the_sync_service"
+        ],
+        "crosshost-journey": [
+          "a07_pair",
+          "a07_issued",
+          "a07_disconnected",
+          "a07_revoke_pending",
+          "a07_reconnect",
+          "a07_barrier",
+          "a07_no_stale_reactivation",
+          "a07_pause_pending",
+          "a07_cutoff_pending",
+          "a07_uncertain_time",
+          "a07_fresh_work_refused"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "linux-arm64 runner row",
+          "status": "blocked",
+          "blocked_on": "a native linux-arm64 host for the arm64 runner row (m06-plan §7)"
+        }
+      ]
+    }
+  },
+  "exit_claims": {
+    "M06 exit cases (m06-plan §3)": {
+      "groups": [
+        "A24",
+        "A25",
+        "A26",
+        "T06",
+        "A07"
+      ],
+      "note": "m06-plan §3: every M06 exit case per platform, all rows from one build. The G07 closure rows (g07 §1.1) and the G06 closure rows and transport scope are hand-written gate records that cite these cases. Blocked while any owner-input row of m06-plan §7 is blocked (the lowest-row rule); never verified while a container, persistence or capture row has no run."
+    }
+  }
+}

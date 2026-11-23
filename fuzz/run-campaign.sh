@@ -144,17 +144,28 @@ report)
             name=${t%%:*}
             if grep -q "^$name:" /vol/work/out/build-failures.txt 2>/dev/null; then echo "$name: NOT BUILT on this tree (its last result below is from an earlier tree)"; bad=1; fi
             [ -f "/vol/work/out/$name.log" ] || { echo "$name: not run"; continue; }
-            last=$(grep "^$name exit" /vol/work/out/results.txt | tail -1)
-            cov=$(grep -E "^#[0-9]+.*cov: " "/vol/work/out/$name.log" | tail -1 | sed -E "s/.*(cov: [0-9]+ ft: [0-9]+ corp: [^ ]+).*/\1/")
-            execs=$(grep "stat::number_of_executed_units" "/vol/work/out/$name.log" | tail -1 | awk "{print \$2}")
-            lastnew=$(grep -E "^#[0-9]+[[:space:]]+(NEW|REDUCE)" "/vol/work/out/$name.log" | tail -1 | awk "{print \$1}")
-            found=$(ls "/vol/work/artifacts/$name" 2>/dev/null | wc -l | tr -d " ")
-            total=$(grep "^$name exit 0 " /vol/work/out/results.txt | sed -E "s/.*secs=([0-9]+).*/\\1/" | awk "{s+=\$1} END{print s+0}")
-            echo "$name: ${last#* } | cumulative ${total}s | ${cov:-no coverage line} | execs ${execs:-?} | last new input at ${lastnew:-?} | findings $found"
+            last=$(grep "^$name exit" /vol/work/out/results.txt | tail -1 || true)
+            cov=$(grep -E "^#[0-9]+.*cov: " "/vol/work/out/$name.log" | tail -1 | sed -E "s/.*(cov: [0-9]+ ft: [0-9]+ corp: [^ ]+).*/\1/" || true)
+            execs=$(grep "stat::number_of_executed_units" "/vol/work/out/$name.log" | tail -1 | awk "{print \$2}" || true)
+            lastnew=$(grep -E "^#[0-9]+[[:space:]]+(NEW|REDUCE)" "/vol/work/out/$name.log" | tail -1 | awk "{print \$1}" || true)
+            # Each extraction ends in "|| true": a log with no such line (a target stopped
+            # before its first coverage line) must not end the report under pipefail.
+            found=$(ls "/vol/work/artifacts/$name" 2>/dev/null | wc -l | tr -d " " || true)
+            total=$(grep "^$name exit 0 " /vol/work/out/results.txt | sed -E "s/.*secs=([0-9]+).*/\\1/" | awk "{s+=\$1} END{print s+0}" || true)
+            # Coverage (edges) when the last run had loaded its corpus, against its end: equal
+            # means that run found no new coverage. The stopping rule is claimed only from a
+            # last run of at least 1800 s with the two equal (ADR-0014 section 2.3).
+            covinit=$(grep -E "^#[0-9]+[[:space:]]+INITED" "/vol/work/out/$name.log" | tail -1 | sed -E "s/.*cov: ([0-9]+).*/\\1/" || true)
+            covend=$(grep -E "^#[0-9]+.*cov: " "/vol/work/out/$name.log" | tail -1 | sed -E "s/.*cov: ([0-9]+).*/\\1/" || true)
+            lastsecs=$(echo "$last" | sed -E "s/.*secs=([0-9]+).*/\\1/")
+            case "$lastsecs" in "" | *[!0-9]*) lastsecs=0 ;; esac
+            rule="not met"
+            if [ -n "$covinit" ] && [ "$covinit" = "$covend" ] && [ "${lastsecs:-0}" -ge 1800 ] && [ "${total:-0}" -ge 7200 ] && [ "$found" = 0 ]; then rule="met"; fi
+            echo "$name: ${last#* } | cumulative ${total}s | ${cov:-no coverage line} | execs ${execs:-?} | last new input at ${lastnew:-?} | last run cov ${covinit:-?} -> ${covend:-?} | findings $found | stopping rule: $rule"
             [ "$found" = 0 ] || bad=1
             case "$last" in *"exit 0 "*) ;; *) bad=1 ;; esac
         done
-        cat /vol/work/out/fuzz-lock.sha256 2>/dev/null | sed "s/^/fuzz lock sha256: /"
+        [ ! -f /vol/work/out/fuzz-lock.sha256 ] || sed "s/^/fuzz lock sha256: /" /vol/work/out/fuzz-lock.sha256
         exit $bad
     '
     ;;

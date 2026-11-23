@@ -1552,7 +1552,8 @@ impl Request {
             | Request::Route(
                 crate::route::RouteRequest::Add { .. }
                 | crate::route::RouteRequest::Remove { .. }
-                | crate::route::RouteRequest::Prefer { .. },
+                | crate::route::RouteRequest::Prefer { .. }
+                | crate::route::RouteRequest::RecordHealth { .. },
             )
             | Request::Transport(
                 crate::route::TransportRequest::Enable { .. }
@@ -1621,6 +1622,13 @@ impl Request {
             Request::Environment(_) => Some(crate::ipc::capability::ENVIRONMENTS_V1),
             // ⟨M06⟩ Revision 6 (ADR-0006 §18): each form names its capability, none offered
             // in wave 0, so a session gets `SCHEMA_UNSUPPORTED` before dispatch.
+            // ⟨rev6.5; ADR-0006 §18.9 item 5⟩ `rotate_endpoint` is on the base capability:
+            // every role may announce its own client's endpoint, and a limited role
+            // negotiates no `remote-control/1`. The runner's per-request check is unchanged
+            // (the session's own client only, within what its invitation admitted).
+            Request::RemoteEnvironment(
+                crate::remote::RemoteEnvironmentRequest::RotateEndpoint { .. },
+            ) => None,
             Request::RemoteEnvironment(_) | Request::Device(_) | Request::RunnerLocal(_) => {
                 Some(crate::ipc::capability::REMOTE_CONTROL_V1)
             }

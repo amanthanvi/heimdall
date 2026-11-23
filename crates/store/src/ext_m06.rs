@@ -35,7 +35,7 @@ use heimdall_contract::ids::{
     KeyFingerprint, RequestId,
 };
 use heimdall_contract::remote::Role;
-use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
+use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState, WideningOrigin};
 use heimdall_domain::time::BootId;
 use rusqlite::OptionalExtension as _;
 use serde::{Deserialize, Serialize};
@@ -767,10 +767,21 @@ impl Txn<'_> {
         params: &[&dyn rusqlite::ToSql],
     ) -> Result<Option<(DecisionRecord, RemoteWideningRow)>> {
         let sql = format!(
-            "SELECT decision_id, client_id, request_kind, request_id, request_hash, result_json
+            "SELECT decision_id, origin, client_id, request_kind, request_id, request_hash,
+                 result_json, delta_digest
              FROM remote_widening WHERE {where_sql}"
         );
-        let raw: Option<(String, String, String, String, String, Option<String>)> = self
+        type Raw = (
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+        );
+        let raw: Option<Raw> = self
             .tx
             .query_row(&sql, params, |r| {
                 Ok((
@@ -780,10 +791,22 @@ impl Txn<'_> {
                     r.get(3)?,
                     r.get(4)?,
                     r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
                 ))
             })
             .optional()?;
-        let Some((decision, client, request_kind, request_id, request_hash, result)) = raw else {
+        let Some((
+            decision,
+            origin,
+            client,
+            request_kind,
+            request_id,
+            request_hash,
+            result,
+            digest,
+        )) = raw
+        else {
             return Ok(None);
         };
         let decision = DecisionId::parse(&decision).map_err(|_| {
@@ -794,21 +817,45 @@ impl Txn<'_> {
                 "a widening record names a decision that does not exist".into(),
             ));
         };
-        if !matches!(record.kind, DecisionKind::RemoteWidening(_)) {
+        let DecisionKind::RemoteWidening(w) = &record.kind else {
             return Err(StoreError::Corrupt(
                 "a widening record names a decision of another kind".into(),
+            ));
+        };
+        let client = client
+            .map(|c| {
+                ClientId::parse(&c).map_err(|_| {
+                    StoreError::Corrupt("a widening record's client is malformed".into())
+                })
+            })
+            .transpose()?;
+        // ⟨M06 W5; ADR-0006 §18.9 item 8⟩ The origin is read from the row and must agree with
+        // the decision document and with the client and digest columns (the CHECK constraint
+        // again, so a row that got past it some other way is still never decided).
+        let origin = match (origin.as_str(), &client, &digest) {
+            ("paired", Some(_), None) => WideningOrigin::Paired,
+            ("local", None, Some(_)) => WideningOrigin::Local,
+            _ => {
+                return Err(StoreError::Corrupt(
+                    "a widening record's origin does not fit its client".into(),
+                ));
+            }
+        };
+        if w.origin != origin || w.client != client || !w.origin_is_consistent() {
+            return Err(StoreError::Corrupt(
+                "a widening record's origin differs from its decision's".into(),
             ));
         }
         let row = RemoteWideningRow {
             decision,
-            client: ClientId::parse(&client).map_err(|_| {
-                StoreError::Corrupt("a widening record's client is malformed".into())
-            })?,
+            origin,
+            client,
             request_kind,
             request_id: RequestId::parse(&request_id).map_err(|_| {
                 StoreError::Corrupt("a widening record's request ID is malformed".into())
             })?,
             request_hash,
+            delta_digest: digest,
             result: result
                 .map(|text| {
                     serde_json::from_str(&text).map_err(|_| {
@@ -820,39 +867,74 @@ impl Txn<'_> {
         Ok(Some((record, row)))
     }
 
-    /// Insert a runner-local widening record: its `remote_widening` decision (pending, as
+    /// Insert a widening record: its `remote_widening` decision (pending, as
     /// [`Txn::insert_decision`] requires) and its side row, in this transaction. The
-    /// decision must be of kind [`DecisionKind::RemoteWidening`] and name the same client,
-    /// request kind and request ID as the key; a decision ID or key that exists is a
-    /// [`StoreError::GenerationConflict`] and writes nothing. Moves no generation (the
-    /// record grants nothing).
+    /// decision must be of kind [`DecisionKind::RemoteWidening`].
+    ///
+    /// * **A paired record** (`origin = paired`) names its client and no `delta_digest`;
+    ///   its key `(client, request kind, request ID)` must be new.
+    /// * ⟨M06 W5; ADR-0006 §18.9 item 8⟩ **A local record** (`origin = local`) names no
+    ///   client and carries its `delta_digest`; no other local record of the same request
+    ///   kind and digest may be pending.
+    ///
+    /// A decision ID, key, or pending local digest that exists is a
+    /// [`StoreError::GenerationConflict`] and writes nothing; an origin that does not fit
+    /// the client or the digest is a document error and writes nothing. Moves no generation
+    /// (the record grants nothing).
     pub fn insert_remote_widening(
         &mut self,
         decision: &DecisionRecord,
         request_hash: &str,
+        delta_digest: Option<&str>,
     ) -> Result<()> {
         let DecisionKind::RemoteWidening(w) = &decision.kind else {
             return Err(codec::doc_error(
                 "a widening record is a remote_widening decision",
             ));
         };
-        if self
-            .remote_widening_by_key(&w.client, &w.request_kind, &w.request_id)?
-            .is_some()
-        {
-            return Err(conflict("a widening record with this key exists"));
+        if !w.origin_is_consistent() {
+            return Err(codec::doc_error(
+                "a widening record's origin does not fit its client",
+            ));
+        }
+        match (w.origin, &w.client, delta_digest) {
+            (WideningOrigin::Paired, Some(client), None) => {
+                if self
+                    .remote_widening_by_key(client, &w.request_kind, &w.request_id)?
+                    .is_some()
+                {
+                    return Err(conflict("a widening record with this key exists"));
+                }
+            }
+            (WideningOrigin::Local, None, Some(digest)) => {
+                if self
+                    .pending_local_widening(&w.request_kind, digest)?
+                    .is_some()
+                {
+                    return Err(conflict(
+                        "a pending local widening record for this delta exists",
+                    ));
+                }
+            }
+            _ => {
+                return Err(codec::doc_error(
+                    "a widening record's delta digest does not fit its origin",
+                ));
+            }
         }
         self.insert_decision(decision)?;
         self.tx.execute(
-            "INSERT INTO remote_widening (decision_id, client_id, request_kind, request_id,
-                 request_hash, result_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
+            "INSERT INTO remote_widening (decision_id, origin, client_id, request_kind,
+                 request_id, request_hash, result_json, delta_digest)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7)",
             rusqlite::params![
                 decision.id.as_str(),
-                w.client.as_str(),
+                w.origin.as_str(),
+                w.client.as_ref().map(ClientId::as_str),
                 w.request_kind,
                 w.request_id.as_str(),
                 request_hash,
+                delta_digest,
             ],
         )?;
         Ok(())
@@ -866,7 +948,8 @@ impl Txn<'_> {
         self.remote_widening_row("decision_id = ?1", &[&id.as_str()])
     }
 
-    /// One runner-local widening record by its caller-namespaced key (ADR-0012 §3.7).
+    /// One paired widening record by its caller-namespaced key (ADR-0012 §3.7). A local
+    /// record has no client and is never found here.
     pub fn remote_widening_by_key(
         &mut self,
         client: &ClientId,
@@ -874,8 +957,23 @@ impl Txn<'_> {
         request_id: &RequestId,
     ) -> Result<Option<(DecisionRecord, RemoteWideningRow)>> {
         self.remote_widening_row(
-            "client_id = ?1 AND request_kind = ?2 AND request_id = ?3",
+            "origin = 'paired' AND client_id = ?1 AND request_kind = ?2 AND request_id = ?3",
             &[&client.as_str(), &request_kind, &request_id.as_str()],
+        )
+    }
+
+    /// ⟨M06 W5; ADR-0006 §18.9 item 8⟩ The pending local widening record of `request_kind`
+    /// and `delta_digest`, if any (at most one: [`Txn::insert_remote_widening`] refuses a
+    /// second). Expiry is the caller's to judge: the store compares no clock.
+    pub fn pending_local_widening(
+        &mut self,
+        request_kind: &str,
+        delta_digest: &str,
+    ) -> Result<Option<(DecisionRecord, RemoteWideningRow)>> {
+        self.remote_widening_row(
+            "origin = 'local' AND request_kind = ?1 AND delta_digest = ?2
+             AND decision_id IN (SELECT id FROM decisions WHERE state = 'pending')",
+            &[&request_kind, &delta_digest],
         )
     }
 
@@ -1231,14 +1329,19 @@ mod controller_tests {
 pub struct RemoteWideningRow {
     /// The decision record.
     pub decision: DecisionId,
-    /// The paired client that submitted the request.
-    pub client: ClientId,
+    /// ⟨M06 W5; migration 0013⟩ Who submitted the request.
+    pub origin: WideningOrigin,
+    /// The paired client that submitted the request; `None` exactly for a local record.
+    pub client: Option<ClientId>,
     /// The request kind.
     pub request_kind: String,
     /// The request ID.
     pub request_id: RequestId,
     /// The request's canonical hash (lowercase hex).
     pub request_hash: String,
+    /// ⟨M06 W5⟩ A local record's lookup key: the digest of its exact request (without the
+    /// request ID) and exact exposure delta; `None` exactly for a paired record.
+    pub delta_digest: Option<String>,
     /// The recorded terminal result (a redacted envelope), once there is one.
     pub result: Option<serde_json::Value>,
 }
@@ -1498,7 +1601,8 @@ mod tests {
         let record = |n: u8, request_id: &str| DecisionRecord {
             id: DecisionId::from_random_bytes([n; 16]),
             kind: DecisionKind::RemoteWidening(Box::new(RemoteWidening {
-                client: client.clone(),
+                origin: WideningOrigin::Paired,
+                client: Some(client.clone()),
                 request_kind: "transport.disable".into(),
                 request_id: RequestId::parse(request_id).unwrap(),
                 request: serde_json::from_str(r#"{"op":"transport","action":"disable"}"#).unwrap(),
@@ -1513,10 +1617,10 @@ mod tests {
         };
         let hash = "ab".repeat(32);
         store
-            .transaction(|tx| tx.insert_remote_widening(&record(1, "r1"), &hash))
+            .transaction(|tx| tx.insert_remote_widening(&record(1, "r1"), &hash, None))
             .unwrap();
         assert!(matches!(
-            store.transaction(|tx| tx.insert_remote_widening(&record(2, "r1"), &hash)),
+            store.transaction(|tx| tx.insert_remote_widening(&record(2, "r1"), &hash, None)),
             Err(StoreError::GenerationConflict(_))
         ));
         let (d, row) = store
@@ -1574,9 +1678,127 @@ mod tests {
         };
         assert!(
             store
-                .transaction(|tx| tx.insert_remote_widening(&other, &hash))
+                .transaction(|tx| tx.insert_remote_widening(&other, &hash, None))
                 .is_err()
         );
+    }
+
+    /// ⟨M06 W5; ADR-0006 §18.9 item 8⟩ A local widening record has no client and is found
+    /// only by its request kind and delta digest while pending: a second pending record of
+    /// the same kind and digest is refused, another digest is its own record, and a settled
+    /// one no longer blocks a new one. An origin that does not fit the client or the digest
+    /// writes nothing, whichever way it is wrong; a paired key lookup never finds a local
+    /// record.
+    #[test]
+    fn local_widening_records_have_no_client_and_dedup_by_delta_digest() {
+        use heimdall_domain::decision::RemoteWidening;
+        let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        let at = now("2026-11-22T10:00:00Z");
+        let client = ClientId::from_random_bytes([3; 16]);
+        let record = |n: u8, origin: WideningOrigin, client: Option<ClientId>| DecisionRecord {
+            id: DecisionId::from_random_bytes([n; 16]),
+            kind: DecisionKind::RemoteWidening(Box::new(RemoteWidening {
+                origin,
+                client,
+                request_kind: "transport.enable".into(),
+                request_id: RequestId::parse(&format!("r{n}")).unwrap(),
+                request: serde_json::from_str(r#"{"op":"transport","action":"disable"}"#).unwrap(),
+                invite: None,
+                exposure: None,
+            })),
+            generation: heimdall_domain::policy::AuthorityGeneration(0),
+            created_at: at,
+            expires_at: now("2026-11-22T10:15:00Z"),
+            state: DecisionState::Pending,
+            decided_at: None,
+        };
+        let local = |n: u8| record(n, WideningOrigin::Local, None);
+        let hash = "ab".repeat(32);
+        // Every inconsistent shape is refused and writes nothing.
+        let wrong: [(DecisionRecord, Option<&str>); 5] = [
+            (
+                record(20, WideningOrigin::Local, Some(client.clone())),
+                Some("d"),
+            ),
+            (record(21, WideningOrigin::Paired, None), None),
+            (local(22), None),
+            (
+                record(23, WideningOrigin::Paired, Some(client.clone())),
+                Some("d"),
+            ),
+            (record(24, WideningOrigin::Paired, None), Some("d")),
+        ];
+        for (rec, digest) in &wrong {
+            assert!(
+                store
+                    .transaction(|tx| tx.insert_remote_widening(rec, &hash, *digest))
+                    .is_err(),
+                "{:?} with digest {digest:?}",
+                rec.kind
+            );
+            assert!(
+                store
+                    .transaction(|tx| tx.remote_widening(&rec.id))
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(
+                store
+                    .transaction(|tx| tx.decision(&rec.id))
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        store
+            .transaction(|tx| tx.insert_remote_widening(&local(1), &hash, Some("d1")))
+            .unwrap();
+        assert!(matches!(
+            store.transaction(|tx| tx.insert_remote_widening(&local(2), &hash, Some("d1"))),
+            Err(StoreError::GenerationConflict(_))
+        ));
+        store
+            .transaction(|tx| tx.insert_remote_widening(&local(3), &hash, Some("d2")))
+            .unwrap();
+        let (d, row) = store
+            .transaction(|tx| tx.pending_local_widening("transport.enable", "d1"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(d.id, local(1).id);
+        assert_eq!(
+            (row.origin, row.client, row.delta_digest.as_deref()),
+            (WideningOrigin::Local, None, Some("d1"))
+        );
+        assert!(
+            store
+                .transaction(|tx| tx.pending_local_widening("route.add", "d1"))
+                .unwrap()
+                .is_none(),
+            "another request kind is another record"
+        );
+        // A paired lookup with the local record's request ID finds nothing, for any client.
+        assert!(
+            store
+                .transaction(|tx| tx.remote_widening_by_key(
+                    &client,
+                    "transport.enable",
+                    &RequestId::parse("r1").unwrap()
+                ))
+                .unwrap()
+                .is_none()
+        );
+        // Once settled it is no longer the pending record, and a new one may be made.
+        store
+            .transaction(|tx| tx.settle_remote_widening(&d.id, DecisionState::Denied, at, None))
+            .unwrap();
+        assert!(
+            store
+                .transaction(|tx| tx.pending_local_widening("transport.enable", "d1"))
+                .unwrap()
+                .is_none()
+        );
+        store
+            .transaction(|tx| tx.insert_remote_widening(&local(4), &hash, Some("d1")))
+            .unwrap();
     }
 
     fn endpoint(c: char) -> IrohEndpointId {

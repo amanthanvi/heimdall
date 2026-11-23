@@ -603,7 +603,40 @@ pub(crate) fn local_context(ctx: &Ctx) -> Result<LocalContext, Outcome> {
     local.client_isolation = isolation;
     local.managed_file = Some(heimdall.config_dir.join("ssh_config"));
     local.catalog = catalog(ctx, &heimdall.config_dir);
+    local.routes_unused = routes_unused(ctx);
     Ok(local)
+}
+
+/// ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ The existing-access aliases whose destination
+/// has approved routes only the route helper can use (`heimdall_app::routes::helper_pins`
+/// is `Some`) and whose pair does not prefer managed certificates: ordinary `ssh` uses
+/// none of those routes. Read from the store read-only; empty when it cannot be read.
+fn routes_unused(ctx: &Ctx) -> std::collections::BTreeSet<String> {
+    let Ok(store) = open_store(ctx) else {
+        return std::collections::BTreeSet::new();
+    };
+    store
+        .transaction(|tx| {
+            let mut out = std::collections::BTreeSet::new();
+            for d in tx.destinations()? {
+                let DestinationDefinition::Managed { account, .. } = &d.definition else {
+                    continue;
+                };
+                let pair = heimdall_domain::scope::AccessPair {
+                    destination: d.id.clone(),
+                    account: account.clone(),
+                };
+                let managed = tx.pair_preference(&pair)?.is_some_and(|p| {
+                    p.mechanism
+                        == heimdall_contract::managed::PreferredMechanism::ManagedCertificate
+                });
+                if !managed && heimdall_app::routes::helper_pins(tx, &d.id)?.is_some() {
+                    out.insert(d.alias);
+                }
+            }
+            Ok(out)
+        })
+        .unwrap_or_default()
 }
 
 /// The projection conflict the passive doctor reports now (ADR-0007 §12.19 item 7):

@@ -103,13 +103,33 @@ pub(super) struct NamedIssuers {
     /// pairs for this caller (`runner_m06::covering_grant`), so the pairs are the
     /// controller's managed ones; the request attaches to that grant or waits as it does.
     pub(super) attach: bool,
+    /// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ A paired client whose role is not the owner's (a
+    /// requester) sent the request and named no CA: its pairs are the managed ones of an
+    /// owner controller, never this runner's own existing access. Admission is unchanged
+    /// (the runner's standing policy, or a decision confirmed at the runner); the grant
+    /// then waits for an owner controller whose own record covers it. Nothing is signed,
+    /// and nothing of the runner's own is used, on the requester's word.
+    pub(super) awaits_owner: bool,
+}
+
+/// [`NamedIssuers::awaits_owner`]. `runner`: this installation is a remote runner (its
+/// runtime set the runner's signer view, `runner_m06::RunnerGrants`); every other
+/// installation takes the paths it took before.
+pub(super) fn awaits_owner_record(
+    runner: bool,
+    caller: &heimdall_domain::principal::CallerContext,
+    names_a_ca: bool,
+) -> bool {
+    runner && caller.remote_client.is_some() && !caller.is_owner() && !names_a_ca
 }
 
 impl NamedIssuers {
-    /// What `request`, sent by `caller`, names.
+    /// What `request`, sent by `caller`, names. `runner`: this installation is a remote
+    /// runner.
     pub(super) fn of(
         request: &EnsureRequest,
         caller: &heimdall_domain::principal::CallerContext,
+        runner: bool,
     ) -> Self {
         Self {
             cas: request
@@ -120,6 +140,7 @@ impl NamedIssuers {
             controller: caller.remote_client.clone(),
             local_owner: caller.remote_client.is_none() && caller.has_global_access(),
             attach: false,
+            awaits_owner: awaits_owner_record(runner, caller, !request.pair_issuers.is_empty()),
         }
     }
 }
@@ -205,7 +226,7 @@ pub(super) fn resolve_pairs_named(
     for p in pairs {
         let kind = match named.cas.get(p) {
             Some(ca) => named_pair_kind(tx, p, ca, named)?,
-            None if named.attach => Ok(PairKind::Managed),
+            None if named.attach || named.awaits_owner => Ok(PairKind::Managed),
             None => pair_kind(tx, p)?,
         };
         match kind {
@@ -430,7 +451,7 @@ impl Operations {
         };
         let revision = req.profile_revision;
         let scope = req.scope.clone();
-        let named = NamedIssuers::of(req, caller);
+        let named = NamedIssuers::of(req, caller, self.runner_grants().is_some());
         let resolution = self
             .write(move |tx, _| {
                 let pairs = if scope.is_empty() {

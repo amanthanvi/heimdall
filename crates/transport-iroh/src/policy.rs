@@ -351,7 +351,7 @@ mod tests {
             bind,
             infrastructure,
             direct_fallback: fb,
-            port: None,
+            ..ExposurePolicy::default()
         }
     }
 

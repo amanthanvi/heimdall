@@ -4480,6 +4480,9 @@ struct ResolveInput {
     /// (`runner_m06::RunnerGrants::issued_grants`), which an `ensure` may attach to. Empty
     /// on every other installation.
     runner_issued: Vec<GrantId>,
+    /// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ Whether this installation is a remote runner (its
+    /// runtime set the runner's signer view).
+    runner: bool,
 }
 
 /// Outcome of resolution for a work request.
@@ -4652,6 +4655,14 @@ fn resolve_in(
                 None,
             )?
             .is_some(),
+        // ⟨M06 W5; ADR-0006 §18.9 item 6⟩ A paired requester's `ensure` that names no CA
+        // waits for an owner controller's record.
+        awaits_owner: inp.spec.kind == OperationKind::Ensure
+            && pair_mechanism_m03::awaits_owner_record(
+                inp.runner,
+                &inp.caller,
+                !inp.spec.pair_issuers.is_empty(),
+            ),
     };
     let resolved_pairs = match pair_mechanism_m03::resolve_pairs_named(tx, &pairs, &named)? {
         Ok(r) => r,
@@ -5869,6 +5880,52 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
     })
 }
 
+/// ⟨M06 W5 `w5o`; ADR-0006 §18.9 item 8⟩ A **local** widening record that reached its
+/// deadline without a verdict: settle it `expired` (a compare-and-set on `pending`; its
+/// recorded answer is `DECISION_STALE` / `approval_lapsed`), append the decision event that
+/// records the lapse, and return its view: `state: "expired"`, `expired: true` and
+/// `reason: "approval_lapsed"`. `None` for every other record (a paired record keeps its
+/// own replay rules; a record still inside its lifetime is not touched). Nothing notifies
+/// the owner before this: the lapse is found at the next decision read, a resubmission or
+/// an approval attempt, whichever comes first.
+///
+/// # Errors
+/// A store failure.
+fn lapse_local_widening(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    d: &DecisionRecord,
+    now: Timestamp,
+) -> heimdall_store::Result<Option<serde_json::Value>> {
+    let DecisionKind::RemoteWidening(w) = &d.kind else {
+        return Ok(None);
+    };
+    if w.origin != heimdall_domain::decision::WideningOrigin::Local || now < d.expires_at {
+        return Ok(None);
+    }
+    let answer = OpError::new(
+        Code::DecisionStale,
+        "the decision reached its deadline before it was approved; nothing was changed. Run \
+         the command again for a new one",
+    )
+    .with_reason(heimdall_contract::envelope::reason::APPROVAL_LAPSED)
+    .with_effect(EffectStatus::None)
+    .with_resource("decision", Some(d.id.to_string()))
+    .into_envelope();
+    let answer = serde_json::to_value(answer).unwrap_or_default();
+    let (settled, _) =
+        tx.settle_remote_widening(&d.id, DecisionState::Expired, now, Some(&answer))?;
+    emit.decision(tx, &settled, None)?;
+    let mut view = decision_view(&settled, now);
+    if let serde_json::Value::Object(map) = &mut view {
+        map.insert(
+            "reason".to_owned(),
+            serde_json::json!(heimdall_contract::envelope::reason::APPROVAL_LAPSED),
+        );
+    }
+    Ok(Some(view))
+}
+
 /// ⟨M05⟩ Revision 5.2 (§17.10 item 22; review M05-W3-R01): the scope a pending
 /// `WidenPolicy{create}` record's approval applies, read from its decision basis
 /// (`DecisionBasis::Create`, fixed at creation, ADR-0011 I5), never from the catalog's
@@ -6758,6 +6815,7 @@ impl Operations {
                 .runner_grants()
                 .map(|r| r.issued_grants())
                 .unwrap_or_default(),
+            runner: self.runner_grants().is_some(),
         };
         let decision_id = crate::ids::new_decision_id()?;
         // ⟨M03 wave 4, §17.21 item 1⟩ The binding ID of a `managed_certificate`
@@ -9578,375 +9636,388 @@ impl Operations {
         let ctx = caller.context.clone();
         let environment = self.inner.config.environment.clone();
         let capabilities = matches!(req.subject, InspectSubject::Capabilities);
-        let mut data =
-            match req.subject {
-                // ⟨M02⟩ U0b row 19, phase 2: the same set as
-                // `heimdall_ipc::session::server_capabilities()`, `setup/1` included.
-                // ⟨M03⟩ U0b row 13, phase 2 (wave 4): and the four M03 capabilities.
-                InspectSubject::Capabilities => serde_json::json!({
-                    "capabilities": [
-                        heimdall_contract::ipc::capability::OPERATIONS_V1,
-                        heimdall_contract::ipc::capability::EVENTS_V1,
-                        heimdall_contract::ipc::capability::OWNER_POLICY_V1,
-                        heimdall_contract::ipc::capability::SCHEMA_DISCOVERY_V1,
-                        heimdall_contract::ipc::capability::SERVICE_CONTROL_V1,
-                        heimdall_contract::ipc::capability::SETUP_V1,
-                        heimdall_contract::ipc::capability::ISSUER_V1,
-                        heimdall_contract::ipc::capability::ENROLLMENT_V1,
-                        heimdall_contract::ipc::capability::MANAGED_CREDENTIALS_V1,
-                        heimdall_contract::ipc::capability::CONNECTIONS_V1,
-                        // ⟨M04⟩ Revision 5's environment forms: U1's login entry setup item,
-                        // U3b's WSL and U5's container requests (the same set as
-                        // `server_capabilities()`).
-                        heimdall_contract::ipc::capability::ENVIRONMENTS_V1,
-                        // ⟨M05⟩ W3: offered once every trusted-work form is served.
-                        heimdall_contract::ipc::capability::TRUSTED_WORK_V1,
-                    ],
-                    "schemas": heimdall_contract::schema::public_schemas()
-                        .iter()
-                        .map(|s| s.name)
-                        .collect::<Vec<_>>(),
-                    "codes": heimdall_contract::schema::code_table()["codes"].clone(),
-                    "schema_version": heimdall_contract::SchemaVersion::current(),
-                }),
-                InspectSubject::Environments => {
-                    // ⟨M04⟩ U5 (design §3): the owner sees every environment the runtime
-                    // knows (`items`, its own first, the `inspect-environments` schema),
-                    // beside M01's own-environment keys, which any other role gets alone.
-                    let owner = ctx.is_owner();
-                    let effects = self.container_effects();
-                    let data = self
-                        .write(move |tx, _| {
-                            let record = tx.environment(&environment)?;
-                            let mut data = serde_json::json!({
-                                "environment_id": environment,
-                                "enrolled": record.is_some(),
-                                "environments": record.into_iter().collect::<Vec<_>>(),
-                            });
-                            if owner {
-                                let dir_of = |tag: &str| {
-                                    effects.as_ref().and_then(|e| e.container_directory(tag))
-                                };
-                                let view =
-                                    container_m04::environments_view(tx, &environment, &dir_of)?;
-                                if let (Some(map), Ok(items)) =
-                                    (data.as_object_mut(), serde_json::to_value(view.items))
-                                {
-                                    map.insert("items".to_owned(), items);
-                                }
+        let mut data = match req.subject {
+            // ⟨M02⟩ U0b row 19, phase 2: the same set as
+            // `heimdall_ipc::session::server_capabilities()`, `setup/1` included.
+            // ⟨M03⟩ U0b row 13, phase 2 (wave 4): and the four M03 capabilities.
+            InspectSubject::Capabilities => serde_json::json!({
+                "capabilities": [
+                    heimdall_contract::ipc::capability::OPERATIONS_V1,
+                    heimdall_contract::ipc::capability::EVENTS_V1,
+                    heimdall_contract::ipc::capability::OWNER_POLICY_V1,
+                    heimdall_contract::ipc::capability::SCHEMA_DISCOVERY_V1,
+                    heimdall_contract::ipc::capability::SERVICE_CONTROL_V1,
+                    heimdall_contract::ipc::capability::SETUP_V1,
+                    heimdall_contract::ipc::capability::ISSUER_V1,
+                    heimdall_contract::ipc::capability::ENROLLMENT_V1,
+                    heimdall_contract::ipc::capability::MANAGED_CREDENTIALS_V1,
+                    heimdall_contract::ipc::capability::CONNECTIONS_V1,
+                    // ⟨M04⟩ Revision 5's environment forms: U1's login entry setup item,
+                    // U3b's WSL and U5's container requests (the same set as
+                    // `server_capabilities()`).
+                    heimdall_contract::ipc::capability::ENVIRONMENTS_V1,
+                    // ⟨M05⟩ W3: offered once every trusted-work form is served.
+                    heimdall_contract::ipc::capability::TRUSTED_WORK_V1,
+                ],
+                "schemas": heimdall_contract::schema::public_schemas()
+                    .iter()
+                    .map(|s| s.name)
+                    .collect::<Vec<_>>(),
+                "codes": heimdall_contract::schema::code_table()["codes"].clone(),
+                "schema_version": heimdall_contract::SchemaVersion::current(),
+            }),
+            InspectSubject::Environments => {
+                // ⟨M04⟩ U5 (design §3): the owner sees every environment the runtime
+                // knows (`items`, its own first, the `inspect-environments` schema),
+                // beside M01's own-environment keys, which any other role gets alone.
+                let owner = ctx.is_owner();
+                let effects = self.container_effects();
+                let data = self
+                    .write(move |tx, _| {
+                        let record = tx.environment(&environment)?;
+                        let mut data = serde_json::json!({
+                            "environment_id": environment,
+                            "enrolled": record.is_some(),
+                            "environments": record.into_iter().collect::<Vec<_>>(),
+                        });
+                        if owner {
+                            let dir_of = |tag: &str| {
+                                effects.as_ref().and_then(|e| e.container_directory(tag))
+                            };
+                            let view = container_m04::environments_view(tx, &environment, &dir_of)?;
+                            if let (Some(map), Ok(items)) =
+                                (data.as_object_mut(), serde_json::to_value(view.items))
+                            {
+                                map.insert("items".to_owned(), items);
                             }
-                            Ok(data)
-                        })
-                        .await?;
-                    // ⟨M04 U3b⟩ A WSL row's state is the distribution's running state, read
-                    // from the host's listing (which starts nothing), outside the transaction.
-                    self.wsl_running_states(data).await
+                        }
+                        Ok(data)
+                    })
+                    .await?;
+                // ⟨M04 U3b⟩ A WSL row's state is the distribution's running state, read
+                // from the host's listing (which starts nothing), outside the transaction.
+                self.wsl_running_states(data).await
+            }
+            // ⟨M02⟩ ADR-0007 §12.24 item 1: the catalog's destinations, each with its
+            // alias and its definition (`managed`, with the rendered fields, or
+            // `observed`), read in one transaction, under the `items` key this subject
+            // always answered with. Owner role only, like the other catalog subjects
+            // (identities, projections, decisions).
+            InspectSubject::Destinations => {
+                if !ctx.is_owner() {
+                    serde_json::json!({ "items": [] })
+                } else {
+                    self.destinations_view(environment.clone()).await?
                 }
-                // ⟨M02⟩ ADR-0007 §12.24 item 1: the catalog's destinations, each with its
-                // alias and its definition (`managed`, with the rendered fields, or
-                // `observed`), read in one transaction, under the `items` key this subject
-                // always answered with. Owner role only, like the other catalog subjects
-                // (identities, projections, decisions).
-                InspectSubject::Destinations => {
-                    if !ctx.is_owner() {
-                        serde_json::json!({ "items": [] })
-                    } else {
-                        self.destinations_view(environment.clone()).await?
-                    }
-                }
-                // ⟨M02⟩ ADR-0007 §12.24 item 1 (profiles): the catalog's current profile
-                // definitions, read in one transaction, under `items`. Owner role only, as
-                // for destinations.
-                InspectSubject::Profiles => {
-                    if !ctx.is_owner() {
-                        serde_json::json!({ "items": [] })
-                    } else {
-                        self.write(move |tx, _| {
-                            let items: Vec<serde_json::Value> = tx
-                                .profiles()?
-                                .iter()
-                                .map(|p| {
-                                    serde_json::json!({
-                                        "profile_id": p.id,
-                                        "revision": p.revision,
-                                        "label": p.label,
-                                        "pairs": p.scope.pairs,
-                                        "capabilities": p.scope.capabilities,
-                                    })
-                                })
-                                .collect();
-                            Ok(serde_json::json!({ "items": items }))
-                        })
-                        .await?
-                    }
-                }
-                InspectSubject::Grants | InspectSubject::Bindings => {
-                    let subject = req.subject;
+            }
+            // ⟨M02⟩ ADR-0007 §12.24 item 1 (profiles): the catalog's current profile
+            // definitions, read in one transaction, under `items`. Owner role only, as
+            // for destinations.
+            InspectSubject::Profiles => {
+                if !ctx.is_owner() {
+                    serde_json::json!({ "items": [] })
+                } else {
                     self.write(move |tx, _| {
-                        let mut grants = Vec::new();
-                        let mut bindings = Vec::new();
-                        // ⟨r2.7⟩ ADR-0006 §13.10 item 3: a pending remote revocation stays
-                        // visible on each grant it covers. ⟨r2.9⟩ §13.12 item 2: with the
-                        // reason `adapter_unavailable` while a responsible adapter of one
-                        // of its obligations is not configured. ⟨r2.10⟩ §13.13: the retry
-                        // count and stop are the grant's own obligations' (item 3), and
-                        // a grant that ended before activation keeps its pending remote
-                        // part visible too (item 2; R-AU-04), so such a terminal grant
-                        // stays listed while it has an obligation.
-                        // ⟨r2.12⟩ §13.15 item 2: every record covering a grant counts.
-                        let mut remote: BTreeMap<GrantId, RemoteView> = BTreeMap::new();
-                        for r in tx.remote_revocations()? {
-                            for g in &r.grants {
-                                let view = RemoteView::of(&r, g);
-                                let view = match remote.remove(g) {
-                                    Some(seen) => seen.combine(view),
-                                    None => view,
-                                };
-                                remote.insert(g.clone(), view);
-                            }
-                        }
-                        let mut listed: Vec<(GrantSnapshot, bool)> = tx
-                            .grants_due(Timestamp::MAX)?
-                            .into_iter()
-                            .map(|g| (g, false))
+                        let items: Vec<serde_json::Value> = tx
+                            .profiles()?
+                            .iter()
+                            .map(|p| {
+                                serde_json::json!({
+                                    "profile_id": p.id,
+                                    "revision": p.revision,
+                                    "label": p.label,
+                                    "pairs": p.scope.pairs,
+                                    "capabilities": p.scope.capabilities,
+                                })
+                            })
                             .collect();
-                        for gid in remote.keys() {
-                            if let Some(g) = tx.grant(gid)?
-                                && g.state.is_terminal()
-                            {
-                                listed.push((g, true));
-                            }
-                        }
-                        // ⟨r2.17⟩ ADR-0006 §13.20 item 1: a grant whose applied effect still
-                        // waits on a cleanup intent (§13.19 item 2) stays visible, ended or
-                        // not (spec §12.3: a pending remote revocation remains visible).
-                        let cleanup_pending: std::collections::BTreeSet<GrantId> =
-                            tx.cleanup_intents()?.into_iter().map(|i| i.grant).collect();
-                        for gid in &cleanup_pending {
-                            if remote.contains_key(gid) {
-                                continue;
-                            }
-                            if let Some(g) = tx.grant(gid)?
-                                && g.state.is_terminal()
-                            {
-                                listed.push((g, true));
-                            }
-                        }
-                        for (g, ended) in listed {
-                            let refs = tx.grant_references(&g.id)?;
-                            // ⟨M06-W0-R03⟩ The grant list is an environment-level view the
-                            // owner role permits (a paired owner targets its narrowing with
-                            // it); the bindings under it stay client-scoped (`may_act_on`).
-                            let mut visible = ctx.is_owner();
-                            for r in refs {
-                                // A delegated child's reference on its parent is not a
-                                // binding of the parent.
-                                if let Some(b) = tx.binding(&r.binding)?
-                                    && b.grant == g.id
-                                    && may_act_on(&b, &ctx)
-                                {
-                                    visible = true;
-                                    if ended {
-                                        // Listed for its pending remote part only; its
-                                        // bindings are not live.
-                                        continue;
-                                    }
-                                    bindings.push(serde_json::json!({
-                                        "binding_id": b.id,
-                                        "grant_id": b.grant,
-                                        "work_id": b.work_id,
-                                        "profile": b.profile,
-                                        "profile_revision": b.profile_revision,
-                                        "state": b.state,
-                                        "created_at": b.created_at,
-                                    }));
-                                }
-                            }
-                            if visible {
-                                let mut view = serde_json::json!({
-                                    "grant_id": g.id,
-                                    "state": g.state,
-                                    "expires_at": g.deadline.effective,
-                                    "parent": g.parent,
-                                    "scope": g.scope,
-                                });
-                                // ⟨r2.7⟩ ADR-0006 §13.10 items 2 and 3 (added fields only).
-                                if let serde_json::Value::Object(map) = &mut view {
-                                    if g.state == GrantState::Degraded
-                                        && let Some(reason) = tx.grant_degradation(&g.id)?
-                                    {
-                                        map.insert(
-                                            "degraded_reason".to_owned(),
-                                            serde_json::to_value(reason)?,
-                                        );
-                                    }
-                                    if let Some(r) = remote.get(&g.id) {
-                                        map.insert(
-                                            "remote_pending".to_owned(),
-                                            serde_json::json!(true),
-                                        );
-                                        // ⟨r2.12⟩ §13.15 item 2 / §13.16 item 1: every
-                                        // reason present, always as an array (one
-                                        // stable shape, whatever the reason count).
-                                        if !r.reasons.is_empty() {
-                                            map.insert(
-                                                "remote_pending_reasons".to_owned(),
-                                                serde_json::to_value(&r.reasons)?,
-                                            );
-                                        }
-                                        map.insert(
-                                            "remote_retries".to_owned(),
-                                            serde_json::json!({
-                                                "attempts": r.attempts,
-                                                "last_attempt_at": r.last_attempt_at,
-                                                "stopped": r.stopped,
-                                            }),
-                                        );
-                                    }
-                                    if cleanup_pending.contains(&g.id) {
-                                        map.insert(
-                                            "cleanup_pending".to_owned(),
-                                            serde_json::json!(true),
-                                        );
-                                    }
-                                }
-                                grants.push(view);
-                            }
-                        }
-                        Ok(if subject == InspectSubject::Grants {
-                            serde_json::json!({ "grants": grants })
-                        } else {
-                            serde_json::json!({ "bindings": bindings })
-                        })
+                        Ok(serde_json::json!({ "items": items }))
                     })
                     .await?
                 }
-                InspectSubject::Operations => {
+            }
+            InspectSubject::Grants | InspectSubject::Bindings => {
+                let subject = req.subject;
+                self.write(move |tx, _| {
+                    let mut grants = Vec::new();
+                    let mut bindings = Vec::new();
+                    // ⟨r2.7⟩ ADR-0006 §13.10 item 3: a pending remote revocation stays
+                    // visible on each grant it covers. ⟨r2.9⟩ §13.12 item 2: with the
+                    // reason `adapter_unavailable` while a responsible adapter of one
+                    // of its obligations is not configured. ⟨r2.10⟩ §13.13: the retry
+                    // count and stop are the grant's own obligations' (item 3), and
+                    // a grant that ended before activation keeps its pending remote
+                    // part visible too (item 2; R-AU-04), so such a terminal grant
+                    // stays listed while it has an obligation.
+                    // ⟨r2.12⟩ §13.15 item 2: every record covering a grant counts.
+                    let mut remote: BTreeMap<GrantId, RemoteView> = BTreeMap::new();
+                    for r in tx.remote_revocations()? {
+                        for g in &r.grants {
+                            let view = RemoteView::of(&r, g);
+                            let view = match remote.remove(g) {
+                                Some(seen) => seen.combine(view),
+                                None => view,
+                            };
+                            remote.insert(g.clone(), view);
+                        }
+                    }
+                    let mut listed: Vec<(GrantSnapshot, bool)> = tx
+                        .grants_due(Timestamp::MAX)?
+                        .into_iter()
+                        .map(|g| (g, false))
+                        .collect();
+                    for gid in remote.keys() {
+                        if let Some(g) = tx.grant(gid)?
+                            && g.state.is_terminal()
+                        {
+                            listed.push((g, true));
+                        }
+                    }
+                    // ⟨r2.17⟩ ADR-0006 §13.20 item 1: a grant whose applied effect still
+                    // waits on a cleanup intent (§13.19 item 2) stays visible, ended or
+                    // not (spec §12.3: a pending remote revocation remains visible).
+                    let cleanup_pending: std::collections::BTreeSet<GrantId> =
+                        tx.cleanup_intents()?.into_iter().map(|i| i.grant).collect();
+                    for gid in &cleanup_pending {
+                        if remote.contains_key(gid) {
+                            continue;
+                        }
+                        if let Some(g) = tx.grant(gid)?
+                            && g.state.is_terminal()
+                        {
+                            listed.push((g, true));
+                        }
+                    }
+                    for (g, ended) in listed {
+                        let refs = tx.grant_references(&g.id)?;
+                        // ⟨M06-W0-R03⟩ The grant list is an environment-level view the
+                        // owner role permits (a paired owner targets its narrowing with
+                        // it); the bindings under it stay client-scoped (`may_act_on`).
+                        let mut visible = ctx.is_owner();
+                        for r in refs {
+                            // A delegated child's reference on its parent is not a
+                            // binding of the parent.
+                            if let Some(b) = tx.binding(&r.binding)?
+                                && b.grant == g.id
+                                && may_act_on(&b, &ctx)
+                            {
+                                visible = true;
+                                if ended {
+                                    // Listed for its pending remote part only; its
+                                    // bindings are not live.
+                                    continue;
+                                }
+                                bindings.push(serde_json::json!({
+                                    "binding_id": b.id,
+                                    "grant_id": b.grant,
+                                    "work_id": b.work_id,
+                                    "profile": b.profile,
+                                    "profile_revision": b.profile_revision,
+                                    "state": b.state,
+                                    "created_at": b.created_at,
+                                }));
+                            }
+                        }
+                        if visible {
+                            let mut view = serde_json::json!({
+                                "grant_id": g.id,
+                                "state": g.state,
+                                "expires_at": g.deadline.effective,
+                                "parent": g.parent,
+                                "scope": g.scope,
+                            });
+                            // ⟨r2.7⟩ ADR-0006 §13.10 items 2 and 3 (added fields only).
+                            if let serde_json::Value::Object(map) = &mut view {
+                                if g.state == GrantState::Degraded
+                                    && let Some(reason) = tx.grant_degradation(&g.id)?
+                                {
+                                    map.insert(
+                                        "degraded_reason".to_owned(),
+                                        serde_json::to_value(reason)?,
+                                    );
+                                }
+                                if let Some(r) = remote.get(&g.id) {
+                                    map.insert(
+                                        "remote_pending".to_owned(),
+                                        serde_json::json!(true),
+                                    );
+                                    // ⟨r2.12⟩ §13.15 item 2 / §13.16 item 1: every
+                                    // reason present, always as an array (one
+                                    // stable shape, whatever the reason count).
+                                    if !r.reasons.is_empty() {
+                                        map.insert(
+                                            "remote_pending_reasons".to_owned(),
+                                            serde_json::to_value(&r.reasons)?,
+                                        );
+                                    }
+                                    map.insert(
+                                        "remote_retries".to_owned(),
+                                        serde_json::json!({
+                                            "attempts": r.attempts,
+                                            "last_attempt_at": r.last_attempt_at,
+                                            "stopped": r.stopped,
+                                        }),
+                                    );
+                                }
+                                if cleanup_pending.contains(&g.id) {
+                                    map.insert(
+                                        "cleanup_pending".to_owned(),
+                                        serde_json::json!(true),
+                                    );
+                                }
+                            }
+                            grants.push(view);
+                        }
+                    }
+                    Ok(if subject == InspectSubject::Grants {
+                        serde_json::json!({ "grants": grants })
+                    } else {
+                        serde_json::json!({ "bindings": bindings })
+                    })
+                })
+                .await?
+            }
+            InspectSubject::Operations => {
+                self.write(move |tx, _| {
+                    let mut ops = tx.open_operations()?;
+                    ops.extend(tx.unresolved_operations()?);
+                    let counts = tx.operation_counts()?;
+                    Ok(serde_json::json!({
+                        "operations": ops
+                            .iter()
+                            .filter(|o| visible_to(&o.key.caller, &ctx))
+                            .map(operation_view)
+                            .collect::<Vec<_>>(),
+                        "counts": counts
+                            .into_iter()
+                            .map(|(s, n)| serde_json::json!({ "state": s, "count": n }))
+                            .collect::<Vec<_>>(),
+                    }))
+                })
+                .await?
+            }
+            // ⟨M02⟩ U0b row 21: the catalog's identities, each with its fresh
+            // eligibility (row 5; ADR-0007 §7) and its live declaration, read in one
+            // transaction. Owner role only, like decisions (reading; escalated).
+            InspectSubject::Identities => {
+                if !ctx.is_owner() {
+                    serde_json::json!({ "identities": [] })
+                } else {
                     self.write(move |tx, _| {
-                        let mut ops = tx.open_operations()?;
-                        ops.extend(tx.unresolved_operations()?);
-                        let counts = tx.operation_counts()?;
+                        let mut items = Vec::new();
+                        for identity in tx.identities()? {
+                            items.push(identity_view(tx, &identity, now)?);
+                        }
+                        Ok(serde_json::json!({ "identities": items }))
+                    })
+                    .await?
+                }
+            }
+            // ⟨M02⟩ U0b row 21: this environment's projection resources and record,
+            // read-only. Empty until a projection is committed.
+            InspectSubject::Projections => {
+                if !ctx.is_owner() {
+                    serde_json::json!({ "projections": [], "record": null })
+                } else {
+                    self.write(move |tx, _| {
+                        let resources = tx.projection_resources(&environment)?;
+                        let record = tx.projection_record(&environment)?;
                         Ok(serde_json::json!({
-                            "operations": ops
-                                .iter()
-                                .filter(|o| visible_to(&o.key.caller, &ctx))
-                                .map(operation_view)
-                                .collect::<Vec<_>>(),
-                            "counts": counts
-                                .into_iter()
-                                .map(|(s, n)| serde_json::json!({ "state": s, "count": n }))
-                                .collect::<Vec<_>>(),
+                            "projections": resources,
+                            "record": record,
                         }))
                     })
                     .await?
                 }
-                // ⟨M02⟩ U0b row 21: the catalog's identities, each with its fresh
-                // eligibility (row 5; ADR-0007 §7) and its live declaration, read in one
-                // transaction. Owner role only, like decisions (reading; escalated).
-                InspectSubject::Identities => {
-                    if !ctx.is_owner() {
-                        serde_json::json!({ "identities": [] })
-                    } else {
-                        self.write(move |tx, _| {
-                            let mut items = Vec::new();
-                            for identity in tx.identities()? {
-                                items.push(identity_view(tx, &identity, now)?);
+            }
+            InspectSubject::Decisions => {
+                if !ctx.is_owner() {
+                    serde_json::json!({ "decisions": [] })
+                } else {
+                    self.write(move |tx, emit| {
+                        let pending = tx.pending_decisions()?;
+                        let mut decisions = Vec::with_capacity(pending.len());
+                        for d in &pending {
+                            // ⟨M06 W5 `w5o`; ADR-0006 §18.9 item 8⟩ A local widening record
+                            // past its deadline lapses at this read: settled `expired`,
+                            // the lapse recorded in the event log, and shown once more,
+                            // as expired with its reason.
+                            if let Some(lapsed) = lapse_local_widening(tx, emit, d, now)? {
+                                decisions.push(lapsed);
+                                continue;
                             }
-                            Ok(serde_json::json!({ "identities": items }))
-                        })
-                        .await?
-                    }
-                }
-                // ⟨M02⟩ U0b row 21: this environment's projection resources and record,
-                // read-only. Empty until a projection is committed.
-                InspectSubject::Projections => {
-                    if !ctx.is_owner() {
-                        serde_json::json!({ "projections": [], "record": null })
-                    } else {
-                        self.write(move |tx, _| {
-                            let resources = tx.projection_resources(&environment)?;
-                            let record = tx.projection_record(&environment)?;
-                            Ok(serde_json::json!({
-                                "projections": resources,
-                                "record": record,
-                            }))
-                        })
-                        .await?
-                    }
-                }
-                InspectSubject::Decisions => {
-                    if !ctx.is_owner() {
-                        serde_json::json!({ "decisions": [] })
-                    } else {
-                        self.write(move |tx, _| {
-                            let pending = tx.pending_decisions()?;
-                            let mut decisions = Vec::with_capacity(pending.len());
-                            for d in &pending {
-                                let mut view = decision_view(d, now);
-                                // ⟨M05⟩ Revision 5.1 (§17.9 C1): a targeted widening lists
-                                // the policies it was created over.
-                                if let Some(policies) = stop_m05::listed_policies(tx, d)?
-                                    && let serde_json::Value::Object(map) = &mut view
-                                {
-                                    map.insert("policies".to_owned(), serde_json::json!(policies));
-                                }
-                                // ⟨M05⟩ Revision 5.2 (§17.10 item 22): a `create` record
-                                // shows the scope its approval applies.
-                                if let Some(scope) = decision_scope(tx, d)?
-                                    && let serde_json::Value::Object(map) = &mut view
-                                {
-                                    map.insert("scope".to_owned(), serde_json::json!(scope));
-                                }
-                                decisions.push(view);
+                            let mut view = decision_view(d, now);
+                            // ⟨M05⟩ Revision 5.1 (§17.9 C1): a targeted widening lists
+                            // the policies it was created over.
+                            if let Some(policies) = stop_m05::listed_policies(tx, d)?
+                                && let serde_json::Value::Object(map) = &mut view
+                            {
+                                map.insert("policies".to_owned(), serde_json::json!(policies));
                             }
-                            Ok(serde_json::json!({ "decisions": decisions }))
-                        })
-                        .await?
-                    }
+                            // ⟨M06 W5 `w5m` L2; rev 6.5⟩ A lift names the delivered
+                            // effects it lifts: scope, controller, when.
+                            if let Some(lifted) = stop_m05::lifted_effects(tx, d)?
+                                && let serde_json::Value::Object(map) = &mut view
+                            {
+                                map.insert("lifted_effects".to_owned(), serde_json::json!(lifted));
+                            }
+                            // ⟨M05⟩ Revision 5.2 (§17.10 item 22): a `create` record
+                            // shows the scope its approval applies.
+                            if let Some(scope) = decision_scope(tx, d)?
+                                && let serde_json::Value::Object(map) = &mut view
+                            {
+                                map.insert("scope".to_owned(), serde_json::json!(scope));
+                            }
+                            decisions.push(view);
+                        }
+                        Ok(serde_json::json!({ "decisions": decisions }))
+                    })
+                    .await?
                 }
-                // ⟨M03⟩ wave 4 (U10): `inspect enrollments` (owner only, like decisions:
-                // the records name hosts and accounts) and `inspect issuer` (the
-                // `issuer.status` view). `inspect connections` has no reader yet (no store
-                // index lists every owned connection, U7-Q4): fail closed.
-                InspectSubject::Enrollments => {
-                    if !ctx.is_owner() {
-                        serde_json::json!({ "enrollments": [] })
-                    } else {
-                        let view = self
-                            .write(move |tx, _| enrollment_m03::enrollments_view_in(tx))
-                            .await?;
-                        serde_json::to_value(view).map_err(|_| {
-                            OpError::new(Code::InternalError, "enrollments could not be rendered")
-                        })?
-                    }
+            }
+            // ⟨M03⟩ wave 4 (U10): `inspect enrollments` (owner only, like decisions:
+            // the records name hosts and accounts) and `inspect issuer` (the
+            // `issuer.status` view). `inspect connections` has no reader yet (no store
+            // index lists every owned connection, U7-Q4): fail closed.
+            InspectSubject::Enrollments => {
+                if !ctx.is_owner() {
+                    serde_json::json!({ "enrollments": [] })
+                } else {
+                    let view = self
+                        .write(move |tx, _| enrollment_m03::enrollments_view_in(tx))
+                        .await?;
+                    serde_json::to_value(view).map_err(|_| {
+                        OpError::new(Code::InternalError, "enrollments could not be rendered")
+                    })?
                 }
-                InspectSubject::Issuer => {
-                    self.issuer_request(caller, heimdall_contract::issuer::IssuerRequest::Status)
-                        .await?
-                        .data
-                }
-                // ⟨M03⟩ wave 4, round 2 (ADR-0008 §17.21 item 11; §5 item 4): `inspect
-                // connections`, read-only over the owned-connection rows, owner only like
-                // decisions (rows name bindings, grants and destinations). Only live rows
-                // (`up`, `closing`) are listed; PIDs, start tokens, images and control paths
-                // never leave the process. Per row: the destination (a master's from its
-                // stable mux path `<runtime_dir>/mux/<destination-id>`, else the binding's
-                // first destination; a row whose binding is unknown is not listed), the
-                // grant's effective connection policy (D8 item 1's merge: its origin and
-                // every current applicable policy; no origin: `strict`/`disabled`, fail
-                // closed), and `closes_at`: the grant's bound for a master (closed at the
-                // deadline under both policies, D8 item 3) or under `strict`, `null` for a
-                // dedicated connection under `graceful`.
-                InspectSubject::Connections => {
-                    use heimdall_contract::managed::{
-                        ConnectionEntry, ConnectionKind, ConnectionPolicy, ConnectionState,
-                        ConnectionsView, ExistingConnectionsMode, MultiplexingMode,
-                    };
-                    use heimdall_domain::managed::OwnedConnectionState;
-                    if !ctx.is_owner() {
-                        serde_json::json!({ "connections": [] })
-                    } else {
-                        let view = self
+            }
+            InspectSubject::Issuer => {
+                self.issuer_request(caller, heimdall_contract::issuer::IssuerRequest::Status)
+                    .await?
+                    .data
+            }
+            // ⟨M03⟩ wave 4, round 2 (ADR-0008 §17.21 item 11; §5 item 4): `inspect
+            // connections`, read-only over the owned-connection rows, owner only like
+            // decisions (rows name bindings, grants and destinations). Only live rows
+            // (`up`, `closing`) are listed; PIDs, start tokens, images and control paths
+            // never leave the process. Per row: the destination (a master's from its
+            // stable mux path `<runtime_dir>/mux/<destination-id>`, else the binding's
+            // first destination; a row whose binding is unknown is not listed), the
+            // grant's effective connection policy (D8 item 1's merge: its origin and
+            // every current applicable policy; no origin: `strict`/`disabled`, fail
+            // closed), and `closes_at`: the grant's bound for a master (closed at the
+            // deadline under both policies, D8 item 3) or under `strict`, `null` for a
+            // dedicated connection under `graceful`.
+            InspectSubject::Connections => {
+                use heimdall_contract::managed::{
+                    ConnectionEntry, ConnectionKind, ConnectionPolicy, ConnectionState,
+                    ConnectionsView, ExistingConnectionsMode, MultiplexingMode,
+                };
+                use heimdall_domain::managed::OwnedConnectionState;
+                if !ctx.is_owner() {
+                    serde_json::json!({ "connections": [] })
+                } else {
+                    let view = self
                         .write(move |tx, _| {
                             let mut connections = Vec::new();
                             for c in tx.owned_connections()? {
@@ -9969,7 +10040,12 @@ impl Operations {
                                         binding.scope.pairs.iter().any(|p| &p.destination == d)
                                     });
                                 let Some(destination_id) = from_mux.or_else(|| {
-                                    binding.scope.pairs.iter().next().map(|p| p.destination.clone())
+                                    binding
+                                        .scope
+                                        .pairs
+                                        .iter()
+                                        .next()
+                                        .map(|p| p.destination.clone())
                                 }) else {
                                     continue;
                                 };
@@ -10022,49 +10098,49 @@ impl Operations {
                             Ok(ConnectionsView { connections })
                         })
                         .await?;
-                        serde_json::to_value(view).map_err(|_| {
-                            OpError::new(Code::InternalError, "connections could not be rendered")
-                        })?
-                    }
+                    serde_json::to_value(view).map_err(|_| {
+                        OpError::new(Code::InternalError, "connections could not be rendered")
+                    })?
                 }
-                // ⟨M05⟩ U2: `inspect policies` (ADR-0011 §4.4), owner role only, like the
-                // other owner-sensitive subjects (decisions, enrollments).
-                InspectSubject::Policies => {
-                    if !ctx.is_owner() {
-                        serde_json::json!({ "items": [] })
-                    } else {
-                        let own = environment.clone();
-                        let view = self
-                            .write(move |tx, _| trust_m05::policies_view(tx, &own))
-                            .await?;
-                        serde_json::to_value(view)
-                            .map_err(|_| internal("the policies could not be rendered"))?
-                    }
-                }
-                // ⟨M05⟩ U4: `inspect workspace` (ADR-0011 §2.3).
-                InspectSubject::Workspace => {
-                    let view = self.inspect_workspace(caller, req.cwd.clone()).await?;
-                    serde_json::to_value(view)
-                        .map_err(|_| internal("the workspace could not be rendered"))?
-                }
-                // ⟨M05⟩ U7: `inspect export` (ADR-0011 §2.4 I4), owner role only: a bundle
-                // for any other role would read as a valid empty one, so it is refused.
-                InspectSubject::Export => {
-                    if !ctx.is_owner() {
-                        return Err(OpError::new(
-                            Code::CapabilityUnavailable,
-                            "the export needs the owner role",
-                        )
-                        .with_effect(EffectStatus::None));
-                    }
-                    let redact = req.redact;
-                    let bundle = self
-                        .write(move |tx, _| portable_m05::export_bundle(tx, redact, now))
+            }
+            // ⟨M05⟩ U2: `inspect policies` (ADR-0011 §4.4), owner role only, like the
+            // other owner-sensitive subjects (decisions, enrollments).
+            InspectSubject::Policies => {
+                if !ctx.is_owner() {
+                    serde_json::json!({ "items": [] })
+                } else {
+                    let own = environment.clone();
+                    let view = self
+                        .write(move |tx, _| trust_m05::policies_view(tx, &own))
                         .await?;
-                    serde_json::to_value(bundle)
-                        .map_err(|_| internal("the export could not be rendered"))?
+                    serde_json::to_value(view)
+                        .map_err(|_| internal("the policies could not be rendered"))?
                 }
-            };
+            }
+            // ⟨M05⟩ U4: `inspect workspace` (ADR-0011 §2.3).
+            InspectSubject::Workspace => {
+                let view = self.inspect_workspace(caller, req.cwd.clone()).await?;
+                serde_json::to_value(view)
+                    .map_err(|_| internal("the workspace could not be rendered"))?
+            }
+            // ⟨M05⟩ U7: `inspect export` (ADR-0011 §2.4 I4), owner role only: a bundle
+            // for any other role would read as a valid empty one, so it is refused.
+            InspectSubject::Export => {
+                if !ctx.is_owner() {
+                    return Err(OpError::new(
+                        Code::CapabilityUnavailable,
+                        "the export needs the owner role",
+                    )
+                    .with_effect(EffectStatus::None));
+                }
+                let redact = req.redact;
+                let bundle = self
+                    .write(move |tx, _| portable_m05::export_bundle(tx, redact, now))
+                    .await?;
+                serde_json::to_value(bundle)
+                    .map_err(|_| internal("the export could not be rendered"))?
+            }
+        };
         if let Some(preview) = req.preview {
             let p = self.preview(caller, preview, now).await?;
             if let serde_json::Value::Object(map) = &mut data {
@@ -10164,6 +10240,7 @@ impl Operations {
             grant_id: GrantId::from_random_bytes([0; 16]),
             lock_floor: self.session_lock_floor(),
             runner_issued: Vec::new(),
+            runner: self.runner_grants().is_some(),
         };
         self.write(move |tx, _| {
             Ok(match resolve_in(tx, &inp)? {
@@ -10218,6 +10295,20 @@ impl Operations {
             return Err(OpError::new(
                 Code::UsageError,
                 "a request naming issuing CAs names its pairs and no working directory",
+            )
+            .with_effect(EffectStatus::None));
+        }
+        // ⟨M06 W5; m06-plan §2 item 3 "As built and ruled in W5"⟩ A local caller naming
+        // issuing CAs is the runner's owner asking for a pending grant: only on a session
+        // the owner attends, whatever client sent it. A paired controller's forwarded
+        // request (a bound client) is judged by `issuer_trust` instead.
+        if !req.pair_issuers.is_empty()
+            && caller.context.remote_client.is_none()
+            && !caller.is_attended()
+        {
+            return Err(OpError::new(
+                Code::InteractionRequired,
+                "naming the issuing CA needs this installation's owner on an attended session",
             )
             .with_effect(EffectStatus::None));
         }
@@ -10700,7 +10791,14 @@ impl Operations {
                 // ⟨M03 wave 4, §17.21 item 2⟩ A launch of a managed binding claims each
                 // pair's environment slot (store CAS) before anything else is written;
                 // a slot that cannot be claimed refuses the bind with its reason.
+                //
+                // ⟨M06 W5; ADR-0012 §4 item 2 "Work on the runner"⟩ Not on a remote runner:
+                // a runner grant has no environment slot (its key is offered on the
+                // binding's own endpoint, never on the environment endpoint;
+                // `ManagedEffects::materialize_runner_grant`), so there is nothing to
+                // claim or write, and the slots-only write would refuse the launch.
                 if !slots_ready
+                    && !on_runner
                     && matches!(req.form, BindForm::Launch(_))
                     && b.mechanism == MANAGED_CERTIFICATE
                 {
@@ -11956,6 +12054,12 @@ impl Operations {
                 "this policy action is not available in this build",
             ));
         }
+        // ⟨M06 W5 `w5l`⟩ A local `resume` or `clear_cutoff` of one policy this runner does
+        // not hold, while a delivered effect of exactly that policy is in force, is the
+        // lift of that effect (`stop_m05`): a widening decided like any other.
+        if let Some(lift) = self.delivered_lift_form(caller, &req).await? {
+            return self.policy_targeted(caller, lift).await;
+        }
         // ⟨M03⟩ U0b row 11 (O): `revoke_on_lock` without a usable lock signal is refused
         // before anything is written (`lock_connection_m03`; ADR-0008 D9 item 3).
         if let Some(e) = self.policy_refusal_m03(&req) {
@@ -11969,6 +12073,7 @@ impl Operations {
         let decision_id = crate::ids::new_decision_id()?;
         let lifetime = self.inner.config.limits.decision_lifetime;
         let attended = caller.is_attended();
+        let paired = caller.context.remote_client.is_some();
         let action = req.clone();
         // ⟨M03⟩ U0b rows 20 and 27 (G; reading E6c): a cutoff commits through the
         // narrowing protocol, its set the grants whose bound it lowers.
@@ -12018,6 +12123,15 @@ impl Operations {
                     return Ok(Ok(PolicyOutcome::Applied(Box::new(p), false)));
                 }
                 if widening {
+                    // ⟨M06 W5 `w5u`; ADR-0012 §7.4 ⟨2026-11-23⟩⟩ A paired session's
+                    // `resume` or `clear_cutoff` whose approval would lift a delivered
+                    // effect is refused now, with no record (`role_insufficient`).
+                    if paired {
+                        let ids = std::iter::once(pid.clone()).collect();
+                        if let Some(e) = stop_m05::paired_lift_refusal(tx, &action, &ids)? {
+                            return Ok(Err(e));
+                        }
+                    }
                     if let Err(u) = &assessed {
                         return Ok(Err(uncertain(u)));
                     }
@@ -12224,7 +12338,14 @@ impl Operations {
                         }
                         None
                     }
-                    DecisionKind::WidenPolicy { .. } => None,
+                    // ⟨M06 W5 `w5s`, M06-W5-R01⟩ An approval lifts no delivered effect
+                    // the record does not name (`stop_m05::lift_binding`).
+                    DecisionKind::WidenPolicy { .. } => {
+                        if let Err(e) = stop_m05::lift_binding(tx, &d, verdict)? {
+                            return Ok(Err(e.with_resource("decision", Some(did.to_string()))));
+                        }
+                        None
+                    }
                     DecisionKind::ConfirmTime { .. } => {
                         return Ok(Err(stale(&DecisionRefusal::NotPending(d.state))));
                     }

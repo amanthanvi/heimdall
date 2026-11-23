@@ -12,6 +12,7 @@
 //! | `project reconcile [--cwd P]` | `policy reconcile_workspace {workspace, cwd}` | yes |
 //! | `access allow --policy P` | `policy extend_scope` of P to its profile's current definition | yes |
 //! | `access allow --profile X` | `extend_scope` of each policy of X; `create` (personal) when X has none | yes |
+//! | `access allow --profile X --environment E` | ⟨M06 W5⟩ `create` (personal) naming the paired runner E only: this controller's authorization to issue for the grants E admits for X; nothing local | yes |
 //! | `access allow --workspace [--cwd P]` | an untrusted workspace's `trust_workspace`; an ambiguous one's `reconcile_workspace`; a trusted one's `extend_scope` to its manifest's request | yes |
 //! | `access stop --work W [--request-id R]` | `revoke {target: work}` | no |
 //! | `access stop --policy P \| --profile X \| --workspace [--cwd P] \| --all` | `policy stop {target}` | no |
@@ -293,7 +294,44 @@ pub(crate) async fn owner_request<S: Session, P: Prompter>(
     ) {
         return decided;
     }
-    s.request(request).await
+    let again = s.request(request.clone()).await;
+    // ⟨M06 W5 `w5m` L4⟩ An approved targeted `resume` or `clear_cutoff` that only lifted a
+    // delivered effect on a runner holding no policy in the scope: the request again names
+    // no standing policy (`policy_target_empty`), which would report the lift the owner
+    // just approved as a failure. Its answer is then the approved target with no policy.
+    if again.code == Code::NotFound
+        && again.data["error"]["reason"] == reason::POLICY_TARGET_EMPTY
+        && let Some(result) = lift_only_result(&request)
+    {
+        return Envelope::ok(result);
+    }
+    again
+}
+
+/// The result of an approved targeted `resume` or `clear_cutoff` whose target holds no
+/// standing policy ([`owner_request`]): the target, changed, no policy. `None` for any
+/// other request.
+fn lift_only_result(request: &Request) -> Option<serde_json::Value> {
+    let Request::Policy(
+        PolicyAction::Resume {
+            target: Some(target),
+            ..
+        }
+        | PolicyAction::ClearCutoff {
+            target: Some(target),
+            ..
+        },
+    ) = request
+    else {
+        return None;
+    };
+    serde_json::to_value(heimdall_contract::trust::PolicyTargetResult {
+        target: target.clone(),
+        changed: true,
+        policies: Vec::new(),
+        revoked: None,
+    })
+    .ok()
 }
 
 /// One connected owner request, rendered with `render`.
@@ -499,6 +537,27 @@ pub(crate) fn recorded_preview(view: &serde_json::Value, lock: Option<&str>) -> 
                 {
                     out.push_str("  lock behaviour: work continues while the session is locked\n");
                 }
+            }
+            // ⟨M06 W5 `w5m` L2; rev 6.5⟩ A lift names each delivered effect it lifts: its
+            // scope, the controller that delivered it and when.
+            if let Some(list) = view.get("lifted_effects").and_then(|p| p.as_array())
+                && !list.is_empty()
+            {
+                out.push_str(
+                    "  Approving also LIFTS these effects a controller delivered to this runner:\n",
+                );
+                for e in list {
+                    out.push_str(&format!(
+                        "    a {} of scope {}, delivered by controller {} at {}\n",
+                        output::quoted_field(s(e, "kind")),
+                        output::quoted_field(s(e, "scope_key")),
+                        output::quoted_field(s(e, "controller")),
+                        output::quoted_field(s(e, "delivered_at")),
+                    ));
+                }
+                out.push_str(
+                    "    (the delivering controller resumes issuance only after its own owner acknowledges the lift: `heimdall environment resume-issuance`)\n",
+                );
             }
             // ⟨rev5.1⟩ C1: a targeted widening lists exactly the policies it applies to.
             if let Some(list) = view.get("policies").and_then(|p| p.as_array()) {
@@ -958,6 +1017,15 @@ async fn allow_flow(ctx: &Ctx, a: &AccessAllowArgs) -> Outcome {
         Ok(p) => p,
         Err(_) => return usage("invalid profile"),
     };
+    let runner = match a
+        .environment
+        .as_deref()
+        .map(EnvironmentId::parse)
+        .transpose()
+    {
+        Ok(e) => e,
+        Err(_) => return usage("invalid environment"),
+    };
     let mut s = match session(ctx, true).await {
         Ok(s) => s,
         Err(o) => return o,
@@ -967,15 +1035,53 @@ async fn allow_flow(ctx: &Ctx, a: &AccessAllowArgs) -> Outcome {
     if let Some(cwd) = cwd {
         return allow_workspace(&mut s, &mut prompt, ctx, &own, &cwd).await;
     }
+    // ⟨M06 W5; record source (b)⟩ `--profile P --environment <runner>`: the review of a
+    // new personal policy that names that runner only. The runtime decides whether the
+    // environment may be named (a recorded runner on which this controller's role may
+    // issue) and whether such a policy already exists.
+    if let (Some(profile), Some(environment)) = (&profile, &runner) {
+        // Only a paired runner this controller records is named this way; an environment
+        // of this device's own set keeps its existing reviews.
+        if !recorded_runners(ctx).contains(environment) {
+            return Outcome::of(failure(
+                Code::NotFound,
+                "this controller holds no record of that runner environment",
+                None,
+            ));
+        }
+        let request = Request::Policy(PolicyAction::Create {
+            profile: profile.clone(),
+            environments: [environment.clone()].into_iter().collect(),
+            max_window: None,
+            default: false,
+        });
+        if ctx.interactive() {
+            output::prompt(&output::sanitize_for_terminal(&format!(
+                "This policy names the paired runner {}. It activates nothing on this device: it only lets this controller's issuer sign certificates for the grants that runner admits for the profile, inside the scope shown next.\n",
+                environment.as_str()
+            )));
+        }
+        return rendered(
+            owner_request(&mut s, &mut prompt, ctx, request, true).await,
+            render_policy,
+        );
+    }
     let view = match policies(&mut s).await {
         Ok(v) => v,
         Err(o) => return o,
+    };
+    // A policy that names only recorded runners applies nothing here: `--profile` reviews
+    // the policies that do (naming such a policy with `--policy` still reviews it).
+    let runners = recorded_runners(ctx);
+    let runner_only = |i: &heimdall_contract::trust::PolicyView| {
+        !i.environments.is_empty() && i.environments.iter().all(|e| runners.contains(e))
     };
     let targets: Vec<(PolicyId, ProfileId)> = view
         .items
         .iter()
         .filter(|i| policy.as_ref().is_none_or(|p| *p == i.policy_id))
         .filter(|i| profile.as_ref().is_none_or(|p| *p == i.profile))
+        .filter(|i| policy.is_some() || !runner_only(i))
         .map(|i| (i.policy_id.clone(), i.profile.clone()))
         .collect();
     if targets.is_empty() {
@@ -997,10 +1103,12 @@ async fn allow_flow(ctx: &Ctx, a: &AccessAllowArgs) -> Outcome {
             (None, None) => usage("access allow names --policy, --profile or --workspace"),
         };
     }
+    // The dry-run delta is this environment's: a runner's policy is reviewed against the
+    // profile's definition instead.
     let personal: BTreeSet<PolicyId> = view
         .items
         .iter()
-        .filter(|i| i.workspace_id.is_none())
+        .filter(|i| i.workspace_id.is_none() && !runner_only(i))
         .map(|i| i.policy_id.clone())
         .collect();
     let mut results = Vec::new();
@@ -1055,6 +1163,25 @@ async fn allow_flow(ctx: &Ctx, a: &AccessAllowArgs) -> Outcome {
     let data = serde_json::json!({ "policies": results });
     let human = format!("Reviewed every policy named.\n{}", pretty(&data));
     Outcome::of(Envelope::ok(data)).with_human(human)
+}
+
+/// ⟨M06 W5⟩ The runner environments this controller records, read from its state store
+/// read-only (as `environment status` reads them). Empty when there is no state or it
+/// cannot be read: then no policy is taken for a runner's.
+fn recorded_runners(ctx: &Ctx) -> BTreeSet<EnvironmentId> {
+    let Ok(paths) = ctx.paths() else {
+        return BTreeSet::new();
+    };
+    let db = paths
+        .state_dir
+        .join(heimdall_runtime::service::STATE_DB_FILE);
+    if !db.exists() {
+        return BTreeSet::new();
+    }
+    heimdall_store::Store::open_read_only(&db, std::sync::Arc::new(heimdall_store::NoFaults))
+        .and_then(|state| state.transaction(heimdall_app::remote_status_driver::pins))
+        .map(|pins| pins.into_iter().map(|p| p.environment).collect())
+        .unwrap_or_default()
 }
 
 /// `access allow --workspace`: the review the workspace's state calls for.
@@ -1489,6 +1616,29 @@ mod tests {
         });
         let text = recorded_preview(&targeted, None);
         assert!(text.contains("pol (at revision 3)"), "{text}");
+        assert!(!text.contains("LIFTS"), "{text}");
+        // ⟨M06 W5 `w5m` L2⟩ A lift names the delivered effect: scope, controller, when
+        // (each as quoted data), also when the record lists no policy.
+        let lift = serde_json::json!({
+            "kind": "widen_policy",
+            "request": {"action": {"action": "clear_cutoff", "target": {"kind": "all"}}},
+            "policies": [],
+            "lifted_effects": [{
+                "scope": {"kind": "all"}, "scope_key": "all", "kind": "cutoff",
+                "controller": "cl_00112233445566778899aabbccddeeff", "revision": 1,
+                "effect": "eff_00112233445566778899aabbccddeeff",
+                "delivered_at": "2026-11-22T10:00:00Z",
+            }],
+        });
+        let text = recorded_preview(&lift, None);
+        assert!(
+            text.contains("Approving also LIFTS these effects")
+                && text.contains("\"cutoff\" of scope \"all\"")
+                && text.contains("delivered by controller \"cl_00112233445566778899aabbccddeeff\"")
+                && text.contains("at \"2026-11-22T10:00:00Z\"")
+                && text.contains("resume-issuance"),
+            "{text}"
+        );
         let other = serde_json::json!({"kind": "approve_authority", "request": {}});
         assert!(recorded_preview(&other, None).is_empty());
     }

@@ -5,7 +5,7 @@
 # semantics). NOT YET RUN ON WINDOWS; it runs on the PC under Windows PowerShell 5.1 and
 # PowerShell 7 in a later job. A macOS rehearsal is not evidence for Windows.
 #
-# Usage: powershell -ExecutionPolicy Bypass -File tests\native\m08\lifecycle\install-selftest.ps1
+# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tests\native\m08\lifecycle\install-selftest.ps1
 #   $env:HM_INSTALL_UNDER_TEST = <file>   test that copy of install.ps1 (for a revert proof)
 # Exit code: 0 when every case passes; 1 otherwise.
 #
@@ -42,7 +42,8 @@ function Pair([string]$prefix) { "$(Exe $prefix)|$(Helper $prefix)" }
 function PrevPair([string]$prefix) { "$(PrevExe $prefix)|$(PrevHelper $prefix)" }
 function V([string]$v) { "fake heimdall $v|fake helper $v" }
 
-function Archive([string]$name, [string]$version, [bool]$deep = $false) {
+function Archive([string]$name, [string]$version, [bool]$deep = $false, [string]$helperVersion = "") {
+    if (-not $helperVersion) { $helperVersion = $version }
     $d = Join-Path $T $name
     [void][System.IO.Directory]::CreateDirectory((Join-Path $d "linux-x86_64"))
     $names = @("README", "heimdall.exe", "install.ps1", "linux-x86_64/heimdall")
@@ -52,12 +53,16 @@ function Archive([string]$name, [string]$version, [bool]$deep = $false) {
         $names += "linux-x86_64/sub/tool"
     }
     [System.IO.File]::WriteAllText((Join-Path $d "heimdall.exe"), "fake heimdall $version")
-    [System.IO.File]::WriteAllText((P $d @("linux-x86_64", "heimdall")), "fake helper $version")
+    [System.IO.File]::WriteAllText((P $d @("linux-x86_64", "heimdall")), "fake helper $helperVersion")
     [System.IO.File]::WriteAllText((Join-Path $d "README"), "notes for $version")
     Copy-Item -LiteralPath $sut -Destination (Join-Path $d "install.ps1")
     $lines = foreach ($f in $names) { "{0}  {1}" -f (Sha (P $d $f.Split('/'))), $f }
     [System.IO.File]::WriteAllText((Join-Path $d "MANIFEST.sha256"), (($lines -join "`n") + "`n"))
     return $d
+}
+# Every file under a prefix with its digest, sorted: "nothing changed" is this, unchanged.
+function Snapshot([string]$prefix) {
+    (Get-ChildItem -LiteralPath $prefix -Recurse -Force -File | ForEach-Object { "$($_.FullName.Substring($prefix.Length))=$(Sha $_.FullName)" } | Sort-Object) -join ";"
 }
 function Install([string]$archive, [string]$prefix, [string[]]$more = @(), [hashtable]$envs = @{}) {
     # Set the case's variables for this one run, then put back whatever was there before.
@@ -183,7 +188,7 @@ try {
     $M = Join-Path $T "prefix-mixed"; [void](Install $a2 $M)
     [System.IO.File]::WriteAllText((P $M @("linux-x86_64", "heimdall")), "fake helper 1.0.0")
     $r = Install $a2 $M
-    Check "W01-R02: a matching executable with a different helper is repaired" (($r.Code -eq 0) -and ((Pair $M) -eq (V "2.0.0")) -and ($r.Out -match "repairing the pair"))
+    Check "W01-R02: a matching executable with a different helper is repaired" (($r.Code -eq 0) -and ((Pair $M) -eq (V "2.0.0")) -and ($r.Out -match "repairing the helper in place"))
     # Rollback: a failure between its renames undoes both halves.
     $RB = Join-Path $T "prefix-rb"; [void](Install $a1 $RB); [void](Install $a2 $RB)
     $r = Install $a2 $RB @("-Rollback") @{ HM_INSTALL_TEST_FAIL_AT = "rb2" }
@@ -196,6 +201,42 @@ try {
         $pairs = @((Pair $X), (PrevPair $X)) | Sort-Object
         Check "W01-R02: a rollback killed after $tag, then rerun: both versions survive as complete pairs" (($r.Code -eq 0) -and (($pairs -join ";") -eq ((@((V "1.0.0"), (V "2.0.0")) | Sort-Object) -join ";")) -and -not (Test-Path -LiteralPath (Join-Path $X ".heimdall.swap.exe")) -and -not (Test-Path -LiteralPath (Join-Path $X ".linux-x86_64.swap")))
     }
+
+    # --- M08-W1-F1 (PC job 40): .previous always holds exactly the one pair that was in place.
+    # An archive whose executable is new and whose helper bytes equal the installed helper's
+    # (an "executable-only" update), and the same one version further on.
+    $a2x = Archive "a2x" "2.0.0" $false "1.0.0"; $a3x = Archive "a3x" "3.0.0" $false "2.0.0"
+    $E1 = Join-Path $T "prefix-f1-exeonly"; [void](Install $a1 $E1)
+    $r = Install $a2x $E1
+    Check "W1-F1: an executable-only update keeps the whole old pair under .previous" (($r.Code -eq 0) -and ((Pair $E1) -eq "fake heimdall 2.0.0|fake helper 1.0.0") -and ((PrevPair $E1) -eq (V "1.0.0")))
+    $r = Install $a2x $E1 @("-Rollback")
+    $exeBack = (Sha (P $E1 @("heimdall.exe"))) -eq (Sha (P $a1 @("heimdall.exe")))
+    $hlpBack = (Sha (P $E1 @("linux-x86_64", "heimdall"))) -eq (Sha (P $a1 @("linux-x86_64", "heimdall")))
+    Check "W1-F1: an executable-only update then a rollback restores the complete old pair (both digests)" (($r.Code -eq 0) -and $exeBack -and $hlpBack -and ((PrevPair $E1) -eq "fake heimdall 2.0.0|fake helper 1.0.0"))
+    $E2 = Join-Path $T "prefix-f1-repair"; [void](Install $a1 $E2); [void](Install $a2 $E2)
+    $prevBefore = "$(Sha (P $E2 @("heimdall.previous.exe")))|$(Sha (P $E2 @("linux-x86_64.previous", "heimdall")))"
+    [System.IO.File]::WriteAllText((P $E2 @("linux-x86_64", "heimdall")), "damaged helper")
+    $r = Install $a2 $E2
+    $prevAfter = "$(Sha (P $E2 @("heimdall.previous.exe")))|$(Sha (P $E2 @("linux-x86_64.previous", "heimdall")))"
+    Check "W1-F1: a helper-only repair fixes the helper in place and leaves .previous byte-identical" (($r.Code -eq 0) -and ((Pair $E2) -eq (V "2.0.0")) -and ($prevAfter -eq $prevBefore) -and ($r.Out -match "not touched"))
+    $E3 = Join-Path $T "prefix-f1-chain"; [void](Install $a1 $E3); [void](Install $a2 $E3)
+    $r = Install $a3x $E3
+    Check "W1-F1: after an earlier full update, an executable-only update leaves .previous a matched pair" (($r.Code -eq 0) -and ((Pair $E3) -eq "fake heimdall 3.0.0|fake helper 2.0.0") -and ((PrevPair $E3) -eq (V "2.0.0")))
+    $E4 = Join-Path $T "prefix-f1-incomplete"; [void](Install $a1 $E4); [void](Install $a2 $E4)
+    [System.IO.File]::Delete((P $E4 @("linux-x86_64.previous", "heimdall")))
+    $snap = Snapshot $E4
+    $r = Install $a2 $E4 @("-Rollback")
+    Check "W1-F1: a rollback with an incomplete .previous pair refuses, names what is missing, and changes nothing" (($r.Code -eq 1) -and ($r.Out -match "previous pair is incomplete") -and ($r.Out -match "install the older archive again") -and ((Snapshot $E4) -eq $snap))
+    $E5 = Join-Path $T "prefix-f1-nohelperdir"; [void](Install $a1 $E5); [void](Install $a2 $E5)
+    [System.IO.Directory]::Delete((P $E5 @("linux-x86_64.previous")), $true)
+    $snap = Snapshot $E5
+    $r = Install $a2 $E5 @("-Rollback")
+    Check "W1-F1: a rollback with no .previous helper directory refuses and changes nothing" (($r.Code -eq 1) -and ((Snapshot $E5) -eq $snap))
+    $E6 = Join-Path $T "prefix-f1-foreignprev"; [void](Install $a1 $E6); [void](Install $a2 $E6)
+    [System.IO.File]::WriteAllText((P $E6 @("linux-x86_64.previous", "notes.txt")), "mine")
+    $snap = Snapshot $E6
+    $r = Install $a3x $E6
+    Check "W1-F1: an update whose older .previous helper holds a foreign file refuses before any write" (($r.Code -eq 1) -and ($r.Out -match "did not put there") -and ((Snapshot $E6) -eq $snap))
 
     # Interrupted install after each step, then a rerun finishes it as a pair.
     foreach ($tag in "1", "2", "3a", "3b", "4a", "4b") {

@@ -253,6 +253,7 @@ impl World {
             delivered_at: t0(),
             prepared: Some(self.binding()),
             last_failure: None,
+            policy: None,
         }
     }
 

@@ -318,7 +318,7 @@ mod tests {
                 relays: vec!["https://relay.example.test/".into()],
             },
             direct_fallback: false,
-            port: None,
+            ..ExposurePolicy::default()
         };
         let outside_hint = RouteAddresses {
             direct: vec![],
@@ -352,7 +352,7 @@ mod tests {
             bind: BindScope::Loopback,
             infrastructure: InfrastructureProfile::N0Public,
             direct_fallback: false,
-            port: None,
+            ..ExposurePolicy::default()
         };
         assert_eq!(
             reason_of(plan_endpoint(&n0, Role::Serve)),

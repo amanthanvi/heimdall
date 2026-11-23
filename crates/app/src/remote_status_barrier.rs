@@ -52,16 +52,23 @@
 //! stops counting only when **both** hold, judged in the reserve's and the publish's own
 //! transaction:
 //!
-//! 1. the runner's report of this session shows the lift: every policy the runner's
-//!    acknowledgement said the effect applied to is listed, and is not paused (a pause) or
-//!    has no cutoff (a cutoff);
+//! 1. the runner's report of this session says **that effect** is no longer in force
+//!    ([`lift_shown`]): its own delivered revision row carries `in_force: false`, which only
+//!    a runner-local lift (an attended `resume` or `clear_cutoff` at the runner) clears.
+//!    ⟨W5; ADR-0006 §18.9 item 4⟩ This replaces reading "nothing in the effect's scope is in
+//!    force", under which a runner with no standing policy showed the lift from delivery
+//!    on and the owner's acknowledgement was the only key;
 //! 2. the owner's acknowledgement of that effect's lift is recorded on this controller
 //!    (`heimdall environment resume-issuance`, attended).
 //!
 //! Neither alone reopens anything. The effect's own row in the report's delivered revisions
-//! (which the runner keeps as the record after a lift) stops counting with it. Another
-//! controller's delivered revisions are not this controller's to acknowledge: they keep
-//! counting as the report states them.
+//! (which the runner keeps as the record after a lift) stops counting with it.
+//!
+//! ⟨W5 `w5l`; ADR-0012 §7.4 ⟨2026-11-22⟩ "Two owner controllers"⟩ Another controller's
+//! delivered revisions are not this controller's to acknowledge. They count exactly as the
+//! report states them: **in force** blocks this controller too; one the runner reports as
+//! lifted does not, with no acknowledgement here (the delivering controller stays blocked
+//! by it until its own two keys clear).
 //!
 //! Which standing policy a grant really belongs to is still the runner's statement until the
 //! controller holds its own policy record (m06-plan W4, record source (b)).
@@ -333,46 +340,33 @@ pub struct IssuancePermit {
     pub bound: Option<Timestamp>,
 }
 
-/// ⟨M06 W4⟩ Whether `report` shows that the delivered pause or cutoff `effect` (an
-/// acknowledged row of this controller's outbox) was lifted at the runner (module docs,
-/// "The way out is two-sided", item 1). The policies are the ones the runner's
-/// acknowledgement of the effect named; one the report no longer lists is not shown lifted,
-/// and neither is an effect that applied to no policy.
+/// ⟨M06 W4; W5, ADR-0006 §18.9 item 4⟩ Whether `report` shows that the delivered pause or
+/// cutoff `effect` (an acknowledged row of this controller's outbox) is no longer in force
+/// at the runner (module docs, "The way out is two-sided", item 1): the report carries
+/// **that effect's** own revision row, and the row says it is not in force.
+///
+/// Only the runner's own owner clears that flag, by lifting the effect at the runner. What
+/// the report lists as standing policies does not decide it: a runner with no standing
+/// policy, or one that no longer lists the policy, still reports the effect in force. A
+/// report without the row (or from a runner that does not state the flag) shows no lift.
 /// `false` for a row without an acknowledgement, or one that is not a pause or a cutoff.
 #[must_use]
 pub fn lift_shown(report: &AuthorityReport, effect: &OutboxEffect) -> bool {
-    lift_shown_among(&report.policies, effect)
+    lift_shown_among(&report.policy_revisions, effect)
 }
 
-/// [`lift_shown`] over a report's standing policies alone (`policies`).
+/// [`lift_shown`] over a report's delivered revisions alone.
 #[must_use]
-pub fn lift_shown_among(
-    policies_reported: &[heimdall_store::ext_effects::ReportedPolicy],
-    effect: &OutboxEffect,
-) -> bool {
-    let Some(AppliedRecord::PolicyRevision { policies, .. }) =
-        effect.ack.as_ref().map(|a| &a.record)
-    else {
-        return false;
-    };
-    let pause = match &effect.key.target {
-        EffectTarget::PolicyPause { .. } => true,
-        EffectTarget::PolicyCutoff { .. } => false,
-        _ => return false,
-    };
-    // An effect the runner said applied to no policy has no lift a report could show: it
-    // keeps counting (fail closed; the acknowledgement alone never reopens issuance).
-    !policies.is_empty()
-        && policies.iter().all(|id| {
-            policies_reported.iter().any(|p| {
-                p.policy == *id
-                    && if pause {
-                        !p.paused
-                    } else {
-                        p.cutoff_at.is_none()
-                    }
-            })
-        })
+pub fn lift_shown_among(revisions: &[PolicyRevisionRecord], effect: &OutboxEffect) -> bool {
+    matches!(
+        effect.ack.as_ref().map(|a| &a.record),
+        Some(AppliedRecord::PolicyRevision { .. })
+    ) && matches!(
+        effect.key.target,
+        EffectTarget::PolicyPause { .. } | EffectTarget::PolicyCutoff { .. }
+    ) && revisions
+        .iter()
+        .any(|r| revision_of(r, effect) && !r.in_force)
 }
 
 /// Whether the report's delivered revision `row` is the durable record of the outbox
@@ -525,11 +519,13 @@ impl IssuerBarrier {
         let mut held_pause = false;
         let mut held_cutoff = false;
         let mut lifted: Vec<OutboxEffect> = Vec::new();
+        let mut own: Vec<OutboxEffect> = Vec::new();
         for row in tx.remote_effect_outbox(Some(environment), false)? {
             if lift_shown(report, &row) && tx.remote_lift_ack(&row.key)?.is_some() {
                 lifted.push(row);
                 continue;
             }
+            own.push(row.clone());
             match &row.key.target {
                 EffectTarget::PolicyPause { policy: paused, .. } => {
                     held_pause = true;
@@ -570,11 +566,16 @@ impl IssuerBarrier {
                 _ => {}
             }
         }
-        // The report's delivered revisions, without the records of the lifted effects.
+        // The report's delivered revisions that count: without the records of this
+        // controller's lifted effects, and ⟨W5 `w5l`⟩ without another controller's effect
+        // the runner reports as no longer in force. A lifted row of an effect this
+        // controller delivered itself keeps counting until its own owner acknowledged the
+        // lift (it is in `own`, which the loop above already held against the grant).
         let revisions: Vec<&PolicyRevisionRecord> = report
             .policy_revisions
             .iter()
             .filter(|r| !lifted.iter().any(|e| revision_of(r, e)))
+            .filter(|r| r.in_force || own.iter().any(|e| revision_of(r, e)))
             .collect();
         // A delivered cutoff of every policy applies whatever the grant's policy.
         for row in &revisions {

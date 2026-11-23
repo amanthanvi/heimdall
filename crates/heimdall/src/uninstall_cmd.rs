@@ -5422,7 +5422,8 @@ mod tests {
         DecisionRecord {
             id: heimdall_contract::ids::DecisionId::from_random_bytes([0x5a; 16]),
             kind: DecisionKind::RemoteWidening(Box::new(RemoteWidening {
-                client: client_id(),
+                origin: heimdall_domain::decision::WideningOrigin::Paired,
+                client: Some(client_id()),
                 request_kind: "transport.disable".to_owned(),
                 request_id: heimdall_contract::ids::RequestId::parse("req-w2")
                     .unwrap_or_else(|e| panic!("{e}")),
@@ -5441,7 +5442,24 @@ mod tests {
     }
 
     fn seed_widening(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
-        tx.insert_remote_widening(&widening_decision(), &"ab".repeat(32))
+        tx.insert_remote_widening(&widening_decision(), &"ab".repeat(32), None)
+    }
+
+    /// ⟨M06 W5; migration 0013⟩ A pending **local** widening record: no client, its delta
+    /// digest instead.
+    fn local_widening_decision() -> heimdall_domain::decision::DecisionRecord {
+        use heimdall_domain::decision::{DecisionKind, WideningOrigin};
+        let mut record = widening_decision();
+        record.id = heimdall_contract::ids::DecisionId::from_random_bytes([0x5b; 16]);
+        if let DecisionKind::RemoteWidening(w) = &mut record.kind {
+            w.origin = WideningOrigin::Local;
+            w.client = None;
+        }
+        record
+    }
+
+    fn seed_local_widening(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        tx.insert_remote_widening(&local_widening_decision(), &"ab".repeat(32), Some("d1"))
     }
 
     /// ⟨M06 U3⟩ A runner grant's pin to its issuer (`remote_grant_issuers`).
@@ -5491,6 +5509,7 @@ mod tests {
             received_at: t0(),
             cutoff_at: Some(at.parse().unwrap_or_else(|e| panic!("{e}"))),
             fired_uncertain_at: None,
+            in_force: true,
         }
     }
 
@@ -5978,6 +5997,25 @@ mod tests {
                     )
                     .map(drop)
                 }),
+                // ⟨M06 W5; migration 0013⟩ A local owner's record: inserted, and settled.
+                case(
+                    "insert a pending local widening record",
+                    nothing,
+                    seed_local_widening,
+                ),
+                case(
+                    "settle a local widening record with its terminal result",
+                    seed_local_widening,
+                    |tx| {
+                        tx.settle_remote_widening(
+                            &local_widening_decision().id,
+                            heimdall_domain::decision::DecisionState::Denied,
+                            t0(),
+                            Some(&serde_json::json!({"code": "CAPABILITY_UNAVAILABLE"})),
+                        )
+                        .map(drop)
+                    },
+                ),
             ],
             // ⟨M06 U2⟩ The controller's pinned runners: insert, re-pin (a repair), forget.
             "remote_environment_pins" => vec![

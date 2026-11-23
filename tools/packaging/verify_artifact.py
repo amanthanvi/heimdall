@@ -112,7 +112,10 @@ LINUX_ALLOWED = re.compile(
 WINDOWS_ALLOWED = re.compile(
     r"^(?:kernel32|kernelbase|ntdll|advapi32|bcrypt|bcryptprimitives|crypt32|ncrypt|secur32"
     r"|ws2_32|userenv|user32|shell32|ole32|oleaut32|rpcrt4|iphlpapi|netapi32|psapi|dbghelp"
-    r"|synchronization|sspicli|wtsapi32|api-ms-win-core-[a-z0-9-]+)\.dll$")
+    r"|synchronization|sspicli|wtsapi32|api-ms-win-core-[a-z0-9-]+"
+    # combase: System32's COM base library. windows-sys 0.61 links CoTaskMemFree and
+    # CoTaskMemAlloc to it, not to ole32 (PC job 36: heimdall.exe imports CoTaskMemFree).
+    r"|combase)\.dll$")
 
 
 class Failure(Exception):
@@ -506,6 +509,25 @@ def verify(src, target=None, forbid=(), index=None, allow_exact=()):
 
 # ----------------------------------------------------------------------- self-test
 
+def _pe(dlls):
+    """A minimal PE32+ whose import table names `dlls` (one section, file offset = RVA)."""
+    names = b"".join(d.encode() + b"\0" for d in dlls)
+    table = 0x1000
+    strings = table + 20 * (len(dlls) + 1)
+    desc, off = b"", strings
+    for d in dlls:
+        desc += struct.pack("<IIIII", 0, 0, 0, off, 0)
+        off += len(d) + 1
+    desc += b"\0" * 20
+    body = desc + names
+    pe = 0x40
+    opt = b"\x0b\x02" + b"\0" * 110 + b"\0" * 8 + struct.pack("<II", table, len(desc)) + b"\0" * 14 * 8
+    coff = struct.pack("<HHIIIHH", 0x8664, 1, 0, 0, 0, len(opt), 0x22)
+    sect = b".idata\0\0" + struct.pack("<IIII", len(body), table, len(body), table) + b"\0" * 16
+    head = b"MZ" + b"\0" * 0x3A + struct.pack("<I", pe) + b"PE\0\0" + coff + opt + sect
+    return head + b"\0" * (table - len(head)) + body
+
+
 def _elf(needed, version=None):
     """A minimal ELF64 with one PT_LOAD and a PT_DYNAMIC naming `needed`."""
     strtab = b"\0"
@@ -607,6 +629,16 @@ def self_test():
         ("no executable", {"README": b"ok\n"}, {}, "no executable"),
         ("digest mismatch", {"heimdall": good}, {"tamper": "heimdall"}, "digest differs"),
         ("wrong platform", {"heimdall": good}, {"target": "aarch64-apple-darwin"}, "elf executable"),
+        # PC job 36: the Windows build imports combase.dll; an unknown DLL still fails.
+        ("windows system DLLs, combase included, pass",
+         {"heimdall.exe": _pe(["kernel32.dll", "ntdll.dll", "combase.dll", "api-ms-win-core-synch-l1-2-0.dll"])},
+         {"target": "x86_64-pc-windows-msvc"}, None),
+        ("a DLL outside the Windows system set fails",
+         {"heimdall.exe": _pe(["kernel32.dll", "vcruntime140.dll"])},
+         {"target": "x86_64-pc-windows-msvc"}, "imports a DLL outside the Windows system set: vcruntime140.dll"),
+        ("a name that only starts like combase fails",
+         {"heimdall.exe": _pe(["combase2.dll"])},
+         {"target": "x86_64-pc-windows-msvc"}, "outside the Windows system set: combase2.dll"),
     ]
     bad = 0
     with tempfile.TemporaryDirectory(prefix="hm-verify-selftest-") as tmp:

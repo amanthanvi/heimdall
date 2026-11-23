@@ -15,6 +15,25 @@
 //! 5. `exec` (Unix) or spawn and wait (Windows) of `ssh <alias>`, with no environment
 //!    addition.
 //!
+//! **⟨M06 W5⟩ On a remote runner** (ADR-0012 §4 item 5 "The declared pass-list"
+//! ⟨2026-11-22⟩) the client is runner work, so it goes through the clean launch `run` uses
+//! (`launch_flow::runner_work`): it receives exactly the declared pass-list from this
+//! process's environment, a fixed `PATH`, and `SSH_AUTH_SOCK` only when that is the runner
+//! signer's endpoint of its own binding. An agent this process inherited (a forwarded one
+//! above all) never reaches it and is named on stderr with its provenance.
+//! * A **managed pair**: the agents are the bind result's (its pairs' endpoints and its
+//!   signing endpoint), carried from the bind to the launch.
+//! * An **existing-access alias** has no binding. Its agents are the explicit
+//!   `IdentityAgent` endpoints its own configuration names (the fresh static selection,
+//!   every invocation profile; nothing executes and no agent is contacted). None is
+//!   runner-managed, so none is passed, and an unattended `connect` that depends on one is
+//!   refused `CAPABILITY_UNAVAILABLE`, `dependency_provenance_unknown` (or
+//!   `controller_dependency` when it is the socket this process inherited from an SSH
+//!   session). The alias's kind is read once, before the runtime is contacted; state that
+//!   cannot be read launches nothing.
+//!
+//! On any other installation nothing here changes.
+//!
 //! **Observed aliases (ADR-0007 §12.24 item 1).** `inspect destinations` lists the
 //! catalog: each destination with its alias and definition (`managed`, `observed`).
 //! A destination is known when the listing names its alias, whatever its definition;
@@ -149,6 +168,11 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
     };
     let interaction = launch_flow::interaction(ctx, &launch);
     let check = launch_flow::no_interaction_path(ctx, &launch);
+    // ⟨M06 W5⟩ Whether the client is runner work (module docs).
+    let runner = match launch_flow::installation_is_runner(ctx) {
+        Ok(r) => r,
+        Err(f) => return launch_flow::fail(ctx, &mut meta, f),
+    };
     let checked = rt.block_on(async {
         let mut client = connect_as(ctx, true, &[], interaction)
             .await
@@ -169,24 +193,56 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
                 interaction,
                 check,
             };
-            return flow.run(ctx, &mut client, &hooks).await.map(Some);
+            return flow
+                .run(ctx, &mut client, &hooks)
+                .await
+                .map(|m| Checked::Managed(Box::new(m)));
         }
         if check {
             eligible(ctx, &mut client, &alias, known.definition, &hooks).await?;
         }
-        Ok(None)
+        // ⟨M06 W5⟩ On a runner, the agents the alias's own configuration names, and
+        // whether the static pass determined its `IdentityAgent` at all.
+        let (agents, undetermined) = if runner.is_some() {
+            alias_agents(ctx, &mut client, &alias, known.definition, &hooks).await?
+        } else {
+            (Vec::new(), None)
+        };
+        Ok(Checked::Existing {
+            agents,
+            undetermined,
+        })
     });
     rt.shutdown_background();
-    let managed = match checked {
-        Ok(m) => m,
+    let checked = match checked {
+        Ok(c) => c,
         Err(f) => return launch_flow::fail(ctx, &mut meta, f),
     };
-    let (args, meta) = match managed {
-        None => (vec![std::ffi::OsString::from(&alias)], meta),
-        Some(m) => (
+    // ⟨M06 W5⟩ The clean launch of runner work; on any other installation no delta.
+    let (args, mut meta, delta) = match checked {
+        Checked::Existing {
+            agents,
+            undetermined,
+        } => (
+            vec![std::ffi::OsString::from(&alias)],
+            meta,
+            launch_flow::runner_work_unbound(
+                ctx,
+                runner.as_ref(),
+                &agents,
+                undetermined.as_ref(),
+                &env,
+            ),
+        ),
+        Checked::Managed(m) => (
             m.args,
             launch_flow::with_ids(meta, m.operation, Some(m.binding)),
+            launch_flow::runner_work(ctx, &m.consumer, m.managed, EnvDelta::default(), &env),
         ),
+    };
+    let delta = match delta {
+        Ok(d) => d,
+        Err(f) => return launch_flow::fail(ctx, &mut meta, f),
     };
     if !ctx.json {
         let digest = sha256_file(&program.path).unwrap_or_else(|| "unknown".to_owned());
@@ -200,7 +256,7 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
         Launch {
             program,
             args,
-            delta: EnvDelta::default(),
+            delta,
             meta,
             hooks,
         },
@@ -270,11 +326,29 @@ fn managed_pair_of(item: &serde_json::Value) -> Option<AccessPairRef> {
     })
 }
 
+/// What the checks before the launch found.
+enum Checked {
+    /// An existing-access alias, with the explicit agent endpoints its own configuration
+    /// names (read only on a runner; empty elsewhere), and, on a runner, why the static
+    /// pass could not determine its `IdentityAgent` when it could not.
+    Existing {
+        agents: Vec<std::path::PathBuf>,
+        undetermined: Option<launch_flow::UndeterminedAgent>,
+    },
+    /// A managed pair, bound.
+    Managed(Box<ManagedLaunch>),
+}
+
 /// What the managed flow hands to the launch.
 struct ManagedLaunch {
     args: Vec<std::ffi::OsString>,
     operation: Option<heimdall_contract::ids::OperationId>,
     binding: heimdall_contract::ids::BindingId,
+    /// ⟨M06 W5⟩ The bind result's integration: the agents this binding names, for the
+    /// clean launch on a runner (`launch_flow::runner_work`).
+    consumer: heimdall_contract::request::ConsumerIntegration,
+    /// Whether the binding's mechanism is the managed certificate.
+    managed: bool,
 }
 
 /// ⟨M03⟩ `connect` for a managed pair (module docs; ADR-0008 D8 item 2).
@@ -397,6 +471,8 @@ impl ManagedConnect<'_> {
             args,
             operation,
             binding: data.binding_id,
+            managed: bound_data.credential_mechanism == launch_flow::MANAGED_CERTIFICATE,
+            consumer: bound_data.consumer,
         })
     }
 }
@@ -716,6 +792,64 @@ async fn alias_selection(
         }
         Definition::Observed => launch_flow::fresh_observed_selection(config, alias),
     })
+}
+
+/// ⟨M06 W5⟩ The explicit agent endpoints `alias`'s own configuration names, under every
+/// invocation profile (its fresh static selection: nothing executes, no agent is
+/// contacted). The default agent, `~` paths and `%` tokens are not endpoints the static
+/// pass determines: the clean launch removes the default agent's variable anyway, and the
+/// second value says when the pass could not determine the alias's `IdentityAgent`
+/// (`launch_flow::undetermined_identity_agent`), which an unattended launch refuses.
+async fn alias_agents(
+    ctx: &Ctx,
+    client: &mut Client,
+    alias: &str,
+    definition: Definition,
+    hooks: &testcfg::LaunchHooks,
+) -> Result<
+    (
+        Vec<std::path::PathBuf>,
+        Option<launch_flow::UndeterminedAgent>,
+    ),
+    Failure,
+> {
+    let config = launch_flow::static_config(ctx, hooks)?;
+    let profiles = match definition {
+        Definition::Managed => {
+            let record = launch_flow::projection_record(client).await?;
+            launch_flow::managed_observations(&config, &record, alias)
+        }
+        Definition::Observed => launch_flow::observed_observations(&config, alias),
+    };
+    let undetermined = launch_flow::undetermined_identity_agent(&profiles).map(|why| {
+        launch_flow::UndeterminedAgent {
+            alias: alias.to_owned(),
+            why,
+        }
+    });
+    let selection = launch_flow::selection_from(&config, alias, profiles);
+    Ok((agent_endpoints(&selection), undetermined))
+}
+
+/// The distinct Unix-socket endpoints of a selection, `shell`'s first.
+fn agent_endpoints(
+    selection: &heimdall_launch::eligibility::FreshSelection,
+) -> Vec<std::path::PathBuf> {
+    let mut agents: Vec<std::path::PathBuf> = Vec::new();
+    for endpoint in selection.endpoint.iter().chain(
+        selection
+            .profiles
+            .iter()
+            .filter_map(|p| p.endpoint.as_ref()),
+    ) {
+        let socket = std::path::PathBuf::from(&endpoint.locator);
+        if endpoint.kind == heimdall_contract::provider::EndpointKind::UnixSocket
+            && !agents.contains(&socket)
+        {
+            agents.push(socket);
+        }
+    }
+    agents
 }
 
 /// The pre-launch check for the alias's identity (module docs).

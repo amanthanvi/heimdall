@@ -555,6 +555,96 @@ mod tests {
         assert_eq!(render(&target), render(&target));
     }
 
+    /// ⟨M06 W5; ADR-0012 §2.6⟩ Golden for a Windows controller: `IdentityAgent` is the K_mgmt
+    /// session agent's named pipe (`//./pipe/heimdall-<token>`), the files are Windows paths
+    /// with forward slashes, and every other line is byte for byte the Unix rendering's: no
+    /// §5.2 setting changes with the platform.
+    #[test]
+    fn golden_isolated_config_windows_pipe_agent() {
+        let pipe = r"\\.\pipe\heimdall-0123456789abcdef0123456789abcdef";
+        let windows = |p: &str| RenderPath::windows(Path::new(p)).unwrap();
+        let pins = windows(r"C:\Users\u\AppData\Local\Heimdall\run\mgmt\ab12\known_hosts");
+        let mut target = MgmtTarget {
+            environment: "env_0123456789abcdef0123456789abcdef".into(),
+            hop: hop("runner.example.net", Some(2222), "deploy", ED),
+            jump: None,
+        };
+        let unix_text = render(&target);
+        target.hop.identity = HopIdentity::new(
+            RenderPath::pipe(pipe).unwrap(),
+            windows(r"C:\Users\u\AppData\Local\Heimdall\run\mgmt\ab12\k_mgmt.pub"),
+        )
+        .unwrap();
+        let text =
+            String::from_utf8(render_mgmt_config(&target, &pins, PathStyle::Windows).unwrap())
+                .unwrap();
+        let trust = TRUST.replace(
+            "\"/home/u/.local/state/heimdall/mgmt/known_hosts\"",
+            "\"C:/Users/u/AppData/Local/Heimdall/run/mgmt/ab12/known_hosts\"",
+        );
+        let expected = format!(
+            "# heimdall management ssh configuration (generated; do not edit; read only with ssh -F)\n\
+             \n\
+             Host hm-env-env_0123456789abcdef0123456789abcdef\n\
+             \x20   HostName runner.example.net\n\
+             \x20   Port 2222\n\
+             \x20   User deploy\n\
+             \x20   HostKeyAlias hm-env-env_0123456789abcdef0123456789abcdef\n\
+             \x20   HostKeyAlgorithms ssh-ed25519\n\
+             {trust}\
+             \x20   IdentityAgent \"//./pipe/heimdall-0123456789abcdef0123456789abcdef\"\n\
+             \x20   IdentityFile \"C:/Users/u/AppData/Local/Heimdall/run/mgmt/ab12/k_mgmt.pub\"\n\
+             \x20   IdentitiesOnly yes\n\
+             \n\
+             Host *\n\
+             {trust}\
+             \x20   IdentitiesOnly yes\n"
+        );
+        assert_eq!(text, expected);
+        // Line by line against the Unix rendering: only the three path-valued settings
+        // differ, and each keeps its keyword.
+        let path_valued = ["UserKnownHostsFile", "IdentityAgent", "IdentityFile"];
+        let (ours, theirs): (Vec<&str>, Vec<&str>) =
+            (text.lines().collect(), unix_text.lines().collect());
+        assert_eq!(ours.len(), theirs.len());
+        let mut differing = Vec::new();
+        for (a, b) in ours.iter().zip(&theirs) {
+            if a != b {
+                let keyword = a.split_whitespace().next().unwrap();
+                assert_eq!(Some(keyword), b.split_whitespace().next());
+                assert!(path_valued.contains(&keyword), "{a}");
+                differing.push(keyword);
+            }
+        }
+        assert_eq!(
+            differing,
+            [
+                "UserKnownHostsFile",
+                "IdentityAgent",
+                "IdentityFile",
+                "UserKnownHostsFile"
+            ]
+        );
+        assert!(agent_forwarding_conflicts(&text).is_empty());
+        // The pipe agent is refused in a Unix-style file, and a pipe is never a file.
+        assert_eq!(
+            render_mgmt_config(&target, &unix("/run/known_hosts"), PathStyle::Unix),
+            Err(RenderError::RefusedValue("identity_agent"))
+        );
+        assert_eq!(
+            HopIdentity::new(windows(r"C:\a\k.pub"), RenderPath::pipe(pipe).unwrap()),
+            Err(RenderError::RefusedValue("identity_file"))
+        );
+        assert_eq!(
+            render_mgmt_config(
+                &target,
+                &RenderPath::pipe(pipe).unwrap(),
+                PathStyle::Windows
+            ),
+            Err(RenderError::RefusedValue("pin_file"))
+        );
+    }
+
     /// Golden, through a jump (ADR-0012 §5.2 "the jump hop is defined in the same file with
     /// its own pin"): the runner block names the jump with `ProxyJump`, the jump block has its
     /// own `HostKeyAlias` and algorithms (RSA through SHA-2 only), and both blocks carry every

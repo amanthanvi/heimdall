@@ -427,7 +427,15 @@ impl ControllerHost {
         pin: &RemoteEnvironmentPin,
         request: &heimdall_contract::request::EnsureRequest,
     ) -> heimdall_app::OpResult<serde_json::Value> {
-        use heimdall_app::remote_status_driver::{Forwarded, forwarded_pending, role_may_issue};
+        use heimdall_app::remote_status_driver::{
+            Forwarded, forwarded_pending, role_may_issue, role_may_only_request,
+        };
+        // ⟨M06 W5; ADR-0006 §18.9 item 6⟩ A role that may request and not issue submits
+        // the request: no record is written here and no CA is named, so nothing is ever
+        // signed on its word. Its grant waits for an owner controller's record.
+        if role_may_only_request(pin.role) {
+            return self.submit_limited(pin, request).await;
+        }
         // Only a role the role table allows to issue forwards; nothing is sent otherwise.
         if !role_may_issue(pin.role) {
             return Err(heimdall_app::OpError::new(
@@ -447,7 +455,10 @@ impl ControllerHost {
             }
             Forwarded::Pending {
                 grant, operation, ..
-            } => (grant, operation),
+            }
+            // Never produced by `forward_ensure` (an issuing role's path): answered as
+            // what it is, with nothing issued for it here.
+            | Forwarded::Submitted { grant, operation } => (grant, operation),
         };
         // Issue now (the pass's own steps: resynchronize, issue, read the report
         // again), then read the request's state once more.
@@ -462,6 +473,39 @@ impl ControllerHost {
                     self.remember_forwarded(op, request);
                 }
                 Ok(forwarded_pending(&grant, operation.as_ref()))
+            }
+        }
+    }
+
+    /// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ One round of an `ensure` this installation only
+    /// submits (`ControllerSync::submit_ensure`), under the pass lock: one session of the
+    /// limited standing for this request, nothing resynchronized, nothing recorded, no
+    /// issuer asked. A request the runner still holds pending answers `ACCEPTED`
+    /// (`submitted_pending`), and its operation is remembered for `operation wait`.
+    async fn submit_limited(
+        &self,
+        pin: &RemoteEnvironmentPin,
+        request: &heimdall_contract::request::EnsureRequest,
+    ) -> heimdall_app::OpResult<serde_json::Value> {
+        use heimdall_app::remote_status_driver::{Forwarded, submitted_pending};
+        let _pass = self.held.lock().await;
+        match self
+            .sync
+            .submit_ensure(self.sessions.as_ref(), pin, request)
+            .await?
+        {
+            Forwarded::Ready { data, .. } => {
+                self.forget_forwarded(request);
+                Ok(ready(data))
+            }
+            Forwarded::Submitted { grant, operation }
+            | Forwarded::Pending {
+                grant, operation, ..
+            } => {
+                if let Some(op) = &operation {
+                    self.remember_forwarded(op, request);
+                }
+                Ok(submitted_pending(&grant, operation.as_ref()))
             }
         }
     }
