@@ -82,10 +82,18 @@ SAMPLES = {
 # the Nth request arrived, for that request's profile (M07-W6-R02's probes). Mode `spawned`
 # writes the Windows `spawned` run record after `launching`, as the stub always does on
 # Windows.
+# M07 W8 (M07-W7-R03): mode `spawn-child` is the launch as Heimdall makes it on Windows,
+# on either platform. The stub writes `launching`, spawns the goal's child with its own
+# input (a batch script on Windows as Rust's std starts one: the system directory's
+# cmd.exe), writes `spawned` with the child's PID and the PID to the file `spawned-pid`,
+# prints its line, and exits with the child's exit code once it has ended. The child's
+# output goes nowhere (Heimdall's child shares Heimdall's): a child that outlives the stop
+# then cannot keep the harness waiting on its pipes, and the test sees it still running.
 STUB = r'''
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import time
 
@@ -127,7 +135,9 @@ OP, BINDING, DECISION = "op_fixture", "binding_fixture", "dec_fixture"
 SECOND = "binding_second"
 CODES = ["OK", "ACCESS_READY", "ACCEPTED", "APPROVAL_REQUIRED", "INTERACTION_REQUIRED",
          "PROVIDER_LOCKED", "CAPABILITY_UNAVAILABLE", "POLICY_PAUSED", "POLICY_CUTOFF",
-         "OPERATION_CANCELLED", "REQUEST_CONFLICT", "OUTCOME_UNKNOWN", "NOT_FOUND"]
+         "OPERATION_CANCELLED", "REQUEST_CONFLICT", "OUTCOME_UNKNOWN", "NOT_FOUND",
+         "DESTINATION_UNREACHABLE", "TIME_UNCERTAIN", "SERVICE_UNAVAILABLE", "STATE_UNAVAILABLE",
+         "BACKPRESSURE"]
 # Prose that says the opposite of the code: a caller that read it would go wrong.
 LIES = {"ACCESS_READY": "APPROVAL_REQUIRED: denied, nothing is ready, ask again",
         "ACCEPTED": "ACCESS_READY: finished, use the binding now",
@@ -362,14 +372,25 @@ elif args[0] == "run":
                           "executable": args[10], "operation_id": OP,
                           "binding_id": SECOND if mode == "second-binding" else BINDING,
                           "pid": 1 if mode == "other-pid" else os.getpid(),
-                          "consumer_overrides": []}), file=meta)
-        if os.name == "nt" or mode == "spawned":  # Windows: the child exists (here, this process)
+                          "consumer_overrides": []}), file=meta, flush=True)
+        if mode == "spawn-child":  # as Heimdall on Windows: the child is a process of its own
+            program = args[10:]
+            if os.name == "nt" and program[0].lower().endswith((".bat", ".cmd")):
+                program = [str(Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe"),
+                           "/e:ON", "/v:OFF", "/d", "/c", *program]
+            spawned = subprocess.Popen(program, stdin=0, stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL)
+            (root / "spawned-pid").write_text(str(spawned.pid))
+            print(json.dumps({"type": "spawned", "schema_version": "1", "pid": spawned.pid}), file=meta)
+        elif os.name == "nt" or mode == "spawned":  # Windows: the child exists (here, this process)
             print(json.dumps({"type": "spawned", "schema_version": "1", "pid": os.getpid()}), file=meta)
     if sleeps == "run-recorded":
         time.sleep(60)
     if mode == "silent-child":
         sys.exit(0)
     print("up", flush=True)
+    if mode == "spawn-child":
+        sys.exit(spawned.wait())
     sys.stdin.read()
     if mode == "stubborn-child":
         time.sleep(60)
@@ -1049,6 +1070,7 @@ class TableTests(unittest.TestCase):
             "effect_status": effect, "state": state, "result": {"binding_id": binding}}}
         work = lambda found: {"work": {"active": [], "found": found}}
         found, never, still, misfit = h2.FOUND, h2.NEVER_RAN, h2.STILL_OPEN, h2.MISFIT
+        shared = h2.SHARED_FIND
         # (the call, the code, next.action, whether the exit class fits, typed facts, the reading)
         rows = (
             # its operation: only a terminal view of one that succeeded, and that names
@@ -1102,6 +1124,11 @@ class TableTests(unittest.TestCase):
             ("work", "OK", "none", True, work(h2.SEVERAL), still),
             ("work", "OK", "none", True, {}, still),  # the list says nothing of the work
             ("work", "OK", "none", False, work(h2.NEW), misfit),
+            # that one binding can be an older request's too (M07-W7-R04): it is held,
+            # in either exit class, and settles nothing
+            ("work", "OK", "none", True, work(h2.SHARED), shared),
+            ("work", "OK", "none", False, work(h2.SHARED), shared),
+            ("work", "OK", "observe", True, work(h2.SHARED), still),
             ("work", "OK", "none", False, work(h2.SEVERAL), still),
             ("work", "OK", "none", False, work(h2.NONE_NEW), still),
             ("work", "OK", "observe", True, work(h2.NEW), still),
@@ -1137,13 +1164,14 @@ class TableTests(unittest.TestCase):
             rows = {row.reading: row for row in h2.REQUEST_SAYS
                     if row.call == call and row.reading in (found, misfit)}
             self.assertEqual(rows[found]._replace(fits=False, reading=misfit), rows[misfit])
-        self.assertEqual(h2.REQUEST_OUTCOMES[misfit], "still_unknown")
-        self.assertEqual((h2.SETTLED, h2.GIVING), ((found, never), (found, misfit)))
+        self.assertEqual((h2.REQUEST_OUTCOMES[misfit], h2.REQUEST_OUTCOMES[shared]),
+                         ("still_unknown", "still_unknown"))
+        self.assertEqual((h2.SETTLED, h2.GIVING), ((found, never), (found, misfit, shared)))
         self.assertEqual(sorted(h2.REQUEST_RECORDED.values()),
                          sorted(set(h2.REQUEST_OUTCOMES.values()) - {"binding_found", "not_run"}
                                 | set(h2.KEPT.values())))
         # No envelope can stand in for one of the planner's own readings.
-        for own in (found, never, still, misfit):
+        for own in (found, never, still, misfit, shared):
             with self.assertRaises(h2.PlannerError):
                 h2.read_envelope({"schema_version": "1", "code": own})
 
@@ -1288,7 +1316,8 @@ class TableTests(unittest.TestCase):
         for own, states, settles in ((h2.FOUND, h2.ASKING, True),
                                      (h2.NEVER_RAN, h2.ASKING_BY_WAIT, True),
                                      (h2.STILL_OPEN, h2.ASKING, False),
-                                     (h2.MISFIT, h2.ASKING, False)):
+                                     (h2.MISFIT, h2.ASKING, False),
+                                     (h2.SHARED_FIND, h2.ASKING_BY_LIST, False)):
             for name in states:
                 before = sample_state(name)
                 for facts, after in onward:
@@ -1322,9 +1351,11 @@ class TableTests(unittest.TestCase):
         self.assertEqual([h2.FOLLOW[name] for name in h2.ASKING], [("observe", None), ("work", None)])
         for row in h2.TRANSITIONS:
             if row.to in h2.ASKING:
-                self.assertIn(row.code, (h2.FOUND, h2.NEVER_RAN, h2.STILL_OPEN, h2.MISFIT), row)
+                self.assertIn(row.code, (h2.FOUND, h2.NEVER_RAN, h2.STILL_OPEN, h2.MISFIT,
+                                         h2.SHARED_FIND), row)
             if set(row.states) & set(h2.ASKING):
-                self.assertEqual(row.states, h2.ASKING_BY_WAIT if row.code == h2.NEVER_RAN else h2.ASKING)
+                self.assertEqual(row.states, {h2.NEVER_RAN: h2.ASKING_BY_WAIT,
+                                              h2.SHARED_FIND: h2.ASKING_BY_LIST}.get(row.code, h2.ASKING))
                 self.assertIn(row.to, (*h2.ASKING, "releasing", *h2.OBSERVING, "failed", "stopped"), row)
         self.assertFalse({"releasing", *h2.OBSERVING, *h2.ASKING, "failed", "stopped"} & set(h2.SENDING))
 
@@ -1389,7 +1420,7 @@ class SourceTests(unittest.TestCase):
                 self.assertNotEqual(node.attr, "message", node.lineno)
 
     def test_only_standard_library_imports_and_no_other_harness(self):
-        allowed = {"argparse", "collections", "json", "os", "pathlib", "queue", "re",
+        allowed = {"argparse", "collections", "ctypes", "json", "os", "pathlib", "queue", "re",
                    "subprocess", "sys", "threading", "time", "uuid"}
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Import):
@@ -1426,6 +1457,229 @@ class WindowsEnvironmentTests(unittest.TestCase):
             })
         with self.assertRaisesRegex(h2.PlannerError, "SystemRoot"):
             h2.windows_launch_variables(r"D:Windows", home)
+
+
+class RecordedProcesses:
+    """H2's Windows process calls as data (M07-W7-R03): each PID's process, as `table`
+    gives it, and every call made, in `log`. A handle is `h<PID>`. A process with
+    `stays` keeps running after it is terminated; `exits_after` ends it after that many
+    waits."""
+
+    def __init__(self, table, log=None):
+        self.table, self.log = table, [] if log is None else log
+        self.handles = {}
+
+    def process(self, handle):
+        return self.table[self.handles[handle]]
+
+    def open(self, pid):
+        self.log.append(("open", pid))
+        entry = self.table.get(pid)
+        if entry is None:
+            return None
+        if entry.get("open") == "error":
+            raise OSError(5, "OpenProcess failed")
+        handle = f"h{pid}"
+        self.handles[handle] = pid
+        return handle
+
+    def close(self, handle):
+        self.log.append(("close", handle))
+
+    def created(self, handle):
+        self.log.append(("created", handle))
+        return self.process(handle)["created"]
+
+    def facts(self, handle, pid):
+        self.log.append(("facts", handle))
+        entry = self.process(handle)
+        if entry.get("facts") == "error":
+            raise OSError(5, "GetProcessTimes failed")
+        return h2.Facts(entry["parent"], entry["created"], entry["image"])
+
+    @staticmethod
+    def program(path):
+        return PureWindowsPath(path)
+
+    def wait(self, handle, seconds):
+        self.log.append(("wait", handle, seconds))
+        entry = self.process(handle)
+        if entry.get("exits_after") is not None:
+            entry["exits_after"] -= 1
+            entry["running"] = entry["running"] and entry["exits_after"] > 0
+        return not entry["running"]
+
+    def terminate(self, handle):
+        self.log.append(("terminate", handle))
+        entry = self.process(handle)
+        entry["running"] = entry["running"] and entry.get("stays", False)
+
+    def exit_code(self, handle):
+        self.log.append(("exit_code", handle))
+        return self.process(handle).get("exit", 1)
+
+
+class SpawnedChildTests(unittest.TestCase):
+    """M07-W7-R03 as data, on every platform: the identity checks, the holding and the
+    ending of the child Heimdall spawns on Windows, through RecordedProcesses."""
+
+    HEIMDALL, CHILD = 400, 404
+    PROGRAM = r"C:\fixture root\child.exe"
+
+    def table(self, **child):
+        return {self.HEIMDALL: {"created": 1000, "parent": 1, "image": None, "running": True},
+                self.CHILD: dict({"created": 1001, "parent": self.HEIMDALL,
+                                  "image": PureWindowsPath(self.PROGRAM.upper()), "running": True}, **child)}
+
+    def test_the_identity_of_the_spawned_child_is_checked_in_order(self):
+        started = h2.Started(self.HEIMDALL, 1000, [PureWindowsPath(self.PROGRAM)])
+        child = h2.Facts(self.HEIMDALL, 1000, PureWindowsPath(self.PROGRAM.lower()))
+        rows = (
+            (child, None),
+            (child._replace(created=5000), None),
+            # another parent: not the child of the process this planner started
+            (child._replace(parent=401), "its parent is not the process this planner started"),
+            (child._replace(parent=None), "its parent is not the process this planner started"),
+            # an older process with that parent's PID cannot be its child
+            (child._replace(created=999), "it was created before the process this planner started"),
+            (child._replace(created=None), "it was created before the process this planner started"),
+            # another program: for example the runtime Heimdall may start on demand
+            (child._replace(image=PureWindowsPath(r"C:\fixture root\heimdall.exe")),
+             "it runs another program than the goal's"),
+            (child._replace(image=None), "it runs another program than the goal's"),
+            # each check in turn: the first that fails is the problem
+            (h2.Facts(401, 999, None), "its parent is not the process this planner started"),
+        )
+        for facts, problem in rows:
+            with self.subTest(facts=facts):
+                self.assertEqual(h2.spawned_identity(facts, started), problem)
+        # A batch script runs as the system directory's cmd.exe; anything else as itself.
+        self.assertEqual(h2.child_programs(r"C:\r\t.CMD", r"C:\Windows"),
+                         [r"C:\r\t.CMD", r"C:\Windows\System32\cmd.exe"])
+        self.assertEqual(h2.child_programs(r"C:\r\t.bat", r"D:\W"), [r"C:\r\t.bat", r"D:\W\System32\cmd.exe"])
+        for program, root in ((r"C:\r\t.exe", r"C:\Windows"), (r"C:\r\t.cmd", None), (r"C:\r\t.cmd", "Windows")):
+            self.assertEqual(h2.child_programs(program, root), [program])
+
+    def test_the_spawned_child_is_held_only_by_identity(self):
+        programs = [self.PROGRAM]
+        own = [("open", self.HEIMDALL), ("created", f"h{self.HEIMDALL}"), ("close", f"h{self.HEIMDALL}"),
+               ("open", self.CHILD), ("facts", f"h{self.CHILD}")]
+        child_closed = [("wait", f"h{self.CHILD}", 0), ("close", f"h{self.CHILD}")]
+        refused = "its parent is not the process this planner started"
+        # (the child's entry or None, the PID the record names; held, the problem, the calls)
+        rows = (
+            ({}, self.CHILD, True, None, own),
+            # the record names the process this planner started: its own handle ends it
+            ({}, self.HEIMDALL, False, None, []),
+            ({}, "404", False, "the spawned record names no process", []),
+            ({}, 0, False, "the spawned record names no process", []),
+            # no process has the PID: the child has ended already
+            (None, self.CHILD, False, None, own[:4]),
+            ({"open": "error"}, self.CHILD, False, "the process the spawned record names could not be opened",
+             own[:4]),
+            # it fails a check while it runs: not held, not ended, its handle closed
+            ({"parent": 401}, self.CHILD, False, refused, own + child_closed),
+            ({"created": 999}, self.CHILD, False, "it was created before the process this planner started",
+             own + child_closed),
+            ({"image": PureWindowsPath(r"C:\Windows\System32\cmd.exe")}, self.CHILD, False,
+             "it runs another program than the goal's", own + child_closed),
+            # it fails a check because it has just exited: there is nothing to end
+            ({"parent": 401, "running": False}, self.CHILD, False, None, own + child_closed),
+            ({"facts": "error"}, self.CHILD, False, "the process the spawned record names could not be read",
+             own + [("close", f"h{self.CHILD}")]),
+        )
+        for child, pid, held, problem, calls in rows:
+            with self.subTest(child=child, pid=pid):
+                table = self.table(**(child or {}))
+                if child is None:
+                    del table[self.CHILD]
+                processes = RecordedProcesses(table)
+                spawned, said = h2.hold_spawned(processes, pid, self.HEIMDALL, programs)
+                self.assertEqual((spawned is not None, said), (held, problem))
+                self.assertEqual(processes.log, calls)
+                if held:  # held by the handle opened when the record was read, still open
+                    self.assertEqual((spawned.pid, spawned.handle, spawned.ended), (self.CHILD, f"h{self.CHILD}", None))
+                    self.assertNotIn(("close", f"h{self.CHILD}"), processes.log)
+        self.assertEqual(h2.hold_spawned(None, self.CHILD, self.HEIMDALL, programs),
+                         (None, "this platform cannot hold a process by its handle"))
+
+    def test_the_held_child_is_ended_by_its_handle_once_and_within_the_bound(self):
+        handle = f"h{self.CHILD}"
+        # (the child's entry; what became of it, its exit code, the calls)
+        rows = (
+            ({"running": False, "exit": 0}, "exited", 0,
+             [("wait", handle, 0), ("exit_code", handle), ("close", handle)]),
+            ({"exit": 1}, "ended_by_handle", 1,
+             [("wait", handle, 0), ("terminate", handle), ("wait", handle, 2.5), ("exit_code", handle),
+              ("close", handle)]),
+            ({"stays": True}, "not_ended", None,
+             [("wait", handle, 0), ("terminate", handle), ("wait", handle, 2.5), ("close", handle)]),
+        )
+        for child, how, code, calls in rows:
+            with self.subTest(child=child):
+                processes = RecordedProcesses(self.table(**child))
+                spawned = h2.Spawned(processes, self.CHILD, processes.open(self.CHILD))
+                del processes.log[:]
+                self.assertEqual(spawned.end(2.5), {"pid": self.CHILD, "ended": how, "exit_code": code})
+                self.assertEqual(spawned.end(9), spawned.ended)  # once: a second end calls nothing
+                self.assertEqual(processes.log, calls)
+                self.assertIn(how, h2.ENDINGS)
+
+    def test_the_child_is_ended_before_heimdall_and_whatever_became_of_heimdall(self):
+        # On Windows Child.end ends the held child first, by its own handle, and then
+        # Heimdall, which waits for it; a Heimdall that stays is terminated as before.
+        log = []
+
+        class Heimdall:
+            def __init__(self, ends_with_child):
+                self.stdin, self.stdout, self.stderr = io.BytesIO(), io.BytesIO(), io.BytesIO()
+                self.returncode, self.ends_with_child = None, ends_with_child
+
+            def wait(self, timeout=None):
+                log.append(("heimdall wait",))
+                child = processes.table[SpawnedChildTests.CHILD]
+                if self.returncode is None and (child["running"] or not self.ends_with_child):
+                    raise subprocess.TimeoutExpired("heimdall", timeout)
+                if self.returncode is None:
+                    self.returncode = 1
+                return self.returncode
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                log.append(("heimdall terminate",))
+                self.returncode = 1
+
+            def kill(self):
+                log.append(("heimdall kill",))
+        handle = f"h{self.CHILD}"
+        ended = [("wait", handle, 0), ("terminate", handle), ("wait", handle, 0.5),
+                 ("exit_code", handle), ("close", handle)]
+        for ends_with_child, calls in (
+                (True, [("heimdall wait",), *ended, ("heimdall wait",)]),
+                (False, [("heimdall wait",), *ended, ("heimdall wait",), ("heimdall terminate",),
+                         ("heimdall wait",)])):
+            with self.subTest(ends_with_child=ends_with_child):
+                del log[:]
+                processes = RecordedProcesses(self.table(), log)
+                child = h2.Child(Heimdall(ends_with_child))
+                child.spawned = h2.Spawned(processes, self.CHILD, processes.open(self.CHILD))
+                del log[:]
+                self.assertEqual(child.end(0.5), 1)
+                self.assertEqual(log, calls)
+                self.assertEqual(child.spawned.ended["ended"], "ended_by_handle")
+        # A child that ended with its input closed is only waited on, never terminated.
+        del log[:]
+        processes = RecordedProcesses(self.table(exits_after=1), log)
+        heimdall = Heimdall(True)
+        heimdall.returncode = 0
+        child = h2.Child(heimdall)
+        child.spawned = h2.Spawned(processes, self.CHILD, processes.open(self.CHILD))
+        del log[:]
+        self.assertEqual(child.end(0.5), 0)
+        self.assertEqual(log, [("heimdall wait",), ("wait", handle, 0), ("exit_code", handle), ("close", handle)])
+        self.assertEqual(child.spawned.ended, {"pid": self.CHILD, "ended": "exited", "exit_code": 1})
 
 
 class PlannerTests(unittest.TestCase):
@@ -2861,7 +3115,9 @@ class PlannerTests(unittest.TestCase):
         refused = lambda state: [("start", *{"observing": ("ACCEPTED", "observe"),
                                             "pending_approval": ("INTERACTION_REQUIRED", "interact")}[state],
                                   state), (state, "SERVICE_UNAVAILABLE", "retry_after", "failed")]
-        transient = {"state": "failed", "code": "SERVICE_UNAVAILABLE"}
+        # W8 item 3: a row ends the goal there, naming the request and its operation.
+        transient = {"state": "failed", "code": "SERVICE_UNAVAILABLE", "operation_id": "op_fixture",
+                     "request_id": True}
         late, pair = {"timeout_ms": 1}, {"pairs": ["h3:deploy"]}
         rows = (
             # `observing` at the step limit: every wait found it unfinished (exit 5). The
@@ -2884,6 +3140,22 @@ class PlannerTests(unittest.TestCase):
              "requests_still_unknown", unavailable, "stop", found, [wait, release], False),
         )
         self.left_open(rows)
+        # Every code of a call refused for now has that row in each state that waits on the
+        # operation of its request (codes.json: class 5, retryable, `retry_after`).
+        published = json.loads((SOURCE.parents[3] / "schemas" / "public-api" / "codes.json").read_text(
+            encoding="utf-8"))["codes"]
+        self.assertEqual(h2.FOR_NOW, tuple(row["code"] for row in published if row["exit_code"] == 5
+                                           and row["retryable"] and row["default_next_action"] == "retry_after"))
+        mine = {"request_id": SAMPLES["request_id"], "operation_id": "op_other"}
+        for name in h2.TRACKED:
+            for code in h2.FOR_NOW:
+                with self.subTest(state=name, code=code):
+                    reading = h2.Reading(code, "retry_after", None, {"code": code, "request": mine})
+                    after, row = h2.transition(sample_state(name), reading)
+                    self.assertIsNotNone(row)
+                    self.assertEqual(after.record(), {"state": "failed", "code": code,
+                                                      "operation_id": SAMPLES["operation_id"],
+                                                      "request_id": SAMPLES["request_id"]})
         # The published code is not called unknown (the re-check's side note).
         reading = h2.Reading("SERVICE_UNAVAILABLE", "retry_after", None, {})
         self.assertEqual(h2.no_row(h2.State("observing", operation_id="op_sample"), reading),
@@ -3007,19 +3279,35 @@ class PlannerTests(unittest.TestCase):
         # M07-W6-R02 (the re-check's A15 and A16): two requests for the same work and
         # profile bring no answer and name no operation. One read of the list of bindings
         # observes both, the newest first, and each binding is credited to one request at
-        # most: the newest has the fewest candidates.
-        one, two = "binding_second", "binding_many_7"
+        # most: the newest has the fewest candidates. M07-W7-R04: a binding made after the
+        # newer request was sent can be the older one's too, which was sent before it was
+        # made. It is released (it is one of H2's own requests' either way), and credited
+        # to neither: both stay uncertain unless the older one has a binding only it can
+        # have made.
+        one, two, late = "binding_second", "binding_many_7", "binding_many_late"
         inspect = ["inspect", "bindings"]
+        # {request: (its first observation's outcome, `listed`, the bindings it gave,
+        #  the requests it names in `shared_with`)}
         rows = (
-            # A15: each request made a binding. Both are released, each credited to its own.
+            # A15: each request made a binding. Both are released. The older one's is
+            # only the older one's, and is credited to it; the newer one's can be either
+            # request's, so the newer one stays uncertain (M07-W7-R04).
             (f"work:{one}/made-1,{two}/made-2:active", "close",
-             {1: ("binding_found", [one, two], [one]), 2: ("binding_found", [one, two], [two])}),
+             {1: ("binding_found", [one, two], [one], []), 2: ("still_unknown", [one, two], [two], [1])}),
             (f"work:{one}/made-1,{two}/made-2:active", "stop",
-             {1: ("binding_found", [one, two], [one]), 2: ("binding_found", [one, two], [two])}),
-            # A16: only the newer made one. It is credited to that request; the older one
-            # is still unknown, and is not settled by another's binding.
+             {1: ("binding_found", [one, two], [one], []), 2: ("still_unknown", [one, two], [two], [1])}),
+            # A16, and M07-W7-R04's own case: one binding, made after the newer request was
+            # sent. It is released, and both requests stay uncertain.
             (f"work:{two}/made-2:active", "close",
-             {1: ("still_unknown", [two], []), 2: ("binding_found", [two], [two])}),
+             {1: ("still_unknown", [two], [], []), 2: ("still_unknown", [two], [two], [1])}),
+            (f"work:{late}/made-2:active", "close",
+             {1: ("still_unknown", [late], [], []), 2: ("still_unknown", [late], [late], [1])}),
+            (f"work:{late}/made-2:active", "stop",
+             {1: ("still_unknown", [late], [], []), 2: ("still_unknown", [late], [late], [1])}),
+            # Its control: made before the newer request was sent, the binding can be only
+            # the older one's, and is credited to it.
+            (f"work:{late}/made-1:active", "close",
+             {1: ("binding_found", [late], [late], []), 2: ("still_unknown", [late], [], [])}),
         )
         seen = self.watched(2.0, limited=(["access", "ensure"],))
         for mode, by, outcomes in rows:
@@ -3037,22 +3325,29 @@ class PlannerTests(unittest.TestCase):
                     stopped = h2.run_goal(planner, {"goal": "stop"})
                     closing = planner.close()
                     self.assertEqual(stopped["success"], all(
-                        outcome == "binding_found" for outcome, _, _ in outcomes.values()))
-                released = {binding for _, _, given in outcomes.values() for binding in given}
+                        outcome == "binding_found" for outcome, _, _, _ in outcomes.values()))
+                released = {binding for _, _, given, _ in outcomes.values() for binding in given}
                 # One read for both, then one release for each binding credited.
                 after = seen[2:]
                 self.assertEqual(after[0], inspect)
                 self.assertEqual(sorted(command[2] for command in after if command[:2] == ["access", "release"]),
                                  sorted(released))
                 self.assertEqual(after.count(inspect), 1 + (by == "stop") * (
-                    "still_unknown" in [outcome for outcome, _, _ in outcomes.values()]))
+                    "still_unknown" in [outcome for outcome, _, _, _ in outcomes.values()]))
                 self.assertEqual(planner.held, [])
                 self.assertEqual(set(planner.ever_held), released)
-                for index, (outcome, listed, given) in outcomes.items():
+                self.assertEqual(set(planner.requests), {requests[index - 1] for index, (outcome, _, _, _)
+                                                         in outcomes.items() if outcome == "still_unknown"})
+                for index, (outcome, listed, given, shared) in outcomes.items():
                     first = planner.by_request()[requests[index - 1]]["attempts"][1]
                     self.assertEqual((first["outcome"], first["listed"], first.get("bindings", [])),
                                      (outcome, listed, given), index)
                     self.assertEqual(first["candidates"], given, index)
+                    self.assertEqual(first.get("shared_with", []), [requests[other - 1] for other in shared],
+                                     index)
+                # Whatever was credited, the run fails while a request is uncertain.
+                if planner.requests:
+                    self.assertEqual(h2.exit_status([{"success": True}], closing, planner), 1)
                 if by == "close":
                     self.assertEqual(sorted(closing["released"]), sorted(released))
         # A request that named an operation is observed before those observed through the
@@ -3451,6 +3746,137 @@ class PlannerTests(unittest.TestCase):
         self.assertIsNotNone(process.returncode)
         self.assertNotEqual(stopped["child_exit_code"], 0)
         self.assertEqual(stopped["final_state"], {"state": "stopped"})
+
+    def spawned_child_stop(self, child, processes, gone, cleanup):
+        """M07-W7-R03: a run goal under the stub's `spawn-child` mode (the launch as
+        Heimdall makes it on Windows: Heimdall spawns the child and waits for it), whose
+        child `child` ignores the end of its input, then a stop. `processes` are the
+        process calls the planner holds the child with (None: its own), `gone(pid)`
+        waits a bounded time and says whether the child has ended, and `cleanup(pid)`
+        ends it where it has not. Returns the run and stop records and the child's PID."""
+        planner = self.planner("spawn-child")
+        planner.platform = "nt"
+        if processes is not None:
+            planner.processes = processes
+        goal = {"goal": "run", "profile": "covered", "work_id": "work-6", "argv": child}
+        running = h2.run_goal(planner, goal)
+        pid = int((self.root / "spawned-pid").read_text())
+        self.addCleanup(cleanup, pid)
+        self.assertTrue(running["success"], running)
+        launch = self.calls()[0]
+        self.assertEqual(launch[9:], ["--", *child])
+        heimdall = planner.child.process
+        with patch.object(h2, "CHILD_END_SECONDS", 0.5):
+            stopped = h2.run_goal(planner, {"goal": "stop"})
+        # The child is gone once the stop has ended it, and so is Heimdall.
+        self.assertTrue(gone(pid), "the child Heimdall spawned outlived the stop")
+        self.assertIsNotNone(heimdall.returncode)
+        self.assertEqual(running["spawned_child"], {"pid": pid, "held": True})
+        self.assertEqual(stopped["spawned_child"]["pid"], pid)
+        self.assertEqual(stopped["spawned_child"]["ended"], "ended_by_handle")
+        # It was ended, so the stop fails as for any child that stays (exit status != 0).
+        self.assertFalse(stopped["success"])
+        self.assertNotEqual(stopped["child_exit_code"], 0)
+        self.assertEqual(planner.close(), {"released": [], "held": []})
+        return running, stopped, pid
+
+    @unittest.skipUnless(os.name == "posix", "the POSIX stand-in for the Windows process calls")
+    def test_the_child_heimdall_spawned_is_ended_by_its_own_handle_through_a_posix_stand_in(self):
+        # M07-W7-R03 on POSIX: the platform's records are Windows', and the planner's
+        # process calls are a stand-in that reads the real parent with `ps` and ends a
+        # process by its exact PID. The child `exec`s `sleep`, which ignores its input.
+        child = self.root / "stubborn"
+        child.write_text("#!/bin/sh\nexec /bin/sleep 30\n", encoding="utf-8")
+        child.chmod(0o700)
+
+        class PosixProcesses:
+            """A handle is the PID itself; the child's program is the goal's."""
+            def open(self, pid):
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    return None
+                return pid
+
+            def close(self, handle):
+                pass
+
+            def created(self, handle):
+                return 0
+
+            def facts(self, handle, pid):
+                parent = subprocess.run(["/bin/ps", "-o", "ppid=", "-p", str(pid)], capture_output=True,
+                                        text=True, timeout=10).stdout.strip()
+                return h2.Facts(int(parent) if parent.isdigit() else None, 1, str(child))
+
+            @staticmethod
+            def program(path):
+                return str(path)
+
+            def wait(self, handle, seconds):
+                deadline = time.monotonic() + seconds
+                while True:
+                    try:
+                        os.kill(handle, 0)
+                    except ProcessLookupError:
+                        return True
+                    if time.monotonic() >= deadline:
+                        return False
+                    time.sleep(0.02)
+
+            def terminate(self, handle):
+                os.kill(handle, 9)
+
+            def exit_code(self, handle):
+                return 1
+
+        def cleanup(pid):  # only where the stop left it: this test started it, by its exact PID
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, 9)
+        self.spawned_child_stop([str(child)], PosixProcesses(), lambda pid: PosixProcesses().wait(pid, 5),
+                                cleanup)
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows")
+    def test_windows_the_child_heimdall_spawned_is_ended_by_its_own_handle(self):
+        # M07-W7-R03 on Windows, with the planner's own kernel32 calls: the child is a
+        # batch script, run by the system directory's cmd.exe as Rust's std runs one,
+        # that loops without reading its input. The test holds a handle of its own to
+        # the child, so the PID it waits on cannot name another process.
+        import ctypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.restype = ctypes.c_void_p
+        kernel.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
+        kernel.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+        kernel.WaitForSingleObject.restype = ctypes.c_uint32
+        kernel.TerminateProcess.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+        kernel.CloseHandle.argtypes = (ctypes.c_void_p,)
+        child = self.root / "stubborn.cmd"
+        child.write_text("@echo off\r\n:again\r\ngoto again\r\n", encoding="utf-8")
+        handles = {}
+
+        def held(pid):
+            if pid not in handles:  # SYNCHRONIZE | PROCESS_TERMINATE
+                handles[pid] = kernel.OpenProcess(0x00100000 | 0x0001, False, pid)
+            return handles[pid]
+
+        def gone(pid):
+            return held(pid) is not None and kernel.WaitForSingleObject(held(pid), 5000) == 0
+
+        def cleanup(pid):  # only where the stop left it, by the test's own handle
+            if handles.get(pid) is not None:
+                if kernel.WaitForSingleObject(handles[pid], 0) != 0:
+                    kernel.TerminateProcess(handles[pid], 1)
+                    kernel.WaitForSingleObject(handles[pid], 5000)
+                kernel.CloseHandle(handles[pid])
+        planner_processes = None  # the planner's own: h2.WindowsProcesses
+        original = h2.Planner.launch
+
+        def launch(planner, *arguments):  # the test's handle, opened as soon as the child exists
+            reading = original(planner, *arguments)
+            held(int((self.root / "spawned-pid").read_text()))
+            return reading
+        with patch.object(h2.Planner, "launch", launch):
+            self.spawned_child_stop([str(child)], planner_processes, gone, cleanup)
 
     def test_close_ends_a_child_that_was_never_stopped(self):
         planner = self.planner()
