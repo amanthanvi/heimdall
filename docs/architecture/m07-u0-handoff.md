@@ -131,6 +131,19 @@ Each has what today's build does (observed, with where), and a recommendation.
   1); a binding listed `released` is taken as released; a binding missing from the list is
   `not_listed` (not held, never called released).
 
+### U0-Q8. Repairing a damaged request ledger (H12; added by M08 W2, 2026-11-23)
+- **Ruled already:** a request ledger with damage (anything but a torn tail: a zero record that
+  is not the last, or a final record that is not all zeros) refuses every append with a typed
+  refusal and writes nothing, so no mutating request proceeds; recovery is U0's attended path,
+  as for `state_corrupt` (`crates/stategen/src/ledger.rs`, provisional).
+- **Question:** may an attended repair truncate the ledger at the first damaged record? The
+  records after it may name requests that were accepted and acted on; dropping them would let a
+  retry of one of those requests run again unless the store's own idempotency records still
+  answer it.
+- **To decide with it:** whether the repair first carries every decodable record after the
+  damage into the store as fence records (`REQUEST_STALE`), so nothing past the damage can run
+  twice, and whether the restore epoch is raised as part of the repair.
+
 ## 4. Rulings already made that U0 or U4b must carry
 
 - `invalid_retries` counts answers whose `next.action` is `fix_request` or `new_request_id`.

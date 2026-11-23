@@ -168,17 +168,18 @@ impl<F: Fs> Ledger<F> {
 
     /// Append one entry and sync it. **The request's first store write comes only after
     /// this returns `Ok`.** A torn tail left by an earlier stop is cut off first, so
-    /// records stay aligned.
+    /// records stay aligned. **A damaged ledger is refused** with [`LedgerError::Damaged`]
+    /// and nothing is written: the request must not proceed.
     pub fn append(&self, entry: Entry) -> Result<(), LedgerError> {
         let path = self.root.join(LEDGER);
         let bytes = self.bytes()?;
         let len = bytes.len();
         // Cut a torn tail (a short one, or a final record of zeros) before appending, so
-        // records stay aligned and the ledger stays readable. A damaged ledger is not
-        // repaired here and does not stop the append (as before): only its short tail is
-        // cut, and a restore treats the ledger as unreadable, behind the epoch fence.
-        let torn = Self::parse(&bytes).map_or(len % RECORD_LEN, |r| r.torn_tail);
-        let aligned = len - torn;
+        // records stay aligned and the ledger stays readable. A damaged ledger refuses the
+        // append and nothing is written (ruled 2026-11-23): with damage before the tail a
+        // lookup can miss an earlier record, and its request would run again. Recovery is
+        // U0's attended path, as for `state_corrupt`.
+        let aligned = len - Self::parse(&bytes)?.torn_tail;
         if aligned != len {
             self.fs
                 .truncate_sync(Point::LedgerRepair, &path, aligned as u64)
@@ -328,6 +329,58 @@ mod tests {
             (read.entries, read.torn_tail),
             (vec![entry(1, b"a"), entry(1, b"b"), entry(2, b"d")], 0)
         );
+    }
+
+    #[test]
+    fn an_append_to_a_damaged_ledger_is_refused_and_writes_nothing() {
+        // Ruled 2026-11-23: damage is anything but a torn tail. A lookup past it could miss
+        // an earlier record, so no request may proceed on it.
+        let dir = tempfile::tempdir().expect("a scratch directory");
+        let ledger = Ledger::new(RealFs, dir.path());
+        for key in [b"a", b"b"] {
+            ledger.append(entry(1, key)).expect("append");
+        }
+        let path = dir.path().join(LEDGER);
+        for damage in [
+            Damage::FirstRecordAltered,
+            Damage::ZeroRecordNotLast,
+            Damage::FinalRecordNotZero,
+        ] {
+            let mut bytes = std::fs::read(&path).expect("read");
+            match damage {
+                Damage::FirstRecordAltered => bytes[20] ^= 1,
+                Damage::ZeroRecordNotLast => bytes.splice(0..0, [0u8; RECORD_LEN]).for_each(drop),
+                Damage::FinalRecordNotZero => {
+                    let mut last = [0u8; RECORD_LEN];
+                    last[3] = 7;
+                    bytes.extend_from_slice(&last);
+                }
+            }
+            let damaged = std::fs::read(&path).map(|_| bytes.clone()).expect("read");
+            std::fs::write(&path, &damaged).expect("write");
+            assert!(
+                matches!(ledger.append(entry(2, b"c")), Err(LedgerError::Damaged(_))),
+                "{damage:?}"
+            );
+            assert_eq!(
+                std::fs::read(&path).expect("read"),
+                damaged,
+                "{damage:?}: nothing was written"
+            );
+            // Put the healthy ledger back for the next kind of damage.
+            let healthy: Vec<u8> = [entry(1, b"a"), entry(1, b"b")]
+                .iter()
+                .flat_map(Entry::encode)
+                .collect();
+            std::fs::write(&path, healthy).expect("write");
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum Damage {
+        FirstRecordAltered,
+        ZeroRecordNotLast,
+        FinalRecordNotZero,
     }
 
     #[test]
