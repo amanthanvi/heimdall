@@ -3,12 +3,16 @@
 A task is a goal (data). The planner holds one typed state, and the list of bindings
 it was given and has not released. The goal names the first call; after that every
 step is one row of TRANSITIONS, chosen from the state and the last answer's `code`
-and `next.action`. Every answer is checked against the exit class of its process
-(EXIT_CLASSES). A release Heimdall refuses is recorded, and the stop goes on with the
-other bindings it holds. A release whose outcome is uncertain is never sent again: a
-later stop, or the close, first observes what became of it. One new release follows
-only where the uncertain answer named an operation and that operation, once ended,
-says that the release did not happen. Nothing here reads an answer's prose.
+and `next.action`. The exit status of every answer's process is checked against the
+class documented for the answer: the installed code table's where discovery read it,
+else the frozen EXIT_CLASSES. A release Heimdall refuses is recorded, and the stop
+goes on with the other bindings it holds. A release whose outcome is uncertain is
+never sent again: a later stop, or the close, first observes what became of it. A
+release that was started and brought no answer is uncertain too. One new release
+follows only where the uncertain answer named an operation and that operation, once
+ended without succeeding, says that the release did not happen. An operation is read
+by the typed state of its view (OPERATION_STATES). Nothing here reads an answer's
+prose.
 """
 
 import argparse
@@ -27,6 +31,15 @@ import uuid
 
 class PlannerError(Exception):
     """The harness could not go on: a bad fixture, an unreadable answer, a wait that ran out."""
+
+
+class NoAnswer(PlannerError):
+    """A call brought no answer the harness can use. `reading` is the planner's own
+    answer that stands in for it (`no_answer`) where the call was about a release."""
+
+    def __init__(self, problem, reading):
+        super().__init__(problem)
+        self.reading = reading
 
 
 def require(condition, problem):
@@ -113,7 +126,8 @@ STATES = {
 }
 # A field a state may carry beside its own. `failed` names the operation of an
 # uncertain outcome whenever one is known. Where a stop ends with a binding it did not
-# release, it names the first such binding and the exit status of the answer about it.
+# release, it names the first such binding, and the exit status of the answer about it
+# when its process had one.
 OPTIONAL = {"failed": ("operation_id", "binding_id", "exit_code")}
 
 
@@ -179,14 +193,24 @@ Reading = namedtuple("Reading", "code action effect facts exit", defaults=(None,
 Row = namedtuple("Row", "states code action to takes")
 
 STAY = "(same state)"
-# Eight answers are the planner's own. Each stands where the code would, and no envelope
+# Twelve answers are the planner's own. Each stands where the code would, and no envelope
 # can carry any of them: they are not words.
 # The step limit ran out:
 BOUND = "(the step limit)"
 # The process ended in another exit class than the one documented for its answer, and
 # the call was not about a release. The facts hold that answer's code and the exit status:
 MISMATCH = "(the exit class)"
-# The six readings of an answer about one binding's release (RELEASE_SAYS), beside
+# A call brought no answer (`no_answer`). The CLI could not be started, so nothing was
+# sent:
+NOT_STARTED = "(not started)"
+# The call was started and may have reached Heimdall, and no answer that can be used
+# came of it: it ran past its time limit, or what it printed is not one envelope about
+# what was asked. The facts hold what a first complete line did say:
+UNANSWERED = "(no answer)"
+# Why a call brought no answer, as an attempt records it (`fault`), and the answer of
+# the planner's own that stands in for it.
+FAULTS = {"not_started": NOT_STARTED, "timed_out": UNANSWERED, "unreadable": UNANSWERED}
+# The eight readings of an answer about one binding's release (RELEASE_SAYS), beside
 # `OK` for a release that was answered. For each, the planner has recorded the attempt.
 # The release was not answered `OK` in its exit class: the binding stays held, and is
 # set aside for this stop.
@@ -194,6 +218,12 @@ REFUSED = "(a refused release)"
 # The release may have happened or not. The binding stays held and is set aside for
 # this stop. The release is not sent again: a later stop observes it first.
 UNCERTAIN = "(an uncertain release)"
+# The release was started and brought no answer: it may have happened or not, as after
+# an uncertain answer, and it is treated the same way.
+SILENT = "(a release with no answer)"
+# The release was not sent: the CLI could not be started. The binding stays held and
+# is set aside for this stop. A later stop sends it.
+UNSENT = "(a release not sent)"
 # An observation says that the uncertain release happened: the binding is not held.
 OBSERVED = "(a release observed)"
 # The operation the uncertain answer named has ended, and its result says that the
@@ -220,49 +250,90 @@ STOPPING = RELEASABLE + OBSERVING  # every state a stop calls from
 # Every state that makes a call that is not about a release:
 CALLING = SENDING + IN_FLIGHT + ("reconciling",)
 
+# The states of an operation, from the published schema (`OperationState` in
+# schemas/public-api/envelope.schema.json), in one table. For each state: whether the
+# operation is still going (`active`); whether the state is terminal (the schema's
+# "settled": the operation ended, and what its view says will not change); whether it
+# is the terminal state of an operation that succeeded; and the exit class of an
+# observation that found the operation in it (None: the class of the operation's own
+# code). An operation in a state this table lacks is read as one that has not ended.
+Stage = namedtuple("Stage", "active terminal succeeded exit")
+OPERATION_STATES = {
+    "queued": Stage(True, False, False, 5),
+    "running": Stage(True, False, False, 5),
+    "awaiting_approval": Stage(True, False, False, 5),
+    "succeeded": Stage(False, True, True, None),
+    "failed": Stage(False, True, False, None),
+    "cancelled": Stage(False, True, False, None),
+    # Neither: nothing is running, and it is unresolved until a reconciliation settles it.
+    "outcome_unknown": Stage(False, False, False, 7),
+}
+# The states whose view has the last word on the operation: it succeeded, or it ended
+# without succeeding.
+SUCCEEDED = tuple(name for name, stage in OPERATION_STATES.items() if stage.succeeded)
+UNSUCCESSFUL = tuple(name for name, stage in OPERATION_STATES.items()
+                     if stage.terminal and not stage.succeeded)
+# The states in which the view's own code is the answer's: the operation is not going.
+OVER = tuple(name for name, stage in OPERATION_STATES.items() if not stage.active)
+
 # What an answer says about the release of one binding. A row names the call; the
-# answer's code and `next.action`; whether its exit class must fit (`fits`); one typed
-# field of the answer and the value it must have; and the reading the transition table
-# then gets. None stands for any. The first row that applies wins, and the last row for
-# each call applies to every answer.
-Says = namedtuple("Says", "call code action fits field value reading")
+# answer's code and `next.action`; whether its exit class must fit (`fits`); the typed
+# fields of the answer it wants, each with the values it may have; and the reading the
+# transition table then gets. None stands for any, and so does no field. The first row
+# that applies wins, and the last row for each call applies to every answer.
+Says = namedtuple("Says", "call code action fits wants reading")
 RELEASE_SAYS = (
-    # The release itself. An uncertain answer is uncertain whatever its exit status.
-    Says("release", "OUTCOME_UNKNOWN", None, None, None, None, UNCERTAIN),
-    Says("release", "OK", "none", True, None, None, "OK"),
+    # The release itself. An uncertain answer is uncertain whatever its exit status,
+    # and so is a release that was started and brought no answer.
+    Says("release", "OUTCOME_UNKNOWN", None, None, (), UNCERTAIN),
+    Says("release", UNANSWERED, None, None, (), SILENT),
+    Says("release", NOT_STARTED, None, None, (), UNSENT),
+    Says("release", "OK", "none", True, (), "OK"),
     # Any other code is a refusal. So is an answer whose exit class does not fit its code.
-    Says("release", None, None, None, None, None, REFUSED),
-    # Its operation, waited on once: the code is the operation's own once it has one.
-    Says("observe", "OUTCOME_UNKNOWN", None, None, None, None, STILL_UNCERTAIN),
-    Says("observe", "OK", "none", True, None, None, OBSERVED),
-    # Unfinished when the wait ran out, or the wrong class:
-    Says("observe", "OK", None, None, None, None, STILL_UNCERTAIN),
-    # It ended with another code and reports no effect: the release did not happen.
-    Says("observe", None, "none", True, "data.effect_status", "none", NOT_RUN),
-    Says("observe", None, None, None, None, None, STILL_UNCERTAIN),
+    Says("release", None, None, None, (), REFUSED),
+    # Its operation, waited on once, and read by the typed `state` of its view: the
+    # code is the operation's own once that state says the operation is over. A wait
+    # that brought no answer settles nothing.
+    Says("observe", "OUTCOME_UNKNOWN", None, None, (), STILL_UNCERTAIN),
+    Says("observe", UNANSWERED, None, None, (), STILL_UNCERTAIN),
+    Says("observe", NOT_STARTED, None, None, (), STILL_UNCERTAIN),
+    # Only a terminal view of an operation that succeeded is evidence of a release.
+    Says("observe", "OK", "none", True, (("data.state", SUCCEEDED),), OBSERVED),
+    # Unfinished when the wait ran out, in no state that says it succeeded, or in the
+    # wrong class:
+    Says("observe", "OK", None, None, (), STILL_UNCERTAIN),
+    # It ended without succeeding, with another code, and reports no effect: the
+    # release did not happen. Only a terminal view says so.
+    Says("observe", None, "none", True,
+         (("data.state", UNSUCCESSFUL), ("data.effect_status", ("none",))), NOT_RUN),
+    Says("observe", None, None, None, (), STILL_UNCERTAIN),
     # Its binding's own state, in the complete list of this caller's bindings. No row
     # here reads NOT_RUN: the list alone never leads to a new release.
-    Says("bindings", "OK", "none", True, "binding.state", "released", OBSERVED),
-    Says("bindings", "OK", "none", True, "binding.state", ABSENT, NOT_LISTED),
+    Says("bindings", "OK", "none", True, (("binding.state", ("released",)),), OBSERVED),
+    Says("bindings", "OK", "none", True, (("binding.state", (ABSENT,)),), NOT_LISTED),
     # An `active` binding alone is not evidence that the release never ran: it may not
     # have been applied yet (ruled 2026-11-22).
-    Says("bindings", "OK", "none", True, "binding.state", "active", STILL_UNCERTAIN),
-    Says("bindings", None, None, None, None, None, STILL_UNCERTAIN),
+    Says("bindings", "OK", "none", True, (("binding.state", ("active",)),), STILL_UNCERTAIN),
+    Says("bindings", None, None, None, (), STILL_UNCERTAIN),
 )
 # What each reading is called in a record, and what each observing call observes.
 OUTCOMES = {"OK": "released", OBSERVED: "released", REFUSED: "refused",
-            UNCERTAIN: "outcome_unknown", STILL_UNCERTAIN: "still_unknown",
-            NOT_RUN: "not_run", NOT_LISTED: "not_listed"}
+            UNCERTAIN: "outcome_unknown", SILENT: "unanswered", UNSENT: "not_sent",
+            STILL_UNCERTAIN: "still_unknown", NOT_RUN: "not_run", NOT_LISTED: "not_listed"}
 OBSERVED_BY = {"observe": "operation", "bindings": "bindings"}
-# The outcomes after which a release is uncertain: by its own answer, or by an
-# observation that did not say what became of it.
-UNKNOWN = ("outcome_unknown", "still_unknown")
+# The readings after which a release is remembered as uncertain, with the operation its
+# answer named when it named one: a later stop observes it before it sends anything.
+REMEMBERED = (UNCERTAIN, SILENT)
+# The outcomes after which a release is uncertain: by its own answer, by having none,
+# or by an observation that did not say what became of it.
+UNKNOWN = ("outcome_unknown", "unanswered", "still_unknown")
 # The outcomes that leave a binding held, and set it aside for the stop in progress.
-SET_ASIDE = ("refused",) + UNKNOWN
+SET_ASIDE = ("refused", "not_sent") + UNKNOWN
 # The outcomes that take a binding off the list of those held. Only the first is a release.
 NOT_HELD = ("released", "not_listed")
 # The lists of a goal's record, and the outcome each one holds the attempts of.
 RECORDED = {"refused_releases": "refused", "outcome_unknown": "outcome_unknown",
+            "unanswered": "unanswered", "not_sent": "not_sent",
             "still_unknown": "still_unknown", "not_listed": "not_listed"}
 # Today's `access release` takes no request ID (ADR-0013 §2.2), so an uncertain release
 # has none to record, and there is no same-key replay to fall back on (ADR-0013 §7:
@@ -277,21 +348,26 @@ STILL_UNKNOWN = (("code", "=OUTCOME_UNKNOWN"), ("operation_id", "state.operation
 # stop may ask about is `held.binding_id` when its release is to be sent, and
 # `uncertain.binding_id` when its last release was answered uncertainly (with
 # `uncertain.operation_id` when that answer named an operation). `unreleased.*` is the
-# first binding this stop did not release: refused, or still uncertain.
+# first binding this stop did not release: refused, not sent, or still uncertain.
 NEXT_HELD = (("binding_id", "held.binding_id"),)
 NEXT_OBSERVED = (("binding_id", "uncertain.binding_id"),
                  ("operation_id", "uncertain.operation_id"))
 NEXT_INSPECTED = (("binding_id", "uncertain.binding_id"),)
-UNRELEASED = (("code", "unreleased.code"), ("binding_id", "unreleased.binding_id"),
-              ("exit_code", "unreleased.exit_code"))
+NAMED = (("code", "unreleased.code"), ("binding_id", "unreleased.binding_id"))
+UNRELEASED = NAMED + (("exit_code", "unreleased.exit_code"),)
+ITS_OPERATION = (("operation_id", "unreleased.operation_id"),)
 # How a stop goes on once a binding has been dealt with, in this order: the next
 # binding (a release to send, or an uncertain one to observe); and with none left to
-# ask about, `failed`, naming the first binding this stop did not release.
+# ask about, `failed`, naming the first binding this stop did not release. The call
+# about that binding has no exit status where it was never started, or was ended by
+# this harness when it ran past its time limit.
 ONWARD = (("releasing", NEXT_HELD),
           ("observing_release", NEXT_OBSERVED),
           ("inspecting_release", NEXT_INSPECTED),
-          ("failed", UNRELEASED + (("operation_id", "unreleased.operation_id"),)),
-          ("failed", UNRELEASED))
+          ("failed", UNRELEASED + ITS_OPERATION),
+          ("failed", UNRELEASED),
+          ("failed", NAMED + ITS_OPERATION),
+          ("failed", NAMED))
 # A stop that released every binding it asked about ends in `stopped`.
 ENDING = ONWARD + (("stopped", ()),)
 # Each reading that deals with a binding: the states it is read in, and how the stop
@@ -300,6 +376,7 @@ ENDING = ONWARD + (("stopped", ()),)
 DEALT_WITH = (("OK", RELEASABLE, ENDING), (OBSERVED, OBSERVING, ENDING),
               (NOT_LISTED, INSPECTING, ENDING),
               (REFUSED, RELEASABLE, ONWARD), (UNCERTAIN, RELEASABLE, ONWARD),
+              (SILENT, RELEASABLE, ONWARD), (UNSENT, RELEASABLE, ONWARD),
               (STILL_UNCERTAIN, OBSERVING, ONWARD))
 
 TRANSITIONS = (
@@ -345,9 +422,9 @@ TRANSITIONS = (
     Row(SENDING, "launching", "none", "running",
         (("pid", "record.pid"), ("binding_id", "record.binding_id"))),
     # a stop: one binding for each step, until the planner holds no other to ask about.
-    # A release that was answered, refused or uncertain, and an uncertain one observed
-    # to have happened, to be not listed or to be still unknown, each go on as ONWARD
-    # says (one row for each way)
+    # A release that was answered, refused, uncertain, left without an answer or not
+    # sent, and an uncertain one observed to have happened, to be not listed or to be
+    # still unknown, each go on as ONWARD says (one row for each way)
     *(Row(states, reading, "none", to, takes)
       for reading, states, onward in DEALT_WITH for to, takes in onward),
     # the operation of an uncertain release ended and says the release did not happen:
@@ -359,31 +436,40 @@ TRANSITIONS = (
     Row(CALLING, MISMATCH, "none", "inconsistent", CODE + (("exit_code", "exit_code"),)),
 )
 
-# The exit class the CLI documents for each answer the table acts on
-# (docs/api/local-protocol.md, "Exit classes": 0 success, 1 internal, 2 usage, 3 needs a
-# person, 4 not allowed, 5 unavailable for now, 6 conflict, 7 uncertain). A key is a
-# code, or a (code, next.action) pair where the class is not the code's own.
-# `NOT_FOUND` has no row of its own: it is here for a release of a binding Heimdall
-# does not know, so that refusal is checked like the others.
+# The exit class the CLI documents for every published code: a frozen copy of the code
+# table (schemas/public-api/codes.json, `exit_code`; docs/api/local-protocol.md, "Exit
+# classes": 0 success, 1 internal, 2 usage, 3 needs a person, 4 not allowed, 5
+# unavailable for now, 6 conflict, 7 uncertain, 127 a launch that failed). It is the
+# fallback: where discovery has read the installed binary's own table, that table's
+# class for a code is the one checked (`documented_exit`).
 EXIT_CLASSES = {
-    "OK": 0,
-    "ACCESS_READY": 0,
-    "APPROVAL_REQUIRED": 3,
-    "INTERACTION_REQUIRED": 3,
-    "PROVIDER_LOCKED": 3,
-    "CAPABILITY_UNAVAILABLE": 4,
-    "POLICY_PAUSED": 4,
-    "POLICY_CUTOFF": 4,
+    "OK": 0, "ACCESS_READY": 0, "ACCEPTED": 0,
+    "APPROVAL_REQUIRED": 3, "INTERACTION_REQUIRED": 3, "PROVIDER_LOCKED": 3,
+    "CAPABILITY_UNAVAILABLE": 4, "POLICY_PAUSED": 4, "POLICY_CUTOFF": 4,
+    "CREDENTIAL_EXPIRED": 4, "HOST_TRUST_CHANGED": 4, "DELEGATION_EXCEEDS_PARENT": 4,
     "OPERATION_CANCELLED": 4,
-    "REQUEST_CONFLICT": 6,
+    "DESTINATION_UNREACHABLE": 5, "TIME_UNCERTAIN": 5, "UNSUPPORTED_CLIENT": 5,
+    "SERVICE_UNAVAILABLE": 5, "STATE_UNAVAILABLE": 5, "BACKPRESSURE": 5,
+    "REQUEST_CONFLICT": 6, "CONFIG_CONFLICT": 6, "REQUEST_EXPIRED": 6, "RESYNC_REQUIRED": 6,
+    "DECISION_STALE": 6,
     "OUTCOME_UNKNOWN": 7,
-    "NOT_FOUND": 2,
-    # Still pending after a bounded wait. H2 never asks asynchronously, so `ACCEPTED` is
-    # never the success it is for a caller that does; and an observation that found its
-    # operation unfinished answers `OK` with `next.action` `observe`.
-    "ACCEPTED": 5,
-    ("OK", "observe"): 5,
+    "USAGE_ERROR": 2, "SCHEMA_UNSUPPORTED": 2, "NOT_FOUND": 2,
+    "INTERNAL_ERROR": 1,
+    "LAUNCH_FAILED": 127,
 }
+# The answers whose documented class is not their code's own, whatever table gave that:
+# the code, the `next.action` and one typed field with the value it must have (None
+# stands for any), and the class.
+Excepted = namedtuple("Excepted", "code action field value exit")
+EXIT_EXCEPTIONS = (
+    # Still pending after a bounded wait. H2 never asks asynchronously, so `ACCEPTED` is
+    # never the success it is for a caller that does.
+    Excepted("ACCEPTED", None, None, None, 5),
+    # An observation that found its operation unfinished when the wait ran out.
+    Excepted("OK", "observe", None, None, 5),
+    # A launch refused because the program is not one that can be run.
+    Excepted("LAUNCH_FAILED", None, "data.error.reason", "not_executable", 126),
+)
 
 # Actions with which Heimdall says the request itself was wrong or wrongly repeated.
 INVALID_REQUEST_ACTIONS = ("fix_request", "new_request_id")
@@ -430,6 +516,12 @@ def lookup(facts, path):
     return value
 
 
+def member(value, values):
+    """Whether a typed field of an answer has one of `values`. A field that is no plain
+    word has none of them."""
+    return isinstance(value, str) and value in values
+
+
 def transition(state, reading):
     """Choose the next state: the first row for this state, code and action whose typed
     fields the answer carries. Returns (state, row), or (failed, None) when no row applies."""
@@ -459,7 +551,8 @@ def release_says(call, answer, fits):
     for row in RELEASE_SAYS:
         if (row.call == call and row.code in (None, answer.code)
                 and row.action in (None, answer.action) and row.fits in (None, fits)
-                and (row.field is None or lookup(answer.facts, row.field) == row.value)):
+                and all(member(lookup(answer.facts, field), values)
+                        for field, values in row.wants)):
             return row.reading
     raise PlannerError(f"no reading of a release for the call {call}")
 
@@ -475,20 +568,51 @@ def unmatched(state, reading):
     return State("failed", code=reading.code)
 
 
-def check_exit(reading):
+def documented_exit(reading, installed=None):
+    """The exit class documented for an answer, and what it is documented for. The
+    class is None where none is documented: a code no table has.
+
+    `installed` is the installed binary's code table as discovery read it (each code
+    with the class its row gives), when it was read. Its class for a code is the one
+    checked, and the frozen EXIT_CLASSES is the fallback. The command-specific
+    exceptions (EXIT_EXCEPTIONS) come before both.
+
+    An observation is one more exception: its class is that of the state its operation
+    was found in (OPERATION_STATES), and only an operation that ended is observed in
+    the class of its own code. One that ended without succeeding and names no code has
+    no documented class here."""
+    state = lookup(reading.facts, "observed.state")
+    if state in OPERATION_STATES:
+        stage = OPERATION_STATES[state]
+        if stage.exit is not None:
+            return stage.exit, f"an operation that is {state}"
+        if not stage.succeeded and lookup(reading.facts, "data.code") is None:
+            return None, reading.code
+    for row in EXIT_EXCEPTIONS:
+        if (row.code == reading.code and row.action in (None, reading.action)
+                and (row.field is None or lookup(reading.facts, row.field) == row.value)):
+            return row.exit, reading.code
+    listed = (installed or {}).get(reading.code)
+    if type(listed) is int and 0 <= listed <= 255:
+        return listed, reading.code
+    return EXIT_CLASSES.get(reading.code), reading.code
+
+
+def check_exit(reading, installed=None):
     """Check the exit status of an answer's process against the class documented for the
-    answer. Returns (reading, None) when they agree, and otherwise the planner's own
-    reading of the mismatch with its account. An answer whose process still runs has no
-    exit status yet. A code EXIT_CLASSES lacks has no row in TRANSITIONS either, and
-    has no documented class here to check: as a refused release it is recorded with
-    the exit status it came with. An answer about a release that fails this check is
-    read by RELEASE_SAYS, and never by the row for a mismatch."""
-    documented = EXIT_CLASSES.get((reading.code, reading.action), EXIT_CLASSES.get(reading.code))
+    answer (`documented_exit`). Returns (reading, None) when they agree, and otherwise
+    the planner's own reading of the mismatch with its account. An answer whose process
+    still runs, or was ended by this harness, has no exit status to check. A code no
+    table has has no row in TRANSITIONS either, and has no documented class to check:
+    as a refused release it is recorded with the exit status it came with. An answer
+    about a release that fails this check is read by RELEASE_SAYS, and never by the row
+    for a mismatch."""
+    documented, subject = documented_exit(reading, installed)
     if reading.exit is None or documented is None or reading.exit == documented:
         return reading, None
     facts = {"code": reading.code, "exit_code": reading.exit}
     return (Reading(MISMATCH, "none", None, facts, reading.exit),
-            f"exit {reading.exit} does not fit {reading.code}: its documented exit class is {documented}")
+            f"exit {reading.exit} does not fit {subject}: its documented exit class is {documented}")
 
 
 def known_codes():
@@ -518,6 +642,31 @@ def one_envelope(output):
     return envelope
 
 
+def no_answer(fault, problem, output=None, status=None):
+    """The NoAnswer for a call that brought no answer the harness can use. `fault` says
+    why (FAULTS), `output` is what the call printed before it ended or was ended, and
+    `status` is its exit status when it ended by itself.
+
+    Its reading is the planner's own, and keeps what a first complete line of the
+    output did say, from typed fields only: the code, and the operations the envelope
+    names. An envelope that says `OUTCOME_UNKNOWN` is kept whole, as the uncertain
+    answer it is. No other answer is taken from a process that did not end by itself
+    with the one envelope asked for: not `OK`, and not a refusal."""
+    why = {"fault": fault, "problem": problem}
+    lines = output.split(b"\n") if isinstance(output, bytes) else []
+    try:
+        said = read_envelope(one_envelope(lines[0] + b"\n")) if len(lines) > 1 else None
+    except PlannerError:
+        said = None
+    if said is None:
+        return NoAnswer(problem, Reading(FAULTS[fault], "none", None, dict(why, code=None), status))
+    if said.code == "OUTCOME_UNKNOWN":
+        return NoAnswer(problem, said._replace(facts=dict(said.facts, **why), exit=status))
+    facts = dict(why, code=said.code, operation_id=said.facts["operation_id"],
+                 next={"operation_id": lookup(said.facts, "next.operation_id")})
+    return NoAnswer(problem, Reading(FAULTS[fault], "none", None, facts, status))
+
+
 def read_envelope(envelope):
     code = envelope.get("code")
     require(_word(code), "the envelope has no usable code")
@@ -532,14 +681,21 @@ def read_envelope(envelope):
 
 
 def read_operation(envelope, operation_id):
-    """An observation: once the operation has a code of its own, that is the answer's code."""
+    """An observation, read by the typed `state` of the operation's view. The facts gain
+    `observed.state` when the view is in a state OPERATION_STATES has. The view's own
+    code is the answer's code only in a state that says the operation is over (OVER):
+    whatever else the view of an operation that is still going carries, it is read as
+    unfinished."""
     reading = read_envelope(envelope)
     if reading.code != "OK":
         return reading
     view = reading.facts["data"]
     require(view.get("operation_id") == operation_id, "the answer is about another operation")
-    code = view.get("code")
-    if code is None:
+    state, code = view.get("state"), view.get("code")
+    if not member(state, tuple(OPERATION_STATES)):
+        return reading
+    reading = reading._replace(facts=dict(reading.facts, observed={"state": state}))
+    if code is None or state not in OVER:
         return reading
     require(_word(code), "the operation has no usable code")
     return reading._replace(code=code, effect=view.get("effect_status"),
@@ -777,10 +933,10 @@ class Planner:
         # How many of them came before the stop in progress. A binding that stop was
         # refused, or left uncertain, is set aside: the stop does not ask about it again.
         self.stop_began = 0
-        # Each held binding whose release was answered uncertainly and has not been
-        # observed to an end since: the request ID of that release (none today), and
-        # the operation its answer named, when it named one. Its release is not sent
-        # again while it is here.
+        # Each held binding whose release was answered uncertainly, or was started and
+        # brought no answer, and has not been observed to an end since: the request ID
+        # of that release (none today), and the operation its answer named, when it
+        # named one. Its release is not sent again while it is here.
         self.uncertain = {}
         self.by = "stop"
 
@@ -803,8 +959,17 @@ class Planner:
         return argv
 
     def invoke(self, name, goal, metrics):
-        """Make one call and reduce its answer to a Reading that carries its exit status."""
-        env = launch_environment(self.root, self.given)
+        """Make one call and reduce its answer to a Reading that carries its exit status.
+
+        A call that brings no answer raises NoAnswer, which says whether the call was
+        started at all. One that was started may have reached Heimdall, whatever
+        became of its process afterwards: what it printed before it ran past its time
+        limit, or beside an answer that cannot be read, is kept (`no_answer`)."""
+        try:
+            env = launch_environment(self.root, self.given)
+        except (PlannerError, OSError) as error:
+            problem = str(error) if isinstance(error, PlannerError) else "the CLI could not be started"
+            raise no_answer("not_started", problem) from None
         values = dict(self.work or {}, observe_ms=OBSERVE_MS, **self.state.fields)
         kind = self.calls[name]["answer"]
         if kind == "launch":
@@ -815,24 +980,27 @@ class Planner:
             done = subprocess.run(argv, env=env, cwd=self.root, stdin=subprocess.DEVNULL,
                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                   timeout=CALL_SECONDS)
-        except subprocess.TimeoutExpired:
-            raise PlannerError("a CLI call ran past its time limit") from None
+        except subprocess.TimeoutExpired as late:
+            raise no_answer("timed_out", "a CLI call ran past its time limit", late.stdout) from None
         except OSError:
-            raise PlannerError("the CLI could not be started") from None
-        envelope = one_envelope(done.stdout)
-        if kind == "codes":
-            metrics["discovery_bytes"] += len(done.stdout)
-            reading, installed = read_codes(envelope)
-            if installed is not None:
-                self.installed_codes = installed
-        elif kind == "operation":
-            reading = read_operation(envelope, values["operation_id"])
-        elif kind == "release":
-            reading = read_release(envelope, values["binding_id"])
-        elif kind == "bindings":
-            reading = read_bindings(envelope, values["binding_id"])
-        else:
-            reading = read_envelope(envelope)
+            raise no_answer("not_started", "the CLI could not be started") from None
+        try:
+            envelope = one_envelope(done.stdout)
+            if kind == "codes":
+                metrics["discovery_bytes"] += len(done.stdout)
+                reading, installed = read_codes(envelope)
+                if installed is not None:
+                    self.installed_codes = installed
+            elif kind == "operation":
+                reading = read_operation(envelope, values["operation_id"])
+            elif kind == "release":
+                reading = read_release(envelope, values["binding_id"])
+            elif kind == "bindings":
+                reading = read_bindings(envelope, values["binding_id"])
+            else:
+                reading = read_envelope(envelope)
+        except PlannerError as error:
+            raise no_answer("unreadable", str(error), done.stdout, done.returncode) from None
         return reading._replace(exit=done.returncode)
 
     def releasable(self):
@@ -861,14 +1029,17 @@ class Planner:
         """The planner's own facts for an answer about the release of `binding_id`: the
         next binding the stop may ask about beside this one (`approach`), when there is
         one; and the first binding this stop did not release (`unreleased.*`), when
-        there is one. An uncertain one is named with the code `OUTCOME_UNKNOWN`."""
+        there is one. An uncertain one is named with the code `OUTCOME_UNKNOWN`. One
+        whose release was not sent has no code: its fault stands where the code would,
+        as a launch's run record does."""
         others = [held for held in self.releasable() if held != binding_id]
         facts = self.approach(others[-1]) if others else {"held": {}, "uncertain": {}}
         facts["unreleased"] = {}
         first = self.unreleased()
         if first is not None:
             uncertain = first["outcome"] in UNKNOWN
-            facts["unreleased"] = {"code": "OUTCOME_UNKNOWN" if uncertain else first["code"]}
+            facts["unreleased"] = {"code": "OUTCOME_UNKNOWN" if uncertain
+                                   else first["code"] or first.get("fault")}
             for field in ("binding_id", "exit_code", "operation_id"):
                 if field in first:
                     facts["unreleased"][field] = first[field]
@@ -882,18 +1053,25 @@ class Planner:
         A binding that was released leaves `held`, and so does one the complete list
         of bindings does not name. Any other stays. An uncertain release is remembered
         with the operation its answer named, so that a later stop observes it and
-        does not send it again."""
+        does not send it again. So is a release that was started and brought no
+        answer, with the operation named by whatever it printed.
+
+        Where the call brought no answer, `answer` is the planner's own (`no_answer`):
+        the attempt records the fault, and the code only of what was printed."""
         says = release_says(call, answer, problem is None)
         attempt = {"binding_id": binding_id, "by": self.by, "outcome": OUTCOMES[says],
-                   "code": answer.code, "exit_code": answer.exit}
+                   "code": answer.code if _word(answer.code) else answer.facts.get("code"),
+                   "exit_code": answer.exit}
         if call in OBSERVED_BY:
             attempt["observed"] = OBSERVED_BY[call]
         if lookup(answer.facts, "binding.state") is not None:
             attempt["state"] = answer.facts["binding"]["state"]
+        if "fault" in answer.facts:
+            attempt.update(fault=answer.facts["fault"], detail=answer.facts["problem"])
         if problem is not None:
             # Heimdall's own table gives each code one exit class.
             attempt.update(inconsistent=True, detail=f"{problem}; a probable product defect")
-        if says == UNCERTAIN:  # the release's own answer
+        if says in REMEMBERED:  # the release's own answer, or none
             # The operation the answer's `next` names, else the envelope's own.
             self.uncertain[binding_id] = {"request_id": RELEASE_REQUEST_ID}
             for operation in (answer.facts.get("operation_id"),
@@ -1031,12 +1209,20 @@ class Planner:
         if self.state.name in OBSERVING:  # a stop that begins at an uncertain release
             call = FOLLOW[self.state.name][0]
         for _ in range(MAX_STEPS):
-            answer = self.invoke(call, goal, metrics)
             before = self.state
+            about_release = call == "release" or before.name in OBSERVING
+            try:
+                answer = self.invoke(call, goal, metrics)
+            except NoAnswer as silence:
+                if not about_release:
+                    raise
+                # No answer to a call about a release: the planner's own answer stands
+                # where it would be, and is read and recorded like any other. A
+                # release that may have been sent is never forgotten.
+                answer = silence.reading
             if answer.action in INVALID_REQUEST_ACTIONS:
                 metrics["invalid_retries"] += 1
-            reading, problem = check_exit(answer)
-            about_release = call == "release" or before.name in OBSERVING
+            reading, problem = check_exit(answer, self.installed_codes)
             if about_release:
                 # An answer about a release is read by RELEASE_SAYS, its exit class
                 # with it, and the table gets the planner's own reading. It never ends
@@ -1113,9 +1299,12 @@ class Planner:
         like any goal: it asks about every held binding once, whatever an earlier stop
         was answered, and a binding it does not release is not asked about again in a
         later round. An uncertain release of an earlier stop is observed, not sent
-        again. One of its own is left as it is: the close does not observe it. A round
-        that makes no attempt ends it, so each round but the last leaves fewer bindings
-        to ask about, and the whole is bounded too."""
+        again. One of its own is left as it is: the close does not observe it.
+
+        Every call about a binding is an attempt, a call that brought no answer
+        included, so one binding's failure never keeps the others from being asked
+        about. Each round but the last leaves fewer bindings to ask about, and the
+        whole is bounded too. A round that makes no attempt at all ends it."""
         before, began = list(self.held), len(self.attempts)
         self.by = "close"
         try:
