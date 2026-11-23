@@ -76,7 +76,20 @@ runtime_state() {
         *) echo unknown ;;
     esac
 }
+# Processes of this user that were started from the installed executable's exact path.
+# `service status` can say "no runtime is running" while a live runtime's endpoint is merely
+# not connectable (review M08-W01 on R04), so its word is not taken alone: a live process
+# from this path refuses the update whatever the executable says. It reads the process
+# list; it signals nothing. (The first two words of each command line are compared, so a
+# script run through an interpreter is seen too. A runtime started from some OTHER path is
+# not seen here; that case needs the product to report "advertised but unreachable".)
+live_from_cur() {
+    ps -u "$(id -u)" -o pid= -o args= 2>/dev/null | awk -v exe="$cur" -v self="$$" '$1 != self && ($2 == exe || $3 == exe) { print $1 }'
+}
 require_stopped() {
+    live=$(live_from_cur | tr '\n' ' ')
+    [ -z "$live" ] || die "a process started from $cur is running (pid ${live% }). Stop it first: heimdall service stop
+install: (--assume-stopped does not override this: the process is there). Nothing was changed."
     [ "$assume_stopped" = no ] || { say "--assume-stopped: not asking the installed executable whether a runtime is running"; return 0; }
     case "$(runtime_state)" in
         none) ;;
@@ -112,9 +125,20 @@ for p in "$cur" "$prev"; do
 done
 # An interrupted rollback leaves the executable it had replaced under the spare name, and
 # nothing else holds it: finish that rollback's last step before anything is removed.
+# Which of the rollback's renames had happened is read from the files, not assumed
+# (review M08-W01-R04): the spare copy is a second name for the executable the rollback
+# was replacing. If the install path still holds that same executable, the replace had not
+# happened yet: the previous executable is still in place under its own name, and the spare
+# copy is just removed. Otherwise the replace happened, and the spare copy becomes the
+# previous executable.
 if [ -f "$swap" ]; then
-    mv -f -- "$swap" "$prev"
-    say "finished an interrupted rollback: the executable it replaced is kept as $prev"
+    if [ -f "$cur" ] && [ "$(sha "$cur")" = "$(sha "$swap")" ]; then
+        rm -f -- "$swap"
+        say "undid an interrupted rollback that had not replaced anything yet: $cur and $prev are as they were"
+    else
+        mv -f -- "$swap" "$prev"
+        say "finished an interrupted rollback: the executable it replaced is kept as $prev"
+    fi
 fi
 if [ -f "$new" ]; then rm -f -- "$new"; say "removed a leftover staged file from an interrupted run"; fi
 rm -f -- "$prev.tmp"

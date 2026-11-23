@@ -1,106 +1,199 @@
 # Self-test of tools\packaging\install.ps1 with fake archives (m08-plan U2a). The Windows
 # counterpart of install-selftest.sh.
 #
-# STATUS: written on the Mac and NOT YET RUN. It runs on the Windows PC in a later job.
+# STATUS: rehearsed under PowerShell 7 on macOS only (the logic, not Windows file
+# semantics). NOT YET RUN ON WINDOWS; it runs on the PC under Windows PowerShell 5.1 and
+# PowerShell 7 in a later job. A macOS rehearsal is not evidence for Windows.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File tests\native\m08\lifecycle\install-selftest.ps1
+#   $env:HM_INSTALL_UNDER_TEST = <file>   test that copy of install.ps1 (for a revert proof)
 # Exit code: 0 when every case passes; 1 otherwise.
 #
-# No Heimdall executable is used or run. The "executables" are two different files with
-# fixed bytes (never started: HM_INSTALL_TEST_RUNNING tells install.ps1 whether a runtime
-# is running, so it does not ask one). The "helper" is a directory with one file. Everything
-# lives in one new directory under %TEMP%, removed at the end by its exact path.
+# No Heimdall executable is used or run. The "executables" are files with fixed bytes, never
+# started: HM_INSTALL_TEST_STATUS tells install.ps1 what a runtime query would have answered.
+# Everything lives in one new directory under the temporary directory, removed at the end by
+# its exact path.
 $ErrorActionPreference = "Stop"
-$repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..\..")).Path
+$repo = (Resolve-Path (Join-Path $PSScriptRoot (Join-Path ".." (Join-Path ".." (Join-Path ".." ".."))))).Path
+$sut = if ($env:HM_INSTALL_UNDER_TEST) { $env:HM_INSTALL_UNDER_TEST } else { Join-Path (Join-Path (Join-Path $repo "tools") "packaging") "install.ps1" }
 $T = Join-Path ([System.IO.Path]::GetTempPath()) ("hm-install-selftest-" + [System.Guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $T | Out-Null
-$script:bad = 0
+[void][System.IO.Directory]::CreateDirectory($T)
+$script:failed = 0
+$script:n = 0
 # The same PowerShell that runs this file runs install.ps1 (Windows PowerShell 5.1 or PowerShell 7).
 $script:ps = (Get-Process -Id $PID).Path
-function Check([string]$name, [bool]$ok) { if ($ok) { Write-Host "ok   $name" } else { Write-Host "FAIL $name"; $script:bad = 1 } }
+$script:last = ""
+function Check([string]$name, [bool]$ok) {
+    $script:n++
+    if ($ok) { Write-Host "ok   $name" } else {
+        Write-Host "FAIL $name"; $script:failed = 1
+        # The installer's last output (fake file names and fixed strings only), to diagnose.
+        ($script:last -split "`n") | Where-Object { $_.Trim() } | Select-Object -Last 6 | ForEach-Object { Write-Host "       | $($_.Trim())" }
+    }
+}
 function Sha([string]$p) { (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLower() }
-function Text([string]$p) { if (Test-Path -LiteralPath $p) { [System.IO.File]::ReadAllText($p) } else { "" } }
+function Text([string]$p) { if ([System.IO.File]::Exists($p)) { [System.IO.File]::ReadAllText($p) } else { "" } }
+function P([string]$base, [string[]]$parts) { foreach ($x in $parts) { $base = Join-Path $base $x }; $base }
+function Exe([string]$prefix) { Text (P $prefix @("heimdall.exe")) }
+function PrevExe([string]$prefix) { Text (P $prefix @("heimdall.previous.exe")) }
+function Helper([string]$prefix) { Text (P $prefix @("linux-x86_64", "heimdall")) }
+function PrevHelper([string]$prefix) { Text (P $prefix @("linux-x86_64.previous", "heimdall")) }
+function Pair([string]$prefix) { "$(Exe $prefix)|$(Helper $prefix)" }
+function PrevPair([string]$prefix) { "$(PrevExe $prefix)|$(PrevHelper $prefix)" }
+function V([string]$v) { "fake heimdall $v|fake helper $v" }
 
 function Archive([string]$name, [string]$version) {
     $d = Join-Path $T $name
-    New-Item -ItemType Directory -Path (Join-Path $d "linux-x86_64") -Force | Out-Null
+    [void][System.IO.Directory]::CreateDirectory((Join-Path $d "linux-x86_64"))
     [System.IO.File]::WriteAllText((Join-Path $d "heimdall.exe"), "fake heimdall $version")
-    [System.IO.File]::WriteAllText((Join-Path $d "linux-x86_64\heimdall"), "fake helper $version")
+    [System.IO.File]::WriteAllText((P $d @("linux-x86_64", "heimdall")), "fake helper $version")
     [System.IO.File]::WriteAllText((Join-Path $d "README"), "notes for $version")
-    Copy-Item (Join-Path $repo "tools\packaging\install.ps1") (Join-Path $d "install.ps1")
-    $lines = foreach ($f in "README", "heimdall.exe", "install.ps1", "linux-x86_64/heimdall") {
-        "{0}  {1}" -f (Sha (Join-Path $d ($f -replace '/', '\'))), $f
-    }
+    Copy-Item -LiteralPath $sut -Destination (Join-Path $d "install.ps1")
+    $lines = foreach ($f in "README", "heimdall.exe", "install.ps1", "linux-x86_64/heimdall") { "{0}  {1}" -f (Sha (P $d $f.Split('/'))), $f }
     [System.IO.File]::WriteAllText((Join-Path $d "MANIFEST.sha256"), (($lines -join "`n") + "`n"))
     return $d
 }
-function Install([string]$archive, [string]$prefix, [string[]]$more = @()) {
-    $out = & $script:ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $archive "install.ps1") -Prefix $prefix @more 2>&1 | Out-String
-    return @{ Code = $LASTEXITCODE; Out = $out }
+function Install([string]$archive, [string]$prefix, [string[]]$more = @(), [hashtable]$envs = @{}) {
+    # Set the case's variables for this one run, then put back whatever was there before.
+    $saved = @{}
+    foreach ($k in $envs.Keys) { $saved[$k] = [System.Environment]::GetEnvironmentVariable($k); Set-Item -Path "Env:$k" -Value $envs[$k] }
+    try { $out = & $script:ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $archive "install.ps1") -Prefix $prefix @more 2>&1 | Out-String; $code = $LASTEXITCODE }
+    finally { foreach ($k in $envs.Keys) { if ($null -eq $saved[$k]) { Remove-Item -Path "Env:$k" -ErrorAction SilentlyContinue } else { Set-Item -Path "Env:$k" -Value $saved[$k] } } }
+    $script:last = $out
+    return @{ Code = $code; Out = $out }
+}
+function Link([string]$at, [string]$target) {
+    # A junction on Windows (no privilege needed); a symbolic link elsewhere.
+    if ($IsWindows -or $env:OS -eq "Windows_NT") { [void](New-Item -ItemType Junction -Path $at -Target $target) }
+    else { [void](New-Item -ItemType SymbolicLink -Path $at -Target $target) }
 }
 
 try {
-    $a1 = Archive "a1" "1.0.0"; $a2 = Archive "a2" "2.0.0"
-    $env:HM_INSTALL_TEST_RUNNING = "0"
+    $a1 = Archive "a1" "1.0.0"; $a2 = Archive "a2" "2.0.0"; $a3 = Archive "a3" "3.0.0"
+    $env:HM_INSTALL_TEST_STATUS = "@none"
     $P = Join-Path $T "prefix"
 
     $r = Install $a1 $P
-    Check "a fresh install puts the executable and the helper in place" (($r.Code -eq 0) -and ((Text "$P\heimdall.exe") -eq "fake heimdall 1.0.0") -and ((Text "$P\linux-x86_64\heimdall") -eq "fake helper 1.0.0") -and -not (Test-Path "$P\heimdall.previous.exe"))
+    Check "a fresh install puts the executable and the helper in place" (($r.Code -eq 0) -and ((Pair $P) -eq (V "1.0.0")) -and ((PrevExe $P) -eq ""))
     Check "it names the directory to add to PATH and edits nothing" ($r.Out -match "add this directory to your PATH yourself")
     $r = Install $a1 $P
-    Check "installing the same version again changes nothing" (($r.Out -match "already installed") -and -not (Test-Path "$P\heimdall.previous.exe"))
+    Check "installing the same version again changes nothing" (($r.Out -match "already installed") -and ((PrevExe $P) -eq ""))
     $r = Install $a2 $P
-    Check "an update keeps the previous executable and helper, as a pair" (((Text "$P\heimdall.exe") -eq "fake heimdall 2.0.0") -and ((Text "$P\heimdall.previous.exe") -eq "fake heimdall 1.0.0") -and ((Text "$P\linux-x86_64\heimdall") -eq "fake helper 2.0.0") -and ((Text "$P\linux-x86_64.previous\heimdall") -eq "fake helper 1.0.0"))
+    Check "an update keeps the previous executable and helper, as a pair" (((Pair $P) -eq (V "2.0.0")) -and ((PrevPair $P) -eq (V "1.0.0")))
     $r = Install $a2 $P @("-Rollback")
-    Check "a rollback swaps both pairs" (($r.Code -eq 0) -and ((Text "$P\heimdall.exe") -eq "fake heimdall 1.0.0") -and ((Text "$P\heimdall.previous.exe") -eq "fake heimdall 2.0.0") -and ((Text "$P\linux-x86_64\heimdall") -eq "fake helper 1.0.0") -and ((Text "$P\linux-x86_64.previous\heimdall") -eq "fake helper 2.0.0"))
+    Check "a rollback swaps both pairs" (($r.Code -eq 0) -and ((Pair $P) -eq (V "1.0.0")) -and ((PrevPair $P) -eq (V "2.0.0")))
 
     # A damaged and an incomplete tree are refused; nothing changes.
-    $bad = Join-Path $T "bad"; Copy-Item -Recurse $a2 $bad; Add-Content -LiteralPath (Join-Path $bad "heimdall.exe") -Value "tampered"
-    $before = Sha "$P\heimdall.exe"
-    $r = Install $bad $P
-    Check "a damaged tree is refused (exit 1) and nothing changes" (($r.Code -eq 1) -and ($r.Out -match "does not match MANIFEST") -and ((Sha "$P\heimdall.exe") -eq $before))
-    $short = Join-Path $T "short"; Copy-Item -Recurse $a2 $short; Remove-Item (Join-Path $short "README")
+    $damaged = Join-Path $T "damaged"; Copy-Item -Recurse -LiteralPath $a2 -Destination $damaged; [System.IO.File]::AppendAllText((Join-Path $damaged "heimdall.exe"), "tampered")
+    $before = Pair $P
+    $r = Install $damaged $P
+    Check "a damaged tree is refused (exit 1) and nothing changes" (($r.Code -eq 1) -and ($r.Out -match "does not match MANIFEST") -and ((Pair $P) -eq $before))
+    $short = Join-Path $T "short"; Copy-Item -Recurse -LiteralPath $a2 -Destination $short; [System.IO.File]::Delete((Join-Path $short "README"))
     $r = Install $short $P
     Check "an incomplete tree is refused" (($r.Code -eq 1) -and ($r.Out -match "incomplete"))
 
-    # A running runtime refuses the update; nothing changes and nothing is staged.
-    $Q = Join-Path $T "prefix-run"
-    Install $a1 $Q | Out-Null
-    $env:HM_INSTALL_TEST_RUNNING = "1"
-    $r = Install $a2 $Q
-    $env:HM_INSTALL_TEST_RUNNING = "0"
-    Check "an update is refused while a runtime runs, and says how to stop it" (($r.Code -eq 1) -and ($r.Out -match "heimdall service stop") -and ((Text "$Q\heimdall.exe") -eq "fake heimdall 1.0.0") -and -not (Test-Path "$Q\.heimdall.new.exe"))
+    # --- M08-W01-R03: the three-state runtime guard.
+    $Q = Join-Path $T "prefix-run"; [void](Install $a1 $Q)
+    $r = Install $a2 $Q @() @{ HM_INSTALL_TEST_STATUS = "@running" }
+    Check "an update is refused while a runtime runs, and says how to stop it" (($r.Code -eq 1) -and ($r.Out -match "heimdall service stop") -and ((Pair $Q) -eq (V "1.0.0")) -and -not (Test-Path -LiteralPath (Join-Path $Q ".heimdall.new.exe")))
+    $r = Install $a2 $Q @() @{ HM_INSTALL_TEST_STATUS = "@empty" }
+    Check "W01-R03: no output from the installed executable refuses the update (unknown is not none)" (($r.Code -eq 1) -and ($r.Out -match "cannot tell whether") -and ((Pair $Q) -eq (V "1.0.0")))
+    $r = Install $a2 $Q @() @{ HM_INSTALL_TEST_STATUS = "@error" }
+    Check "W01-R03: an error from the installed executable refuses the update" (($r.Code -eq 1) -and ($r.Out -match "cannot tell whether") -and ((Pair $Q) -eq (V "1.0.0")))
+    $r = Install $a2 $Q @() @{ HM_INSTALL_TEST_STATUS = "@none"; HM_INSTALL_TEST_LIVE = "4242" }
+    Check "R04: a live process from the installed path refuses the update although status says none" (($r.Code -eq 1) -and ($r.Out -match "a process started from") -and ((Pair $Q) -eq (V "1.0.0")))
+    $r = Install $a2 $Q @("-AssumeStopped") @{ HM_INSTALL_TEST_LIVE = "4242" }
+    Check "R04: -AssumeStopped does not override a live process" (($r.Code -eq 1) -and ($r.Out -match "does not override"))
+    $r = Install $a2 $Q @("-AssumeStopped") @{ HM_INSTALL_TEST_STATUS = "@error" }
+    Check "W01-R03: -AssumeStopped is the stated way past a broken executable" (($r.Code -eq 0) -and ((Pair $Q) -eq (V "2.0.0")))
 
-    # Interrupted after each step. Windows cannot replace a mapped image in one rename, so
-    # after step 3 the install path has no heimdall.exe and the complete old one is at
-    # heimdall.previous.exe: the test states exactly that, and that a rerun finishes.
-    foreach ($n in 1, 2, 3, 4) {
-        $R = Join-Path $T "prefix-int$n"
-        Install $a1 $R | Out-Null
-        $env:HM_INSTALL_TEST_STOP_AFTER = "$n"
-        Install $a2 $R | Out-Null
-        Remove-Item Env:\HM_INSTALL_TEST_STOP_AFTER
-        if ($n -le 2) {
-            Check "interrupted after step ${n}: the install path holds the complete old executable" ((Text "$R\heimdall.exe") -eq "fake heimdall 1.0.0")
-        } elseif ($n -eq 3) {
-            Check "interrupted after step 3: the old executable is complete at heimdall.previous.exe (the install path is empty until the rerun)" ((-not (Test-Path "$R\heimdall.exe")) -and ((Text "$R\heimdall.previous.exe") -eq "fake heimdall 1.0.0"))
-        } else {
-            Check "interrupted after step 4: the install path holds the complete new executable" ((Text "$R\heimdall.exe") -eq "fake heimdall 2.0.0")
-        }
-        $r = Install $a2 $R
-        Check "interrupted after step ${n}: rerunning finishes the update, executable and helper together" (((Text "$R\heimdall.exe") -eq "fake heimdall 2.0.0") -and ((Text "$R\heimdall.previous.exe") -eq "fake heimdall 1.0.0") -and ((Text "$R\linux-x86_64\heimdall") -eq "fake helper 2.0.0") -and -not (Test-Path "$R\.heimdall.new.exe"))
+    # --- M08-W01-R01: an unexpected object at a staging or install name is refused, and
+    # what is inside it survives. Never a recursive delete.
+    $D = Join-Path $T "prefix-dir"; [void](Install $a1 $D)
+    $victim = Join-Path $D ".heimdall.new.exe"; [void][System.IO.Directory]::CreateDirectory($victim); [System.IO.File]::WriteAllText((Join-Path $victim "keep.txt"), "mine")
+    $r = Install $a2 $D
+    Check "W01-R01: a directory at .heimdall.new.exe is refused and keep.txt survives" (($r.Code -eq 1) -and ((Text (Join-Path $victim "keep.txt")) -eq "mine") -and ((Pair $D) -eq (V "1.0.0")) -and ($r.Out -match "left untouched"))
+    $D2 = Join-Path $T "prefix-dir2"; [void](Install $a1 $D2); [void](Install $a2 $D2)
+    $victim2 = Join-Path $D2 ".heimdall.swap.exe"; [void][System.IO.Directory]::CreateDirectory($victim2); [System.IO.File]::WriteAllText((Join-Path $victim2 "keep.txt"), "mine")
+    $r = Install $a2 $D2 @("-Rollback")
+    Check "W01-R01: a directory at .heimdall.swap.exe is refused on rollback and keep.txt survives" (($r.Code -eq 1) -and ((Text (Join-Path $victim2 "keep.txt")) -eq "mine") -and ((Pair $D2) -eq (V "2.0.0")) -and ((PrevPair $D2) -eq (V "1.0.0")))
+    $D3 = Join-Path $T "prefix-link"; [void](Install $a1 $D3)
+    $outside = Join-Path $T "outside"; [void][System.IO.Directory]::CreateDirectory($outside); [System.IO.File]::WriteAllText((Join-Path $outside "keep.txt"), "mine")
+    Link (Join-Path $D3 ".linux-x86_64.new") $outside
+    $r = Install $a2 $D3
+    Check "W01-R01: a junction (or link) at a staging name is refused and its target survives" (($r.Code -eq 1) -and ((Text (Join-Path $outside "keep.txt")) -eq "mine") -and ((Pair $D3) -eq (V "1.0.0")))
+    $D4 = Join-Path $T "prefix-link2"; [void](Install $a1 $D4)
+    Link (Join-Path $D4 ".heimdall.new.exe") $outside
+    $r = Install $a2 $D4
+    Check "W01-R01: a junction (or link) at the executable staging name is refused and its target survives" (($r.Code -eq 1) -and ((Text (Join-Path $outside "keep.txt")) -eq "mine") -and ((Pair $D4) -eq (V "1.0.0")))
+    $D5 = Join-Path $T "prefix-foreign"; [void](Install $a1 $D5)
+    $stg = Join-Path $D5 ".linux-x86_64.new"; [void][System.IO.Directory]::CreateDirectory($stg); [System.IO.File]::WriteAllText((Join-Path $stg "heimdall"), "stale staged helper"); [System.IO.File]::WriteAllText((Join-Path $stg "notes.txt"), "mine")
+    $r = Install $a2 $D5
+    Check "W01-R01: a staged helper directory holding a foreign file is not deleted" (($r.Code -eq 1) -and ((Text (Join-Path $stg "notes.txt")) -eq "mine") -and ($r.Out -match "did not put there") -and ((Pair $D5) -eq (V "1.0.0")))
+    $D6 = Join-Path $T "prefix-leftover"; [void](Install $a1 $D6)
+    $stg6 = Join-Path $D6 ".linux-x86_64.new"; [void][System.IO.Directory]::CreateDirectory($stg6); [System.IO.File]::WriteAllText((Join-Path $stg6 "heimdall"), "stale staged helper")
+    [System.IO.File]::WriteAllText((Join-Path $D6 ".heimdall.new.exe"), "stale staged exe")
+    $r = Install $a2 $D6
+    Check "a leftover staged pair holding only the script's own files is cleared and the update completes" (($r.Code -eq 0) -and ((Pair $D6) -eq (V "2.0.0")) -and ((PrevPair $D6) -eq (V "1.0.0")))
+
+    # --- M08-W01-R02: the executable and the helper are one unit.
+    # A failure injected between the two renames of step 4 puts BOTH halves back.
+    $U = Join-Path $T "prefix-unit"; [void](Install $a1 $U)
+    $r = Install $a2 $U @() @{ HM_INSTALL_TEST_FAIL_AT = "4b" }
+    Check "W01-R02: a failure between the two renames of an install undoes both halves" (($r.Code -eq 1) -and ((Pair $U) -eq (V "1.0.0")) -and ($r.Out -match "undone") -and -not (Test-Path -LiteralPath (Join-Path $U ".heimdall.new.exe")) -and -not (Test-Path -LiteralPath (Join-Path $U ".linux-x86_64.new")))
+    $r = Install $a2 $U
+    Check "W01-R02: and the next run completes the update as a pair" (($r.Code -eq 0) -and ((Pair $U) -eq (V "2.0.0")) -and ((PrevPair $U) -eq (V "1.0.0")))
+    # A process killed between those two renames leaves a mixed pair; the rerun must not say
+    # "already installed": it repairs the helper.
+    $K = Join-Path $T "prefix-killed"; [void](Install $a1 $K)
+    [void](Install $a2 $K @() @{ HM_INSTALL_TEST_STOP_AFTER = "4a" })
+    Check "W01-R02: (the killed state is the mixed one: new executable, no current helper)" (((Exe $K) -eq "fake heimdall 2.0.0") -and ((Helper $K) -eq ""))
+    $r = Install $a2 $K
+    Check "W01-R02: a rerun after a kill between the renames repairs the pair, not 'already installed'" (($r.Code -eq 0) -and ((Pair $K) -eq (V "2.0.0")) -and ((PrevPair $K) -eq (V "1.0.0")) -and ($r.Out -notmatch "already installed"))
+    # A helper that differs under a matching executable is repaired too.
+    $M = Join-Path $T "prefix-mixed"; [void](Install $a2 $M)
+    [System.IO.File]::WriteAllText((P $M @("linux-x86_64", "heimdall")), "fake helper 1.0.0")
+    $r = Install $a2 $M
+    Check "W01-R02: a matching executable with a different helper is repaired" (($r.Code -eq 0) -and ((Pair $M) -eq (V "2.0.0")) -and ($r.Out -match "repairing the pair"))
+    # Rollback: a failure between its renames undoes both halves.
+    $RB = Join-Path $T "prefix-rb"; [void](Install $a1 $RB); [void](Install $a2 $RB)
+    $r = Install $a2 $RB @("-Rollback") @{ HM_INSTALL_TEST_FAIL_AT = "rb2" }
+    Check "W01-R02: a failure between the two renames of a rollback undoes both halves" (($r.Code -eq 1) -and ((Pair $RB) -eq (V "2.0.0")) -and ((PrevPair $RB) -eq (V "1.0.0")) -and -not (Test-Path -LiteralPath (Join-Path $RB ".heimdall.swap.exe")) -and -not (Test-Path -LiteralPath (Join-Path $RB ".linux-x86_64.swap")))
+    # Rollback killed at each point, then any rerun: a complete, matching pair, nothing lost.
+    foreach ($tag in "ra1", "ra2", "rb1", "rb2", "rc1") {
+        $X = Join-Path $T "prefix-rbk-$tag"; [void](Install $a1 $X); [void](Install $a2 $X)
+        [void](Install $a2 $X @("-Rollback") @{ HM_INSTALL_TEST_STOP_AFTER = $tag })
+        $r = Install $a2 $X @("-Rollback")
+        $pairs = @((Pair $X), (PrevPair $X)) | Sort-Object
+        Check "W01-R02: a rollback killed after $tag, then rerun: both versions survive as complete pairs" (($r.Code -eq 0) -and (($pairs -join ";") -eq ((@((V "1.0.0"), (V "2.0.0")) | Sort-Object) -join ";")) -and -not (Test-Path -LiteralPath (Join-Path $X ".heimdall.swap.exe")) -and -not (Test-Path -LiteralPath (Join-Path $X ".linux-x86_64.swap")))
+    }
+
+    # Interrupted install after each step, then a rerun finishes it as a pair.
+    foreach ($tag in "1", "2", "3a", "3b", "4a", "4b") {
+        # ($IP, not $R: PowerShell variable names are case-insensitive, and $r is the result.)
+        $IP = Join-Path $T "prefix-int$tag"; [void](Install $a1 $IP)
+        [void](Install $a2 $IP @() @{ HM_INSTALL_TEST_STOP_AFTER = $tag })
+        # Nothing of version 1 is lost at any point: its executable and its helper are each
+        # still present, under the current or the .previous name.
+        $exe1 = ((Exe $IP) -eq "fake heimdall 1.0.0") -or ((PrevExe $IP) -eq "fake heimdall 1.0.0")
+        $hlp1 = ((Helper $IP) -eq "fake helper 1.0.0") -or ((PrevHelper $IP) -eq "fake helper 1.0.0")
+        Check "interrupted after ${tag}: version 1's executable and helper both survive" ($exe1 -and $hlp1)
+        $r = Install $a2 $IP
+        Check "interrupted after ${tag}: rerunning finishes the update, executable and helper together" (($r.Code -eq 0) -and ((Pair $IP) -eq (V "2.0.0")) -and ((PrevPair $IP) -eq (V "1.0.0")) -and -not (Test-Path -LiteralPath (Join-Path $IP ".heimdall.new.exe")))
     }
 
     # The Windows rule itself: an executable that is open (as a running image would be)
     # can be renamed aside but not overwritten, and the update still succeeds.
-    $W = Join-Path $T "prefix-open"
-    Install $a1 $W | Out-Null
-    $held = [System.IO.File]::Open("$W\heimdall.exe", [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::Read -bor [System.IO.FileShare]::Delete))
+    $W = Join-Path $T "prefix-open"; [void](Install $a1 $W)
+    $held = [System.IO.File]::Open((Join-Path $W "heimdall.exe"), [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::Read -bor [System.IO.FileShare]::Delete))
     try { $r = Install $a2 $W } finally { $held.Close() }
-    Check "an update succeeds while the old executable is held open, by renaming it aside" (($r.Code -eq 0) -and ((Text "$W\heimdall.exe") -eq "fake heimdall 2.0.0") -and ((Text "$W\heimdall.previous.exe") -eq "fake heimdall 1.0.0"))
+    Check "an update succeeds while the old executable is held open, by renaming it aside" (($r.Code -eq 0) -and ((Pair $W) -eq (V "2.0.0")) -and ((PrevPair $W) -eq (V "1.0.0")))
 } finally {
-    Remove-Item Env:\HM_INSTALL_TEST_RUNNING -ErrorAction SilentlyContinue
+    Remove-Item Env:\HM_INSTALL_TEST_STATUS -ErrorAction SilentlyContinue
+    # The exact directory this script created. Links inside it are removed as links first,
+    # so nothing outside it can be reached.
+    Get-ChildItem -LiteralPath $T -Recurse -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue | ForEach-Object { $_.Delete() }
     Remove-Item -Recurse -Force -LiteralPath $T -ErrorAction SilentlyContinue
 }
-Write-Host ("install-selftest: " + $(if ($script:bad -eq 0) { "PASS" } else { "FAIL" }))
-exit $script:bad
+Write-Host ("install-selftest: " + $(if ($script:failed -eq 0) { "PASS" } else { "FAIL" }) + " ($script:n checks)")
+exit $script:failed

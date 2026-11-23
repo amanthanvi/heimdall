@@ -17,9 +17,11 @@ Checks:
   * with --index, the archive's own digest is in that external index (ADR-0014 section 4.4);
   * no file, and no text field of the archive itself (member names, owner and group names,
     PAX records, comments, the gzip header), holds: a home directory path, meaning exactly
-    /Users/<name>/, /home/<name>/ or <drive>:/Users/<name>/ (with backslashes) for any name outside the fixed
-    placeholder list HOME_PLACEHOLDERS (name, user, username, you, me, example, owner,
-    builder, Shared, Public, Default, soaks, soakl, fixture, alice, bob); a cargo registry,
+    /Users/<name>/, /home/<name>/ or <drive>:/Users/<name>/ (with backslashes) for any name, except the exact
+    literal placeholder paths HOME_PLACEHOLDER_PATHS (`/Users/<name>/`, `/home/<name>/`,
+    `C:/Users/<name>/` with backslashes). The name is any run of characters other than a
+    separator or a control character, so Unicode names and names with spaces count, and no
+    account name is exempt; a cargo registry,
     cargo checkout or rustup toolchain path; a private-key block; a canary value, meaning
     exactly HEIMDALL_CANARY_ + optional upper-case KIND_ parts + 8 or more lower-case hex
     digits (the shape the test kit generates; other shapes are not recognized); or any
@@ -64,19 +66,17 @@ GENERIC = [
     ("canary value", re.compile(rb"HEIMDALL_CANARY_(?:[A-Z0-9]+_)*[0-9a-f]{8,}")),
 ]
 
-# A home directory path: /Users/<name>/, /home/<name>/ or <drive>:\Users\<name>\, for ANY
-# name (review M08-W0-R06), except the fixed placeholder names below. Those are what the
-# product's own text and the packaged documents use when they describe a path, and what the
-# harness accounts are called; none is a person's account. A real build-host name that
-# happens to equal one of them is still caught by the build script's --forbid list.
-HOME_PATH = re.compile(rb"(?:/Users/|/home/|[A-Za-z]:\\Users\\)([A-Za-z0-9._-]{1,64})[/\\]")
-HOME_PLACEHOLDERS = frozenset(b.lower() for b in (
-    b"name", b"user", b"username", b"you", b"me", b"example", b"owner", b"builder",
-    b"Shared", b"Public", b"Default", b"soaks", b"soakl", b"fixture", b"alice", b"bob"))
+# A home directory path: /Users/<name>/, /home/<name>/ or <drive>:\Users\<name>\, where the
+# name is ANY run of characters other than a path separator or a control character (so
+# Unicode names and names with spaces count; review M08-W01 on R06). Nothing is exempted by
+# name: `bob` is as real an account as any. The only exemptions are the exact literal
+# placeholder paths below, which documents use to describe a path.
+HOME_PATH = re.compile(rb"(?:/Users/|/home/|[A-Za-z]:\\Users\\)([^/\\\x00-\x1f\x7f]{1,128})[/\\]")
+HOME_PLACEHOLDER_PATHS = (b"/Users/<name>/", b"/home/<name>/", b"C:\\Users\\<name>\\")
 
 
 def home_path_hits(data):
-    return [m.group(0) for m in HOME_PATH.finditer(data) if m.group(1).lower() not in HOME_PLACEHOLDERS]
+    return [m.group(0) for m in HOME_PATH.finditer(data) if m.group(0) not in HOME_PLACEHOLDER_PATHS]
 
 
 def utf16_views(data):
@@ -121,6 +121,35 @@ class Failure(Exception):
 
 # --------------------------------------------------------------------------- unpack
 
+GZIP_FIELD_MAX = 1 << 20
+
+
+def gzip_header_fields(path):
+    """The optional fields of the first gzip member's header (extra, name, comment), read in
+    full whatever their length. A field longer than GZIP_FIELD_MAX is refused, not skipped."""
+    out = []
+    with open(path, "rb") as fh:
+        head = fh.read(10)
+        if len(head) < 10 or head[:2] != b"\x1f\x8b":
+            raise Failure("not a gzip file")
+        flags = head[3]
+        if flags & 0x04:  # FEXTRA
+            n = struct.unpack("<H", fh.read(2))[0]
+            out.append(fh.read(n))
+        for bit in (0x08, 0x10):  # FNAME, FCOMMENT: NUL-terminated
+            if flags & bit:
+                buf = bytearray()
+                while True:
+                    c = fh.read(1)
+                    if not c or c == b"\0":
+                        break
+                    buf += c
+                    if len(buf) > GZIP_FIELD_MAX:
+                        raise Failure("a gzip header field is longer than 1 MiB")
+                out.append(bytes(buf))
+    return out
+
+
 def unpack(src, dest, metadata=None):
     """Extract `src` into `dest` with every member checked; return the root directory.
     `metadata`, when given, collects the archive's own text fields (member names, owner and
@@ -129,17 +158,20 @@ def unpack(src, dest, metadata=None):
     if os.path.isdir(src):
         return os.path.abspath(src)
     if src.endswith((".tar.gz", ".tgz")):
-        with open(src, "rb") as fh:
-            head = fh.read(4096)
-        if len(head) > 10 and head[3] & 0x1C:  # FEXTRA, FNAME or FCOMMENT set
-            meta.append(head[10:])
+        meta += gzip_header_fields(src)
         with tarfile.open(src, "r:gz") as tar:
-            meta.append(repr(sorted(tar.pax_headers.items())).encode("utf-8", "replace"))
+            for key, value in sorted(tar.pax_headers.items()):
+                meta += [str(key).encode("utf-8", "replace"), str(value).encode("utf-8", "replace")]
             for m in tar.getmembers():
                 if not (m.isreg() or m.isdir()):
                     raise Failure(f"archive member is not a regular file or directory: {m.name}")
                 _safe_name(m.name)
-                for field in (m.name, m.uname, m.gname, m.linkname, repr(sorted(m.pax_headers.items()))):
+                # Each field's own value, never a repr of it (a repr doubles backslashes
+                # and would hide a Windows path).
+                fields = [m.name, m.uname, m.gname, m.linkname]
+                for key, value in sorted(m.pax_headers.items()):
+                    fields += [str(key), str(value)]
+                for field in fields:
                     meta.append(field.encode("utf-8", "replace"))
             for m in tar.getmembers():
                 target = os.path.join(dest, m.name)
@@ -434,7 +466,10 @@ def verify(src, target=None, forbid=(), index=None, allow_exact=()):
                             fail(f"{where}: {label} (UTF-16), 1 or more occurrence(s)")
 
         # The archive's own text fields: defence in depth (the packer zeroes the owner fields).
-        scan("(archive metadata)", b"\n".join(m for m in metadata if m), wide=False)
+        # Each field is scanned by itself, as bytes and as UTF-16 (a ZIP comment may be wide).
+        for field in metadata:
+            if field:
+                scan("(archive metadata)", field)
         kinds = 0
         executables = set()
         for f in files:
@@ -548,7 +583,14 @@ def self_test():
         ("home path, Desktop", {"heimdall": good + b"\0/Users/" + b"realperson/Desktop/x\0"}, {}, "home directory path"),
         ("home path, Linux dot-local", {"heimdall": good + b"\0/home/" + b"realperson/.local/share/x\0"}, {}, "home directory path"),
         ("home path, Windows AppData", {"heimdall": good + b"\0C:\\Users\\" + b"realperson\\AppData\\Local\0"}, {}, "home directory path"),
-        ("placeholder home paths are allowed", {"heimdall": good + b"\0/Users/<name>\0/home/user/x\0/Users/name/.ssh\0C:\\Users\\you\\x\0/home/builder/y\0"}, {}, None),
+        ("the literal placeholder paths are allowed", {"heimdall": good + b"\0/Users/<name>/x\0/home/<name>/.ssh\0C:\\Users\\<name>\\x\0"}, {}, None),
+        # The re-check's cases: no account name is exempt, and names need not be ASCII words.
+        ("bob, macOS Desktop", {"heimdall": good + b"\0/Users/" + b"bob/Desktop/x\0"}, {}, "home directory path"),
+        ("bob, Linux dot-local", {"heimdall": good + b"\0/home/" + b"bob/.local/share/x\0"}, {}, "home directory path"),
+        ("bob, Windows AppData", {"heimdall": good + b"\0C:\\Users\\" + b"bob\\AppData\\Local\0"}, {}, "home directory path"),
+        ("a name called builder is not exempt", {"heimdall": good + b"\0/home/" + b"builder/y\0"}, {}, "home directory path"),
+        ("a Unicode user name", {"heimdall": good + "\0/Users/J\u00fcrgen M\u00fcller/x\0".encode("utf-8")}, {}, "home directory path"),
+        ("a user name with a space", {"heimdall": good + b"\0C:\\Users\\" + b"Real Person\\x\0"}, {}, "home directory path"),
         # R07: an overlapping forbidden text is not hidden by an allowed string.
         ("an overlapping forbidden text still fails",
          {"heimdall": good + b"\0/opt/builderx.label.suffix\0"},
@@ -620,7 +662,8 @@ def self_test():
         root = _tree(tmp, "metasrc", {"heimdall": good})
         for label, uname, pax, expect in (
                 ("owner name", "builder-name", {}, "(archive metadata): forbidden text #1"),
-                ("PAX record", "", {"comment": "/Users/" + "realperson/x"}, "(archive metadata): home directory path")):
+                ("PAX record", "", {"comment": "/Users/" + "realperson/x"}, "(archive metadata): home directory path"),
+                ("PAX Windows path", "", {"comment": "C:\\Users\\" + "realperson\\x"}, "(archive metadata): home directory path")):
             arc = os.path.join(tmp, "meta-" + label.replace(" ", "-") + ".tar.gz")
             with tarfile.open(arc, "w:gz", format=tarfile.PAX_FORMAT) as tar:
                 for name in sorted(os.listdir(root)):
@@ -632,6 +675,34 @@ def self_test():
             if not any(expect in g for g in got):
                 bad += 1
                 print(f"self-test FAILED: archive metadata, {label}: {got}")
+        # Re-check M08-W01-R05: a gzip comment of any length, and a wide ZIP comment.
+        import gzip as _gzip
+        plain = os.path.join(tmp, "plain.tar")
+        with tarfile.open(plain, "w", format=tarfile.PAX_FORMAT) as tar:
+            for name in sorted(os.listdir(root)):
+                info = tar.gettarinfo(os.path.join(root, name), "heimdall-0.0.0-test/" + name)
+                info.uname = info.gname = ""
+                with open(os.path.join(root, name), "rb") as fh:
+                    tar.addfile(info, fh)
+        with open(plain, "rb") as fh:
+            body = _gzip.compress(fh.read(), mtime=0)
+        longc = os.path.join(tmp, "long-comment.tar.gz")
+        with open(longc, "wb") as fh:  # set FCOMMENT and insert a 5000-byte comment + the text
+            fh.write(body[:3] + bytes([body[3] | 0x10]) + body[4:10] + b"x" * 5000 + b"builder-name\0" + body[10:])
+        got = verify(longc, forbid=["builder-name"])
+        if not any("(archive metadata): forbidden text #1" in g for g in got):
+            bad += 1
+            print(f"self-test FAILED: long gzip comment: {got}")
+        for enc in ("utf-16-le", "utf-16-be"):
+            zp = os.path.join(tmp, f"wide-{enc}.zip")
+            with zipfile.ZipFile(zp, "w") as z:
+                for name in sorted(os.listdir(root)):
+                    z.write(os.path.join(root, name), "heimdall-0.0.0-test/" + name)
+                z.comment = "xx-builder-name-xx".encode(enc)
+            got = verify(zp, forbid=["builder-name"])
+            if not any("(archive metadata): forbidden text #1 (UTF-16)" in g for g in got):
+                bad += 1
+                print(f"self-test FAILED: ZIP comment in {enc}: {got}")
         # R07: an empty --forbid is a usage error (exit 2), from the command line.
         for args in (["--forbid", ""],):
             saved = sys.stdout
@@ -658,7 +729,7 @@ def self_test():
         if os.path.exists(os.path.join(os.path.dirname(tmp), "escape")):
             bad += 1
             print("self-test FAILED: escaping tar member written")
-    print(f"verify_artifact self-test: {len(cases) + 11} cases, {bad} failed")
+    print(f"verify_artifact self-test: {len(cases) + 15} cases, {bad} failed")
     return 1 if bad else 0
 
 

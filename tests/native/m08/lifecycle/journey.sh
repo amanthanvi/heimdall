@@ -114,9 +114,16 @@ step() { if [ "$2" = 0 ]; then echo "test $1 ... ok"; else echo "test $1 ... FAI
 skip() { echo "test $1 ... skipped ($2)"; }
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
 size() { python3 -I -c 'import os,sys; print(os.path.getsize(sys.argv[1]) if os.path.exists(sys.argv[1]) else 0)' "$1"; }
-# This run's own heimdall processes: the ones started from the executable it installed in
-# its scratch prefix. Never a match by name alone (other work may run heimdall on a host).
-own_procs() { pgrep -u "$(id -u)" -f "^$HM( |\$)" 2>/dev/null; }
+# Processes are identified by PIDs this run RECORDED, never found by a name or a command-
+# line pattern (review M08-W01 on R08). A PID is recorded when the runtime advertises it
+# (`service status`), and only if `ps` shows that exact PID belonging to this account with
+# this run's own executable as its command. Later checks and signals use the recorded PIDs.
+RECORDED_PIDS=""
+pid_is_ours() { # pid_is_ours PID: that exact PID, this account, started from $HM
+    [ "$(ps -o user= -p "$1" 2>/dev/null | tr -d ' ')" = "$(id -un)" ] || return 1
+    ps -o args= -p "$1" 2>/dev/null | awk -v exe="$HM" '{ exit !($1 == exe) }'
+}
+recorded_alive() { for p in $RECORDED_PIDS; do if kill -0 "$p" 2>/dev/null && pid_is_ours "$p"; then echo "$p"; fi; done; }
 # The runtime's PID as the runtime itself advertises it (`service status`), accepted only
 # when that process belongs to this account and was started from this run's own executable.
 # Signals go to this PID, never to a name (review M08-W0-R08).
@@ -125,7 +132,8 @@ runtime_pid() {
     hmcli "$S/pid.json" service status
     p=$(jget "$S/pid.json" data pid)
     case "$p" in ''|*[!0-9]*) return 1 ;; esac
-    own_procs | grep -qx "$p" || return 1
+    pid_is_ours "$p" || return 1
+    case " $RECORDED_PIDS " in *" $p "*) ;; *) RECORDED_PIDS="$RECORDED_PIDS $p" ;; esac
     echo "$p"
 }
 jget() { python3 -I -c 'import json,sys
@@ -264,6 +272,7 @@ sleep 2
 kill -0 "$held" 2>/dev/null; step a31_a_session_is_held_open "$?"
 id_before=$(env_id)
 [ -n "$id_before" ]; step a31_environment_identity_readable "$?"
+runtime_pid >/dev/null; step a31_runtime_pid_recorded "$?"
 
 # 5. Update: refused while the runtime runs; then stop, update, restart.
 if [ "$same" = no ]; then
@@ -278,7 +287,7 @@ if [ "$same" = no ]; then
         echo "fact before-kill-alias-in-main-db-file=$([ $? = 0 ] && echo no || echo yes)"
         python3 -I -c 'import sys; sys.exit(0 if b"hmjourney" in open(sys.argv[1],"rb").read() else 1)' "$st/state.db-wal"
         echo "fact before-kill-alias-in-wal-file=$([ $? = 0 ] && echo yes || echo no)"
-        rt=$(runtime_pid)
+        runtime_pid >/dev/null; rt=$(recorded_alive | tail -1)
         [ -n "$rt" ] && kill -9 "$rt"; step a31_runtime_killed_without_a_clean_close "$?"
         sleep 1
         echo "fact after-kill-db-bytes=$(size "$st/state.db") wal-bytes=$(size "$st/state.db-wal")"
@@ -292,6 +301,7 @@ if [ "$same" = no ]; then
     SSH -o BatchMode=yes hmjourney true </dev/null >/dev/null 2>&1; step a31_login_after_update "$?"
     connect_step a31_connect_after_update
     [ "$(env_id)" = "$id_before" ]; step a31_update_keeps_the_environment_identity "$?"
+    runtime_pid >/dev/null
     # The pre-migration backup, read through SQLite: does it hold the work done before the stop?
     bk=$(find "$HOME" "${HEIMDALL_HOME:-$HOME}" -name 'state.db.v*.backup' -type f 2>/dev/null | head -1)
     [ -n "$bk" ]; step a31_a_pre_migration_backup_exists "$?"
@@ -327,7 +337,8 @@ PY
     echo "fact after-rollback-status-code=$(jget "$S/rb-status.json" code); message=$(jget "$S/rb-status.json" data error message | cut -c1-160)"
     "$HM" --json --non-interactive doctor </dev/null >"$S/rb-doctor.json" 2>/dev/null
     echo "fact after-rollback-doctor-code=$(jget "$S/rb-doctor.json" code)"
-    echo "fact after-rollback-processes=$(own_procs | wc -l | tr -d ' ')"
+    runtime_pid >/dev/null
+    echo "fact after-rollback-recorded-processes-alive=$(recorded_alive | wc -l | tr -d ' ')"
     after=$(env_id)
     # Either the older build serves the same store with the same identity, or it refuses a
     # newer store and says so. It must never serve a different identity.
@@ -335,18 +346,17 @@ PY
     # An older build that refuses the newer store must have changed nothing: the newer
     # build, put back, serves the same identity and the same access as before the rollback.
     hmcli "$S/stop3.json" service stop
-    left=$(own_procs | wc -l | tr -d ' ')
-    echo "fact older-build-processes-after-service-stop=$left"
-    if [ "$left" != 0 ]; then
-        # Stop exactly this run's own (matched by this run's executable path and this
-        # account, one PID at a time), so the roll forward can proceed; the count is the finding.
-        for p in $(own_procs); do kill "$p" 2>/dev/null; done
-        sleep 2
-    fi
+    left=$(recorded_alive | wc -l | tr -d ' ')
+    echo "fact recorded-processes-alive-after-service-stop=$left"
+    # Stop exactly the recorded PIDs that are still this run's, one at a time, so the roll
+    # forward can proceed; the count above is the finding.
+    for p in $(recorded_alive); do kill "$p" 2>/dev/null; done
+    [ "$left" = 0 ] || sleep 2
     sh "$NEW/install.sh" --rollback >"$S/forward.out" 2>&1; rc=$?
     [ "$rc" = 0 ] && [ "$(sha "$HM")" = "$(sha "$NEW/heimdall")" ]; step a31_roll_forward_puts_the_newer_executable_back "$?"
     connect_step a31_connect_after_roll_forward
     [ "$(env_id)" = "$id_before" ]; step a31_the_refused_rollback_changed_nothing "$?"
+    runtime_pid >/dev/null
 else
     for n in a31_update_is_refused_while_the_runtime_runs a31_update_keeps_the_previous_executable \
         a31_the_held_session_survives_the_update a31_update_keeps_the_environment_identity \
@@ -365,8 +375,10 @@ SSH -G unrelated </dev/null >"$S/unrelated.after" 2>/dev/null && cmp -s "$S/unre
 step a31_unrelated_alias_unchanged "$?"
 "$HM" --json --non-interactive service stop >/dev/null 2>&1 </dev/null
 sleep 1
-left=$(own_procs | wc -l | tr -d ' ')
-[ "$left" = 0 ]; step a31_no_runtime_left_running "$?"
+left=$(recorded_alive | wc -l | tr -d ' ')
+echo "fact recorded-runtime-pids=$(echo $RECORDED_PIDS | wc -w | tr -d ' ')"
+[ "$left" = 0 ] && ! "$HM" --json --non-interactive service status 2>/dev/null | grep -q '"running":true'
+step a31_no_runtime_left_running "$?"
 [ "$build" = debug ] && echo "fact evidence-class=debug build on fixture stores: mechanism evidence only"
 echo "journey: $([ "$failed" = 0 ] && echo PASS || echo FAIL)"
 exit "$failed"

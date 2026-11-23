@@ -126,7 +126,11 @@ $forbid = [System.IO.Path]::GetTempFileName()
 try {
     # The builder's paths and user name; the name is allowed only inside the exact macOS
     # login-entry label prefix (see build-release.sh).
-    @($userHome, $repo, $cargoHome, $rustupHome, $env:USERNAME) | Where-Object { $_.Length -ge 4 } | Sort-Object -Unique | Set-Content -Encoding utf8 -LiteralPath $forbid
+    # A user name shorter than 4 characters would match ordinary text everywhere, so it is
+    # not forbidden as a bare string; that is said, never done silently (as build-release.sh).
+    $forbidden = @($userHome, $repo, $cargoHome, $rustupHome)
+    if ($env:USERNAME -and $env:USERNAME.Length -ge 4) { $forbidden += $env:USERNAME } else { Write-Host "== note: the builder's user name is shorter than 4 characters and is not forbidden as a bare string" }
+    $forbidden | Sort-Object -Unique | Set-Content -Encoding utf8 -LiteralPath $forbid
     $label = (Select-String -Path crates\runtime\src\autostart\render.rs -Pattern 'pub const LAUNCH_AGENT_LABEL_PREFIX: &str = "(.*)";' | Select-Object -First 1).Matches[0].Groups[1].Value
     if (-not $label) { Fail 2 "the login-entry label was not found" }
     & python -I "$here\verify_artifact.py" $stage --target $target --forbid-file $forbid --allow-exact $label

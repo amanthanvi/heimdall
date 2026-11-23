@@ -153,6 +153,30 @@ check "an interrupted rollback: the install path holds the older executable" '[ 
 sh "$T/a1/install.sh" --prefix "$B" >"$T/orb" 2>&1
 check "an interrupted rollback: the next run keeps the newer executable as the previous one" '[ "$("$B/heimdall.previous")" = "heimdall 2.0.0" ] && [ ! -e "$B/.heimdall.swap" ] && grep -q "finished an interrupted rollback" "$T/orb"'
 
+# --- Re-check M08-W01-R04: a rollback interrupted BEFORE its replace loses nothing either.
+B1=$T/prefix-rb1
+sh "$T/a1/install.sh" --prefix "$B1" >/dev/null 2>&1
+sh "$T/a2/install.sh" --prefix "$B1" >/dev/null 2>&1
+HM_INSTALL_TEST_STOP_AFTER=r1 sh "$T/a2/install.sh" --prefix "$B1" --rollback >/dev/null 2>&1
+sh "$T/a2/install.sh" --prefix "$B1" >"$T/orb1" 2>&1
+check "a rollback interrupted before its replace: the rerun keeps v2 current and v1 as the previous one" '[ "$("$B1/heimdall")" = "heimdall 2.0.0" ] && [ "$("$B1/heimdall.previous")" = "heimdall 1.0.0" ] && [ ! -e "$B1/.heimdall.swap" ] && [ ! -e "$B1/.heimdall.new" ] && grep -q "had not replaced anything yet" "$T/orb1"'
+
+# --- Re-check on R04: "no runtime is running" is not believed while a process started from
+# the installed executable is alive (the product says that for an unreachable endpoint too).
+A=$T/prefix-alive
+sh "$T/a1/install.sh" --prefix "$A" >/dev/null 2>&1
+printf '#!/bin/sh\n# fake heimdall 1.0.0 that also stays alive\ncase "$*" in *"service status"*) echo %s ;; *stay*) sleep 30 ;; *) echo "heimdall 1.0.0" ;; esac\n' "'$NONE'" >"$A/heimdall"
+"$A/heimdall" stay &
+alive=$!
+sleep 1
+sh "$T/a2/install.sh" --prefix "$A" >"$T/oa" 2>&1; rc=$?
+check "a live process from the installed path refuses the update although status says none" '[ "$rc" = 1 ] && grep -q "a process started from" "$T/oa" && [ ! -e "$A/.heimdall.new" ] && [ ! -e "$A/heimdall.previous" ]'
+sh "$T/a2/install.sh" --prefix "$A" --assume-stopped >"$T/oa2" 2>&1; rc=$?
+check "--assume-stopped does not override a live process" '[ "$rc" = 1 ] && grep -q "does not override" "$T/oa2"'
+kill "$alive" 2>/dev/null; wait "$alive" 2>/dev/null
+sh "$T/a2/install.sh" --prefix "$A" >/dev/null 2>&1; rc=$?
+check "once that process has ended, the update proceeds" '[ "$rc" = 0 ] && [ "$("$A/heimdall")" = "heimdall 2.0.0" ]'
+
 # --- R10: a prefix that looks like an option.
 (cd "$T" && mkdir dash && cd dash && sh "$T/a1/install.sh" --prefix -x >"$T/od" 2>&1); rc=$?
 check "R10: a prefix beginning with a dash is a directory, not an option" '[ "$rc" = 0 ] && [ "$("$T/dash/-x/heimdall")" = "heimdall 1.0.0" ]'

@@ -5,9 +5,10 @@ Install, update, roll back and uninstall from release archives (m08-plan §7.2, 
 
 | File | What it does |
 |---|---|
-| `install-selftest.sh` | Tests `tools/packaging/install.sh` with fake archives: no real executable is used or run, so it is safe on any host. 31 checks, including the W0 review's cases (a failed backup, symlinks at staging names, an unterminated manifest, a runtime that does not answer, an interrupted rollback) |
+| `install-selftest.sh` | Tests `tools/packaging/install.sh` with fake archives: no real executable is used or run, so it is safe on any host. 35 checks, including the W0 review's cases (a failed backup, symlinks at staging names, an unterminated manifest, a runtime that does not answer, an interrupted rollback) |
 | `journey.sh` | The journey itself. `--build release`: archives, run as a disposable account; it sets no test variable, refuses outside a container and refuses if any `HEIMDALL_TEST_*` is set; there is no override. `--build debug`: two debug executables, on a host; it exports and verifies all six scratch variables first, runs every `ssh` with `-F` on the scratch configuration behind a default-identity guard, and **skips every `heimdall connect` step** (see the incident below) |
-| `install-selftest.ps1` | The Windows counterpart of `install-selftest.sh`, for `install.ps1`. Parses under PowerShell 7 on the Mac; **not yet run** (a later PC job) |
+| `install-selftest.ps1` | The Windows counterpart, for `install.ps1`: 43 checks. **Rehearsed under PowerShell 7 on macOS only** (the logic, with symbolic links standing in for junctions); **not yet run on Windows** |
+| `install-revert-proofs.ps1` | Takes one fix at a time out of a scratch copy of `install.ps1` (by its marker comments) and shows the self-test then fails in the expected cases. For the PC job |
 | `run-journey.sh` | Starts `journey.sh --build release` in the M08 container (no network, 2 CPUs, 2 GiB, an init process) |
 
 ## Runs
@@ -87,3 +88,21 @@ that the process belongs to the account and was started from the run's own execu
 bash install-selftest.sh`): the case prints `exit 0, cur=heimdall 3.0.0, prev=heimdall 1.0.0`
 and fails, the reviewer's result. With the fix: `exit 1, cur=heimdall 2.0.0, prev=heimdall
 1.0.0`, and the case passes.
+
+## After the scoped re-check (W0.2, 2026-11-23)
+
+| Run | Result |
+|---|---|
+| `install-selftest.sh` (macOS) | PASS, 35 checks: adds a rollback interrupted before its replace, and a live process from the installed path refusing the update although the executable says none is running |
+| Release journey and its `--kill-before-update` variant, in the container, archives re-packed with this `install.sh` (older `eb9328f1…`, newer `b1ff91b3…`) | **31 steps ok, 0 failed, each.** Three runtime PIDs were recorded in each run; none was alive at the end |
+| `install-selftest.ps1` under PowerShell 7 **on macOS** | PASS, 43 checks. A rehearsal of the script's logic only |
+| `install-revert-proofs.ps1` under PowerShell 7 **on macOS** | PASS. With the W01-R01 type check replaced by the candidate's recursive cleanup, the self-test fails 10 cases, the directory-at-`.heimdall.new.exe` case among them; with the W01-R02 pair check replaced by an executable-only check, it fails 3, the mixed-pair rerun among them |
+
+The journey now signals and counts only PIDs it recorded from the runtime's own
+advertisement, each checked with `ps -p <pid>` against the account and the run's executable.
+The debug-build journey was not rerun after this change.
+
+**Windows is the open evidence.** Nothing above shows how `install.ps1` behaves on NTFS:
+renaming a mapped image, junctions and other reparse points, sharing violations, Windows
+PowerShell 5.1. The PC job runs `install-selftest.ps1` and `install-revert-proofs.ps1`
+under 5.1 and 7.

@@ -27,7 +27,12 @@ This lists what stopping the runtime interrupts and changes nothing. In short:
 2. Stop the runtime: `heimdall service stop`.
 3. Run the new archive's install script. It keeps your current executable as
    `heimdall.previous`. If it is interrupted, run it again: it finishes the update. Until then
-   the install path still holds a complete executable, the old one or the new one. If it
+   the install path still holds a complete executable, the old one or the new one (macOS and
+   Linux). On Windows a running program cannot be replaced in one step, so for an instant
+   the install path has no `heimdall.exe`; if the install stops exactly there, your previous
+   executable and its WSL helper are complete under their `.previous` names, and running the
+   script again finishes the update. On every platform the executable and its helper are
+   replaced together, never one without the other. If it
    cannot keep your current executable (for example, the disk is full), it stops before
    replacing anything and says so.
 4. `heimdall status`, then `heimdall doctor`.
