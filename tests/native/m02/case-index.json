@@ -288,11 +288,6 @@
           "platform": "linux-arm64 native",
           "status": "blocked",
           "blocked_on": "B9: a native Linux arm64 host (ADR-0004 §4)"
-        },
-        {
-          "platform": "windows-11 personal profile without a repository (e2e_cli_m02 ssh::a01_personal_profile_without_repository)",
-          "status": "deferred_with_decision",
-          "decision": "ADR-0007 §12.49: item 4 deferred with D3 to M04, which adds the pseudoconsole driver for the attended run decision; connect's in-box ssh.exe reads the token's real profile, so the case needs its own isolation there"
         }
       ],
       "declared_platforms": [
@@ -376,11 +371,6 @@
           "platform": "hardware-key touch-required row",
           "status": "blocked",
           "blocked_on": "B6: a hardware security key (FIDO2) owned for testing"
-        },
-        {
-          "platform": "windows-11 interactive connect after provider approval (e2e_run_m02 a11::a11_interactive_connect_succeeds_after_provider_approval)",
-          "status": "deferred_with_decision",
-          "decision": "ADR-0007 §12.47: item 3 (D3) defers the interactive connect pty case on Windows to M04, which adds the pseudoconsole driver for connect"
         }
       ],
       "declared_platforms": [
@@ -440,13 +430,6 @@
         "macos",
         "linux",
         "windows"
-      ],
-      "blocked_rows": [
-        {
-          "platform": "windows-11 TUI pty cases (e2e_tui_m02::pty::search_never_probes, config_commands_authorization_requires_typed_yes)",
-          "status": "deferred_with_decision",
-          "decision": "ADR-0007 §12.47: item 3 (D2) defers the TUI pty cases on Windows to M04; their model twins ran natively, and M04 adds the TUI pseudoconsole driver"
-        }
       ],
       "platform_required": {
         "windows": {
@@ -597,11 +580,6 @@
           "platform": "windows-11 interactive console Ctrl-C and resize (conhost or Windows Terminal)",
           "status": "blocked",
           "blocked_on": "B5: an operator at the Windows console (ADR-0004 §3, P-W07, P-A06)"
-        },
-        {
-          "platform": "windows-11 interactive connect after provider approval (e2e_run_m02 a11::a11_interactive_connect_succeeds_after_provider_approval)",
-          "status": "deferred_with_decision",
-          "decision": "ADR-0007 §12.47: item 3 (D3) defers the interactive connect pty case on Windows to M04, which adds the pseudoconsole driver for connect"
         }
       ],
       "limitation": "the SIGPIPE test records a limitation, not fidelity",
@@ -861,14 +839,7 @@
             "json::console::uninstall_with_incomplete_rollback_typed_yes_purge_is_refused"
           ]
         }
-      },
-      "blocked_rows": [
-        {
-          "platform": "windows-11 typed-yes purge refusal (exit 6) in the incomplete-rollback state",
-          "status": "deferred_with_decision",
-          "decision": "ADR-0007 §12.49: item 2 under --non-interactive the purge is refused with exit 3 before anything runs (asserted by the JSON test); the exit-6 refusal needs a typed yes on a terminal, deferred with D2/D3 to M04's pseudoconsole driver"
-        }
-      ]
+      }
     }
   },
   "exit_claims": {
