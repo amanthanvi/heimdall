@@ -501,7 +501,18 @@ try {
 }
 
 Say "installed $cur"
-if ((Kind $prev) -eq 'file') { Say "the previous pair is kept under the .previous names (install.ps1 -Rollback puts it back)" }
+# The message says what .previous actually holds (PC job 47): a complete pair, which
+# -Rollback puts back, or an older executable alone, which -Rollback refuses.
+if ((Kind $prev) -eq 'file') {
+    $prevComplete = $true
+    if ((Kind $curH) -ne 'absent') {
+        if ((Kind $prevH) -ne 'dir') { $prevComplete = $false } else {
+            foreach ($rel in $script:helperFiles) { $f = Resolve-Under $prevH $rel; if (-not $f -or (Kind $f) -ne 'file') { $prevComplete = $false } }
+        }
+    }
+    if ($prevComplete) { Say "the previous pair is kept under the .previous names (install.ps1 -Rollback puts it back)" }
+    else { Say "an older executable is kept as heimdall.previous.exe without its WSL helper; install.ps1 -Rollback will refuse it" }
+}
 if (-not (($env:PATH -split [System.IO.Path]::PathSeparator) -contains $Prefix)) {
     Say "to run it as 'heimdall', add this directory to your PATH yourself: $Prefix"
 }

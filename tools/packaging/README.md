@@ -195,6 +195,13 @@ So the macOS arm64 archive of `fb96ac35` is **reproducible** across checkout pat
 with the same limits as Linux. Neither `-no_uuid` (dyld needs the UUID) nor `-oso_prefix` (it
 cannot cover rustc's random temporary directory) is used.
 
-The Windows half is part B of PC job 47 (two clones after `/Brepro`, at `2bcf4dc0`, before the
-record fix, so only its executables can match).
+**Windows, PC job 47 part B, at `2bcf4dc0` (`/Brepro`, before the record split):** two clones at
+different paths and depths, each built by `build-release.ps1` under Windows PowerShell 5.1.
+The two `heimdall.exe` are **identical** (`0624fbbf6dd33fe33ba8d30041b49fd7a98f4cdd77f21fe363648ca2f741b9a8`,
+30,905,344 bytes). The zips differ (`987e7640…`, 22,346,201 bytes, and `9fef1dbd…`, 22,346,200
+bytes) only in `BUILD-RECORD.json`'s `started_at` and `finished_at` and its `MANIFEST.sha256`
+line, which `a186a293` fixes. So the Windows **executable** of `2bcf4dc0` is reproducible across
+checkout paths on the PC, with the same limits as the others. The Windows **archive** is shown
+reproducible only by a PC pair at a commit with the record split: the candidate's PC build
+(ruled; no job before it).
 

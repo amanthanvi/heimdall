@@ -11,7 +11,7 @@ holds the record and the external index the Mac builds wrote (`SHA256SUMS-mac`).
 | `aarch64-apple-darwin` | `build-release.sh`, the Mac | exit 0; `verify_artifact` PASS (stage, archive, index) | `df65cdc3…` | `b184b454…` | 229 components (25 removed as unselected; compiled set checked) |
 | `x86_64-unknown-linux-gnu` | `build-release.sh`, the Mac (zig) | exit 0; PASS | `23246a6d…` | `3b90dfc9…` | 275 (20 removed; checked) |
 | `aarch64-unknown-linux-gnu` | `build-release.sh`, the Mac (zig) | exit 0; PASS | `96151465…` | `c5ebf788…` | 274 (20 removed; checked) |
-| `x86_64-pc-windows-msvc` | `build-release.ps1`, the PC | taken from PC job 47 part B at `2bcf4dc0`, not built at `76595543` (ruled: no extra PC build for a dry run). Differences from this commit: its packed `BUILD-RECORD.json` still carries the build times (the split landed in `a186a293`), and its executable is linked with `/Brepro` | pending job 47 | pending job 47 | pending job 47 |
+| `x86_64-pc-windows-msvc` | `build-release.ps1`, the PC | from PC job 47 part B at `2bcf4dc0`, not built at `76595543` (ruled: no extra PC build for a dry run); exit 0, `verify_artifact` PASS. Differences from this commit: its packed `BUILD-RECORD.json` still carries the build times (the split landed in `a186a293`); its executable is linked with `/Brepro`, as here | `987e7640…` (clone 1) | `0624fbbf…` (both clones) | built on the PC (its SBOM is in job 47's artifacts) |
 
 Each build record names commit `76595543`, a clean tree, and the flags it used (macOS adds
 `-Clink-arg=-Wl,-S`). The three executables equal those of the two-checkout comparisons

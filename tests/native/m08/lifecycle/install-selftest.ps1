@@ -247,8 +247,13 @@ try {
     $r = Install $a2 $L4
     $noMix = ($r.Out -notmatch "finished an interrupted update") -and ((PrevHelper $L4) -eq "")
     Check "W2-R04: a lost executable beside an older .previous one is not finished as an interrupted update" (($r.Code -eq 0) -and $noMix -and ((Pair $L4) -eq (V "2.0.0")) -and ((PrevExe $L4) -eq "fake heimdall 1.0.0-nohelper"))
+    Check "W2 (PC job 47): with an executable alone under .previous, the install says so and does not promise a rollback" (($r.Out -notmatch "previous pair is kept") -and ($r.Out -match "without its WSL helper; install.ps1 -Rollback will refuse it"))
     $r = Install $a2 $L4 @("-Rollback")
     Check "W2-R04: and a rollback then refuses instead of installing the older executable with the newer helper" (($r.Code -eq 1) -and ((Pair $L4) -eq (V "2.0.0")) -and ($r.Out -match "run that archive's install.ps1 again"))
+
+    $LP = Join-Path $T "prefix-prevmsg"; [void](Install $a1 $LP)
+    $r = Install $a2 $LP
+    Check "W2 (PC job 47): with a complete pair under .previous, the install says -Rollback puts it back" (($r.Out -match "previous pair is kept under the .previous names") -and ($r.Out -notmatch "will refuse it"))
 
     # --- W2 (review M08-W1-R05): a repair whose last rename fails says what it left.
     $L5 = Join-Path $T "prefix-r05"; [void](Install $a2 $L5)

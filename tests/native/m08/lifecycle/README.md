@@ -214,3 +214,21 @@ only by the runtime query that follows, which `-AssumeStopped` / `--assume-stopp
 
 **Rehearsed on macOS** (pwsh 7.7): `install-selftest.ps1` PASS, 69 checks; `install-revert-proofs.ps1`
 PASS; `install-selftest.sh` PASS. The Windows evidence is the PC job that follows.
+
+**The Windows evidence: PC job 47, at `3ca2f844` (2026-11-23).**
+
+| Run | Result |
+|---|---|
+| `install-selftest.ps1`, Windows PowerShell 5.1 and PowerShell 7 | PASS, 69 checks each; every W2 line `ok` |
+| `install-revert-proofs.ps1`, both | PASS. Reverted, the self-test fails: W01-R01 12, W01-R02 6, W1-F1 3, W1-F1 rollback 3, W2-R04 2, W2-R07 1 |
+| The real archive of `3ca2f844`, as files, every call with `-AssumeStopped` | R04: no false finish and no `linux-x86_64.previous`; the rollback then refuses with "run that archive's install.ps1 again", nothing changed. R06: a relative prefix and a prefix through a junction both refuse while a copy of `PING.EXE` (loopback, no listener) runs as `heimdall.exe` ("a process started from"; "-AssumeStopped does not override this"); each PING process was stopped by its recorded PID after re-checking it, and the junction removed as a link. R07: altering a staged helper refuses ("the staged helper file heimdall does not match the manifest"), the pair unchanged, no staging name left. `heimdall.exe` was never run |
+
+**R04 to R07 are closed on Windows.**
+
+**One message fixed after it (PC job 47's observation, low).** After an update whose `.previous`
+held only an executable (no `linux-x86_64.previous`), the script still printed "the previous pair
+is kept under the .previous names (install.ps1 -Rollback puts it back)"; the rollback correctly
+refused that half pair. The message now says what `.previous` holds: the pair, or "an older
+executable is kept as heimdall.previous.exe without its WSL helper; install.ps1 -Rollback will
+refuse it". Two self-test cases (71 checks in all, PASS under pwsh 7 on macOS); the first fails
+with the old message. It runs on Windows with the candidate's PC job.
