@@ -145,3 +145,57 @@ from a later closing run of the counted build with no new edge. `control_frame` 
 
 Results recorded before the merge are from the older product code; the corpus carries over,
 the coverage figures do not.
+
+### The final record of build `9dd72f8fd9e5c17c` (closed 2026-11-23T20:57Z)
+
+Ruled after M06 W5 merged into main (`f0ee5c87`): this build is closed after round 2's closing run
+(round 3 not run) and kept as history. M06 W5 changes crates most targets link, so none of this
+time counts toward the candidate; the campaign of record runs on the candidate's build. The
+closing line is in `results.txt`. Round 2 was 3,600 s on eight targets, then 1,800 s each.
+
+| Result at this build | Targets |
+|---|---|
+| **Met** (8) | `signing_request`, `userauth_request`, `registry_hm1`, `frame_codec`, `registry_line`, `known_hosts_match`, `runtime_instance`, `registry_script` |
+| **Not met, edges still growing** (8) | `sshconf_parse` (444 → 448 in its last run), `agent_reply` (1259 → 1260), `control_frame` (5412 → 6284), `project_manifest` (5506 → 5525), `runtime_config` (6096 → 6195), `sshconf_eval` (1698 → 1705), `issuer_protocol` (2855 → 2897), `issuer_backup` (5006 → 5011) |
+| **Not met, a finding** (1) | `gitedit_scan`: M08-W2-F1, below |
+
+### Finding M08-W2-F1: `find_blocks` is quadratic in time and allocation (`gitedit_scan`, 2026-11-23)
+
+- **What the fuzzer saw:** in round 2's closing run, `gitedit_scan` stopped with
+  `libFuzzer: out-of-memory` (1,107 MB against `-rss_limit_mb=1024`) after 25,170 executions,
+  replaying the corpus (`MS: 0`). The artifact (124,182 bytes, sha256 `63fa15e7…`) is kept out
+  of the repository.
+- **Triage** (the orchestrator's branches):
+  - the input alone, in the sanitizer build: no out-of-memory, peak 263 MB (a 1-byte input:
+    42 MB);
+  - the whole corpus replayed (25,189 files, 79 MB) at 1,024 MB: out-of-memory again;
+  - no single input among the 150 largest exceeds 310 MB;
+  - on the pinned stable toolchain, release build, the input alone: peak footprint 2.0 MB. So
+    it is not unbounded memory held at once.
+- **Cause, measured on stable:** `gitedit::find_blocks` (and the SSH-configuration flavour,
+  which shares `edit::locate`) does quadratic work. On the artifact repeated 1, 2, 4 and 8 times:
+
+  | Input | Blocks | Time | Allocations | Bytes allocated in total |
+  |---|---|---|---|---|
+  | 124 KB | 258 | 63 ms | 2.1 M | 112 MB |
+  | 248 KB | 516 | 251 ms | 8.6 M | 453 MB |
+  | 497 KB | 1,032 | 1.02 s | 34.7 M | 1.8 GB |
+  | 993 KB | 2,064 | 4.16 s | 139 M | 7.3 GB |
+
+  Each doubling multiplies time and allocation by four. Two steps in `crates/sshconf/src/edit.rs`
+  cause it: for every begin marker without an end, `locate` scans every later line and
+  `is_end_marker` builds a new `String` for each one (`format!`); and `position_of` reclassifies
+  every earlier line for every block. The sanitizer's quarantine keeps the freed memory, which
+  is why the fuzzer, not the stable build, ran out of it.
+- **Effect:** a Git or SSH configuration file near the 1 MiB read limit, holding many
+  unterminated Heimdall begin markers, costs seconds of CPU and gigabytes of transient
+  allocation each time it is scanned. It is the user's own file, so this is a performance
+  defect, not an authority one. **Severity: low.**
+- **Owner:** the orchestrator at U0 (`crates/sshconf`). The likely fix: build each end marker's
+  text once and find end markers in one pass, and compute block positions in one pass.
+- **Regression test (for U0 to land with the fix):** deterministic, not timed. A synthetic input
+  of N lines `# >>> heimdall managed include (id hm-d5a1da95ac1fdca4)` with no end marker,
+  N = 2,000 and 4,000; with a counting allocator in its own test binary, the allocations for 4,000
+  stay under 2.5 times those for 2,000 (linear), and the result reports N blocks, none intact.
+- `gitedit_scan` stays **not met** while M08-W2-F1 is open.
+
