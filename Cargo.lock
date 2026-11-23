@@ -1811,6 +1811,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "heimdall-stategen"
+version = "0.1.0-m01"
+dependencies = [
+ "getrandom 0.4.3",
+ "jiff",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "heimdall-store"
 version = "0.1.0-m01"
 dependencies = [

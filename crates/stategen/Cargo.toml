@@ -1,0 +1,30 @@
+[package]
+name = "heimdall-stategen"
+description = "Heimdall store generations (M08 U2b core; ADR-0014 §3.6): generation directories, the CURRENT pointer switch, the per-generation operation record, the staging intent and the adoption step order, pointer-only start-up recovery and the request ledger, behind a fault-injectable file-system trait. Provisional: no store, runtime or contract edge; the store copy is a caller-supplied function"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Production edges: no workspace crate (tools/validation/crate_graph.py). Every third-party
+# crate is already pinned in the workspace; none enters the lock.
+[dependencies]
+getrandom = { workspace = true }
+jiff = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+# M08 U2b (provisional core): the generation-switch fault set of ADR-0014 §3.6, by injected
+# I/O errors, by an in-process stop and by killing a child process at each step.
+[[test]]
+name = "adversarial_stategen_switch_faults"
+path = "../../tests/adversarial/stategen_switch_faults.rs"

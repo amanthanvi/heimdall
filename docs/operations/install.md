@@ -27,7 +27,7 @@ notes. Unsigned means unsigned.
 
 ```
 ./install.sh              # macOS, Linux (inside the unpacked directory)
-.\install.ps1             # Windows (written; not yet run on Windows)
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1   # Windows (self-tested on Windows; no Windows archive built yet)
 ```
 
 The script checks the unpacked files against `MANIFEST.sha256`, copies the executable to a

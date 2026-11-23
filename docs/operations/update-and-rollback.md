@@ -32,7 +32,12 @@ This lists what stopping the runtime interrupts and changes nothing. In short:
    the install path has no `heimdall.exe`; if the install stops exactly there, your previous
    executable and its WSL helper are complete under their `.previous` names, and running the
    script again finishes the update. On every platform the executable and its helper are
-   replaced together, never one without the other. If it
+   replaced together, never one without the other. On Windows the previous executable and
+   its WSL helper are kept as one pair, `heimdall.previous.exe` and
+   `linux-x86_64.previous`: an update replaces that whole pair with the one that was in
+   place, even when the helper did not change, so the previous pair always matches. When
+   only the helper is missing or damaged under an executable that is already this version,
+   the script repairs the helper in place and leaves the previous pair as it was. If it
    cannot keep your current executable (for example, the disk is full), it stops before
    replacing anything and says so.
 4. `heimdall status`, then `heimdall doctor`.
@@ -45,6 +50,11 @@ first.
 
 - **Same state format:** put `heimdall.previous` back (rerun the older archive's install
   script). It serves the same state.
+- **Windows:** `install.ps1 -Rollback` swaps the current pair with the previous pair. It
+  refuses, and changes nothing, unless the previous pair is complete: the previous
+  executable and, whenever the current install has a WSL helper, the previous helper with
+  every helper file the archive's manifest names. When it refuses it names what is missing;
+  to go back, install the older archive again with its own `install.ps1`.
 - **The state format changed:** the older executable refuses the newer state and changes
   nothing. Going back then means a restore (see `recovery.md`), which keeps your identity
   and settings and ends all access so that you approve it again.
