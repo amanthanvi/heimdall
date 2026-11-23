@@ -286,14 +286,14 @@ impl<F: Fs> StateDir<F> {
                 let record = self.read_record(&name).map_err(StateError::Corrupt)?;
                 match intent {
                     IntentFile::Read(i)
-                        if i.state == IntentState::Pending && i.generation == name =>
+                        if i.state != IntentState::Complete && i.generation == name =>
                     {
                         if repair {
                             self.write_intent(&i.completed())?;
                             recovered.completed_intent = true;
                         }
                     }
-                    IntentFile::Read(i) if i.state == IntentState::Pending => {
+                    IntentFile::Read(i) if i.state != IntentState::Complete => {
                         if repair {
                             recovered.removed_staged = self.discard_staged(&i.generation)?;
                             self.remove_if_file(INTENT)?;
@@ -315,20 +315,27 @@ impl<F: Fs> StateDir<F> {
             }
             None => match intent {
                 IntentFile::Read(i)
-                    if i.state == IntentState::Pending
-                        && matches!(i.operation, Operation::Install | Operation::Adopt) =>
+                    if matches!(i.operation, Operation::Install | Operation::Adopt)
+                        && self.pointer_was_never_written(&i) =>
                 {
+                    // Nothing was ever published: the staged generation is this
+                    // operation's leftover. The intent goes back to pending before the
+                    // temporary pointer is removed, so that a stop in between is still
+                    // read as "never written".
+                    let mut intent = i;
                     if repair {
-                        recovered.removed_staged = self.discard_staged(&i.generation)?;
+                        recovered.removed_staged = self.discard_staged(&intent.generation)?;
+                        if intent.state != IntentState::Pending {
+                            intent = intent.with_state(IntentState::Pending);
+                            self.write_intent(&intent)?;
+                        }
                         recovered.removed_temporary = self.remove_temporaries()?;
                     }
-                    Ok(Startup::FirstPublicationPending {
-                        intent: i,
-                        recovered,
-                    })
+                    Ok(Startup::FirstPublicationPending { intent, recovered })
                 }
-                // A restore or reset in progress, or a finished operation, means a pointer
-                // existed. It is gone: nothing is guessed.
+                // A restore or reset in progress, a finished operation, or a first
+                // publication whose pointer was written, means a pointer existed. It is
+                // gone: nothing is guessed and nothing is removed.
                 IntentFile::Read(_) => Err(StateError::Corrupt(CorruptReason::PointerMissing)),
                 IntentFile::Unreadable => Err(StateError::Corrupt(CorruptReason::IntentDamaged)),
                 IntentFile::None => {
@@ -389,9 +396,10 @@ impl<F: Fs> StateDir<F> {
             _ => return Err(StateError::Refused(Refusal::WrongState).into()),
         };
         self.require_free(&plan.name)?;
-        self.write_intent(&Intent::new(plan.operation, plan.name.clone(), None))
-            .inspect_err(|_| self.abandon(None, false))?;
-        self.stage_and_switch(plan, from, populate, false)
+        let intent = Intent::new(plan.operation, plan.name.clone(), None);
+        self.write_intent(&intent)
+            .inspect_err(|_| self.abandon(None, None))?;
+        self.stage_and_switch(plan, from, populate, intent)
     }
 
     /// Adopt a store an earlier build wrote directly in the state directory, in the order
@@ -423,16 +431,17 @@ impl<F: Fs> StateDir<F> {
         }
         self.require_free(&plan.name)?;
         // 1. The intent. A failure here leaves the flat family usable by any build.
-        self.write_intent(&Intent::new(
+        let intent = Intent::new(
             Operation::Adopt,
             plan.name.clone(),
             Some(flat_family.to_owned()),
-        ))?;
+        );
+        self.write_intent(&intent)?;
         // 2. The fence. From here an earlier build refuses the family, so the intent stays
         //    pending whatever happens next: the adoption is resumed, never abandoned.
         fence().map_err(PublishError::Caller)?;
         // 3 to 5. The copy, the publication and the completion.
-        self.stage_and_switch(plan, None, copy, true)
+        self.stage_and_switch(plan, None, copy, intent)
     }
 
     fn stage_and_switch<E>(
@@ -440,18 +449,22 @@ impl<F: Fs> StateDir<F> {
         plan: Plan,
         from: Option<GenerationName>,
         populate: impl FnOnce(&Path) -> Result<Vec<String>, E>,
-        keep_intent: bool,
+        intent: Intent,
     ) -> Result<Current, PublishError<E>> {
+        let keep_intent = intent.operation == Operation::Adopt;
         let name = plan.name.clone();
         let dir = self.generation_dir(&name);
         let staged = self.stage(plan, from, &dir, populate).and_then(|record| {
             self.write_temp_pointer(&name)?;
+            // The mark, durable before the rename: from here a missing pointer with no
+            // temporary pointer means the pointer was written and then removed.
+            self.write_intent(&intent.clone().with_state(IntentState::Switching))?;
             Ok(record)
         });
         let record = match staged {
             Ok(record) => record,
             Err(e) => {
-                self.abandon(Some(&name), keep_intent);
+                self.abandon(Some(&name), keep_intent.then_some(&intent));
                 return Err(e);
             }
         };
@@ -475,10 +488,10 @@ impl<F: Fs> StateDir<F> {
             .sync_dir(Point::StateDirSync, &self.root)
             .map_err(unsettled(Point::StateDirSync))?;
         // Completion. The switch is done; a failure here is finished by the next start-up.
-        let mut recovered = Recovered::default();
-        if let IntentFile::Read(intent) = self.read_intent() {
-            recovered.completed_intent = self.write_intent(&intent.completed()).is_ok();
-        }
+        let recovered = Recovered {
+            completed_intent: self.write_intent(&intent.completed()).is_ok(),
+            ..Recovered::default()
+        };
         Ok(Current {
             name,
             record,
@@ -581,13 +594,43 @@ impl<F: Fs> StateDir<F> {
 
     /// Best-effort removal of what a failed operation staged. Never the pointer, never
     /// another generation. Errors are ignored: start-up removes what is left.
-    fn abandon(&self, staged: Option<&GenerationName>, keep_intent: bool) {
+    ///
+    /// The order matters when no pointer exists yet: the intent is put back to pending
+    /// (an adoption, `keep`) or removed (anything else) **before** the temporary pointer
+    /// goes, and the temporary pointer stays if that failed. A switching intent with no
+    /// temporary pointer and no pointer would otherwise read as a removed pointer.
+    fn abandon(&self, staged: Option<&GenerationName>, keep: Option<&Intent>) {
         if let Some(name) = staged {
             let _ = self.discard_staged(name);
         }
-        let _ = self.remove_temporaries();
-        if !keep_intent {
-            let _ = self.remove_if_file(INTENT);
+        let settled = match keep {
+            Some(intent) => self
+                .write_intent(&intent.clone().with_state(IntentState::Pending))
+                .is_ok(),
+            None => self.remove_if_file(INTENT).is_ok(),
+        };
+        if settled {
+            let _ = self.remove_temporaries();
+        }
+    }
+
+    /// For a first publication with no pointer: whether the rename over `CURRENT` never
+    /// happened. True while the intent is pending, and for a switching intent whose
+    /// temporary pointer is still there naming its generation (the rename removes it).
+    fn pointer_was_never_written(&self, intent: &Intent) -> bool {
+        match intent.state {
+            IntentState::Pending => true,
+            IntentState::Complete => false,
+            IntentState::Switching => {
+                let tmp = self.at(CURRENT_TMP);
+                matches!(self.fs.kind(&tmp), Ok(Kind::File))
+                    && self
+                        .fs
+                        .read(&tmp, SMALL)
+                        .ok()
+                        .and_then(|b| record::decode_pointer(&b))
+                        .is_some_and(|named| named == intent.generation)
+            }
         }
     }
 

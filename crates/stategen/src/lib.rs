@@ -22,7 +22,7 @@
 //! **Decisions this crate makes that ADR-0014 does not spell out.** The contract owner
 //! ruled on them on 2026-11-23: items 1 to 3 and the first sentence of item 4 are accepted;
 //! recovery from `state_corrupt` (item 4) is deferred to U0; item 5 is accepted
-//! provisionally (ADR-0014 §7, delta H15). Item 6 has not been ruled on.
+//! provisionally (ADR-0014 §7, delta H15); item 6 is accepted with the progress mark.
 //!
 //! 1. *A staging intent for every operation,* not only for adoption. Start-up removes a
 //!    staged leftover, and the only safe way to know one is that a durable intent named
@@ -46,11 +46,15 @@
 //!    goes into the existing Windows platform module that already holds the workspace's
 //!    other `unsafe` Windows calls, when this crate is wired into the product (U2b), and
 //!    reaches this crate through [`Fs::rename_over`]. No `unsafe` module is added here.
-//! 6. *An interrupted first publication is discarded and run again:* the ADR's rule for an
-//!    adoption, applied to an install too. One case removes a complete generation: the
-//!    pointer is deleted from outside after a publication whose intent had not yet been
-//!    marked complete. For an adoption the fenced flat family is still there and is adopted
-//!    again; for an install the store was new.
+//! 6. *An interrupted first publication (install or adoption) is discarded and run again,*
+//!    the ADR's rule for an adoption applied to an install too, **but only when the pointer
+//!    was never written** (ruled 2026-11-23). The intent records its progress durably: it
+//!    is marked `switching` after the temporary pointer is synced and before the rename.
+//!    With no pointer, a pending intent, or a switching one whose temporary pointer is
+//!    still there naming its generation, means the rename never happened: the staged
+//!    generation is discarded. A switching intent without the temporary pointer, or a
+//!    complete one, means the pointer was written and removed from outside: that is
+//!    `state_corrupt`, and nothing is removed.
 //!
 //! **Not established by any test:** durability across power loss. The fault tests inject
 //! I/O errors, stop the process in place and kill a child process at each step; they cut

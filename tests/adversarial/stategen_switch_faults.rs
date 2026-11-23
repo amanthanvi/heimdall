@@ -274,8 +274,9 @@ fn a_failure_while_completing_the_intent_leaves_the_switch_done() {
         for when in [When::Before, When::After] {
             let case = format!("{point:?} {when:?}");
             let (dir, old) = installed();
-            // The second intent write of the operation is the completion.
-            let current = faulty(dir.path(), point, 1, when, Action::Dead)
+            // The third intent write of the operation is the completion (the first is
+            // the intent, the second the switching mark).
+            let current = faulty(dir.path(), point, 2, when, Action::Dead)
                 .publish(next_plan(Operation::Restore), store("next"))
                 .unwrap();
             assert_eq!(
@@ -286,6 +287,170 @@ fn a_failure_while_completing_the_intent_leaves_the_switch_done() {
             let restarted = serving(real(dir.path()).open());
             assert_eq!(restarted.name.as_str(), "g-b", "{case}");
             check_after_restart(dir.path(), &old, Operation::Restore, true, &case);
+        }
+    }
+}
+
+#[test]
+fn a_failure_while_writing_the_switching_mark_leaves_the_old_generation() {
+    // The mark is the operation's second intent write, made before the rename.
+    for point in [
+        Point::IntentWrite,
+        Point::IntentSync,
+        Point::IntentRename,
+        Point::IntentDirSync,
+    ] {
+        for when in [When::Before, When::After] {
+            for action in [Action::Error, Action::Dead] {
+                let case = format!("mark {point:?} {when:?} {action:?}");
+                let (dir, old) = installed();
+                let state = faulty(dir.path(), point, 1, when, action);
+                assert!(
+                    state
+                        .publish(next_plan(Operation::Restore), store("next"))
+                        .is_err(),
+                    "{case}"
+                );
+                assert!(state.fs().fired(), "{case}");
+                check_after_restart(dir.path(), &old, Operation::Restore, false, &case);
+            }
+        }
+    }
+}
+
+/// The two branches of a missing pointer during a first publication (the contract owner's
+/// ruling of 2026-11-23). `adopt` selects an adoption, otherwise an install.
+fn first_publication(
+    root: &Path,
+    adopt: bool,
+    fault: Option<(Point, u32, When)>,
+) -> Result<Current, PublishError<String>> {
+    let run = |state: &dyn Fn(Plan) -> Result<Current, PublishError<String>>| {
+        state(plan(
+            if adopt {
+                Operation::Adopt
+            } else {
+                Operation::Install
+            },
+            "g-a",
+            ENV_1,
+            0,
+        ))
+    };
+    match fault {
+        Some((point, nth, when)) => {
+            let state = faulty(root, point, nth, when, Action::Dead);
+            let result = run(&|p| {
+                if adopt {
+                    state.adopt(p, FLAT, || Ok(()), store("install"))
+                } else {
+                    state.publish(p, store("install"))
+                }
+            });
+            assert!(state.fs().fired());
+            result
+        }
+        None => {
+            let state = real(root);
+            run(&|p| {
+                if adopt {
+                    state.adopt(p, FLAT, || Ok(()), store("install"))
+                } else {
+                    state.publish(p, store("install"))
+                }
+            })
+        }
+    }
+}
+
+#[test]
+fn a_pointer_that_was_never_written_is_discarded_and_run_again() {
+    // Stopped anywhere up to the rename: staging, the mark being written, the mark written.
+    let stops = [
+        (Point::RecordSync, 0, When::Before),
+        (Point::TempPointerSync, 0, When::After),
+        (Point::IntentSync, 1, When::Before),
+        (Point::IntentRename, 1, When::After),
+        (Point::IntentDirSync, 1, When::After),
+        (Point::PointerRename, 0, When::Before),
+    ];
+    for adopt in [false, true] {
+        for stop in stops {
+            let case = format!("adopt={adopt} {stop:?}");
+            let dir = tempfile::tempdir().unwrap();
+            assert!(
+                first_publication(dir.path(), adopt, Some(stop)).is_err(),
+                "{case}"
+            );
+            let state = real(dir.path());
+            assert!(
+                matches!(state.inspect(), Ok(Startup::FirstPublicationPending { .. })),
+                "{case}"
+            );
+            match state.open() {
+                Ok(Startup::FirstPublicationPending { intent, .. }) => assert_eq!(
+                    intent.state,
+                    heimdall_stategen::IntentState::Pending,
+                    "{case}"
+                ),
+                other => panic!("{case}: {other:?}"),
+            }
+            // The leftover and the temporary pointer are gone, and a second start-up
+            // reads the same state: the intent went back to pending first.
+            assert!(
+                !dir.path().join(GENERATIONS).join("g-a").exists()
+                    && !dir.path().join(CURRENT_TMP).exists(),
+                "{case}"
+            );
+            assert!(
+                matches!(state.open(), Ok(Startup::FirstPublicationPending { .. })),
+                "{case}"
+            );
+            let current = first_publication(dir.path(), adopt, None).unwrap();
+            assert_eq!(serving(state.open()).name, current.name, "{case}");
+        }
+    }
+}
+
+#[test]
+fn a_written_pointer_that_is_gone_is_corrupt_and_nothing_is_removed() {
+    // Published, with the completion mark not yet written (stopped at each step of it, or
+    // straight after the rename); then something outside removes the pointer.
+    let stops = [
+        (Point::PointerRename, 0, When::After),
+        (Point::StateDirSync, 0, When::After),
+        (Point::IntentWrite, 2, When::Before),
+        (Point::IntentRename, 2, When::Before),
+    ];
+    for adopt in [false, true] {
+        for stop in stops {
+            let case = format!("adopt={adopt} {stop:?}");
+            let dir = tempfile::tempdir().unwrap();
+            let _ = first_publication(dir.path(), adopt, Some(stop));
+            assert_eq!(
+                serving(real(dir.path()).inspect()).name.as_str(),
+                "g-a",
+                "{case}: it was published"
+            );
+            std::fs::remove_file(dir.path().join(CURRENT)).unwrap();
+            let before = snapshot(dir.path());
+            assert!(before.contains_key("generations/g-a/store.db"), "{case}");
+            let state = real(dir.path());
+            let corrupt = Err(StateError::Corrupt(CorruptReason::PointerMissing));
+            assert_eq!(state.inspect(), corrupt, "{case}");
+            assert_eq!(state.open(), corrupt, "{case}");
+            assert_eq!(
+                first_publication(dir.path(), adopt, None),
+                Err(PublishError::State(StateError::Corrupt(
+                    CorruptReason::PointerMissing
+                ))),
+                "{case}"
+            );
+            assert_eq!(
+                snapshot(dir.path()),
+                before,
+                "{case}: the complete generation is still there"
+            );
         }
     }
 }

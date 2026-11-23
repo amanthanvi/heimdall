@@ -113,8 +113,13 @@ impl OperationRecord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IntentState {
-    /// The generation it names may or may not have become current.
+    /// The generation it names is being staged. The pointer has not been written.
     Pending,
+    /// The temporary pointer is written and synced, and its rename over `CURRENT` is next
+    /// or done. Written before the rename, so that a missing pointer can be told apart:
+    /// with the temporary pointer still there the rename never happened; without it the
+    /// pointer was written and something outside removed it.
+    Switching,
     /// The generation it names became current.
     Complete,
 }
@@ -151,6 +156,10 @@ impl Intent {
             flat_family,
             state: IntentState::Pending,
         }
+    }
+
+    pub(crate) fn with_state(self, state: IntentState) -> Self {
+        Self { state, ..self }
     }
 
     pub(crate) fn completed(self) -> Self {
