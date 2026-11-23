@@ -1,0 +1,6 @@
+[include]
+	path = ~/.config/heimdall/git.inc
+[core]
+	sshCommand = ssh -F x
+[includeIf "gitdir:~/work/"]
+	path = w.inc

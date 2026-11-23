@@ -35,7 +35,8 @@ What it rejects (exit 1, with the reason):
     (ADR-0012 section 13: the transport is feature-gated and pure of controller logic);
   * an edge `heimdall-remote` -> any workspace crate but `heimdall-contract`, `heimdall-domain`,
     `heimdall-store`, `heimdall-app` and `heimdall-ipc` (never the runtime or the transport:
-    the runtime wires remote; ADR-0012 section 13, m06-plan U0).
+    the runtime wires remote; ADR-0012 section 13, m06-plan U0);
+  * an edge `heimdall-support` -> any workspace crate but `heimdall-contract` (pure; m08-plan U6a).
 The rules are vacuous for a crate that does not exist yet, so the check works whether
 or not the M03 crates (registry, credential, issuer, enroll), the M04/M05 crates (wsl,
 project) or the M06 crates (remote, transport-iroh) exist.
@@ -92,6 +93,7 @@ ONLY_ALLOWED = {
         "heimdall-app",
         "heimdall-ipc",
     },
+    "heimdall-support": {"heimdall-contract"},
 }
 
 

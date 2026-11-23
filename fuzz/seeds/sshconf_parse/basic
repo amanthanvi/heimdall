@@ -1,0 +1,8 @@
+Host fixture-alias *.example.invalid
+  User fixture
+  Port 2222
+  IdentityFile ~/.ssh/id_fixture
+Include conf.d/*
+Match host fixture exec "true %h"
+  ProxyJump jump.example.invalid
+# comment

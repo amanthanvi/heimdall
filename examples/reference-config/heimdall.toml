@@ -1,0 +1,14 @@
+# Example project manifest (M08 U7a). In a repository this file is named `.heimdall.toml`.
+# It is a REQUEST: it names the profile a project would like and states a preference. It
+# grants nothing. Access comes only from your own decision, recorded outside the repository.
+# Checked against schemas/project/manifest.schema.json by check.py in this directory.
+
+schema_version = 1
+project = "example-infrastructure"
+
+[access]
+profile = "homelab-dev"
+required_capabilities = ["ssh-authentication"]
+
+[preferences]
+background_work = true

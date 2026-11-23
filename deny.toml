@@ -1,0 +1,70 @@
+# Licence, source and ban policy for Heimdall's dependency graph (m08-plan U4a; ADR-0014
+# section 4.6). Checked by the pinned cargo-deny 0.22.0:
+#
+#   cargo install --locked --version =0.22.0 --root target/tools cargo-deny
+#   target/tools/bin/cargo-deny --locked --offline check licenses sources bans
+#
+# Advisories are NOT checked here: M06's audit gate (tools/validation/audit_gate.py, with
+# .cargo/audit.toml and audit-ignore.txt) owns them, and a second advisory gate would
+# disagree with it sooner or later.
+#
+# Adding a licence, a source or an exception to this file is a recorded decision
+# (ADR-0014 section 4.6), not a way to make the check pass.
+
+[graph]
+# The declared release targets (m08-plan section 4). Dependencies of other platforms are
+# not shipped and are not judged.
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+all-features = false
+
+[licenses]
+# Every licence found on `main` at de097dac (the M08 probe), plus ISC and CC0-1.0. Where a
+# crate offers a choice, cargo-deny accepts it if one alternative is allowed.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "Unlicense",
+    "CC0-1.0",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+# The workspace's own crates carry the placeholder `UNLICENSED` until the owner chooses the
+# project licence (ADR-0001 section 8; owner input B17). They are not published.
+ignore = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+# Path dependencies inside the workspace use `workspace = true` without a version.
+allow-wildcard-paths = true
+
+# --- Recorded additions (ADR-0014 section 4.6: each is a decision with its reason) ---------
+#
+# 2026-11-22, orchestrator's instruction on the M08 W0 checkpoint: with the `iroh` feature
+# on, the TLS stack brings `webpki-roots`, the Mozilla root-certificate list as data, under
+# CDLA-Permissive-2.0 (a permissive data licence: use and redistribution allowed, notice
+# kept). It is allowed for that one crate only, not as a general licence, so any other
+# crate under it is still refused until looked at. Found by:
+#   cargo-deny --manifest-path crates/heimdall/Cargo.toml --features iroh check licenses
+[[licenses.exceptions]]
+crate = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]
