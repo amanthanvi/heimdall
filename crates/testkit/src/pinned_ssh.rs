@@ -37,7 +37,11 @@
 //!   must name `UserKnownHostsFile` and `GlobalKnownHostsFile` and must not name
 //!   `IdentityAgent`, `IdentityFile`, `IdentitiesOnly`, `HostName`, `User` or `Port`
 //!   (ADR-0007 §9 item 1: a command-line value wins over the configuration under test), nor
-//!   `ControlMaster` or `ControlPath`, which the program sets itself (no control socket);
+//!   `ControlMaster` or `ControlPath`, which the program sets itself (no control socket),
+//!   nor ⟨M07 W7.3⟩ `ProxyCommand` or `ProxyJump` ("No hop", below). ⟨M07 W7.3;
+//!   M07-W7-R06⟩ An option is named as the client reads its keyword: its double quotes
+//!   removed, leading whitespace skipped, in any case (`" User=other"` and
+//!   `"\"User\"=other"` both name `User`);
 //! * its own arguments, exactly as `connect` gave them (the alias, or a managed pair's
 //!   options and alias), then the sidecar's `trailing` words (the remote command the Unix
 //!   twins' wrappers append, e.g. `true`).
@@ -86,7 +90,26 @@
 //! * at least one `identityfile` line, and every one inside the scratch root (so none of the
 //!   defaults `~/.ssh/id_*` that `-G` prints when the configuration names none);
 //! * a `userknownhostsfile` line whose every (space-separated) entry is inside the scratch
-//!   root.
+//!   root;
+//! * ⟨M07 W7.3; M07-W7-R01⟩ no `proxycommand` or `proxyjump` line other than `none`, and no
+//!   `localcommand` line other than `none` unless there is exactly one `permitlocalcommand`
+//!   line, `no`.
+//!
+//! **No hop.** ⟨M07 W7.3; M07-W7-R01⟩ The guard checks the client this program starts, and a
+//! `ProxyCommand` or `ProxyJump` hop is another client it never sees: OpenSSH builds a jump's
+//! client with only `-F <config>` (and `-l`, `-p`, `-J`, `-v` and the host), so none of the
+//! options above reach it, and it falls back to `SSH_AUTH_SOCK`, the default identities and
+//! the account's `known_hosts`. Win32-OpenSSH also sets `SSH_AUTH_SOCK` to the system pipe
+//! whenever it is unset, before the client applies its own `IdentityAgent`, so a
+//! `ProxyCommand`, `ProxyJump` or `LocalCommand` child inherits that pipe. So the guard
+//! refuses an effective hop or a permitted local command (above), and before any run the
+//! program refuses a hop that the sidecar's `options` name, or that the words it passes on
+//! (its own arguments, then the sidecar's `trailing`) give: `-J` in any form (`-J x`, `-Jx`,
+//! `-vJ x`), or `-o` naming `ProxyCommand` or `ProxyJump` in any spelling the client
+//! accepts. Each word is read as the client's `getopt` reads options, wherever it stands
+//! (the client reads options after the destination too), so more words are read as options
+//! than the client reads, never fewer. A routed row needs another design: each hop checked
+//! with its own `-G`.
 //!
 //! A passed check writes one line to stderr, `hm-pinned-ssh: checked: identity agent
 //! <kind>`, `<kind>` being `none`, `scratch path` or `fixture pipe` (never the value), then
@@ -146,6 +169,14 @@ const FORBIDDEN: [&str; 8] = [
 
 /// Option names the sidecar must set (module docs).
 const REQUIRED: [&str; 2] = ["userknownhostsfile", "globalknownhostsfile"];
+
+/// ⟨M07 W7.3; M07-W7-R01⟩ Option names that make the client start another client, a hop
+/// (module docs, "No hop").
+const HOPS: [&str; 2] = ["proxycommand", "proxyjump"];
+
+/// ⟨M07 W7.3⟩ The `ssh` options that take an argument (its `getopt` string, the same in
+/// OpenSSH and Win32-OpenSSH): `-oX`, `-o X`.
+const WITH_ARGUMENT: &str = "BDEFIJLOPQRSWbceilmopw";
 
 /// The sidecar's content: what the wrapper adds (module docs).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -272,13 +303,52 @@ pub fn locate() -> io::Result<PathBuf> {
         })
 }
 
-/// The option's name in lower case (`Name=value` or `Name value`).
+/// The option's name in lower case (`Name=value` or `Name value`). ⟨M07 W7.3; M07-W7-R06⟩
+/// As the client reads a keyword: its double quotes removed (the client accepts a quoted
+/// keyword, even `Proxy"Jump"`) and leading whitespace skipped, so `" User=other"` and
+/// `"\"User\"=other"` are named `user`.
 fn option_name(option: &str) -> String {
-    option
+    let unquoted: String = option.chars().filter(|&c| c != '"').collect();
+    unquoted
+        .trim_start()
         .split(|c: char| c == '=' || c.is_whitespace())
         .next()
         .unwrap_or("")
         .to_ascii_lowercase()
+}
+
+/// ⟨M07 W7.3; M07-W7-R01⟩ The hop `words` would give the client, if any (module docs, "No
+/// hop"): `-J` in any form (`-J x`, `-Jx`, `-vJ x`), or `-o` naming `ProxyCommand` or
+/// `ProxyJump` in any spelling the client accepts ([`option_name`]). Every word is read
+/// the way the client's `getopt` reads an option, wherever it stands: the client also reads
+/// options after the destination, so a word that is not an option is skipped, not an end.
+/// That reads more words as options than the client does, never fewer.
+fn hop_in(words: &[OsString]) -> Option<&'static str> {
+    let mut words = words.iter().map(|w| w.to_string_lossy());
+    while let Some(word) = words.next() {
+        let Some(cluster) = word.strip_prefix('-') else {
+            continue;
+        };
+        for (at, letter) in cluster.char_indices() {
+            if letter == 'J' {
+                return Some("-J");
+            }
+            if WITH_ARGUMENT.contains(letter) {
+                let rest = &cluster[at + letter.len_utf8()..];
+                let value = if rest.is_empty() {
+                    words.next().map(std::borrow::Cow::into_owned)
+                } else {
+                    Some(rest.to_owned())
+                };
+                if letter == 'o' && value.is_some_and(|v| HOPS.contains(&option_name(&v).as_str()))
+                {
+                    return Some("-o ProxyCommand or ProxyJump");
+                }
+                break;
+            }
+        }
+    }
+    None
 }
 
 /// The client this platform's wrapper starts (module docs).
@@ -452,6 +522,9 @@ fn check_effective(text: &str, root: &Root, windows: bool) -> Result<Agent, Stri
     let mut agents = Vec::new();
     let mut files = Vec::new();
     let mut known = Vec::new();
+    let mut hops = Vec::new();
+    let mut local = Vec::new();
+    let mut permit = Vec::new();
     for line in text.lines() {
         let (key, value) = line.split_once(' ').unwrap_or((line, ""));
         let value = unquote(value.trim());
@@ -460,10 +533,20 @@ fn check_effective(text: &str, root: &Root, windows: bool) -> Result<Agent, Stri
             "identityagent" => agents.push(value),
             "identityfile" => files.push(value),
             "userknownhostsfile" => known.push(value),
+            "proxycommand" | "proxyjump" => hops.push(value),
+            "localcommand" => local.push(value),
+            "permitlocalcommand" => permit.push(value),
             _ => {}
         }
     }
     let refuse = |reason: &str| Err(format!("the effective configuration: {reason}"));
+    // ⟨M07 W7.3; M07-W7-R01⟩ No hop, and no local command (module docs, "No hop").
+    if hops.iter().any(|v| *v != "none") {
+        return refuse("a ProxyCommand or ProxyJump hop is set (its client is not checked)");
+    }
+    if local.iter().any(|v| *v != "none") && permit.as_slice() != ["no"] {
+        return refuse("a LocalCommand is set and PermitLocalCommand is not no");
+    }
     if only.as_slice() != ["yes"] {
         return refuse("IdentitiesOnly is not yes");
     }
@@ -583,8 +666,34 @@ pub fn plan(
     if let Some(missing) = REQUIRED.iter().find(|r| !names.iter().any(|n| n == *r)) {
         return Err(format!("the isolated option set lacks {missing}"));
     }
+    // ⟨M07 W7.3; M07-W7-R01⟩ No hop, from the sidecar or the caller (module docs).
+    if let Some(hop) = names.iter().find(|n| HOPS.contains(&n.as_str())) {
+        return Err(format!(
+            "the option {hop} would start a hop the guard does not check"
+        ));
+    }
+    let words: Vec<OsString> = args
+        .iter()
+        .cloned()
+        .chain(config.trailing.iter().map(OsString::from))
+        .collect();
+    if let Some(hop) = hop_in(&words) {
+        return Err(format!(
+            "the arguments name a hop ({hop}) the guard does not check"
+        ));
+    }
     if config.options.iter().any(|o| !o.contains('=')) {
         return Err("an option is not of the form Name=value".to_owned());
+    }
+    // ⟨M07 W7.3⟩ The trailing words are the remote command, never options: the guard's `-G`
+    // run does not see them, and ssh reads an option placed after the destination.
+    if config.trailing.iter().any(|w| w.starts_with('-')) {
+        return Err("a trailing word is an option the guard does not check".to_owned());
+    }
+    // ⟨M07 W7.3⟩ ssh uses the last `-F` it is given: a caller's own would replace the scratch
+    // configuration the wrapper names.
+    if args.iter().any(|a| a.to_string_lossy().starts_with("-F")) {
+        return Err("the arguments name a configuration file (-F)".to_owned());
     }
     let client = client_of(&config, env)?;
     let mut options: Vec<OsString> = Vec::new();
@@ -1279,6 +1388,336 @@ mod tests {
         );
         assert_eq!(argv[2], OsString::from("-o"));
         assert_eq!(argv[3], OsString::from(want));
+    }
+
+    /// ⟨M07 W7.3; M07-W7-R01⟩ The guard refuses an effective `proxyjump` or `proxycommand`
+    /// whose value is not `none` (so `NONE` too: the client compares case-sensitively), and a
+    /// `localcommand` unless `permitlocalcommand` is `no`, once; `none` values, a local
+    /// command that may not run, and keys that merely start alike pass. The reason names no
+    /// value.
+    #[test]
+    fn guard_refuses_a_hop_or_a_local_command_that_may_run() {
+        let d = scratch();
+        let good = g_output(d.path(), "none");
+        let permit_no = format!("{good}permitlocalcommand no\n");
+        for (what, text) in [
+            ("proxyjump", format!("{good}proxyjump bastion\n")),
+            ("proxyjump chain", format!("{good}proxyjump a,bastion\n")),
+            ("proxycommand", format!("{good}proxycommand nc %h %p\n")),
+            ("proxycommand NONE", format!("{good}proxycommand NONE\n")),
+            (
+                "none, then a hop",
+                format!("{good}proxyjump none\nproxyjump bastion\n"),
+            ),
+        ] {
+            for windows in [false, true] {
+                let err = check(d.path(), &text, windows).unwrap_err();
+                assert!(err.contains("hop"), "{what} ({windows}): {err}");
+                assert!(
+                    !err.contains("bastion") && !err.contains("nc "),
+                    "the reason names no value: {err}"
+                );
+            }
+        }
+        for (what, text) in [
+            (
+                "permitted",
+                format!("{good}permitlocalcommand yes\nlocalcommand true\n"),
+            ),
+            ("no permit line", format!("{good}localcommand true\n")),
+            (
+                "two permit lines",
+                format!("{permit_no}permitlocalcommand no\nlocalcommand true\n"),
+            ),
+        ] {
+            let err = check(d.path(), &text, false).unwrap_err();
+            assert!(err.contains("LocalCommand"), "{what}: {err}");
+        }
+        for text in [
+            format!("{good}proxyjump none\nproxycommand none\n"),
+            format!("{permit_no}localcommand true\n"),
+            format!("{good}localcommand none\n"),
+            format!("{good}proxyusefdpass no\n"),
+        ] {
+            assert_eq!(check(d.path(), &text, false), Ok(Agent::None), "{text}");
+        }
+    }
+
+    /// The scratch configuration of the W7 review's reproduction (M07-W7-R01): `Host alpha`
+    /// passes every identity check and, with `jump`, goes through `ProxyJump bastion`; the
+    /// bare `Host bastion` sets nothing, so the hop's client would use the default agent,
+    /// identities and `known_hosts`.
+    fn reviewers_proxy_jump(dir: &Path, jump: bool) -> WrapperConfig {
+        let config = good(dir);
+        std::fs::write(
+            &config.config,
+            format!(
+                "Host alpha\n{}    IdentityAgent none\n    IdentityFile {}\n    IdentitiesOnly yes\nHost bastion\n",
+                if jump { "    ProxyJump bastion\n" } else { "" },
+                q(&dir.join("k"))
+            ),
+        )
+        .unwrap();
+        config
+    }
+
+    /// ⟨M07 W7.3; M07-W7-R01⟩ The review's reproduction through the stubbed `-G`: the guard's
+    /// run prints what the review's real `ssh -G` printed for `alpha` (every identity check
+    /// passes, and `proxyjump bastion`). Refused after the `-G` run only, so the client never
+    /// starts; without the `proxyjump` line the same check passes.
+    #[test]
+    fn the_reviewers_proxy_jump_reproduction_is_refused() {
+        let d = scratch();
+        let env = env_with_inbox(d.path());
+        let exe = write(d.path(), &reviewers_proxy_jump(d.path(), true));
+        let runs = RefCell::new(0);
+        let run = |_: &Path, argv: &[OsString]| {
+            *runs.borrow_mut() += 1;
+            assert_eq!(argv.first().map(OsString::as_os_str), Some("-G".as_ref()));
+            Ok(format!("{}proxyjump bastion\n", g_output(d.path(), "none")).into_bytes())
+        };
+        let err = prepare_with(&exe, &["alpha".into()], &env, &run).unwrap_err();
+        assert!(err.contains("ProxyCommand or ProxyJump hop"), "{err}");
+        assert!(!err.contains("bastion"), "the reason names no value: {err}");
+        assert_eq!(runs.into_inner(), 1, "only the -G run");
+        let run = |_: &Path, _: &[OsString]| Ok(g_output(d.path(), "none").into_bytes());
+        assert!(prepare_with(&exe, &["alpha".into()], &env, &run).is_ok());
+    }
+
+    /// ⟨M07 W7.3; M07-W7-R01⟩ The review's reproduction through the **built** program, on Unix.
+    /// Its client is a script that answers `-G` from a stub file when there is one, else runs
+    /// the real `/usr/bin/ssh -G` (when that exists: the effective configuration only, no
+    /// connection, the scratch `-F` file only), and otherwise leaves a marker. With the hop,
+    /// the stubbed and the real `-G` are each refused (exit [`REFUSED`], the marker absent);
+    /// the control without the hop starts the client through the real `-G`.
+    #[cfg(unix)]
+    #[test]
+    fn the_built_wrapper_refuses_the_reviewers_proxy_jump() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let built = locate().unwrap_or_else(|e| panic!("{e}"));
+        let d = scratch();
+        let exe = d.path().join(NAME);
+        std::fs::copy(&built, &exe).unwrap();
+        let marker = d.path().join("started");
+        let g_file = d.path().join("g.out");
+        let real_ssh = Path::new("/usr/bin/ssh");
+        let script = d.path().join("client.sh");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nif [ \"$1\" = -G ]; then\n  if [ -f '{g}' ]; then cat '{g}' || exit 3; exit 0; fi\n  exec {ssh} \"$@\"\nfi\necho \"$*\" > '{m}'\n",
+                g = g_file.display(),
+                ssh = real_ssh.display(),
+                m = marker.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let install = |jump: bool| {
+            let config = WrapperConfig {
+                client: Some(script.clone()),
+                ..reviewers_proxy_jump(d.path(), jump)
+            };
+            std::fs::write(WrapperConfig::sidecar(&exe), config.to_json()).unwrap();
+        };
+        let run = || {
+            Command::new(&exe)
+                .arg("alpha")
+                .env_clear()
+                .stdin(Stdio::null())
+                .output()
+                .unwrap()
+        };
+        let refused_for_the_hop = |out: &std::process::Output| {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            out.status.code() == Some(REFUSED)
+                && stderr.starts_with("hm-pinned-ssh: refused: ")
+                && stderr.contains("ProxyCommand or ProxyJump hop")
+                && stderr.lines().count() == 1
+        };
+        install(true);
+        std::fs::write(
+            &g_file,
+            format!("{}proxyjump bastion\n", g_output(d.path(), "none")),
+        )
+        .unwrap();
+        let out = run();
+        assert!(refused_for_the_hop(&out), "the stubbed -G: {out:?}");
+        assert!(!marker.exists(), "a refusal starts nothing");
+        std::fs::remove_file(&g_file).unwrap();
+        if !real_ssh.is_file() {
+            #[allow(clippy::print_stdout)] // the skipped half, named in the test's output
+            {
+                println!("the real-ssh variant not run: /usr/bin/ssh is missing");
+            }
+            return;
+        }
+        let out = run();
+        assert!(refused_for_the_hop(&out), "the real -G: {out:?}");
+        assert!(!marker.exists(), "a refusal starts nothing");
+        install(false);
+        let out = run();
+        assert_eq!(out.status.code(), Some(0), "the control: {out:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stderr),
+            "hm-pinned-ssh: checked: identity agent none\n"
+        );
+        let seen = std::fs::read_to_string(&marker).unwrap();
+        assert!(seen.trim_end().ends_with("alpha true"), "{seen}");
+    }
+
+    /// ⟨M07 W7.3; M07-W7-R01⟩ Before any run, the program refuses a hop in the words it passes
+    /// on, read as the client's `getopt` reads them wherever they stand: `-J` in any form,
+    /// `-o` naming `ProxyJump` or `ProxyCommand` in any spelling the client accepts, after
+    /// the destination too, and in the sidecar's `trailing`; and a sidecar option naming
+    /// either. An option's own argument that looks like a hop is not one.
+    #[test]
+    fn refuses_a_hop_in_the_callers_arguments_or_the_sidecar() {
+        let d = scratch();
+        let env = env_with_inbox(d.path());
+        let base = good(d.path());
+        let exe = write(d.path(), &base);
+        let words = |w: &[&str]| -> Vec<OsString> { w.iter().map(OsString::from).collect() };
+        for args in [
+            &["-J", "bastion", "alpha"][..],
+            &["-Jbastion", "alpha"],
+            &["-vJ", "bastion", "alpha"],
+            &["-TvJbastion", "alpha"],
+            &["-oProxyJump=bastion", "alpha"],
+            &["-o", "ProxyJump=bastion", "alpha"],
+            &["-o", "proxyjump bastion", "alpha"],
+            &["-o", " PROXYJUMP=bastion", "alpha"],
+            &["-o", "\"ProxyJump\"=bastion", "alpha"],
+            &["-o", "Proxy\"Jump\"=bastion", "alpha"],
+            &["-oProxyCommand=nc %h %p", "alpha"],
+            &["-o", "ProxyCommand nc %h %p", "alpha"],
+            &["-4", "-o", "X=y", "alpha", "-J", "bastion"],
+            &["alpha", "true", "-oProxyJump=bastion"],
+        ] {
+            let err = plan(&exe, &words(args), &env).unwrap_err();
+            assert!(err.contains("hop"), "{args:?}: {err}");
+            assert!(!err.contains("bastion"), "the reason names no value: {err}");
+        }
+        for args in [
+            &["-l", "-J", "alpha"][..],
+            &["-E", "-oProxyJump=x", "alpha"],
+            &["-oProxyUseFdpass=no", "-p", "22", "alpha"],
+            &["-o", "X=y", "alpha"],
+        ] {
+            assert!(plan(&exe, &words(args), &env).is_ok(), "{args:?}");
+        }
+        let with_option = |option: &str| WrapperConfig {
+            options: [base.options.clone(), vec![option.to_owned()]].concat(),
+            ..base.clone()
+        };
+        for (what, config) in [
+            ("ProxyJump option", with_option("ProxyJump=bastion")),
+            (
+                "quoted ProxyCommand option",
+                with_option("\"proxycommand\"=nc"),
+            ),
+            (
+                "trailing -J",
+                WrapperConfig {
+                    trailing: vec!["-J".into(), "bastion".into()],
+                    ..base.clone()
+                },
+            ),
+        ] {
+            let exe = write(d.path(), &config);
+            let err = plan(&exe, &["alpha".into()], &env).unwrap_err();
+            assert!(err.contains("hop"), "{what}: {err}");
+        }
+    }
+
+    /// ⟨M07 W7.3⟩ A trailing word that is an option (the guard's `-G` run never sees the
+    /// trailing words, and ssh reads options after the destination) and a caller's own `-F`
+    /// (ssh uses the last one) are refused before anything starts.
+    #[test]
+    fn trailing_options_and_a_callers_own_config_are_refused() {
+        let d = scratch();
+        let env = |_: &str| None;
+        let base = good(d.path());
+        for trailing in [
+            vec!["-oIdentityFile=elsewhere".to_owned()],
+            vec!["true".to_owned(), "-i".to_owned(), "key".to_owned()],
+        ] {
+            let exe = write(
+                d.path(),
+                &WrapperConfig {
+                    trailing: trailing.clone(),
+                    ..base.clone()
+                },
+            );
+            let err = plan(&exe, &["alpha".into()], &env).unwrap_err();
+            assert!(err.contains("trailing word"), "{trailing:?}: {err}");
+        }
+        let words = |w: &[&str]| -> Vec<OsString> { w.iter().map(OsString::from).collect() };
+        let exe = write(d.path(), &base);
+        for args in [&["-F", "other", "alpha"][..], &["-Fother", "alpha"]] {
+            let err = plan(&exe, &words(args), &env).unwrap_err();
+            assert!(err.contains("(-F)"), "{args:?}: {err}");
+        }
+        assert!(plan(&exe, &words(&["alpha"]), &env).is_ok());
+    }
+
+    /// The sidecar's options with `option` added.
+    fn with_sidecar_option(dir: &Path, option: &str) -> WrapperConfig {
+        let base = good(dir);
+        WrapperConfig {
+            options: [base.options.clone(), vec![option.to_owned()]].concat(),
+            ..base
+        }
+    }
+
+    /// ⟨M07 W7.3; M07-W7-R06 (a)⟩ A forbidden option with leading whitespace is refused: the
+    /// client skips it (`ssh -G -o " User=other"` prints `user other`).
+    #[test]
+    fn a_forbidden_option_with_leading_whitespace_is_refused() {
+        let d = scratch();
+        let env = env_with_inbox(d.path());
+        for (option, name) in [
+            (" User=other", "user"),
+            ("\t HostName=elsewhere", "hostname"),
+        ] {
+            assert_eq!(option_name(option), name);
+            let exe = write(d.path(), &with_sidecar_option(d.path(), option));
+            let err = plan(&exe, &["alpha".into()], &env).unwrap_err();
+            assert!(
+                err.contains(&format!(
+                    "the option {name} would override the configuration under test"
+                )),
+                "{option:?}: {err}"
+            );
+        }
+    }
+
+    /// ⟨M07 W7.3; M07-W7-R06 (a)⟩ A forbidden option with a quoted keyword is refused: the
+    /// client removes the quotes (`"User"=other`, and `Us"er"=other` too). A required option
+    /// spelled that way still counts as set.
+    #[test]
+    fn a_forbidden_option_with_a_quoted_keyword_is_refused() {
+        let d = scratch();
+        let env = env_with_inbox(d.path());
+        for option in ["\"User\"=other", "Us\"er\"=other", "\" User\" other"] {
+            assert_eq!(option_name(option), "user", "{option:?}");
+            let exe = write(d.path(), &with_sidecar_option(d.path(), option));
+            let err = plan(&exe, &["alpha".into()], &env).unwrap_err();
+            assert!(
+                err.contains("the option user would override the configuration under test"),
+                "{option:?}: {err}"
+            );
+        }
+        let base = good(d.path());
+        let quoted = WrapperConfig {
+            options: vec![
+                format!("\"UserKnownHostsFile\"={}", q(&d.path().join("kh"))),
+                " GlobalKnownHostsFile=/dev/null".to_owned(),
+            ],
+            ..base
+        };
+        let exe = write(d.path(), &quoted);
+        assert!(plan(&exe, &["alpha".into()], &env).is_ok());
     }
 
     /// The fixture pipe prefix is the fixtures' own.

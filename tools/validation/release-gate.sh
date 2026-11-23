@@ -17,7 +17,8 @@
 #     `testcfg::requested()` gate they join.
 #   * ⟨ADR-0007 section 12.52⟩ the debug pinned-client redirect (`HEIMDALL_TEST_PINNED_CLIENT`,
 #     in `LAUNCH_ENV`) also through `heimdall connect alpha` with the value naming a real
-#     scratch program that leaves a marker when run: the probe also fails if the marker appears.
+#     scratch executable. ⟨M07 W7.3; M07-W7-R06 (b)⟩ The exit-2 and refusal-text check is the
+#     oracle: no marker check (see the probe's comment below for why one could never fire).
 #   * <M06 W5> the fixture K_iroh store (`HEIMDALL_TEST_IROH_KEY_STORE=<abs owner-only scratch
 #     dir>`) through `service run` and `service run --runner`; the store directory must stay
 #     empty. (The serve target port is product configuration, `transport enable --serve
@@ -255,19 +256,20 @@ probe HEIMDALL_TEST_SCRIPT_PAUSE_DIR "enroll x" enroll x
 probe HEIMDALL_TEST_PURGE_TRUSTED_TOP "uninstall" uninstall
 # ⟨M07 W7b; ADR-0007 §12.52⟩ The debug pinned-client redirect is in LAUNCH_ENV, so the loop
 # above already probes it through `run -- true` and `connect x`. This probe names a real
-# executable at that path, a scratch script that leaves a marker when it runs: a release
-# `connect` refuses the variable (exit 2, home untouched) and never starts the named program.
-printf '#!/bin/sh\n: > "%s/pinned-client-ran"\nexit 0\n' "${vals}" >"${vals}/pinned-client"
+# executable at that path (a debug build would accept it): a release `connect` refuses the
+# variable with exit 2 and the refusal text, the home untouched.
+# ⟨M07 W7.3; M07-W7-R06 (b)⟩ That check is the oracle; there is no marker check. The release
+# build refuses the variable first thing in `connect` (`testcfg::launch_hooks`), before it
+# reads the alias, selects a client or asks the runtime anything. A build that did not
+# refuse it would go on to ask a runtime about `alpha`, and in this empty scratch home it
+# stops there (no runtime, no destination), before any launch: a marker left by the named
+# program could never appear, so its absence would prove nothing. Reaching a launch would
+# need a runtime serving a destination `connect` knows in the scratch home, and a release
+# runtime there reads the account's real SSH configuration (release builds have no
+# redirect), which this script must not do.
+printf '#!/bin/sh\nexit 0\n' >"${vals}/pinned-client"
 chmod 700 "${vals}/pinned-client"
 probe HEIMDALL_TEST_PINNED_CLIENT "connect alpha (wrapper)" connect alpha
-probe_count=$((probe_count + 1))
-if [ -e "${vals}/pinned-client-ran" ]; then
-    fail_count=$((fail_count + 1))
-    status=1
-    echo "release-gate: HEIMDALL_TEST_PINNED_CLIENT          connect started the named program: FAIL"
-else
-    echo "release-gate: HEIMDALL_TEST_PINNED_CLIENT          the named program never ran: PASS"
-fi
 # <M06 W5> The fixture K_iroh store (debug builds only): a release `service run` (the
 # runtime that would serve with the key) and `service run --runner` refuse it before
 # anything else. The store directory exists and is owner-only, so a build that

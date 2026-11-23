@@ -86,15 +86,22 @@ Any goal may carry a `task` label for its record.
   goal expected does not meet it either while the request is still uncertain.
 - **`run`** starts `argv[0]`, an executable inside the scratch root, under a binding
   for the work. On Windows `argv[0]` may also be the in-box OpenSSH client,
-  `%SystemRoot%\System32\OpenSSH\ssh.exe`: the driver then gives it its scratch config
-  and the isolated options on its own command line. The child must print one line when
+  `%SystemRoot%\System32\OpenSSH\ssh.exe`. H2 starts it as the goal gives it and adds
+  nothing: H2 adds no isolation to a child it did not build, so the caller's goal decides
+  which ssh profile a `run` child uses (M07-W7-R02). Without `-F` that client reads the
+  token profile's real `%USERPROFILE%\.ssh\config` and default identities, and without
+  `IdentityAgent=none` it may ask the system agent pipe `\\.\pipe\openssh-ssh-agent`.
+  The fixture driver's goal carries `-F <scratch config>` and the isolated options on the
+  client's own command line, and `tests/e2e/harness_m07.rs` checks every such goal it
+  gives. The child must print one line when
   it is up and exit when its input closes. The launch's run record names the binding the child runs under. After
   `access` for the same profile and work, that may be the binding already prepared
   or a second one: Heimdall decides. H2 holds the prepared binding and the child's.
 - **`stop`** begins wherever H2 holds a binding, whatever became of the goals before
   it. It releases each binding H2 holds, one call for each, the newest first. If a
   child is running, H2 then closes the child's input and waits for it. A child that
-  stays is stopped through its own handle and the goal fails.
+  stays is stopped through its own handle and the goal fails. On Windows that handle is
+  Heimdall's, not the child's: see "A launch" below.
   - From `ready`, `running` or `releasing` it goes on with that state's binding.
   - From any other state, such as `failed` after a later goal, it begins in
     `releasing` with the newest binding on the list.
@@ -216,6 +223,12 @@ field written `=VALUE` is that fixed value.
   waits for it. There `launching`'s `pid` is Heimdall's own, the process H2 started,
   and H2 reads the file again for up to `SPAWNED_SECONDS` (5 s) when the child's line
   comes before `spawned`. Any other sequence is no launch, and the child is ended.
+  **A limit on Windows (M07-W7-R03, carried to the next wave):** there the process H2
+  started, and so the one it ends, is `heimdall.exe`, which spawned the child and waits
+  for it. Ending it (a stop, the close, a sequence that is no launch, a time limit) ends
+  Heimdall, not the child, and H2 does not use the PID the `spawned` record names. A
+  child that ignores the end of its input outlives H2. The in-box client of the fixture
+  driver's task 5 exits when its input ends.
 - **An uncertain outcome** (`OUTCOME_UNKNOWN`) never sends the request again. H2
   observes the operation named in `next.operation_id` (`operation wait`) until it
   ends, within the goal's step limit:
@@ -594,6 +607,13 @@ Rules that follow from the contract owner's rulings of 2026-11-22 and 2026-11-23
   the list never offers a binding their operation names to another request. What the
   list cannot settle stays as it was: two bindings both made after the newest request
   was sent are two candidates for it, and none is released.
+- **Newest first can credit the wrong request (M07-W7-R04, a stated limit carried to
+  the next wave).** Take two remembered silent requests, R1 then R2, for the same work
+  and profile, and one listed binding made after R2 was sent. H2 credits it to R2,
+  releases it and stops observing R2, but R1 may have made it, for example when its
+  operation was slow. R1 then stays `still_unknown`, and a binding R2's own operation
+  makes later is not looked at or released. No field names the request that made a
+  binding (U0-Q7). The run still exits 1, because R1 is uncertain.
 - **A list that names none is no evidence that the request never ran.** It may not
   have been applied yet. The request stays `still_unknown`.
 - **Still unknown is an end, not a retry.** The stop goes on with the bindings it
