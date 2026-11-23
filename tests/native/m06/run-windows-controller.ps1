@@ -334,6 +334,7 @@ function Protect-Reason([string]$Text, [int]$Limit = 300) {
 # values are named first (the run directory, the account home and profile, the Windows user and
 # computer, the runner account and its scratch directory), then each line goes through
 # Protect-Reason: codes and words, never a path separator, address or quote. At most 80 lines.
+# ⟨M06 exit⟩ Per line through Protect-SshLine, which keeps the <placeholders> and the `###` headers.
 # ⟨`w5w`, M06-W5-RC05⟩ Before that, canary-shaped tokens become <canary>, key fingerprints <fp>,
 # and every IPv4 or IPv6 address but loopback <addr>.
 function Protect-SshStderr([string]$Text, [hashtable]$Known) {
@@ -350,7 +351,16 @@ function Protect-SshStderr([string]$Text, [hashtable]$Known) {
         if ($fwd -cne $v -and $fwd.Length -ge 3) { $t = [regex]::Replace($t, [regex]::Escape($fwd), "<$k>", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase) }
     }
     $lines = @($t -split "\r?\n" | Select-Object -First 80)
-    return (($lines | ForEach-Object { Protect-Reason $_ 300 }) -join "`n") + "`n"
+    return (($lines | ForEach-Object { Protect-SshLine $_ 300 }) -join "`n") + "`n"
+}
+
+# ⟨M06 exit⟩ One line of Protect-SshStderr: Protect-Reason's characters, except that the
+# placeholders Protect-SshStderr wrote (`<` lowercase letters and `-` `>`) and the record
+# headers' `#` are kept. Any other `<` or `>` is still replaced.
+function Protect-SshLine([string]$Text, [int]$Limit = 300) {
+    $one = ($Text -replace "[`r`n]+", ' ')
+    if ($one.Length -gt $Limit) { $one = $one.Substring(0, $Limit) }
+    return [regex]::Replace($one, '(<[a-z][a-z-]*>)|[^A-Za-z0-9_=,\- #]', { param($m) if ($m.Groups[1].Success) { $m.Value } else { '?' } })
 }
 
 # ⟨M06 W5 `w5s`, PC job 38 diagnostics⟩ What a driver or command result says about itself, for a
@@ -494,8 +504,8 @@ function Invoke-SelfTest {
     $known = @{ run = 'C:\hm\hm-m06j-0a1b2c3d'; profile = 'C:\Users\Some One'; user = 'Some One'; account = 'runner7' }
     $prot = Protect-SshStderr $sshErr $known
     Check 'P03 the bootstrap ssh messages keep their words and lose the run''s paths, names, addresses and quotes' (
-        $prot.Contains('Bad configuration option') -and $prot.Contains('Bad owner or permissions on ?run?') -and
-        $prot.Contains('?account??127?0?0?1? Permission denied ?publickey??') -and $prot.Contains('?profile??x') -and
+        $prot.Contains('Bad configuration option') -and $prot.Contains('Bad owner or permissions on <run>') -and
+        $prot.Contains('<account>?127?0?0?1? Permission denied ?publickey??') -and $prot.Contains('<profile>?x') -and
         -not $prot.Contains('Some One') -and -not $prot.Contains('runner7') -and -not $prot.Contains('hm-m06j-0a1b2c3d') -and
         -not $prot.Contains('\') -and -not $prot.Contains('/') -and -not $prot.Contains('127.0.0.1') -and -not $prot.Contains("`r") -and
         @($prot.TrimEnd("`n") -split "`n").Count -eq 5 -and @((Protect-SshStderr (("x`n") * 200) @{}) -split "`n").Count -le 81)
@@ -504,11 +514,21 @@ function Invoke-SelfTest {
         "unlisteddistro: HEIMDALL_CANARY_abc123 seen in C:\Users\Some One\x`r`nconnect to host fe80::1c2b:3aff:fe4d:5e6f%eth0 and 2001:db8:0:0:0:0:0:7 or ::1 at 12:34:56`r`n"
     $p5 = Protect-SshStderr $rc05 @{ profile = 'C:\Users\Some One'; user = 'Some One' }
     Check 'P04 a non-loopback IPv4 address becomes <addr>; loopback stays' (
-        $p5.Contains('connect to host ?addr? port 2222') -and -not $p5.Contains('172?28') -and $p5.Contains('?127?0?0?1??2222'))
-    Check 'P05 a key fingerprint becomes <fp>' ($p5.Contains('?fp? is not known') -and -not $p5.Contains('AbCdEf'))
-    Check 'P06 a canary-shaped token becomes <canary>' ($p5.Contains('unlisteddistro? ?canary? seen in ?profile??x') -and -not $p5.Contains('CANARY'))
+        $p5.Contains('connect to host <addr> port 2222') -and -not $p5.Contains('172?28') -and $p5.Contains('?127?0?0?1??2222'))
+    Check 'P05 a key fingerprint becomes <fp>' ($p5.Contains('<fp> is not known') -and -not $p5.Contains('AbCdEf'))
+    Check 'P06 a canary-shaped token becomes <canary>' ($p5.Contains('unlisteddistro? <canary> seen in <profile>?x') -and -not $p5.Contains('CANARY'))
     Check 'P07 a non-loopback IPv6 address becomes <addr>; ::1 and a clock time stay' (
-        $p5.Contains('connect to host ?addr? and ?addr? or ??1 at 12?34?56') -and -not $p5.Contains('fe80') -and -not $p5.Contains('db8'))
+        $p5.Contains('connect to host <addr> and <addr> or ??1 at 12?34?56') -and -not $p5.Contains('fe80') -and -not $p5.Contains('db8'))
+    # ⟨M06 exit⟩ The stderr file keeps the <placeholders> and the record headers; a `<` or `>` that
+    # is not a placeholder, and every path, address, fingerprint and canary, still goes.
+    $p8 = Protect-SshStderr ("### preflight (not started: no ProgramData) exit=none`r`n### bootstrap session (its -E log follows) exit=none`r`n" +
+        "<C:\x> <Some One> <a/b> a > b HEIMDALL_CANARY_zz9 SHA256:Zz09+/== 10.1.2.3 2001:db8::5 <runner-root>`r`n") @{ user = 'Some One' }
+    $p8Lines = @($p8.TrimEnd("`n") -split "`n")
+    Check 'P08 the stderr file keeps <placeholders> and ### headers; other angle brackets, paths and secrets are replaced' (
+        $p8Lines[0] -ceq '### preflight ?not started? no ProgramData? exit=none' -and
+        $p8Lines[1] -ceq '### bootstrap session ?its -E log follows? exit=none' -and
+        $p8Lines[2] -ceq '?C??x? ?<user>? ?a?b? a ? b <canary> <fp> <addr> <addr> <runner-root>' -and
+        -not $p8.Contains('CANARY') -and -not $p8.Contains('Zz09') -and -not $p8.Contains('10?1') -and -not $p8.Contains('db8'))
     $driverFacts = @{ prompted = 'false'; code = 'STATE_UNAVAILABLE'; reason = 'mgmt_agent_unavailable'; exit = '3'
         message = 'the controller''s management key agent could not start at C:\Users\someone\x /home/u/.ssh 127.0.0.1 "s3cretT0ken"' }
     $driverFail = try { Assert-Result 'first_pass_prompted' $driverFacts['prompted'] 'true' $driverFacts; '' } catch { $_.Exception.Message }
