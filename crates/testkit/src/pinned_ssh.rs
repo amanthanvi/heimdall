@@ -1658,7 +1658,8 @@ mod tests {
             let err = plan(&exe, &words(args), &env).unwrap_err();
             assert!(err.contains("(-F)"), "{args:?}: {err}");
         }
-        assert!(plan(&exe, &words(&["alpha"]), &env).is_ok());
+        // The accepted case needs an in-box client to find (Windows reads `SystemRoot`).
+        assert!(plan(&exe, &words(&["alpha"]), &env_with_inbox(d.path())).is_ok());
     }
 
     /// The sidecar's options with `option` added.
