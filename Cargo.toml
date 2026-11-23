@@ -38,6 +38,7 @@ members = [
     "crates/remote",
     "crates/transport-iroh",
     "crates/support",
+    "crates/stategen",
 ]
 
 [workspace.package]

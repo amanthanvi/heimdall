@@ -195,22 +195,42 @@ def purl(name, version):
 
 
 def compiled_packages(messages_path, meta):
-    """{(name, version)} of the packages a `cargo build --message-format=json` run compiled."""
+    """{(name, version)} of the packages a `cargo build --message-format=json` run compiled.
+
+    Read strictly, because a line skipped here is a package missing from the comparison with
+    the selected graph (PC job 34: Windows PowerShell 5.1 wrote the file with a UTF-8 byte
+    order mark, the first line no longer started with `{`, and `cfg-if` vanished silently).
+    A leading byte order mark is accepted; every other non-blank line must be one JSON object,
+    and the file must end with cargo's `build-finished` message reporting success. Anything
+    else is refused with the line number, never skipped."""
     by_manifest = {p["manifest_path"]: (p["name"], p["version"]) for p in meta["packages"]}
     seen = set()
-    with open(messages_path, encoding="utf-8") as fh:
-        for line in fh:
-            if not line.startswith("{"):
+    finished = False
+    with open(messages_path, encoding="utf-8-sig") as fh:
+        for number, line in enumerate(fh, 1):
+            if not line.strip():
                 continue
+            if not line.startswith("{"):
+                raise Refused(f"the build messages are malformed at line {number}: not a JSON object")
             try:
                 msg = json.loads(line)
             except ValueError:
-                continue
+                raise Refused(f"the build messages are malformed at line {number}: not valid JSON") from None
+            if not isinstance(msg, dict):
+                raise Refused(f"the build messages are malformed at line {number}: not a JSON object")
+            if finished:
+                raise Refused(f"the build messages continue after build-finished, at line {number}")
             if msg.get("reason") == "compiler-artifact":
                 key = by_manifest.get(msg.get("manifest_path"))
                 if key is None:
                     raise Refused("the build compiled a package cargo metadata does not know")
                 seen.add(key)
+            elif msg.get("reason") == "build-finished":
+                if msg.get("success") is not True:
+                    raise Refused("the build messages record a failed build")
+                finished = True
+    if not finished:
+        raise Refused("the build messages have no successful build-finished message (cut short?)")
     return seen
 
 
@@ -483,6 +503,25 @@ def builder_os():
     return f"{system} {platform.release()} {platform.machine()}"
 
 
+def toolchain_record(run=subprocess.run):
+    """The compiler and cargo that built the executables. A build record with no toolchain
+    describes nothing, so a host without `rustc` or `cargo` is refused by name."""
+    got = {}
+    for tool, args in (("rustc", ["-Vv"]), ("cargo", ["-V"])):
+        try:
+            out = run([tool] + args, capture_output=True, text=True, check=False, timeout=30)
+        except FileNotFoundError:
+            raise Refused(f"{tool} was not found on PATH: a build record needs the toolchain "
+                          "that built the executables") from None
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise Refused(f"{tool} could not be run ({type(e).__name__})") from None
+        if out.returncode != 0 or not out.stdout.strip():
+            raise Refused(f"{tool} {' '.join(args)} failed (exit {out.returncode})")
+        got[tool] = out.stdout
+    return {"rustc": dict(l.split(": ", 1) for l in got["rustc"].splitlines() if ": " in l),
+            "cargo": got["cargo"].strip().splitlines()[0]}
+
+
 def make_record(a):
     """The build inputs and the digests of the executables only (ADR-0014 section 4.4): no
     digest of the record itself, of the manifest or of the archive."""
@@ -492,14 +531,13 @@ def make_record(a):
                for f in stage_files(stage) if is_executable_image(os.path.join(stage, f))]
     if not outputs:
         raise Refused("the stage holds no executable")
-    rustc = subprocess.run(["rustc", "-Vv"], capture_output=True, text=True, check=False).stdout
+    toolchain = a.get("toolchain") or toolchain_record()
     return {
         "schema": "heimdall-build-record/1",
         "commit": a["commit"], "commit_time": a["time"], "tree_clean": a["clean"] == "yes",
         "target": a["target"], "profile": "release", "features": a.get("features") or "default",
         "rustflags": a["flags"],
-        "toolchain": {"rustc": dict(l.split(": ", 1) for l in rustc.splitlines() if ": " in l),
-                      "cargo": tool_version(["cargo", "-V"])},
+        "toolchain": toolchain,
         "cargo_lock_sha256": sha256(os.path.join(REPO, "Cargo.lock")),
         "builder_os": builder_os(),
         "tools": {"zig": tool_version(["zig", "version"]), "python": platform.python_version(),
@@ -697,9 +735,61 @@ def self_test():
         write_manifest(stage)
         with open(os.path.join(stage, MANIFEST), encoding="utf-8") as fh:
             check("manifest stable when rewritten", fh.read() == body)
+        # A stub toolchain record: the self-test must pass on a host with no Rust toolchain.
+        stub = {"rustc": {"release": "0.0.0", "host": "stub"}, "cargo": "cargo 0.0.0 (stub)"}
         rec = make_record({"stage": stage, "commit": "0" * 40, "time": "2026-01-01T00:00:00Z", "clean": "yes",
-                           "target": "t", "flags": "f", "started": "s", "finished": "f"})
+                           "target": "t", "flags": "f", "started": "s", "finished": "f",
+                           "toolchain": stub})
         check("record lists executables only", [o["path"] for o in rec["outputs"]] == ["heimdall"])
+        check("record carries the toolchain it was given", rec["toolchain"] == stub)
+
+        # The build messages are read strictly (PC job 34): a byte order mark is accepted, a
+        # malformed or cut file is refused by line, never skipped.
+        meta = {"packages": [{"manifest_path": "/m/a/Cargo.toml", "name": "a", "version": "1.0.0"},
+                             {"manifest_path": "/m/b/Cargo.toml", "name": "b", "version": "2.0.0"}]}
+        art = lambda m: json.dumps({"reason": "compiler-artifact", "manifest_path": m})
+        done = json.dumps({"reason": "build-finished", "success": True})
+        msgs = os.path.join(tmp, "messages.json")
+
+        def compiled(text, encoding="utf-8"):
+            with open(msgs, "w", encoding=encoding, newline="") as fh:
+                fh.write(text)
+            try:
+                return compiled_packages(msgs, meta)
+            except Refused as e:
+                return str(e)
+        good = "\n".join([art("/m/a/Cargo.toml"), art("/m/b/Cargo.toml"), done]) + "\n"
+        both = {("a", "1.0.0"), ("b", "2.0.0")}
+        check("messages: plain", compiled(good) == both)
+        check("messages: a byte order mark keeps the first package", compiled(good, "utf-8-sig") == both)
+        check("messages: CRLF and blank lines", compiled(good.replace("\n", "\r\n") + "\r\n") == both)
+        check("messages: a non-JSON line is refused by number",
+              compiled(art("/m/a/Cargo.toml") + "\nwarning: x\n" + done + "\n") ==
+              "the build messages are malformed at line 2: not a JSON object")
+        check("messages: a broken JSON line is refused by number",
+              compiled("{\"reason\": \n" + done + "\n") == "the build messages are malformed at line 1: not valid JSON")
+        check("messages: a doubled byte order mark is refused",
+              compiled("\ufeff" + good, "utf-8-sig") == "the build messages are malformed at line 1: not a JSON object")
+        check("messages: cut before build-finished is refused",
+              str(compiled(art("/m/a/Cargo.toml") + "\n")).startswith("the build messages have no successful"))
+        check("messages: a failed build is refused",
+              compiled(json.dumps({"reason": "build-finished", "success": False}) + "\n") ==
+              "the build messages record a failed build")
+
+        def absent(cmd, **_):
+            if cmd[0] == "cargo":
+                raise FileNotFoundError(cmd[0])
+            return subprocess.CompletedProcess(cmd, 0, "rustc 0.0.0\nrelease: 0.0.0\n", "")
+        try:
+            toolchain_record(absent)
+            check("an absent cargo is refused", False)
+        except Refused as e:
+            check("an absent cargo is refused by name", "cargo was not found on PATH" in str(e))
+        try:
+            toolchain_record(lambda cmd, **_: subprocess.CompletedProcess(cmd, 1, "", ""))
+            check("a failing rustc is refused", False)
+        except Refused as e:
+            check("a failing rustc is refused by name", str(e).startswith("rustc -Vv failed"))
         a, b = os.path.join(tmp, "out", "a.tar.gz"), os.path.join(tmp, "out", "b.tar.gz")
         os.makedirs(os.path.dirname(a))
         pack(stage, a, "2026-01-01T00:00:00Z")
