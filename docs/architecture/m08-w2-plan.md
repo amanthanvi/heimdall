@@ -1,6 +1,6 @@
 # M08 W2 plan (after the W1 merge at `b157352e`)
 
-**Status:** proposed, 2026-11-23, for the orchestrator. It covers W2's remaining units after the W1 review's findings (R01 to R09, done in `33534be6` to `24b1e27b`; PC job 47 pending). Inputs: m08-plan §3 to §7 and §12, ADR-0014, and the read-only M09 pre-audit (its §4, §6.2 and §7 items 2, 9 and 10). Nothing here changes a rule of m08-plan; where a unit cannot run under today's limits, the row says what blocks it.
+**Status:** approved by the orchestrator, 2026-11-23, with the notes folded in below. It covers W2's remaining units after the W1 review's findings (R01 to R09, done in `33534be6` to `24b1e27b`; PC job 47 pending). Inputs: m08-plan §3 to §7 and §12, ADR-0014, and the read-only M09 pre-audit (its §4, §6.2 and §7 items 2, 9 and 10). Nothing here changes a rule of m08-plan; where a unit cannot run under today's limits, the row says what blocks it.
 
 **Boundaries that shape every unit.**
 - A release `heimdall` runs only in a container or a disposable account or VM (AGENTS.md).
@@ -17,7 +17,7 @@
   - One row per target: counted time; the closing run's edges, features and corpus at load and at end; findings; and `met`, or `not met` with the reason.
   - The pins: image, nightly, cargo-fuzz, libfuzzer-sys, the fuzz lock digest and the build identity.
   - The raw extracts stay in `tests/evidence/artifacts/m08-fuzz/`.
-  - A target that reaches the ceiling with edges still growing is recorded as `not met` at the ceiling, which ADR-0014 §2.3 permits, with its coverage curve. It is never relabelled `met`.
+  - A target that reaches the ceiling with edges still growing is recorded as `not met` at the ceiling, which ADR-0014 §2.3 permits, with its coverage curve. It is never relabelled `met`. The go/no-go draft names each such target, with its final edge count, as a stated limit.
 - **Rerun rule:** a target whose linked crates change at the candidate is rerun (ADR-0014 §2.3). The build identity shows which.
 - **Where:** the Mac, in the existing container. No PC fuzzing: no target is Windows-specific.
 
@@ -50,7 +50,7 @@
   - **Key handling under real background work:** M05 U0b's delaying agent proxy.
   - **Idle CPU:** three 5-minute samples after 10 minutes of settling.
   - **Idle memory:** resident set size.
-  - At least 200 samples per latency metric, reported as P50 and P95, with the host model, CPU, memory, OS build and power state in the record.
+  - At least 200 samples per latency metric (a floor), reported as P50 and P95, with the host model, CPU, memory, OS build and power state in the record. The record states each metric's warm and cold conditions: whether the runtime, the session and the file-system caches were already warm, and how a cold sample was produced.
 - **Rehearsal:** once, on `main`'s Linux arm64 release archive in the container, labelled a rehearsal. It shows the harness works and gives an early read of the budgets.
 - **Figures of record:** at the candidate, per the table above.
 - **The debug probe's 306 ms.** M07's P2 measured key-to-first-byte p95 at 306 ms with 3,000 destinations on a debug build. The budget is set at 100 destinations, where the same probe measured 15 to 19 ms. Two checks follow:
@@ -67,6 +67,7 @@
   - S and L on the release archive;
   - M on a debug build with the scratch store (mechanism evidence only, as m08-plan §6.2 says);
   - R only if M06's exit supports runners in containers.
+- **The Mac is shared** with other workloads. The record says so, and the soak captures the host's load samples (1-, 5- and 15-minute load and free memory, every 30 s) beside its own. A soak whose failure lines up with host overload is run again, never silently discarded.
 - **Start:** when U3b freezes the candidate's feature set and archives. The orchestrator reads the status file at start, +1 h, +6 h, +24 h, +48 h and +72 h.
 - **Before the candidate:** one 6-hour rehearsal on `main`'s Linux arm64 release archive, lanes S and L, to confirm the thresholds and the self-stop. It is not a soak of record.
 - **Invalidation:** ADR-0014 §6.5. A change to any crate linked into the runtime, the issuer, a helper or a bridge after the soak starts means the soak is run again.
@@ -131,7 +132,7 @@
   - the reporting route (B18).
 
   `LICENSE` and `SECURITY.md` stay out of the tree until the owner decides, and the archives print them as not packaged.
-- **Before the candidate:** a dry run of the whole set on `main`. It builds all four archives and the index into scratch, checks that every artifact row is produced or names its blocker, and commits nothing but the record of the run.
+- **Before the candidate:** a dry run of the whole set on `main`. It builds all four archives and the index into scratch, checks that every artifact row is produced or names its blocker, and commits nothing but the record of the run. No archive goes into git.
 
 ## W2-6. Reproducible builds
 
@@ -140,6 +141,8 @@
   - **macOS** and both **Linux** targets on the Mac (the path remap should already hold; the check proves it);
   - **Windows** on the PC: one job, two scratch clones.
 - **Wording:** "reproducible" is written only for a platform where the two builds are identical (ADR-0014 §4.8). Any platform that differs is named with the differing fields, as Windows is today.
+
+**Owner inputs are not assumed.** B8 and the disposable WSL distribution are on the owner's list. This plan does not depend on either being granted: the rows they would open stay `blocked`.
 
 ## Order and what waits
 
