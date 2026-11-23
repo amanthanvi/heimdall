@@ -117,7 +117,7 @@ memory, OS build and power source are recorded, and its load is sampled every 30
 Both TUI rows read a reconstructed screen (`Screen` in `bench.py`: cursor position and forward,
 erase, CR, LF, text), never raw bytes: the TUI redraws only changed cells and moves the cursor
 over the rest, so a raw byte search misses whole words (`listings\x1b[3;30Hread`).
-| `key_to_frame` | in one TUI, a view key (`2`, then `1`, in turn) to the last byte before 20 ms of quiet (ruled), **under background work**: a second session keeps policy-covered ensures in flight for profile `slow`, whose provider sits behind `agent-delay.py` (each request held `BG_DELAY_MS`, default 500); the record gives the background ensures' count and latency |
+| `key_to_frame` | in one TUI, a view key (`2`, then `1`, in turn) to the last byte before 20 ms of quiet (ruled), measured under **fast concurrent operations**: a second session keeps policy-covered ensures in flight for profile `slow`. They do not contact the provider (observed: P50 about 11 ms), so `agent-delay.py` is not in their path and this is **not** the slow-provider case. That case is the candidate's benchmark of record, with the managed recipe where the runtime itself signs and a slow component in its path (ruled 2026-11-23); until it exists, the go/no-go draft says "measured under fast concurrent operations; slow-provider case not measured" |
 | `key_to_frame_quiet` | the same with no background work, for comparison |
 | `idle` | after a settle (600 s), three 300 s windows: the runtime's CPU time as a share of one core, and its RSS |
 

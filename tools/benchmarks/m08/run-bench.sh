@@ -44,8 +44,10 @@ cpu=$( (sysctl -n machdep.cpu.brand_string 2>/dev/null || awk -F': ' '/model nam
 mem=$( (sysctl -n hw.memsize 2>/dev/null || awk '/MemTotal/{print $2*1024}' /proc/meminfo) | head -1)
 os=$( (sw_vers -productVersion 2>/dev/null && sw_vers -buildVersion 2>/dev/null) | tr '\n' ' ')
 power=$( (pmset -g batt 2>/dev/null | head -1 | sed "s/.*'\(.*\)'.*/\1/") || echo unknown)
-python3 -I -c 'import json,sys; print(json.dumps({"host_started_at":sys.argv[1],"container":sys.argv[2],"image":sys.argv[3],"limits":"network none, 2 CPUs, 2 GiB, 512 pids","host_model":sys.argv[4],"host_cpu":sys.argv[5],"host_memory_bytes":sys.argv[6],"host_os":sys.argv[7].strip(),"host_power":sys.argv[8],"host_shared":"the Mac runs other workloads; host load is sampled in host-load.ndjson"}))' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$name" "$image" "$model" "$cpu" "$mem" "$os" "$power" >"$out/host.json"
+harness=$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo unknown)
+[ -z "$(git -C "$repo" status --porcelain -- tools/benchmarks 2>/dev/null)" ] || harness="$harness (tools/benchmarks modified)"
+python3 -I -c 'import json,sys; print(json.dumps({"harness_commit":sys.argv[9],"host_started_at":sys.argv[1],"container":sys.argv[2],"image":sys.argv[3],"limits":"network none, 2 CPUs, 2 GiB, 512 pids","host_model":sys.argv[4],"host_cpu":sys.argv[5],"host_memory_bytes":sys.argv[6],"host_os":sys.argv[7].strip(),"host_power":sys.argv[8],"host_shared":"the Mac runs other workloads; host load is sampled in host-load.ndjson"}))' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$name" "$image" "$model" "$cpu" "$mem" "$os" "$power" "$harness" >"$out/host.json"
 docker run -d --init --name "$name" --network none --cpus 2 --memory 2g --pids-limit 512 ${BENCH_CAPTURE:+-e BENCH_CAPTURE=1} \
     -v "$repo":/src:ro -v "$stage":/a:ro -v "$out":/out \
     "$image" bash /src/tools/benchmarks/m08/bench-entry.sh "$dests" "$samples" "$settle" "$window" "$windows" >/dev/null

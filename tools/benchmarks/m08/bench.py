@@ -35,12 +35,13 @@ What it measures, each with at least SAMPLES samples (a floor) and P50/P95:
   key_to_frame       in one TUI, from writing a view key ("2" Destinations, "1" Overview, in
                      turn) to the end of the frame it causes:
                      the last byte before 20 ms of quiet (the quiet itself is not counted).
-                     UNDER BACKGROUND WORK (ruled 2026-11-23): while the keys are measured, a
-                     second session keeps ensures in flight for profile `slow`, whose provider
-                     is reached through a delaying agent proxy (agent-delay.py, BG_DELAY_MS per
-                     request). The record gives the background ensures' own latency, so it shows
-                     the work was really slow and really running. key_to_frame_quiet is the
-                     same with no background work, for comparison.
+                     under FAST CONCURRENT OPERATIONS (ruled 2026-11-23, W2): a second session
+                     keeps policy-covered ensures in flight for profile `slow`. Those ensures
+                     do not contact the provider, so its delaying proxy is not in their path,
+                     and this is NOT the slow-provider case; that one is measured at the
+                     candidate with the managed recipe, where the runtime itself signs. The
+                     record gives the background ensures' count and latency.
+                     key_to_frame_quiet is the same with no background work, for comparison.
   idle               after SETTLE seconds, IDLE_WINDOWS windows of IDLE_WINDOW seconds: the
                      runtime's CPU time as a share of one core, and its resident set size.
 The output is OUT/bench.json. A sample that errors is counted as an error, never dropped
@@ -342,8 +343,11 @@ class Bench:
             bg.join(timeout=30)
         self.stop_tui(pid, fd)
         if loaded:
-            cond = (f"one TUI on a 120x40 pty, view keys 2 and 1 in turn; UNDER BACKGROUND WORK: ensures of profile "
-                    f"'{self.a.slow_profile}' kept in flight on a second session, its provider behind a {self.a.bg_delay_ms} ms delaying agent proxy")
+            cond = (f"one TUI on a 120x40 pty, view keys 2 and 1 in turn; measured under FAST CONCURRENT OPERATIONS: "
+                    f"policy-covered ensures of profile '{self.a.slow_profile}' kept in flight on a second session "
+                    f"(they do not contact the provider, so the {self.a.bg_delay_ms} ms delaying proxy is not in their path); "
+                    f"NOT measured under slow provider work (ruled 2026-11-23: that case is the candidate's benchmark of record, "
+                    f"with the managed recipe)")
             ok = [m for m, good in lat if m is not None and good is True]
             self.result["background_ensures"] = {
                 "count": len(lat), "succeeded": len(ok),
