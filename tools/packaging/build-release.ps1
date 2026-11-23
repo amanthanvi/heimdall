@@ -4,8 +4,9 @@
 # STATUS: run successfully on the PC under Windows PowerShell 5.1 (jobs 40 and 43, at
 # 5348551b and 3c8265c5), after two first-run fixes: job 34 stopped at provenance (a byte
 # order mark in cargo's messages; fixed by the raw-byte capture below and a strict reader)
-# and job 36 at verification (combase.dll). The build is not reproducible yet: the linker
-# writes its link time and a PDB GUID (tools/packaging/README.md).
+# and job 36 at verification (combase.dll). Jobs 40 and 43 differed only in the link time
+# and the PDB GUID; the link is now deterministic (/Brepro), and whether two builds are
+# identical is shown by a two-clone PC run (tools/packaging/README.md).
 #
 # Usage (PowerShell 5.1 or 7, from the repository root):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\packaging\build-release.ps1 `
@@ -75,13 +76,17 @@ if ($Features -and ($Features -notmatch '^[A-Za-z0-9_,/-]+$')) { Fail 2 "-Featur
 $sep = [char]0x1f
 $flags = @(
     "-Ctarget-feature=+crt-static",
+    # Deterministic link (W2-6): without it the MSVC linker writes the link time into the PE
+    # header and debug directory and a random PDB GUID, the only differences between PC
+    # jobs 40 and 43.
+    "-Clink-arg=/Brepro",
     "--remap-path-prefix=$userHome=/builder",
     "--remap-path-prefix=$rustupHome=/rustup",
     "--remap-path-prefix=$cargoHome=/cargo",
     "--remap-path-prefix=$repo=/heimdall"
 )
 $env:CARGO_ENCODED_RUSTFLAGS = $flags -join $sep
-$flagsText = "-Ctarget-feature=+crt-static --remap-path-prefix=<home>=/builder --remap-path-prefix=<rustup-home>=/rustup --remap-path-prefix=<cargo-home>=/cargo --remap-path-prefix=<checkout>=/heimdall"
+$flagsText = "-Ctarget-feature=+crt-static -Clink-arg=/Brepro --remap-path-prefix=<home>=/builder --remap-path-prefix=<rustup-home>=/rustup --remap-path-prefix=<cargo-home>=/cargo --remap-path-prefix=<checkout>=/heimdall"
 # cl.exe: /d1trimfile strips a prefix from __FILE__; the static CRT for the bundled C code.
 $env:CFLAGS_x86_64_pc_windows_msvc = "/MT /d1trimfile:$userHome\ /d1trimfile:$repo\"
 if (-not $env:CARGO_BUILD_JOBS) { $env:CARGO_BUILD_JOBS = "4" }
