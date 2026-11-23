@@ -59,6 +59,23 @@ passed three times out of three on a quiet machine, and the gate was rerun alone
 | 2026-11-22 | Rebuild with `lld` | **16 of 16 built** |
 | 2026-11-22 | 2700 s on `agent_reply`, `signing_request`, `userauth_request`, `registry_hm1` | exit 0 each; 0 findings; about 277 million executions. `signing_request` has plateaued (its last new input was number 41 of 82 million) |
 
-**Cumulative time per target is printed by `run-campaign.sh report`.** No target has
-reached the 2 CPU-hours of the stopping rule yet. Results recorded before the merge are
+| 2026-11-22 to 2026-11-23 | Further batches of 3300 to 3600 s, two targets at a time, on all 17 targets | exit 0 each; 0 findings. Cumulative on 2026-11-23, before the batch then running: 6900 s `runtime_config`, `sshconf_eval`, `frame_codec`; 6600 s `agent_reply`, `signing_request`, `userauth_request`; 6300 s `registry_hm1`; 3900 s `sshconf_parse`, `gitedit_scan`, `control_frame`, `project_manifest`; 3600 s the other six. Most targets logged a new or reduced input close to their last execution, so **the stopping rule is not met for any target** |
+
+**Cumulative time per target is printed by `run-campaign.sh report`,** with a
+**stopping-rule column** (added 2026-11-23). It says `met` for a target only when all of
+these hold, and `not met` otherwise:
+
+- the target's last run was at least 1800 s, and the edge coverage (`cov`) libFuzzer printed
+  when that run had loaded its corpus (`INITED`) equals the coverage at its end, so the whole
+  last run found no new coverage. This is stricter than "the last 30 minutes" of a longer
+  run, and it is read from one log with no timing estimate;
+- the target's runs that exited 0 add up to at least 7200 s;
+- its artifact directory holds no finding.
+
+The rule is claimed per target from that column and from nothing else. A target whose
+closing run still gains coverage runs on toward the 8 CPU-hour ceiling. The feature
+count (`ft`) may still grow while `cov` is flat; the column reads `cov`, and the report
+prints both.
+
+No target has met the stopping rule yet. Results recorded before the merge are
 from the older product code; the corpus carries over, the coverage figures do not.

@@ -19,8 +19,10 @@
 //! backup and the instance lock all belong to the store and the runtime, and wait for the
 //! contract handoff (m08-plan rule 2, U0).
 //!
-//! **Decisions this crate makes that ADR-0014 does not spell out,** for the contract
-//! owner to accept or change at the handoff:
+//! **Decisions this crate makes that ADR-0014 does not spell out.** The contract owner
+//! ruled on them on 2026-11-23: items 1 to 3 and the first sentence of item 4 are accepted;
+//! recovery from `state_corrupt` (item 4) is deferred to U0; item 5 is accepted
+//! provisionally (ADR-0014 §7, delta H15). Item 6 has not been ruled on.
 //!
 //! 1. *A staging intent for every operation,* not only for adoption. Start-up removes a
 //!    staged leftover, and the only safe way to know one is that a durable intent named
@@ -33,10 +35,17 @@
 //! 4. *A missing pointer with generations present is `state_corrupt`,* never an empty
 //!    state. Recovery from `state_corrupt` (restore or reset with no trusted current
 //!    record) is not implemented here: what the epoch and the identity are bound to in
-//!    that case is an authority question.
+//!    that case is an authority question, deferred to U0. Until then every operation is
+//!    refused in that state. The expected direction, not built: an attended recovery
+//!    with a typed confirmation, never non-interactive, that says the epoch and the
+//!    identity binding start fresh; restore from a backup the owner names, reset otherwise.
 //! 5. *Windows:* the pointer's rename is `std::fs::rename` followed by a flush of the
-//!    renamed file. The ADR's write-through rename needs an FFI call in an `unsafe`
-//!    module, which this provisional crate does not add.
+//!    renamed file. **Windows durability is therefore weaker than ADR-0014 §3.6 asks
+//!    until the product wiring lands:** the ADR's write-through rename (`MoveFileExW`
+//!    with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`) needs an FFI call. It
+//!    goes into the existing Windows platform module that already holds the workspace's
+//!    other `unsafe` Windows calls, when this crate is wired into the product (U2b), and
+//!    reaches this crate through [`Fs::rename_over`]. No `unsafe` module is added here.
 //! 6. *An interrupted first publication is discarded and run again:* the ADR's rule for an
 //!    adoption, applied to an install too. One case removes a complete generation: the
 //!    pointer is deleted from outside after a publication whose intent had not yet been

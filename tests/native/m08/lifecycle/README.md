@@ -100,7 +100,12 @@ and fails, the reviewer's result. With the fix: `exit 1, cur=heimdall 2.0.0, pre
 
 The journey now signals and counts only PIDs it recorded from the runtime's own
 advertisement, each checked with `ps -p <pid>` against the account and the run's executable.
-The debug-build journey was not rerun after this change.
+The debug-build journey was rerun after this change, on the Mac (2026-11-23, tree `c3abefbf`):
+`journey.sh --build debug` with the debug `heimdall` in `./target` as both `--old` and `--new`
+(sha256 `3289a31d…`; the product crates are identical at `ec985922` and `c3abefbf`). Exit 0:
+14 steps ok, 9 skipped (2 for no index, 1 for `connect`, 6 for one archive), one recorded
+runtime PID, none left running. Mechanism evidence only: a debug build on fixture stores,
+and no update or rollback, because one executable was used.
 
 **Windows is the open evidence.** Nothing above shows how `install.ps1` behaves on NTFS:
 renaming a mapped image, junctions and other reparse points, sharing violations, Windows
