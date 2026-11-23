@@ -127,9 +127,12 @@ pub(crate) fn journey() {
          controller_record=owner seeded=nothing",
     );
 
-    // invite / approve / join: a second device.
+    // invite / approve / join: a second device. ⟨M06 W5 `w5r`⟩ Its Heimdall home is long
+    // enough that an agent socket under it could never bind (`Device::with_long_home`):
+    // its join and its sessions below open because the agent's socket is in its own short
+    // directory.
     let scratch = Scratch::new().unwrap();
-    let second = Device::new(&scratch, "d2");
+    let second = Device::with_long_home(&scratch, "d2");
     let (code, shown) = second.json(&["environment", "join", "--show-key"]);
     assert_eq!(code, 0, "{shown}");
     let key = shown["data"]["public_key"].as_str().unwrap().to_owned();
@@ -231,7 +234,8 @@ pub(crate) fn journey() {
         "join",
         "show_key=product bundle=from_invite_after_runner_confirmation \
          join_declined_at_device=nothing_joined join=typed_host_key_and_environment_confirmation \
-         role=requester own_session=reads_runner seeded=nothing session_level=nothing",
+         role=requester own_session=reads_runner seeded=nothing session_level=nothing \
+         device_home_bytes=84",
     );
 
     // revoke-client: the first controller revokes the second device.

@@ -119,6 +119,9 @@ fn text(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
 
+/// ⟨M06 W5 `w5r`⟩ The length of [`Device::with_long_home`]'s Heimdall home, in bytes.
+pub(crate) const LONG_HOME_BYTES: usize = 84;
+
 /// A controller **device** that is not the first controller: a scratch installation with
 /// its own fixture K_mgmt store. It joins a runner by invitation.
 pub(crate) struct Device {
@@ -139,6 +142,23 @@ impl Device {
                 .join("k_mgmt.fixture"),
             iroh: owner_only_dir(scratch, &format!("{tag}i")),
         }
+    }
+
+    /// ⟨M06 W5 `w5r`⟩ A device whose Heimdall home is [`LONG_HOME_BYTES`] long: a
+    /// management session's agent socket under it (`<home>/run/mgmt/<12 hex>/a.sock`, 29
+    /// bytes more) would pass every platform's `sun_path` limit, while its own runtime
+    /// socket (`<home>/run/signing.sock`, 17 more) still fits. Its sessions open only
+    /// because their agent sockets are not under the home.
+    pub(crate) fn with_long_home(scratch: &Scratch, tag: &str) -> Device {
+        let mut device = Device::new(scratch, tag);
+        let base = device.home.as_os_str().len();
+        assert!(base + 2 <= LONG_HOME_BYTES, "the scratch root is too long");
+        let home = device.home.join("l".repeat(LONG_HOME_BYTES - base - 1));
+        std::fs::create_dir(&home).unwrap();
+        assert_eq!(home.as_os_str().len(), LONG_HOME_BYTES);
+        assert!(home.as_os_str().len() + 29 > 107 && home.as_os_str().len() + 17 <= 103);
+        device.home = home;
+        device
     }
 
     pub(crate) fn env(&self) -> Vec<(String, String)> {

@@ -574,7 +574,22 @@ impl OperationsDispatcher {
     }
 
     /// Handle one request for an already-authenticated session.
+    ///
+    /// ⟨M06 W5 `w5s`, M06-W5-R05⟩ Every answer leaves with its relay URLs in their shown form
+    /// ([`heimdall_contract::route::display_relay_urls`]): no path, query or userinfo of a
+    /// relay URL reaches any client, local or paired, in an answer, an error, a decision
+    /// view or `inspect`. What is stored is unchanged.
     pub async fn handle(
+        &self,
+        session: &SessionInfo,
+        request: Request,
+    ) -> Envelope<serde_json::Value> {
+        let mut env = self.handle_unshown(session, request).await;
+        heimdall_contract::route::display_relay_urls(&mut env.data);
+        env
+    }
+
+    async fn handle_unshown(
         &self,
         session: &SessionInfo,
         request: Request,
@@ -657,6 +672,16 @@ impl OperationsDispatcher {
     /// builds itself before G07).
     #[doc(hidden)]
     pub async fn handle_as(
+        &self,
+        caller: &Caller,
+        request: Request,
+    ) -> Envelope<serde_json::Value> {
+        let mut env = self.handle_as_unshown(caller, request).await;
+        heimdall_contract::route::display_relay_urls(&mut env.data);
+        env
+    }
+
+    async fn handle_as_unshown(
         &self,
         caller: &Caller,
         request: Request,
@@ -2795,6 +2820,143 @@ mod tests {
     ///   pending record (one digest); another URL is another record;
     /// * after the approval the stored route's policy and its consent's delta hold the
     ///   normal form.
+    /// ⟨M06 W5 `w5s`, M06-W5-R05; ADR-0006 §18.9 item 9⟩ A relay URL whose path carries a
+    /// token: stored as given (the record, the route and the consent's delta), and never
+    /// shown. No answer carries its path: the unattended refusal's detail, the attended
+    /// `APPROVAL_REQUIRED`, `inspect decisions`, the approval, `inspect destinations` and
+    /// the event pages. Each shows the scheme, host and port with the URL's digest.
+    #[tokio::test]
+    async fn a_relay_urls_path_is_stored_and_never_shown() {
+        use heimdall_contract::ids::IrohEndpointId;
+        use heimdall_contract::request::{
+            DecideRequest, InspectRequest, InspectSubject, ObserveRequest, Verdict,
+        };
+        use heimdall_contract::route::{
+            ExposurePolicy, InfrastructureProfile, RouteRequest, RouteSpec, relay_display,
+        };
+        const TOKEN: &str = "t0k3nInThePath";
+        let relay = format!("https://relay.invalid.:8443/{TOKEN}");
+        let (store, d, lab, _clock) = local_widening_rig().await;
+        let add = |request_id: &str| {
+            Request::Route(RouteRequest::Add {
+                destination: lab.clone(),
+                route: RouteSpec::Iroh {
+                    endpoint: IrohEndpointId::parse(&"ab".repeat(32)).unwrap(),
+                    direct_addresses: Vec::new(),
+                    external_roost: false,
+                },
+                exposure: Some(ExposurePolicy {
+                    infrastructure: InfrastructureProfile::Custom {
+                        relays: vec![relay.clone()],
+                    },
+                    ..ExposurePolicy::default()
+                }),
+                request_id: heimdall_contract::ids::RequestId::parse(request_id).unwrap(),
+            })
+        };
+        let shown = relay_display(&relay);
+        assert!(
+            shown.starts_with("https://relay.invalid.:8443 (sha256:"),
+            "{shown}"
+        );
+        let unseen = |what: &str, env: &Envelope<serde_json::Value>| {
+            let text = serde_json::to_string(env).unwrap();
+            assert!(
+                !text.contains(TOKEN),
+                "{what} shows the relay URL's path: {text}"
+            );
+        };
+
+        let unattended = d.handle_as(&owner(), add("req_1")).await;
+        assert_eq!(unattended.code, Code::InteractionRequired, "{unattended:?}");
+        unseen("the unattended refusal", &unattended);
+        assert!(
+            unattended.data.to_string().contains(&shown),
+            "the refusal names the relay: {unattended:?}"
+        );
+        let asked = d.handle_as(&attended(), add("req_2")).await;
+        assert_eq!(asked.code, Code::ApprovalRequired, "{asked:?}");
+        unseen("the approval request", &asked);
+        let id = heimdall_contract::ids::DecisionId::parse(
+            asked
+                .next
+                .as_ref()
+                .unwrap()
+                .decision_ref
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+        // Stored as given.
+        let recorded = store.transaction(|tx| tx.pending_decisions()).unwrap();
+        assert!(
+            serde_json::to_string(&recorded).unwrap().contains(TOKEN),
+            "the record keeps the URL"
+        );
+        let inspect = |subject| {
+            Request::Inspect(InspectRequest {
+                subject,
+                preview: None,
+                cwd: None,
+                redact: false,
+            })
+        };
+        let listed = d
+            .handle_as(&attended(), inspect(InspectSubject::Decisions))
+            .await;
+        unseen("inspect decisions", &listed);
+        assert!(listed.data.to_string().contains(&shown), "{listed:?}");
+
+        let approved = d
+            .handle_as(
+                &attended(),
+                Request::Decide(DecideRequest {
+                    decision_id: id,
+                    verdict: Verdict::Approve,
+                }),
+            )
+            .await;
+        assert_eq!(approved.code, Code::Ok, "{approved:?}");
+        unseen("the approval", &approved);
+        let routes = store.transaction(|tx| tx.destination_routes(&lab)).unwrap();
+        assert!(
+            serde_json::to_string(&routes).unwrap().contains(TOKEN),
+            "the stored route keeps the URL"
+        );
+        let added = routes
+            .iter()
+            .find(|r| matches!(r.route, RouteSpec::Iroh { .. }))
+            .expect("the route");
+        let consents = store
+            .transaction(|tx| tx.route_consents(Some(&added.id)))
+            .unwrap();
+        assert!(
+            consents
+                .iter()
+                .any(|c| c.delta.relays_added == vec![relay.clone()]),
+            "the consent's delta keeps the URL"
+        );
+        for subject in [InspectSubject::Destinations, InspectSubject::Decisions] {
+            let env = d.handle_as(&attended(), inspect(subject)).await;
+            unseen("inspect", &env);
+        }
+        let events = d
+            .handle_as(
+                &attended(),
+                Request::Observe(ObserveRequest::Events {
+                    cursor: None,
+                    filter: Default::default(),
+                    limit: None,
+                }),
+            )
+            .await;
+        unseen("the event page", &events);
+        // The same add again under the same policy: the existing route, shown so too.
+        let again = d.handle_as(&attended(), add("req_3")).await;
+        assert_eq!(again.code, Code::Ok, "{again:?}");
+        unseen("already_present", &again);
+    }
+
     #[tokio::test]
     async fn route_add_relay_urls_are_validated_and_normalised_before_any_record() {
         use heimdall_contract::ids::IrohEndpointId;
@@ -3015,7 +3177,8 @@ mod tests {
             (add("req_u", true, false), "direct fallback"),
             (
                 add("req_r", false, true),
-                "the relay https://relay.invalid./",
+                // ⟨`w5s`, M06-W5-R05⟩ Shown as scheme, host and port with its digest.
+                "the relay https://relay.invalid. (sha256:",
             ),
         ] {
             let env = d.handle_as(&owner(), request).await;
@@ -3189,9 +3352,18 @@ mod tests {
             .await;
         assert_eq!(stale.code, Code::DecisionStale, "{stale:?}");
         assert!(pending().is_empty());
-        // (The approved route's endpoint again, with any policy, is the existing route.)
+        // ⟨M06 W5 `w5s`, M06-W5-R02⟩ The approved route's endpoint again with another
+        // policy (a relay added) is not the existing route: `CONFIG_CONFLICT` with the next
+        // step, no record, nothing changed; never `already_present` with the relay dropped.
         let same_route = d.handle_as(&attended(), add("req_5", true, true)).await;
-        assert_eq!(same_route.data["already_present"], true, "{same_route:?}");
+        assert_eq!(same_route.code, Code::ConfigConflict, "{same_route:?}");
+        assert_eq!(
+            same_route.data["error"]["message"],
+            heimdall_app::routes::ops::EXPOSURE_DIFFERS,
+            "{same_route:?}"
+        );
+        assert!(pending().is_empty());
+        assert_eq!(routes(), stored);
         let mut elsewhere = add("req_6", true, true);
         if let Request::Route(RouteRequest::Add {
             route: RouteSpec::Iroh { endpoint, .. },

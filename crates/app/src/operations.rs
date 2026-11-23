@@ -12073,6 +12073,7 @@ impl Operations {
         let decision_id = crate::ids::new_decision_id()?;
         let lifetime = self.inner.config.limits.decision_lifetime;
         let attended = caller.is_attended();
+        let paired = caller.context.remote_client.is_some();
         let action = req.clone();
         // ⟨M03⟩ U0b rows 20 and 27 (G; reading E6c): a cutoff commits through the
         // narrowing protocol, its set the grants whose bound it lowers.
@@ -12122,6 +12123,15 @@ impl Operations {
                     return Ok(Ok(PolicyOutcome::Applied(Box::new(p), false)));
                 }
                 if widening {
+                    // ⟨M06 W5 `w5u`; ADR-0012 §7.4 ⟨2026-11-23⟩⟩ A paired session's
+                    // `resume` or `clear_cutoff` whose approval would lift a delivered
+                    // effect is refused now, with no record (`role_insufficient`).
+                    if paired {
+                        let ids = std::iter::once(pid.clone()).collect();
+                        if let Some(e) = stop_m05::paired_lift_refusal(tx, &action, &ids)? {
+                            return Ok(Err(e));
+                        }
+                    }
                     if let Err(u) = &assessed {
                         return Ok(Err(uncertain(u)));
                     }
@@ -12328,7 +12338,14 @@ impl Operations {
                         }
                         None
                     }
-                    DecisionKind::WidenPolicy { .. } => None,
+                    // ⟨M06 W5 `w5s`, M06-W5-R01⟩ An approval lifts no delivered effect
+                    // the record does not name (`stop_m05::lift_binding`).
+                    DecisionKind::WidenPolicy { .. } => {
+                        if let Err(e) = stop_m05::lift_binding(tx, &d, verdict)? {
+                            return Ok(Err(e.with_resource("decision", Some(did.to_string()))));
+                        }
+                        None
+                    }
                     DecisionKind::ConfirmTime { .. } => {
                         return Ok(Err(stale(&DecisionRefusal::NotPending(d.state))));
                     }

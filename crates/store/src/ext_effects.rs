@@ -49,6 +49,7 @@ use heimdall_contract::managed::ComponentResidual;
 use heimdall_contract::remote::EffectTarget;
 use heimdall_contract::request::AccessPairRef;
 use heimdall_contract::trust::PolicyTarget;
+use heimdall_domain::policy::StandingPolicy;
 use heimdall_domain::revocation::Tombstone;
 use rusqlite::OptionalExtension as _;
 use serde::{Deserialize, Serialize};
@@ -953,7 +954,52 @@ impl Txn<'_> {
     pub fn note_lifted_policy_revisions(&mut self) -> Result<usize> {
         let policies = self.policies()?;
         let mut cleared = 0;
-        for mut row in self.remote_policy_revisions()? {
+        for mut row in self.judged_lifted(&policies)? {
+            row.in_force = false;
+            self.tx.execute(
+                "UPDATE remote_policy_revisions SET record_json = ?4
+                 WHERE scope_key = ?1 AND producer = ?2 AND revision = ?3",
+                rusqlite::params![
+                    row.scope_key,
+                    row.producer.as_str(),
+                    codec::int(row.revision)?,
+                    codec::doc(&row)?,
+                ],
+            )?;
+            cleared += 1;
+        }
+        Ok(cleared)
+    }
+
+    /// ⟨M06 W5 `w5s`, M06-W5-R01; ADR-0012 §7.4 ⟨2026-11-22⟩ "The in-force flag"⟩ The
+    /// delivered effects still in force that [`Self::note_lifted_policy_revisions`] would
+    /// clear if the standing policies were `after` instead of what they are now, and would
+    /// not clear today: exactly the effects a change to `after` lifts. Reads only. A caller
+    /// that lets an attended owner widen a policy names these in the approval and binds
+    /// them to it, so no delivered effect is ever lifted unnamed.
+    pub fn lifted_if(&mut self, after: &[StandingPolicy]) -> Result<Vec<PolicyRevisionRecord>> {
+        let now = self.policies()?;
+        let already: Vec<(String, ClientId, u64)> = self
+            .judged_lifted(&now)?
+            .into_iter()
+            .map(|r| (r.scope_key, r.producer, r.revision))
+            .collect();
+        Ok(self
+            .judged_lifted(after)?
+            .into_iter()
+            .filter(|r| {
+                !already
+                    .iter()
+                    .any(|(k, c, n)| *k == r.scope_key && *c == r.producer && *n == r.revision)
+            })
+            .collect())
+    }
+
+    /// The rows in force that the rule of [`Self::note_lifted_policy_revisions`] judges
+    /// lifted under the standing policies `policies`. Reads only.
+    fn judged_lifted(&mut self, policies: &[StandingPolicy]) -> Result<Vec<PolicyRevisionRecord>> {
+        let mut out = Vec::new();
+        for row in self.remote_policy_revisions()? {
             if !row.in_force {
                 continue;
             }
@@ -992,23 +1038,11 @@ impl Txn<'_> {
                 }
                 PolicyRevisionKind::Cutoff => p.cutoff_at.is_some(),
             });
-            if blocked {
-                continue;
+            if !blocked {
+                out.push(row);
             }
-            row.in_force = false;
-            self.tx.execute(
-                "UPDATE remote_policy_revisions SET record_json = ?4
-                 WHERE scope_key = ?1 AND producer = ?2 AND revision = ?3",
-                rusqlite::params![
-                    row.scope_key,
-                    row.producer.as_str(),
-                    codec::int(row.revision)?,
-                    codec::doc(&row)?,
-                ],
-            )?;
-            cleared += 1;
         }
-        Ok(cleared)
+        Ok(out)
     }
 
     /// ⟨M06 W5 `w5m` L1⟩ The runner's own owner lifted, by an attended decision that named

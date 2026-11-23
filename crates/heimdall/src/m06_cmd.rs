@@ -52,7 +52,7 @@ use heimdall_app::remote_env::{
     InviteInput, InviteOutcome, LocalConfirm, ManagementCall, ManagementHop, ManagementRoute,
     ManagementSession, ManagementSessions, MgmtKeyInfo, MgmtKeyPort, MgmtKeyUnavailable,
     RemoteEnvController, RemoteEnvironmentRecord, SessionHello, SessionName, SessionTarget,
-    VerifiedAccess, ssh as env_ssh,
+    VerifiedAccess, controller_fault, on_this_controller, ssh as env_ssh,
 };
 use heimdall_contract::envelope::{EffectStatus, Envelope, NextAction, reason};
 use heimdall_contract::ids::{
@@ -266,7 +266,9 @@ pub struct RouteAddArgs {
     /// A relay this Iroh route may use (`https://…` or `http://…`), repeatable. Each relay
     /// adds exposure: the route then needs a decision approved on a terminal at this host,
     /// which names every relay. A URL with a user name or password, a query string or a
-    /// fragment is refused.
+    /// fragment is refused. A relay URL must not carry a credential anywhere, its path
+    /// included: Heimdall stores it as given and shows only its scheme, host, port and a
+    /// short digest.
     #[arg(long = "relay", value_name = "URL")]
     pub relays: Vec<String>,
 }
@@ -2233,7 +2235,9 @@ const SESSION_HELLO_BOUND: Duration = Duration::from_secs(30);
 /// Management sessions over `ssh -F <isolated configuration>` (module docs).
 struct SshSessions {
     ssh_client: Option<PathBuf>,
-    /// A private directory for per-session configuration and agent sockets.
+    /// A private directory for per-session configuration. ⟨M06 W5 `w5r`⟩ The agent sockets
+    /// are not here: each session's are in its own short
+    /// `heimdall_credential::mgmt::agent::AgentDir` (Unix).
     root: PathBuf,
     key: Arc<StoreKey>,
 }
@@ -2246,6 +2250,10 @@ struct SshSession {
     hello: SessionHello,
     _child: tokio::process::Child,
     agent: Option<SessionAgent>,
+    /// ⟨M06 W5 `w5r`⟩ The short owner-only directory of the agent's and the probes'
+    /// sockets; removed after the agent stops.
+    #[cfg(unix)]
+    agent_dir: Option<heimdall_credential::mgmt::agent::AgentDir>,
     dir: PathBuf,
     /// What the confirming probes run with: the session's own client, configuration and
     /// alias (so its key, pins and route).
@@ -2257,6 +2265,8 @@ struct SshSession {
 impl Drop for SshSession {
     fn drop(&mut self) {
         drop(self.agent.take());
+        #[cfg(unix)]
+        drop(self.agent_dir.take());
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
@@ -2281,7 +2291,11 @@ impl ManagementSession for SshSession {
         #[cfg(unix)]
         {
             self.agent.as_ref()?;
-            let disposable = env_ssh::DisposableAgent::start(&self.dir.join("p.sock")).ok()?;
+            let socket = self
+                .agent_dir
+                .as_ref()?
+                .socket(heimdall_credential::mgmt::agent::PROBE_SOCKET);
+            let disposable = env_ssh::DisposableAgent::start(&socket).ok()?;
             env_ssh::run_probes(
                 &self.ssh_client,
                 &self.config_file,
@@ -2346,12 +2360,7 @@ fn session_error(stderr: &[u8]) -> OpError {
 impl SshSessions {
     fn session_dir(&self) -> Result<PathBuf, OpError> {
         let mut bytes = [0u8; 6];
-        heimdall_credential::vault::SystemRng::fill(&mut bytes).map_err(|_| {
-            OpError::new(
-                Code::InternalError,
-                "operating system randomness unavailable",
-            )
-        })?;
+        heimdall_credential::vault::SystemRng::fill(&mut bytes).map_err(|_| rng_unavailable())?;
         let name: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
         let dir = self.root.join(name);
         // ⟨M06 W5; ADR-0012 §2.6⟩ Windows: the session directory is created exclusively
@@ -2378,14 +2387,61 @@ impl SshSessions {
             }
             builder.create(&dir)
         };
-        created.map_err(|_| {
-            OpError::new(
-                Code::StateUnavailable,
-                "the management session directory could not be created",
-            )
+        created.map_err(|e| {
+            local_io_failed(&e, "management session directory could not be created")
         })?;
         Ok(dir)
     }
+}
+
+/// ⟨M06 W5 `w5r`, `w5t`; ADR-0006 §18.9⟩ The refusal of a management session whose K_mgmt
+/// agent could not start on this controller ([`controller_fault`]): effect `none`, one
+/// `mgmt_agent_*` reason per class (`heimdall_credential::mgmt::agent::AgentFailure`), and a
+/// message that names this controller's agent, why and the fix, never a path. Split by
+/// whether an unchanged retry can help (the code table's placement rule): a path too long
+/// or a denied directory is `CAPABILITY_UNAVAILABLE`; a name still taken after the fresh
+/// names (`AGENT_DIR_ATTEMPTS`) or any other failure is `STATE_UNAVAILABLE`.
+/// ⟨M06 W5 `w5t`, ruling 2026-11-23⟩ Why the agent is "in use": on Windows another process
+/// holds every pipe name this controller tried (the first-instance refusal), elsewhere every
+/// fresh directory name was taken.
+const AGENT_NAMES_IN_USE: &str = if cfg!(windows) {
+    "another process already holds every pipe name it tried, and a pipe of another process is \
+     never joined"
+} else {
+    "every fresh name it tried was already in use, and what is there is never reused or removed"
+};
+
+fn agent_failed(e: &std::io::Error) -> OpError {
+    use heimdall_credential::mgmt::agent::AgentFailure;
+    const WHAT: &str = "management key agent could not start";
+    let (code, why, fix, reason) = match AgentFailure::of(e) {
+        AgentFailure::PathTooLong => (
+            Code::CapabilityUnavailable,
+            "its socket path would be longer than this platform allows",
+            "give this controller a shorter runtime or temporary directory, then try again",
+            reason::MGMT_AGENT_PATH_TOO_LONG,
+        ),
+        AgentFailure::PermissionDenied => (
+            Code::CapabilityUnavailable,
+            "the operating system denied it an owner-only directory, socket or pipe",
+            "correct the ownership or permissions of this controller's runtime or temporary \
+             directory, then try again",
+            reason::MGMT_AGENT_PERMISSION_DENIED,
+        ),
+        AgentFailure::AddressInUse => (
+            Code::StateUnavailable,
+            AGENT_NAMES_IN_USE,
+            "try again",
+            reason::MGMT_AGENT_ADDRESS_IN_USE,
+        ),
+        AgentFailure::Other => (
+            Code::StateUnavailable,
+            "its endpoint could not be created",
+            "try again",
+            reason::MGMT_AGENT_UNAVAILABLE,
+        ),
+    };
+    controller_fault(code, &format!("{WHAT}: {why}"), fix).with_reason(reason)
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> Result<(), OpError> {
@@ -2400,18 +2456,69 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<(), OpError> {
     options
         .open(path)
         .and_then(|mut f| f.write_all(bytes).and_then(|()| f.sync_all()))
-        .map_err(|_| {
-            OpError::new(
-                Code::StateUnavailable,
-                "a management session file could not be written",
-            )
-        })
+        .map_err(|e| local_io_failed(&e, "management session file could not be written"))
+}
+
+/// ⟨M06 W5 `w5t`⟩ A management session's directory or file that could not be made on this
+/// controller ([`controller_fault`]): the operating system's refusal, which an unchanged
+/// retry cannot fix, is `CAPABILITY_UNAVAILABLE` and names the fix; any other failure (a
+/// full disk, say) is `STATE_UNAVAILABLE`. Never a path.
+fn local_io_failed(e: &std::io::Error, what: &str) -> OpError {
+    use std::io::ErrorKind;
+    if matches!(
+        e.kind(),
+        ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem
+    ) {
+        controller_fault(
+            Code::CapabilityUnavailable,
+            &format!("{what}: the operating system denied it"),
+            "correct the ownership or permissions of this controller's Heimdall home, \
+             then try again",
+        )
+    } else {
+        controller_fault(Code::StateUnavailable, what, "try again")
+    }
 }
 
 fn render_refused(_e: heimdall_sshconf::render::RenderError) -> OpError {
-    OpError::new(
+    render_refusal()
+}
+
+/// ⟨M06 W5 `w5t`⟩ The controller-local failures of the session opener, each a named site so
+/// that `every_session_opener_failure_on_this_controller_is_classed_as_its_fault` lists
+/// them all. A new site on this controller gets a function here and a row there.
+fn rng_unavailable() -> OpError {
+    controller_fault(
+        Code::InternalError,
+        "management session could not start: operating system randomness is unavailable",
+        "report it",
+    )
+}
+
+fn no_ssh_client() -> OpError {
+    controller_fault(
+        Code::LaunchFailed,
+        "management session could not start: no OpenSSH client was found",
+        "install OpenSSH on this controller",
+    )
+}
+
+/// This controller's K_mgmt store (opening, loading, the public key, the signer): code and
+/// reason kept.
+fn key_store_failed(e: MgmtKeyUnavailable) -> OpError {
+    on_this_controller(e.to_error())
+}
+
+/// The management `ssh` this controller could not start (`env_ssh::spawn_management`).
+fn ssh_spawn_failed(e: OpError) -> OpError {
+    on_this_controller(e)
+}
+
+fn render_refusal() -> OpError {
+    controller_fault(
         Code::CapabilityUnavailable,
-        "the management configuration cannot be rendered for this runner's recorded route",
+        "management configuration cannot be rendered for this runner's recorded route",
+        "review the runner's record on this controller",
     )
     .with_reason(reason::HOST_PIN_DEFEATED)
 }
@@ -2439,15 +2546,12 @@ impl ManagementSessions for SshSessions {
             )
             .with_reason(reason::ROUTE_DEPENDENCY_OUT_OF_SCOPE));
         }
-        let ssh_client = self
-            .ssh_client
-            .clone()
-            .ok_or_else(|| OpError::new(Code::LaunchFailed, "no OpenSSH client was found"))?;
-        let store = self.key.store().map_err(MgmtKeyUnavailable::to_error)?;
-        let key = store.load().map_err(|e| unavailable(e).to_error())?;
+        let ssh_client = self.ssh_client.clone().ok_or_else(no_ssh_client)?;
+        let store = self.key.store().map_err(key_store_failed)?;
+        let key = store.load().map_err(|e| key_store_failed(unavailable(e)))?;
         let public = key
             .public()
-            .map_err(|_| MgmtKeyUnavailable::Failed.to_error())?;
+            .map_err(|_| key_store_failed(MgmtKeyUnavailable::Failed))?;
         let name = match &target.name {
             SessionName::Environment(e) => e.as_str().to_owned(),
             SessionName::Bootstrap(d) => format!("bootstrap.{}", d.as_str()),
@@ -2458,12 +2562,6 @@ impl ManagementSessions for SshSessions {
             let _ = std::fs::remove_dir_all(&dir);
             e
         };
-        let agent_failed = || {
-            OpError::new(
-                Code::StateUnavailable,
-                "the management key agent could not be started",
-            )
-        };
         let style = if cfg!(windows) {
             PathStyle::Windows
         } else {
@@ -2473,8 +2571,14 @@ impl ManagementSessions for SshSessions {
         let pins_file = dir.join("known_hosts");
         let config_file = dir.join("mgmt.conf");
         let path = |p: &Path| RenderPath::absolute(p, style).map_err(render_refused);
-        #[cfg(not(windows))]
-        let socket = dir.join("a.sock");
+        // ⟨M06 W5 `w5r`⟩ The agent's socket is in a short owner-only directory of its own
+        // (`AgentDir`: `$XDG_RUNTIME_DIR` or `/tmp`), not under the Heimdall home, whose
+        // length must never decide whether a session can open.
+        #[cfg(unix)]
+        let agent_dir = heimdall_credential::mgmt::agent::AgentDir::create()
+            .map_err(|e| cleanup(agent_failed(&e)))?;
+        #[cfg(unix)]
+        let socket = agent_dir.socket(heimdall_credential::mgmt::agent::AGENT_SOCKET);
         #[cfg(not(windows))]
         let agent_endpoint = path(&socket).map_err(cleanup)?;
         // ⟨M06 W5; ADR-0012 §2.6⟩ Windows: the agent's pipe is named by a token it draws
@@ -2488,13 +2592,17 @@ impl ManagementSessions for SshSessions {
                 [runner.account.as_str().to_owned()],
                 &runner.host_keys,
             )
-            .map_err(|_| cleanup(MgmtKeyUnavailable::Failed.to_error()))?;
-            let agent = SessionAgent::start_pipe(signer).map_err(|_| cleanup(agent_failed()))?;
+            .map_err(|_| cleanup(key_store_failed(MgmtKeyUnavailable::Failed)))?;
+            let agent = SessionAgent::start_pipe(signer).map_err(|e| cleanup(agent_failed(&e)))?;
             let endpoint = agent
                 .path()
                 .to_str()
                 .and_then(|name| RenderPath::pipe(name).ok())
-                .ok_or_else(|| cleanup(agent_failed()))?;
+                .ok_or_else(|| {
+                    cleanup(agent_failed(&std::io::Error::other(
+                        "the pipe name cannot be rendered",
+                    )))
+                })?;
             (agent, endpoint)
         };
         let mgmt_target = (|| -> Result<MgmtTarget, OpError> {
@@ -2534,12 +2642,13 @@ impl ManagementSessions for SshSessions {
                 [runner.account.as_str().to_owned()],
                 &runner.host_keys,
             )
-            .map_err(|_| cleanup(MgmtKeyUnavailable::Failed.to_error()))?;
-            SessionAgent::start(&socket, signer).map_err(|_| cleanup(agent_failed()))?
+            .map_err(|_| cleanup(key_store_failed(MgmtKeyUnavailable::Failed)))?;
+            SessionAgent::start(&socket, signer).map_err(|e| cleanup(agent_failed(&e)))?
         };
         let alias = mgmt_target.alias();
         let args = env_ssh::management_args(&config_file, &alias);
-        let child = env_ssh::spawn_management(&ssh_client, &args).map_err(cleanup)?;
+        let child = env_ssh::spawn_management(&ssh_client, &args)
+            .map_err(|e| cleanup(ssh_spawn_failed(e)))?;
         let env_ssh::ManagementChild {
             child,
             stdin,
@@ -2616,6 +2725,8 @@ impl ManagementSessions for SshSessions {
             hello,
             _child: child,
             agent: Some(agent),
+            #[cfg(unix)]
+            agent_dir: Some(agent_dir),
             dir,
             ssh_client,
             config_file,
@@ -4919,6 +5030,257 @@ mod tests {
 
     use super::*;
     use crate::cli::{Cli, Command, dispatch};
+
+    /// ⟨M06 W5 `w5r`, `w5t`; ADR-0006 §18.9⟩ One way the controller's K_mgmt agent can fail
+    /// to start, from the error the platform gives (the credential crate's tests cause each
+    /// one for real): the code, exit code, `retryable` and reason of its class, effect
+    /// `none`, and a message that names this controller's agent, why and the fix, with no
+    /// path in it.
+    fn assert_agent_class(
+        e: &std::io::Error,
+        code: Code,
+        exit: ExitCode,
+        retryable: bool,
+        want: &str,
+        why: &str,
+        fix: &str,
+    ) {
+        let got = agent_failed(e);
+        assert_eq!(got.code, code);
+        assert_eq!(got.code.exit_code_for_reason(got.reason.as_deref()), exit);
+        let detail = got.detail();
+        assert_eq!(detail.retryable, retryable);
+        assert_eq!(detail.reason.as_deref(), Some(want));
+        assert_eq!(got.effect_status, EffectStatus::None);
+        assert!(
+            got.message
+                .starts_with("this controller's management key agent could not start: "),
+            "{}",
+            got.message
+        );
+        assert!(got.message.contains(why), "{}", got.message);
+        assert!(got.message.ends_with(fix), "{}", got.message);
+        assert!(!got.message.contains('/'), "no path: {}", got.message);
+        assert!(!got.message.contains("120"), "{}", got.message);
+        assert!(reason::MGMT_CONTROLLER_SIDE.contains(&want));
+        assert!(heimdall_app::remote_env::is_controller_fault(&got));
+    }
+
+    #[test]
+    fn an_agent_path_too_long_is_capability_unavailable_and_names_a_shorter_directory() {
+        let too_long = std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            heimdall_credential::mgmt::agent::AgentPathTooLong {
+                bytes: 120,
+                limit: 103,
+            },
+        );
+        assert_agent_class(
+            &too_long,
+            Code::CapabilityUnavailable,
+            ExitCode::Denied,
+            false,
+            reason::MGMT_AGENT_PATH_TOO_LONG,
+            "longer than this platform allows",
+            "give this controller a shorter runtime or temporary directory, then try again",
+        );
+    }
+
+    #[test]
+    fn an_agent_permission_denied_is_capability_unavailable_and_names_the_permissions() {
+        assert_agent_class(
+            &std::io::Error::new(std::io::ErrorKind::PermissionDenied, "/private/secret/path"),
+            Code::CapabilityUnavailable,
+            ExitCode::Denied,
+            false,
+            reason::MGMT_AGENT_PERMISSION_DENIED,
+            "denied",
+            "correct the ownership or permissions of this controller's runtime or temporary \
+             directory, then try again",
+        );
+    }
+
+    #[test]
+    fn an_agent_address_in_use_is_state_unavailable_and_retryable() {
+        for kind in [
+            std::io::ErrorKind::AlreadyExists,
+            std::io::ErrorKind::AddrInUse,
+        ] {
+            assert_agent_class(
+                &std::io::Error::new(kind, "/private/secret/path"),
+                Code::StateUnavailable,
+                ExitCode::Unavailable,
+                true,
+                reason::MGMT_AGENT_ADDRESS_IN_USE,
+                AGENT_NAMES_IN_USE,
+                "try again",
+            );
+        }
+    }
+
+    #[test]
+    fn any_other_agent_failure_is_state_unavailable_and_retryable() {
+        assert_agent_class(
+            &std::io::Error::other("/private/secret/path"),
+            Code::StateUnavailable,
+            ExitCode::Unavailable,
+            true,
+            reason::MGMT_AGENT_UNAVAILABLE,
+            "could not be created",
+            "try again",
+        );
+    }
+
+    /// ⟨M06 W5 `w5t`, ruling 2026-11-23⟩ Every failure of the session opener on this
+    /// controller, one row per site: each is classed as this controller's fault
+    /// (`is_controller_fault`), so `environment add` after a bootstrap never blames the
+    /// runner's runtime for it, and a wording change that drops the class breaks this test.
+    #[test]
+    fn every_session_opener_failure_on_this_controller_is_classed_as_its_fault() {
+        use std::io::{Error, ErrorKind};
+        let sites: Vec<(&str, OpError)> = vec![
+            ("session directory randomness", rng_unavailable()),
+            (
+                "session directory, denied",
+                local_io_failed(
+                    &Error::from(ErrorKind::PermissionDenied),
+                    "management session directory could not be created",
+                ),
+            ),
+            (
+                "session directory, other",
+                local_io_failed(
+                    &Error::from(ErrorKind::StorageFull),
+                    "management session directory could not be created",
+                ),
+            ),
+            (
+                "session file, denied",
+                local_io_failed(
+                    &Error::from(ErrorKind::ReadOnlyFilesystem),
+                    "management session file could not be written",
+                ),
+            ),
+            (
+                "session file, other",
+                local_io_failed(
+                    &Error::from(ErrorKind::StorageFull),
+                    "management session file could not be written",
+                ),
+            ),
+            ("no OpenSSH client", no_ssh_client()),
+            (
+                "K_mgmt store locked",
+                key_store_failed(MgmtKeyUnavailable::Locked),
+            ),
+            (
+                "K_mgmt store unavailable",
+                key_store_failed(MgmtKeyUnavailable::StoreUnavailable),
+            ),
+            (
+                "K_mgmt not found",
+                key_store_failed(MgmtKeyUnavailable::NotFound),
+            ),
+            (
+                "K_mgmt store failed",
+                key_store_failed(MgmtKeyUnavailable::Failed),
+            ),
+            ("configuration render", render_refusal()),
+            (
+                "ssh spawn",
+                ssh_spawn_failed(OpError::new(
+                    Code::LaunchFailed,
+                    "the ssh client could not be started",
+                )),
+            ),
+            (
+                "agent path too long",
+                agent_failed(&Error::new(
+                    ErrorKind::InvalidInput,
+                    heimdall_credential::mgmt::agent::AgentPathTooLong {
+                        bytes: 120,
+                        limit: 103,
+                    },
+                )),
+            ),
+            (
+                "agent denied",
+                agent_failed(&Error::from(ErrorKind::PermissionDenied)),
+            ),
+            (
+                "agent in use",
+                agent_failed(&Error::from(ErrorKind::AddrInUse)),
+            ),
+            ("agent other", agent_failed(&Error::other("x"))),
+        ];
+        for (site, e) in &sites {
+            assert!(
+                heimdall_app::remote_env::is_controller_fault(e),
+                "{site}: {}",
+                e.message
+            );
+            assert!(
+                e.message
+                    .starts_with(heimdall_app::remote_env::CONTROLLER_FAULT_HEAD),
+                "{site}: {}",
+                e.message
+            );
+            assert!(
+                !e.message.contains("runner's runtime"),
+                "{site}: {}",
+                e.message
+            );
+            assert!(!e.message.contains('/'), "{site}: {}", e.message);
+        }
+        // The kept codes (ADR-0006 code table): only the denials changed.
+        let code = |site: &str| {
+            sites
+                .iter()
+                .find(|(s, _)| *s == site)
+                .map(|(_, e)| e.code.clone())
+                .unwrap()
+        };
+        assert_eq!(code("session directory randomness"), Code::InternalError);
+        assert_eq!(
+            code("session directory, denied"),
+            Code::CapabilityUnavailable
+        );
+        assert_eq!(code("session file, other"), Code::StateUnavailable);
+        assert_eq!(code("no OpenSSH client"), Code::LaunchFailed);
+        assert_eq!(code("K_mgmt store failed"), Code::ServiceUnavailable);
+        assert_eq!(code("configuration render"), Code::CapabilityUnavailable);
+        assert_eq!(code("ssh spawn"), Code::LaunchFailed);
+    }
+
+    /// ⟨M06 W5 `w5t`⟩ A session directory this controller may not create (an unwritable
+    /// Heimdall home): `CAPABILITY_UNAVAILABLE` (an unchanged retry cannot fix it), effect
+    /// `none`, and the message blames this controller, names the fix and carries no path.
+    #[cfg(unix)]
+    #[test]
+    fn an_unwritable_session_directory_blames_this_controller() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path().join("sessions");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let sessions = SshSessions {
+            ssh_client: None,
+            root: root.clone(),
+            key: Arc::new(StoreKey { store: None }),
+        };
+        let got = sessions.session_dir().unwrap_err();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(got.code, Code::CapabilityUnavailable);
+        assert!(!got.detail().retryable);
+        assert_eq!(got.effect_status, EffectStatus::None);
+        assert_eq!(
+            got.message,
+            "this controller's management session directory could not be created: the \
+             operating system denied it; correct the ownership or permissions of this \
+             controller's Heimdall home, then try again"
+        );
+        assert!(heimdall_app::remote_env::is_controller_fault(&got));
+    }
 
     /// ⟨M06 W5, the 2026-11-22 incident⟩ A debug build under a scratch Heimdall home with
     /// no `HEIMDALL_TEST_MGMT_STORE` selects no K_mgmt store at all: the refusal names the

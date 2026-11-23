@@ -64,6 +64,13 @@ fn not_found(destination: &DestinationId) -> OpError {
     .with_effect(EffectStatus::None)
 }
 
+/// ⟨M06 W5 `w5s`, M06-W5-R02⟩ `route add` of an approved Iroh route with another exposure
+/// policy: what to do instead.
+pub const EXPOSURE_DIFFERS: &str = "this Iroh route is already approved with another exposure \
+     policy (its relays, direct fallback, bind or infrastructure differ); nothing was changed. \
+     To use the new policy, remove the route (`heimdall route remove`), then add it again with \
+     that policy";
+
 fn conflict(message: &str, why: Option<&'static str>) -> OpError {
     let e = OpError::new(Code::ConfigConflict, message.to_owned()).with_effect(EffectStatus::None);
     match why {
@@ -361,6 +368,17 @@ impl RouteOps<'_> {
                 return Ok(Outcome::NotFound);
             };
             if let Some(existing) = list.iter().find(|r| &r.route == route) {
+                // ⟨M06 W5 `w5s`, M06-W5-R02⟩ The same Iroh endpoint under another exposure
+                // policy (another relay set, direct fallback, bind or infrastructure) is not
+                // the route already present: refused, as `transport enable` refuses another
+                // configuration, never answered `already_present` with the request's policy
+                // silently dropped.
+                if matches!(route, RouteSpec::Iroh { .. })
+                    && existing.exposure.clone().unwrap_or_default()
+                        != exposure.cloned().unwrap_or_default()
+                {
+                    return Ok(Outcome::Conflict(EXPOSURE_DIFFERS, None));
+                }
                 return Ok(Outcome::Done(RouteChange {
                     destination: destination.clone(),
                     route: existing.id.clone(),

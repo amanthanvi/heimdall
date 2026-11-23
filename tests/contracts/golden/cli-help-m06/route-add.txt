@@ -33,7 +33,7 @@ Options:
           The Iroh endpoint's direct address (`ip:port`), repeatable
 
       --relay <URL>
-          A relay this Iroh route may use (`https://…` or `http://…`), repeatable. Each relay adds exposure: the route then needs a decision approved on a terminal at this host, which names every relay. A URL with a user name or password, a query string or a fragment is refused
+          A relay this Iroh route may use (`https://…` or `http://…`), repeatable. Each relay adds exposure: the route then needs a decision approved on a terminal at this host, which names every relay. A URL with a user name or password, a query string or a fragment is refused. A relay URL must not carry a credential anywhere, its path included: Heimdall stores it as given and shows only its scheme, host, port and a short digest
 
   -h, --help
           Print help (see a summary with '-h')

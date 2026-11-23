@@ -110,6 +110,11 @@ bin=$root/bin/heimdall
 driver=$root/bin/journey-driver
 acct=$root/acct
 home=$root/home
+# ⟨AGENTS.md "Boundaries"; M06-W5-R04⟩ Every `heimdall` this script starts gets the three
+# fixture key stores, in ROOT, even where no store is reachable: never the account's real
+# keychain, Secret Service or credential store.
+mgmt_store="fixture-file:$root/k_mgmt.fixture"
+iroh_store=$root/k_iroh
 PAIR_DESTINATION=h1
 PROFILE=runner-profile
 
@@ -219,6 +224,8 @@ free_port() {
 hm() {
     env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$acct" HEIMDALL_HOME="$home" \
         HEIMDALL_TEST_SSH_HOME="$acct" HEIMDALL_TEST_TIME_SYNC=synchronized \
+        HEIMDALL_TEST_SECRET_STORE=scratch HEIMDALL_TEST_MGMT_STORE="$mgmt_store" \
+        HEIMDALL_TEST_IROH_KEY_STORE="$iroh_store" \
         "$bin" --home "$home" "$@"
 }
 # One string field of a JSON envelope on stdin, by path (a.b.c); `none` when absent.
@@ -261,7 +268,7 @@ EOF
     if [ "$1" = mgmt ]; then
         cat <<EOF
 AuthorizedKeysFile "$acct/.ssh/authorized_keys"
-SetEnv HEIMDALL_TEST_SSH_HOME="$acct" HEIMDALL_TEST_TIME_SYNC=synchronized
+SetEnv HEIMDALL_TEST_SSH_HOME="$acct" HEIMDALL_TEST_TIME_SYNC=synchronized HEIMDALL_TEST_SECRET_STORE=scratch HEIMDALL_TEST_MGMT_STORE="$mgmt_store" HEIMDALL_TEST_IROH_KEY_STORE="$iroh_store"
 EOF
     else
         cat <<EOF
@@ -345,11 +352,15 @@ runtime_spawn() { # detached|held: starts the runner runtime and records it
     if [ "$1" = held ]; then
         env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$acct" \
             HEIMDALL_HOME="$home" HEIMDALL_TEST_SSH_HOME="$acct" HEIMDALL_TEST_TIME_SYNC=synchronized \
+            HEIMDALL_TEST_SECRET_STORE=scratch HEIMDALL_TEST_MGMT_STORE="$mgmt_store" \
+            HEIMDALL_TEST_IROH_KEY_STORE="$iroh_store" \
             HEIMDALL_TEST_RUNNER_SSHD_CONFIG="$root/mgmt/sshd_config" \
             "$bin" --home "$home" service run --runner </dev/null >/dev/null 2>"$root/runtime.stderr" &
     else
         nohup env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$acct" \
             HEIMDALL_HOME="$home" HEIMDALL_TEST_SSH_HOME="$acct" HEIMDALL_TEST_TIME_SYNC=synchronized \
+            HEIMDALL_TEST_SECRET_STORE=scratch HEIMDALL_TEST_MGMT_STORE="$mgmt_store" \
+            HEIMDALL_TEST_IROH_KEY_STORE="$iroh_store" \
             HEIMDALL_TEST_RUNNER_SSHD_CONFIG="$root/mgmt/sshd_config" \
             "$bin" --home "$home" service run --runner </dev/null >/dev/null 2>"$root/runtime.stderr" &
     fi
@@ -480,7 +491,7 @@ prepare)
     mkdir -m 700 -- "$root" 2>/dev/null || { echo "ROOT exists or cannot be created" >&2; exit 4; }
     # From here on ROOT is this call's own: a failure removes it again.
     undo() { rm -rf -- "$root"; echo "$1" >&2; exit "${2:-1}"; }
-    mkdir -m 700 "$root/bin" "$acct" "$acct/.ssh" "$root/mgmt" "$root/dest" "$root/dest/principals" "$root/onward" || undo "ROOT could not be laid out"
+    mkdir -m 700 "$root/bin" "$acct" "$acct/.ssh" "$root/mgmt" "$root/dest" "$root/dest/principals" "$root/onward" "$iroh_store" || undo "ROOT could not be laid out"
     if ! { cp -- "$1" "$bin" && cp -- "$3" "$driver" && chmod 700 "$bin" "$driver"; }; then undo "the binaries could not be staged"; fi
     (umask 077 && : >"$acct/.ssh/authorized_keys" && : >"$root/dest/ca.pub") || undo "ROOT could not be laid out"
     for n in mgmt dest; do
@@ -527,6 +538,8 @@ trust-ca)
 seed)
     [ -d "$home" ] || die "the runner has not been bootstrapped"
     env -i PATH=/usr/bin:/bin HOME="$acct" HM_M06J_HOME="$home" HM_M06J_ACCOUNT="$(account)" \
+        HEIMDALL_TEST_SECRET_STORE=scratch HEIMDALL_TEST_MGMT_STORE="$mgmt_store" \
+        HEIMDALL_TEST_IROH_KEY_STORE="$iroh_store" \
         HM_M06J_FACTS_OUT="$root/seed.facts" "$driver" --ignored --exact seed_runner </dev/null >"$root/seed.log" 2>&1 ||
         die "the runner seed failed"
     cat "$root/seed.facts"

@@ -549,13 +549,67 @@ pub const AFTER_BOOTSTRAP_NO_SESSION: &str = "the runner confirmed the enrollmen
      session says so and offers to start it): start it on the runner, then run `environment add` \
      again with the same arguments; it repairs the record after the same confirmation";
 
+/// ⟨M06 W5 `w5r`⟩ What `environment add` says instead of [`AFTER_BOOTSTRAP_NO_SESSION`]
+/// when the management session failed on **this controller** before anything reached the
+/// runner (a reason in `reason::MGMT_CONTROLLER_SIDE`: its management key agent, or its
+/// K_mgmt store): the runner and its runtime are not blamed.
+pub const AFTER_BOOTSTRAP_CONTROLLER_FAILED: &str = "the runner confirmed the enrollment, but \
+     this controller could not open its management session because of a fault on this \
+     controller, not on the runner, so nothing was recorded on this controller. Correct the \
+     cause below on this controller, then run `environment add` again with the same \
+     arguments; it repairs the record after the same confirmation";
+
+/// ⟨M06 W5 `w5t`⟩ The head of the message of every management-session failure on this
+/// controller, before anything reached the runner ([`controller_fault`],
+/// [`on_this_controller`]).
+pub const CONTROLLER_FAULT_HEAD: &str = "this controller's ";
+
+/// ⟨M06 W5 `w5t`⟩ A management session that failed on **this controller** before anything
+/// reached the runner: `code` (chosen by whether an unchanged retry can help), effect
+/// `none`, and the message `this controller's <what>; <fix>`. `what` and `fix` never carry
+/// a path.
+#[must_use]
+pub fn controller_fault(code: Code, what: &str, fix: &str) -> OpError {
+    OpError::new(code, format!("{CONTROLLER_FAULT_HEAD}{what}; {fix}"))
+        .with_effect(heimdall_contract::envelope::EffectStatus::None)
+}
+
+/// ⟨M06 W5 `w5t`⟩ An error of a step on this controller (its K_mgmt store, its OpenSSH
+/// client, rendering the session's configuration): code, reason and effect kept, the
+/// message under [`CONTROLLER_FAULT_HEAD`] so that no later text blames the runner.
+#[must_use]
+pub fn on_this_controller(mut e: OpError) -> OpError {
+    if !e.message.starts_with(CONTROLLER_FAULT_HEAD) {
+        e.message = format!(
+            "{CONTROLLER_FAULT_HEAD}management session could not start: {}",
+            e.message
+        );
+    }
+    e
+}
+
+/// ⟨M06 W5 `w5r`, `w5t`⟩ Whether a session's failure is this controller's: a reason in
+/// `reason::MGMT_CONTROLLER_SIDE`, or a message from [`controller_fault`] or
+/// [`on_this_controller`].
+#[must_use]
+pub fn is_controller_fault(e: &OpError) -> bool {
+    e.reason
+        .as_deref()
+        .is_some_and(|r| reason::MGMT_CONTROLLER_SIDE.contains(&r))
+        || e.message.starts_with(CONTROLLER_FAULT_HEAD)
+}
+
 /// The first session's failure after a completed bootstrap, with its code, reason and
-/// effect kept and [`AFTER_BOOTSTRAP_NO_SESSION`] in front of its own message.
+/// effect kept and [`AFTER_BOOTSTRAP_NO_SESSION`] (or, for a failure on this controller,
+/// [`is_controller_fault`], [`AFTER_BOOTSTRAP_CONTROLLER_FAILED`]) in front of its own
+/// message.
 fn after_bootstrap(mut e: OpError) -> OpError {
-    e.message = format!(
-        "{AFTER_BOOTSTRAP_NO_SESSION}. The session's error: {}",
-        e.message
-    );
+    let head = if is_controller_fault(&e) {
+        AFTER_BOOTSTRAP_CONTROLLER_FAILED
+    } else {
+        AFTER_BOOTSTRAP_NO_SESSION
+    };
+    e.message = format!("{head}. The session's error: {}", e.message);
     e
 }
 

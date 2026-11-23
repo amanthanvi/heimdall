@@ -244,3 +244,154 @@ pub(crate) fn journey() {
     );
     drop(j);
 }
+
+/// ⟨M06 W5 `w5s`, M06-W5-R01⟩ **The lift of a delivered pause of a policy the runner holds**,
+/// through the ordinary `access resume <policy>` (the untargeted form), with real binaries.
+/// Observation lines: `m06 observation: lift-held <step>: <result>`.
+///
+/// * `issued-before`: ⟨M06 W5 `w5u`⟩ the runner's own owner pauses the policy locally and
+///   asks `access resume runner-pol` before anything is delivered: a decision naming no
+///   delivered effect;
+/// * `pause-delivered`: the controller's owner pauses the runner's policy (`access pause
+///   runner-pol`); delivered, applied (the runner's policy is paused) and in force;
+/// * `stale`: the decision issued before the delivery is approved on the runner's terminal:
+///   `DECISION_STALE` (exit 6, `next: fix_request`), naming the extra lift; the policy is
+///   still paused and the delivered pause still in force;
+/// * `named`: the runner's unattended owner's `access resume runner-pol` writes a decision
+///   (`INTERACTION_REQUIRED`) and nothing else; `inspect decisions` on the runner shows it
+///   naming the delivered pause (its scope key, kind, the delivering controller and when),
+///   and it is still in force;
+/// * `lift`: the runner's own owner approves that decision on a terminal (typed `yes`):
+///   the policy is active and the delivered pause is no longer in force.
+pub(crate) fn held_policy_journey() {
+    const CASE: &str = "lift-held";
+    let Some(j) = start(|_| Vec::new(), 4 * HOUR) else {
+        blocked(CASE, "no fixture sshd on this host");
+        return;
+    };
+    let environment = j.environment.clone();
+    let runner_policy = |j: &Journey| -> Value {
+        let policies = runner_json(&j.runner, &["inspect", "policies"]);
+        policies["data"]["items"]
+            .as_array()
+            .and_then(|all| all.iter().find(|p| p["policy_id"] == "runner-pol"))
+            .cloned()
+            .unwrap_or_else(|| panic!("the runner's policy: {policies}"))
+    };
+    let paused = |v: &Value| v.get("paused_since").is_some_and(|x| !x.is_null());
+
+    // issued-before: a decision made while nothing is delivered names no lift.
+    let local = runner_json(&j.runner, &["access", "pause", "runner-pol"]);
+    assert_eq!(local["code"], "OK", "{local}");
+    let early = runner_json(
+        &j.runner,
+        &["--non-interactive", "access", "resume", "runner-pol"],
+    );
+    assert_eq!(early["code"], "INTERACTION_REQUIRED", "{early}");
+    let early = early["next"]["decision_ref"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no decision: {early}"))
+        .to_owned();
+    observe(
+        CASE,
+        "issued-before",
+        "by=runner_owner command=access_pause_then_access_resume_runner_pol \
+         answer=INTERACTION_REQUIRED delivered=none",
+    );
+
+    // pause-delivered: once the controller has the runner's report (which lists its
+    // policy), the controller's `access pause runner-pol` is a delivered effect.
+    j.controller
+        .wait_for(&environment, "the controller did not connect", |e| {
+            e["connectivity"]["state"] == "connected"
+        });
+    let mut pause = Value::Null;
+    for _ in 0..40 {
+        pause = j.controller.json(&["access", "pause", "runner-pol"]);
+        if pause["code"] != "NOT_FOUND" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    assert_eq!(pause["code"], "OK", "{pause}\n{}", j.controller.stderr());
+    j.controller
+        .wait_for(&environment, "the pause was not acknowledged", |e| {
+            e["remote_pending"].as_array().is_some_and(Vec::is_empty)
+        });
+    assert!(paused(&runner_policy(&j)), "{}", runner_policy(&j));
+    assert_eq!(in_force(&j), vec![true]);
+    observe(
+        CASE,
+        "pause-delivered",
+        "by=controller_cli command=access_pause_runner_pol applied_on_runner=true in_force=true",
+    );
+
+    // stale: the state changed after the early decision was issued.
+    let (exit, refused) = at_runner(&j, &["decision", "approve", &early]);
+    assert_eq!(exit, 6, "{refused}");
+    assert_eq!(refused["code"], "DECISION_STALE", "{refused}");
+    assert_eq!(refused["next"]["action"], "fix_request", "{refused}");
+    let message = refused["data"]["error"]["message"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        message.contains("a pause of policy:runner-pol"),
+        "the refusal does not name the extra lift: {refused}"
+    );
+    assert!(paused(&runner_policy(&j)), "{}", runner_policy(&j));
+    assert_eq!(in_force(&j), vec![true]);
+    observe(
+        CASE,
+        "stale",
+        "by=runner_local_owner_on_terminal command=decision_approve_early typed=yes \
+         answer=DECISION_STALE exit=6 next=fix_request names=pause_of_policy:runner-pol \
+         policy=paused in_force=true",
+    );
+
+    // named.
+    let asked = runner_json(
+        &j.runner,
+        &["--non-interactive", "access", "resume", "runner-pol"],
+    );
+    assert_eq!(asked["code"], "INTERACTION_REQUIRED", "{asked}");
+    let decision = asked["next"]["decision_ref"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no decision: {asked}"))
+        .to_owned();
+    let listed = runner_json(&j.runner, &["inspect", "decisions"]);
+    let view = listed["data"]["decisions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|d| d["decision_id"] == decision.as_str()))
+        .cloned()
+        .unwrap_or_else(|| panic!("the decision is not listed: {listed}"));
+    let lifted = view["lifted_effects"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the approval does not name the delivered pause: {view}"));
+    assert_eq!(lifted.len(), 1, "{view}");
+    assert_eq!(lifted[0]["scope_key"], "policy:runner-pol", "{view}");
+    assert_eq!(lifted[0]["kind"], "pause", "{view}");
+    assert!(lifted[0]["controller"].is_string(), "{view}");
+    assert!(lifted[0]["delivered_at"].is_string(), "{view}");
+    assert!(paused(&runner_policy(&j)));
+    assert_eq!(in_force(&j), vec![true]);
+    observe(
+        CASE,
+        "named",
+        "by=runner_unattended_owner command=access_resume_runner_pol \
+         answer=INTERACTION_REQUIRED decision_lifted_effects=1(scope_key=policy:runner-pol,kind=pause,controller,delivered_at) \
+         in_force=true",
+    );
+
+    // lift.
+    let (exit, approved) = at_runner(&j, &["decision", "approve", &decision]);
+    assert_eq!(approved["code"], "OK", "exit {exit}: {approved}");
+    assert!(!paused(&runner_policy(&j)), "{}", runner_policy(&j));
+    assert_eq!(in_force(&j), vec![false]);
+    observe(
+        CASE,
+        "lift",
+        "by=runner_local_owner_on_terminal command=decision_approve typed=yes policy=active \
+         in_force=false",
+    );
+    drop(j);
+}

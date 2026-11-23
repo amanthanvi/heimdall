@@ -13,7 +13,9 @@ the build host (macOS) and on the runner host (Linux).
       code (the last JSON envelope's), reason, runtime_offer (declined | accepted |
       not_offered), runtime_stated (what the bootstrap session said about the runner's
       runtime: started | not_started | running | not_running | none), message_names_next_step
-      (whether a refusal's message names `environment add` again), and one line per --field
+      (whether a refusal's message names `environment add` again), message (that envelope's
+      data.error.message, protected as `protect` does), error_fields (the keys of its
+      data.error, comma-separated, or none), and one line per --field
       (a dotted path into that envelope; `none` when absent). The transcript is written only to --transcript
       (the caller's scratch): it may hold paths and is never a saved artifact. --envelope-out
       writes that last envelope (the command's own public answer) as JSON.
@@ -28,7 +30,7 @@ the build host (macOS) and on the runner host (Linux).
       The log section m02-evidence.py reads (the form of run-windows-controller.ps1's
       Format-JourneyLog): one `test <step> ... ok|FAILED|ignored` line per planned step, a
       passed step's `m06 observation:` under its `---- <step> stdout ----` header, a failed
-      step's protected reason. TSV rows: test, case, step, ok|failed, text.
+      step's protected reason (900 characters). TSV rows: test, case, step, ok|failed, text.
   crosshost-tool.py connections --host ADDR [--own PEER_PORT:LOCAL_PORT] [--listening PORTS]
       `ss -Htn state established` on stdin. Facts: established_from_host (the established TCP
       connections whose peer address is ADDR, an IPv4-mapped form included), own_channel (how
@@ -193,8 +195,8 @@ def pairs(args):
     return out
 
 
-def protect(text):
-    one = re.sub(r"[\r\n]+", " ", text)[:300]
+def protect(text, limit=300):
+    one = re.sub(r"[\r\n]+", " ", text)[:limit]
     return re.sub(r"[^A-Za-z0-9_=,\- ]", "?", one)
 
 
@@ -226,7 +228,7 @@ def format_log(target, results, planned, code):
     if failed:
         out += ["", "failures:", ""]
         for r in failed:
-            out += [f"---- {r[0]} stdout ----", f"failed: {protect(r[4])}", ""]
+            out += [f"---- {r[0]} stdout ----", f"failed: {protect(r[4], 900)}", ""]
     out.append(
         f"test result: {'ok' if not failed else 'FAILED'}. {len(passed)} passed; {len(failed)} failed; {len(not_run)} ignored"
     )
@@ -404,6 +406,13 @@ def cmd_pty(args):
     print("runtime_offer=" + ("not_offered" if not offered else "accepted" if offer[0] == "yes" else "declined"))
     print(f"runtime_stated={runtime_stated(text)}")
     message = text_of(walk(envelope, "data.error.message"))
+    # A refusal's own words and the fields its error carries, for a failed step's reason
+    # (protected: codes and words only, never a path, address or quote).
+    # A caller that names its own `message` field gets that one (the first value is read).
+    if not any(name == "message" for name, _ in pairs(fields)):
+        print(f"message={protect(message)}")
+    error = walk(envelope, "data.error")
+    print("error_fields=" + (",".join(sorted(error)) if isinstance(error, dict) and error else "none"))
     named = "nothing was recorded on this controller" in message and "run `environment add` again" in message
     print(f"message_names_next_step={'true' if named else 'false'}")
     for name, path in pairs(fields):
@@ -464,6 +473,10 @@ def cmd_selftest():
     ok_log = format_log("crosshost-journey", rows[:1], ["a24_pair"], 0)
     check("T07 an all-passed log says ok and has no failures section", (
         "test result: ok. 1 passed; 0 failed; 0 ignored" in ok_log and "failures:" not in ok_log))
+    long_log = format_log("crosshost-journey", [["a24_pair", "a24", "pair", "failed", "pair_code=X message=" + "w " * 500]], ["a24_pair"], 1)
+    long_line = [line for line in long_log.splitlines() if line.startswith("failed: ")][0]
+    check("T07b a failed step's reason keeps a refusal's message, up to 900 protected characters", (
+        long_line.startswith("failed: pair_code=X message=w w ") and len(long_line) == len("failed: ") + 900))
     # The pseudo-terminal: a child that asks, reads the answer and prints an envelope.
     child = (
         "import sys\n"

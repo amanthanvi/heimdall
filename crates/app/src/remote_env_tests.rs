@@ -221,6 +221,9 @@ struct FakeSessions {
     /// ⟨M06 W5⟩ The session that follows a bootstrap cannot be opened (the runner's runtime
     /// is not running).
     bootstrap_unreachable: bool,
+    /// ⟨M06 W5 `w5r`⟩ The session that follows a bootstrap fails with this error (one on
+    /// the controller's side).
+    bootstrap_failure: Option<OpError>,
 }
 
 /// What the probes observe on a restricted session.
@@ -246,6 +249,7 @@ impl FakeSessions {
             probe: Some(PROBES_AGREE),
             probes_unavailable: None,
             bootstrap_unreachable: false,
+            bootstrap_failure: None,
         }
     }
     fn sent(&self) -> Vec<(SessionName, Request)> {
@@ -289,6 +293,11 @@ impl ManagementSessions for FakeSessions {
             && self.unreachable.contains(e)
         {
             return Err(OpError::new(Code::DestinationUnreachable, "unreachable"));
+        }
+        if matches!(target.name, SessionName::Bootstrap(_))
+            && let Some(e) = &self.bootstrap_failure
+        {
+            return Err(e.clone());
         }
         if matches!(target.name, SessionName::Bootstrap(_)) && self.bootstrap_unreachable {
             return Err(OpError::new(Code::DestinationUnreachable, "unreachable")
@@ -442,6 +451,81 @@ async fn add_refuses_an_unverified_host_key_before_anything_runs() {
     assert!(w.bootstrap.0.lock().unwrap().is_empty());
     assert!(w.sessions.opened.lock().unwrap().is_empty());
     assert!(w.registry.ids().is_empty());
+}
+
+/// ⟨M06 W5 `w5r`⟩ A first `add` whose bootstrap completed and whose session then failed on
+/// **this controller** (its management key agent could not start): the message names the
+/// controller, not the runner's runtime, and keeps the session's code, reason and message.
+#[tokio::test]
+async fn add_names_the_controller_when_its_own_agent_fails_after_the_bootstrap() {
+    let mut sessions = FakeSessions::new(env_id(9), always_ok());
+    sessions.bootstrap_failure = Some(
+        OpError::new(
+            Code::CapabilityUnavailable,
+            "the agent's socket path is too long",
+        )
+        .with_reason(reason::MGMT_AGENT_PATH_TOO_LONG)
+        .with_effect(EffectStatus::None),
+    );
+    let w = World {
+        key: FakeKey::default(),
+        registry: FakeRegistry::default(),
+        catalog: FakeCatalog(Some(access(&[HOST]))),
+        bootstrap: FakeBootstrap::default(),
+        sessions,
+        confirm: FakeConfirm::yes(),
+    };
+    let e = w.controller().add(&add_input()).await.unwrap_err();
+    assert_eq!(e.code, Code::CapabilityUnavailable);
+    assert_eq!(e.reason.as_deref(), Some(reason::MGMT_AGENT_PATH_TOO_LONG));
+    assert!(
+        e.message
+            .starts_with(super::AFTER_BOOTSTRAP_CONTROLLER_FAILED),
+        "{}",
+        e.message
+    );
+    assert!(
+        e.message
+            .contains("a fault on this controller, not on the runner")
+    );
+    assert!(!e.message.contains("runtime"), "{}", e.message);
+    assert!(
+        e.message
+            .ends_with("The session's error: the agent's socket path is too long")
+    );
+    assert!(w.registry.list().unwrap().is_empty(), "nothing recorded");
+}
+
+/// ⟨M06 W5 `w5t`⟩ A controller-local failure with no reason (`controller_fault`: a session
+/// file this controller could not write) after a completed bootstrap blames this
+/// controller, not the runner's runtime, and keeps its code.
+#[tokio::test]
+async fn add_names_the_controller_for_a_reasonless_local_failure_after_the_bootstrap() {
+    let mut sessions = FakeSessions::new(env_id(9), always_ok());
+    sessions.bootstrap_failure = Some(super::controller_fault(
+        Code::StateUnavailable,
+        "management session file could not be written",
+        "try again",
+    ));
+    let w = World {
+        key: FakeKey::default(),
+        registry: FakeRegistry::default(),
+        catalog: FakeCatalog(Some(access(&[HOST]))),
+        bootstrap: FakeBootstrap::default(),
+        sessions,
+        confirm: FakeConfirm::yes(),
+    };
+    let e = w.controller().add(&add_input()).await.unwrap_err();
+    assert_eq!(e.code, Code::StateUnavailable);
+    assert_eq!(e.reason, None);
+    assert!(
+        e.message
+            .starts_with(super::AFTER_BOOTSTRAP_CONTROLLER_FAILED),
+        "{}",
+        e.message
+    );
+    assert!(!e.message.contains("runtime"), "{}", e.message);
+    assert!(w.registry.list().unwrap().is_empty(), "nothing recorded");
 }
 
 /// ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ A first `add` whose bootstrap completed

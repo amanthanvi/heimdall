@@ -273,6 +273,7 @@ fn seed_controller() {
 /// gets: the directory of the OpenSSH client), `HM_M06J_FACTS_OUT`, and off Windows
 /// `HM_M06J_MGMT_FIXTURE` and `HM_M06J_IROH_FIXTURE` (the two fixture key stores; both
 /// required there, see [`fixture_stores`]). Facts: `exit`, `code`, `reason`, `message`,
+/// `envelope` (`present` or `absent`), `error_fields` (its error's keys, or `none`),
 /// `environment`, `client`, `prompted`, `runtime_offer` (`declined`, `accepted` or
 /// `not_offered`; the answer is `HM_M06J_RUNTIME_OFFER`, `no` when unset) and
 /// `runtime_stated` ([`runtime_stated`]). It asserts nothing about the outcome: the script
@@ -374,6 +375,27 @@ fn environment_add() {
         ("code", field(&["code"])),
         ("reason", field(&["data", "error", "reason"])),
         ("message", field(&["data", "error", "message"])),
+        // ⟨`w5s`, PC job 38 diagnostics⟩ Whether the transcript held an answer at all, and
+        // the keys of its error, so a step that fails before its code is checked still says
+        // what came back (the script protects every value it logs).
+        (
+            "envelope",
+            if envelope.is_some() {
+                "present"
+            } else {
+                "absent"
+            }
+            .to_owned(),
+        ),
+        (
+            "error_fields",
+            envelope
+                .as_ref()
+                .and_then(|v| v.get("data")?.get("error")?.as_object().cloned())
+                .map_or("none".to_owned(), |m| {
+                    m.keys().cloned().collect::<Vec<_>>().join(",")
+                }),
+        ),
         ("environment", field(&["data", "environment"])),
         ("client", field(&["data", "client"])),
         ("prompted", prompted.to_string()),

@@ -240,7 +240,8 @@ pub(crate) fn journey() {
     assert!(record["request"].get("client").is_none(), "{record}");
     assert_eq!(
         record["request"]["exposure"]["relays_added"],
-        serde_json::json!([relay]),
+        // ⟨`w5s`, M06-W5-R05⟩ Shown as scheme, host and port with the URL's digest.
+        serde_json::json!([heimdall_contract::route::relay_display(&relay)]),
         "{record}"
     );
     let approved = w.confirm_answers(&["--json", "decision", "approve", &decision], &["yes"]);

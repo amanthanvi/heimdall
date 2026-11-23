@@ -53,7 +53,7 @@
 #       agent, SSH_CONNECTION) and a marker variable are in the launcher's environment. Facts
 #       (names and counts only): exit, session_agent (true when this session has an agent),
 #       session_agent_keys, session_connection, work_env_extra (names outside the clean
-#       launch's set, `none` when there is none), work_has_session_marker,
+#       launch's set, `none` when there is none), work_shell_is_account_shell, work_has_session_marker,
 #       work_has_ssh_connection, work_agent_is_session_agent, work_agent_under_runner_home,
 #       work_agent_identities, work_agent_certificates, work_agent_lists_session_key,
 #       provenance (what `run` named the inherited agent: controller_dependency | unknown | none).
@@ -110,6 +110,10 @@ shift 2
 bin=$root/bin/heimdall
 acct=$root/acct
 home=$root/home
+# ⟨AGENTS.md "Boundaries"; M06-W5-R04⟩ The three fixture key stores, in ROOT, for every
+# `heimdall` started here (the base script's names), even where no store is reachable.
+mgmt_store="fixture-file:$root/k_mgmt.fixture"
+iroh_store=$root/k_iroh
 
 die() { echo "$*" >&2; exit 1; }
 account() { id -un; }
@@ -118,7 +122,9 @@ py() { python3 -I "$tool" "$@"; }
 # The runner's own commands: a cleared environment, scratch homes, never SSH_AUTH_SOCK.
 hm_env() {
     env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$acct" HEIMDALL_HOME="$home" \
-        HEIMDALL_TEST_SSH_HOME="$acct" HEIMDALL_TEST_TIME_SYNC=synchronized "$@"
+        HEIMDALL_TEST_SSH_HOME="$acct" HEIMDALL_TEST_TIME_SYNC=synchronized \
+        HEIMDALL_TEST_SECRET_STORE=scratch HEIMDALL_TEST_MGMT_STORE="$mgmt_store" \
+        HEIMDALL_TEST_IROH_KEY_STORE="$iroh_store" "$@"
 }
 policy_file() { # NAME -> the path, or exit 2
     case "$1" in sshd_config | policy-kc | policy-fc | policy-ae) echo "$root/mgmt/$1" ;; *) echo "refused: not a policy file of this run" >&2; exit 2 ;; esac
@@ -146,6 +152,8 @@ runtime-start-with)
     [ ! -f "$root/runtime.pid" ] || die "the runner runtime is already recorded as started"
     nohup env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$acct" \
         HEIMDALL_HOME="$home" HEIMDALL_TEST_SSH_HOME="$acct" HEIMDALL_TEST_TIME_SYNC="$1" \
+        HEIMDALL_TEST_SECRET_STORE=scratch HEIMDALL_TEST_MGMT_STORE="$mgmt_store" \
+        HEIMDALL_TEST_IROH_KEY_STORE="$iroh_store" \
         HEIMDALL_TEST_RUNNER_SSHD_CONFIG="$policy" \
         "$bin" --home "$home" service run --runner </dev/null >/dev/null 2>"$root/runtime.stderr" &
     echo $! >"$root/runtime.pid"
@@ -252,7 +260,9 @@ work)
     fi
     # The launcher: the runner owner's own command, with what the session left behind.
     launcher=(env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$acct" HEIMDALL_HOME="$home"
-        HEIMDALL_TEST_SSH_HOME="$acct" HEIMDALL_TEST_TIME_SYNC=synchronized HM_XH_SESSION_MARK=1)
+        HEIMDALL_TEST_SSH_HOME="$acct" HEIMDALL_TEST_TIME_SYNC=synchronized
+        HEIMDALL_TEST_SECRET_STORE=scratch HEIMDALL_TEST_MGMT_STORE="$mgmt_store"
+        HEIMDALL_TEST_IROH_KEY_STORE="$iroh_store" HM_XH_SESSION_MARK=1)
     [ -z "$session_agent" ] || launcher+=(SSH_AUTH_SOCK="$session_agent")
     [ -z "$session_connection" ] || launcher+=(SSH_CONNECTION="$session_connection")
     "${launcher[@]}" "$bin" --home "$home" --non-interactive run --profile runner-profile \
@@ -264,8 +274,13 @@ work)
     echo "session_connection=$([ -n "$session_connection" ] && echo true || echo false)"
     sed -n '1,/^hm-xh-agent$/p' "$w/out" | grep -v '^hm-xh-agent$' >"$w/env"
     sed -n '/^hm-xh-agent$/,/^hm-xh-end$/p' "$w/out" | grep -E '^(ssh-|ecdsa-|sk-)' >"$w/agent" || true
-    extra=$(cut -d= -f1 "$w/env" | grep -vxE 'HOME|USER|LOGNAME|HEIMDALL_HOME|XDG_CONFIG_HOME|XDG_STATE_HOME|XDG_RUNTIME_DIR|TERM|TZ|LANG|LC_ALL|PATH|SSH_AUTH_SOCK|PWD|SHLVL|_|OLDPWD' | sort -u | tr '\n' ',' | sed 's/,$//')
+    extra=$(cut -d= -f1 "$w/env" | grep -vxE 'HOME|USER|LOGNAME|SHELL|HEIMDALL_HOME|XDG_CONFIG_HOME|XDG_STATE_HOME|XDG_RUNTIME_DIR|TERM|TZ|LANG|LC_ALL|PATH|SSH_AUTH_SOCK|PWD|SHLVL|_|OLDPWD' | sort -u | tr '\n' ',' | sed 's/,$//')
     echo "work_env_extra=${extra:-none}"
+    # ⟨ADR-0012 §4, 2026-11-22⟩ The launcher sets SHELL (with HOME, USER, LOGNAME) from the
+    # account database, never from the parent: the work's SHELL is the account's login shell.
+    account_shell=$(getent passwd "$(id -un)" | cut -d: -f7)
+    work_shell=$(sed -n 's/^SHELL=//p' "$w/env" | head -n 1)
+    echo "work_shell_is_account_shell=$([ -n "$account_shell" ] && [ "$work_shell" = "$account_shell" ] && echo true || echo false)"
     echo "work_has_session_marker=$(grep -q '^HM_XH_SESSION_MARK=' "$w/env" && echo true || echo false)"
     echo "work_has_ssh_connection=$(grep -q '^SSH_CONNECTION=' "$w/env" && echo true || echo false)"
     work_agent=$(sed -n 's/^SSH_AUTH_SOCK=//p' "$w/env" | head -n 1)

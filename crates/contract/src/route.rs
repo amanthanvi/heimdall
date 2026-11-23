@@ -84,6 +84,9 @@ pub enum InfrastructureProfile {
     /// The user's relay URLs, each consented.
     Custom {
         /// Relay URLs.
+        // ⟨rev6.5; ADR-0006 §18.9 item 9; M06-W5-R05⟩ A relay URL must not carry a
+        // credential, its path included: it is stored as given, and every answer shows it
+        // only as [`relay_display`] does (scheme, host, port and a digest of the whole URL).
         relays: Vec<String>,
     },
     /// n0's relays plus lookup: off by default and outside V1 unless its capture row runs.
@@ -284,6 +287,87 @@ pub fn normalize_relay_url(text: &str) -> Result<String, RelayUrlRefusal> {
         Some(n) => format!("{scheme}://{host}:{n}{path}"),
         None => format!("{scheme}://{host}{path}"),
     })
+}
+
+/// ⟨rev6.5; ADR-0006 §18.9 item 9; M06-W5-R05⟩ How a relay URL is shown to anyone: its
+/// scheme, host and port, then a short digest of the whole URL (`sha256:` and the first 12
+/// hex digits of SHA-256 over its exact text), for example
+/// `https://relay.example:8443 (sha256:0123456789ab)`. The path, query, fragment and any
+/// userinfo are never shown, since a relay URL's path may carry a token; two URLs that
+/// differ only there show different digests. The stored URL, the exposure delta and its
+/// digest keep the full text: this is for output only (every answer, error, decision view
+/// and `inspect`). A text already in this form is returned unchanged, so showing twice
+/// shows the same. Pure.
+#[must_use]
+pub fn relay_display(url: &str) -> String {
+    if is_relay_display(url) {
+        return url.to_owned();
+    }
+    use sha2::Digest as _;
+    let digest = sha2::Sha256::digest(url.as_bytes());
+    let hex: String = digest.iter().take(6).map(|b| format!("{b:02x}")).collect();
+    let (scheme, rest) = match url.split_once("://") {
+        Some((s, r)) if s.eq_ignore_ascii_case("https") || s.eq_ignore_ascii_case("http") => {
+            (s.to_ascii_lowercase(), r)
+        }
+        _ => return format!("(relay URL) (sha256:{hex})"),
+    };
+    let authority = rest.split(['/', '?', '#', '\\']).next().unwrap_or("");
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let shown = host_port
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':' | b'[' | b']'))
+        && !host_port.is_empty();
+    if shown {
+        format!(
+            "{scheme}://{} (sha256:{hex})",
+            host_port.to_ascii_lowercase()
+        )
+    } else {
+        format!("{scheme}://(host) (sha256:{hex})")
+    }
+}
+
+/// Whether `text` is already a [`relay_display`] form.
+fn is_relay_display(text: &str) -> bool {
+    let Some((head, tail)) = text.rsplit_once(" (sha256:") else {
+        return false;
+    };
+    let digest = tail.is_ascii()
+        && tail.len() == 13
+        && tail.ends_with(')')
+        && tail[..12].bytes().all(|b| b.is_ascii_hexdigit());
+    let head = head == "(relay URL)"
+        || head
+            .split_once("://")
+            .is_some_and(|(_, host)| !host.contains(['/', '?', '#', '@', ' ']));
+    digest && head
+}
+
+/// ⟨rev6.5; ADR-0006 §18.9 item 9; M06-W5-R05⟩ Every relay URL in an output value shown as
+/// [`relay_display`] shows it: each string of an array under the key `relays` (an exposure
+/// policy's `custom` infrastructure) or `relays_added` (an exposure delta), at any depth.
+/// The one place a JSON answer's relay URLs are made fit to show; nothing else is changed.
+pub fn display_relay_urls(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, v) in map.iter_mut() {
+                if (key == "relays" || key == "relays_added")
+                    && let serde_json::Value::Array(items) = v
+                {
+                    for item in items.iter_mut() {
+                        if let serde_json::Value::String(url) = item {
+                            *url = relay_display(url);
+                        }
+                    }
+                    continue;
+                }
+                display_relay_urls(v);
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(display_relay_urls),
+        _ => {}
+    }
 }
 
 impl ExposurePolicy {
@@ -817,5 +901,53 @@ mod tests {
                 "{doc}"
             );
         }
+    }
+
+    /// ⟨M06 W5 `w5s`, M06-W5-R05⟩ A relay URL is shown as scheme, host and port with a
+    /// digest of the whole URL: never its path (where a token may be), query, fragment or
+    /// userinfo; two URLs that differ only in the path show different digests; showing twice
+    /// is showing once; every `relays` and `relays_added` array of an answer is shown so,
+    /// and nothing else in it changes.
+    #[test]
+    fn a_relay_url_is_shown_without_its_path() {
+        let a = relay_display("https://relay.example:8443/s3cretT0ken");
+        let b = relay_display("https://relay.example:8443/other");
+        assert!(a.starts_with("https://relay.example:8443 (sha256:"), "{a}");
+        assert!(!a.contains("s3cretT0ken"), "{a}");
+        assert_ne!(a, b);
+        assert_eq!(relay_display(&a), a, "shown twice");
+        assert_eq!(a.len(), "https://relay.example:8443 (sha256:".len() + 13);
+        for odd in [
+            "https://user:pw@relay.example/p?q=1#f",
+            "HTTP://Relay.Example/x",
+            "ftp://relay.example/t0k",
+            "no scheme t0k",
+            "https://ho st/t0k",
+        ] {
+            let shown = relay_display(odd);
+            for secret in ["user", "pw", "q=1", "#f", "/x", "t0k", "ho st"] {
+                assert!(!shown.contains(secret), "{odd}: {shown}");
+            }
+        }
+        assert!(relay_display("HTTP://Relay.Example/x").starts_with("http://relay.example ("));
+        let mut answer = serde_json::json!({
+            "data": {
+                "decisions": [{
+                    "request": {"exposure": {
+                        "relays_added": ["https://r.example/t0k"],
+                        "after": {"infrastructure": {"kind": "custom", "relays": ["https://r.example/t0k"]}},
+                    }},
+                    "note": "https://r.example/kept",
+                }],
+            },
+        });
+        display_relay_urls(&mut answer);
+        let text = answer.to_string();
+        assert!(!text.contains("t0k"), "{text}");
+        assert!(text.contains("https://r.example/kept"), "{text}");
+        assert_eq!(
+            answer["data"]["decisions"][0]["request"]["exposure"]["relays_added"][0],
+            relay_display("https://r.example/t0k")
+        );
     }
 }

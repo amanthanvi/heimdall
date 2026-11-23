@@ -17,8 +17,8 @@
 #                          reads as passed
 #   HM_XH_HEIMDALL, HM_XH_DRIVER, HM_XH_LINUX_HEIMDALL, HM_XH_LINUX_DRIVER   prebuilt inputs (all
 #                          four, or none: then both sides are built here)
-#   HM_XH_SCRATCH          an existing directory for the run directory (default: ${TMPDIR:-/tmp};
-#                          Unix socket paths under it must stay short)
+#   HM_XH_SCRATCH          an existing directory for the run directory (default: /tmp; refused
+#                          when the controller's socket paths under it would pass 103 bytes)
 #   HM_XH_LIFETIME_S       the lifetime of A24's grant (default 240): the journey waits for it
 #   HM_XH_DEBUG_DIR        keep the raw transcripts of failed steps there (they hold paths and
 #                          names: a scratch directory of the caller, never an artifact)
@@ -151,6 +151,14 @@ EOF
 
 # fact KEY <<<FACTS: the first value of KEY in `key=value` lines; empty when absent.
 fact() { sed -n "s/^$1=//p" | head -n 1; }
+
+# socket_longest PARENT: the length in bytes of the longest controller socket path of a run
+# under PARENT: $run (PARENT/hm-m06x-<8 hex>), the longest controller tag (a25kcv), its home's
+# runtime directory and a management session's socket (run/mgmt/<12 hex>/a.sock).
+# socket_room PARENT: 0 when that path fits a macOS socket address (SOCKET_MAX bytes).
+SOCKET_MAX=103
+socket_longest() { local LC_ALL=C p="$1/hm-m06x-01234567/c-a25kcv/home/run/mgmt/0123456789ab/a.sock"; echo "${#p}"; }
+socket_room() { [ "$(socket_longest "$1")" -le "$SOCKET_MAX" ]; }
 
 # store_guard MGMT IROH RUN: 0 only when both key-store settings name scratch inside RUN: the
 # fixture K_mgmt file store and an existing owner-only K_iroh directory. Without them a debug
@@ -349,6 +357,28 @@ selftest() {
             ! own_remote_dir hm-m06-0123abcd && ! own_remote_dir "" && ! own_remote_dir "hm-m06x-0123abc*"
     }
     ok "N01 only hm-m06x-<8 hex> is a staging directory of this script" t_remote
+    t_socket() {
+        # The default /tmp and w5g's /tmp/hm6x fit; a macOS $TMPDIR (49 bytes, the W5 candidate
+        # run's) does not: its management agent socket was 105 bytes and its bind failed.
+        socket_room /tmp && socket_room /tmp/hm6x && [ "$(socket_longest /tmp)" = 64 ] &&
+            ! socket_room /var/folders/zz/0123456789abcdefghijklmn0000gn/T && socket_room "/$(printf 'x%.0s' $(seq 1 42))" &&
+            ! socket_room "/$(printf 'x%.0s' $(seq 1 43))"
+    }
+    ok "N02 a scratch parent is refused when the controller's longest socket path would pass 103 bytes" t_socket
+    t_summary() {
+        # ⟨`w5s`, PC job 38 diagnostics⟩ A failing first assertion names the result's code, reason
+        # and protected message, never a path, address, quote or secret.
+        local facts=$'exit=3\nprompted=false\ncode=STATE_UNAVAILABLE\nreason=mgmt_agent_unavailable\nerror_fields=code,message,reason\nmessage=the agent could not start at /home/u/.ssh 127.0.0.1 "s3cretT0ken"'
+        reason=""
+        eqr first_pass_prompted false true "$facts" && return 1
+        case "$reason" in "first_pass_prompted=false wanted=true code=STATE_UNAVAILABLE reason=mgmt_agent_unavailable exit=3 error_fields=code,message,reason message=the agent could not start at "*) ;; *) return 1 ;; esac
+        case "$reason" in */* | *127.0.0.1* | *'"'*) return 1 ;; esac
+        reason=""
+        eqr ok same same "$facts" && [ -z "$reason" ] || return 1
+        eqr x a b "" && return 1
+        [ "$reason" = "x=a wanted=b code=none reason=none exit=none error_fields=none message=none" ]
+    }
+    ok "D01 a failed first assertion on a result prints its code, reason and protected message, never a path or secret" t_summary
     t_runner() {
         local r=$here/crosshost-runner.sh a
         bash -n "$r" || return 1
@@ -637,6 +667,19 @@ af() { py field "$1" <<<"$ANSWER"; }
 
 # eq WHAT GOT WANT: a step's check; sets `reason` and fails when they differ.
 eq() { [ "$2" = "$3" ] && return 0; reason="$1=$2 wanted=$3"; return 1; }
+# ⟨M06 W5 `w5s`, PC job 38 diagnostics⟩ result_summary FACTS: what a result's facts say about it,
+# for a failed step's reason: its code, reason, exit and error fields, and its message protected
+# here (codes and words only: never a path, address or quote; 300 characters).
+result_summary() {
+    local m
+    m=$(fact message <<<"$1" | tr -d '\n' | tr -c 'A-Za-z0-9_=,\- ' '?' | cut -c1-300)
+    printf 'code=%s reason=%s exit=%s error_fields=%s message=%s' "$(fact code <<<"$1" | grep . || echo none)" \
+        "$(fact reason <<<"$1" | grep . || echo none)" "$(fact exit <<<"$1" | grep . || echo none)" \
+        "$(fact error_fields <<<"$1" | tr -c 'A-Za-z0-9_,\n' '?' | grep . || echo none)" "${m:-none}"
+}
+# eqr NAME GOT WANT FACTS: `eq` for a step's first assertion on a result; a failure also says the
+# result's code, reason and message (result_summary), never the asserted field alone.
+eqr() { [ "$2" = "$3" ] && return 0; reason="$1=$2 wanted=$3 $(result_summary "$4")"; return 1; }
 
 # --- the runner side -------------------------------------------------------------------------------
 
@@ -758,10 +801,10 @@ world_up() {
     # what is evidenced: the product starts the runner's runtime, waits until it serves, and
     # the controller opens its management session and writes its record in this one pass.
     first=$(ctl_pty "$w" --offer yes --field environment=data.environment --field client=data.client --field role=data.role -- "${add[@]}")
-    eq pair_prompted "$(fact prompted <<<"$first")" true || return 1
+    eqr pair_prompted "$(fact prompted <<<"$first")" true "$first" || return 1
     eq pair_runtime_offer "$(fact runtime_offer <<<"$first")" accepted || return 1
     eq pair_runtime_stated "$(fact runtime_stated <<<"$first")" started || return 1
-    [ "$(fact code <<<"$first")" = OK ] || { reason="pair_code=$(fact code <<<"$first") reason=$(fact reason <<<"$first")"; return 1; }
+    eqr pair_code "$(fact code <<<"$first")" OK "$first" || return 1
     # The rest of the journey needs the FIXTURE's runner: its catalog seed is written only
     # while no runtime runs, and its runtime reads this row's sshd policy file and time state.
     # So the runtime the product just started is stopped through the product's own `service
@@ -922,6 +965,7 @@ s_a24_work_clean_launch() {
     eq session_connection "$(fact session_connection <<<"$f")" true || return 1
     eq work_exit "$(fact exit <<<"$f")" 0 || return 1
     eq work_env_extra "$(fact work_env_extra <<<"$f")" none || return 1
+    eq work_shell_is_account_shell "$(fact work_shell_is_account_shell <<<"$f")" true || return 1
     eq work_has_session_marker "$(fact work_has_session_marker <<<"$f")" false || return 1
     eq work_has_ssh_connection "$(fact work_has_ssh_connection <<<"$f")" false || return 1
     eq work_agent_is_session_agent "$(fact work_agent_is_session_agent <<<"$f")" false || return 1
@@ -931,7 +975,7 @@ s_a24_work_clean_launch() {
     eq work_agent_lists_session_key "$(fact work_agent_lists_session_key <<<"$f")" false || return 1
     eq provenance "$(fact provenance <<<"$f")" controller_dependency || return 1
     eq stderr_names_session_socket "$(fact stderr_names_session_socket <<<"$f")" false || return 1
-    obs="launched_by=heimdall_run launcher=real_ssh_session_from_controller_host_with_agent_forwarding forwarded_agent=disposable_fixture_agent environment=clean_allowlist_only work_agent=binding_endpoint work_agent_lists=runner_k_env_certificate_only forwarded_agent_inherited=false forwarded_agent_provenance=controller_dependency controller=running"
+    obs="launched_by=heimdall_run launcher=real_ssh_session_from_controller_host_with_agent_forwarding forwarded_agent=disposable_fixture_agent environment=clean_allowlist_only shell=account_database work_agent=binding_endpoint work_agent_lists=runner_k_env_certificate_only forwarded_agent_inherited=false forwarded_agent_provenance=controller_dependency controller=running"
 }
 s_a24_controller_leaves() {
     local c=$run/c-a24 pid kids f i=0 lport
@@ -1186,22 +1230,22 @@ invite_join() {
     case "$key" in "ssh-ed25519 "*) ;; *) reason="invited_key=none code=$(py field code <<<"$f")"; return 1 ;; esac
     eq invited_key_store "$(py field data.store.test <<<"$f" | grep -c -v '^none$')" 1 || return 1
     f=$(ctl_pty "$owner" --field decision=next.decision_ref --field message=data.error.message -- environment invite "$ENVIRONMENT" --role "$role" --public-key "$key")
-    eq invite_prompted "$(fact prompted <<<"$f")" true || return 1
+    eqr invite_prompted "$(fact prompted <<<"$f")" true "$f" || return 1
     eq invite_code "$(fact code <<<"$f")" APPROVAL_REQUIRED || return 1
     ref=$(fact decision <<<"$f")
     rid=$(fact message <<<"$f" | sed -n 's/.*--request-id \([A-Za-z0-9_-]*\).*/\1/p')
     [ "$ref" != none ] && [ -n "$rid" ] || { reason="invite_pending_reference=none"; return 1; }
     f=$(must_runner "$world" attended client=data.client -- decision approve "$ref") || return 1
     dbg "approve-$new" <<<"$f"
-    eq runner_approval_prompted "$(fact prompted <<<"$f")" true || return 1
-    if [ "$(fact code <<<"$f")" != OK ]; then reason="runner_approval=$(fact code <<<"$f") reason=$(fact reason <<<"$f")"; return 1; fi
+    eqr runner_approval_prompted "$(fact prompted <<<"$f")" true "$f" || return 1
+    eqr runner_approval "$(fact code <<<"$f")" OK "$f" || return 1
     # The same command again, with the request ID the pending answer named: the bundle.
     f=$(ctl_pty "$owner" --envelope-out "$run/c-$new/invite.json" -- environment invite "$ENVIRONMENT" --role "$role" --public-key "$key" --request-id "$rid")
     eq invite_created "$(fact code <<<"$f")" OK || return 1
     python3 -I -c 'import json, sys; json.dump(json.load(open(sys.argv[1]))["data"], open(sys.argv[2], "w"))' "$run/c-$new/invite.json" "$run/c-$new/bundle.json" 2>/dev/null || { reason="bundle=unreadable"; return 1; }
     f=$(ctl_pty "$new" --field client=data.client --field role=data.role --field environment=data.environment -- environment join "$run/c-$new/bundle.json")
-    eq join_prompted "$(fact prompted <<<"$f")" true || return 1
-    [ "$(fact code <<<"$f")" = OK ] || { reason="join_code=$(fact code <<<"$f") reason=$(fact reason <<<"$f")"; return 1; }
+    eqr join_prompted "$(fact prompted <<<"$f")" true "$f" || return 1
+    eqr join_code "$(fact code <<<"$f")" OK "$f" || return 1
     eq joined_role "$(fact role <<<"$f")" "$role" || return 1
     eq joined_environment "$(fact environment <<<"$f")" "$ENVIRONMENT" || return 1
     INVITED_CLIENT=$(fact client <<<"$f")
@@ -1258,7 +1302,7 @@ s_t06_untrusted_issuer() {
 s_t06_own_grant() {
     local f own
     f=$(must_runner t06 issuer-trust "$(cat "$run/w-t06/ca2.pub")" "$T06_CLIENT2") || return 1
-    eq trust_prompted "$(fact prompted <<<"$f")" true || return 1
+    eqr trust_prompted "$(fact prompted <<<"$f")" true "$f" || return 1
     eq trust_code "$(fact code <<<"$f")" OK || return 1
     forwarded_ensure t06b "$ENVIRONMENT" job-x-t06-b2 x-t06-b-2 30m || return 1
     eq code "$(af code)" OK || return 1
@@ -1321,7 +1365,7 @@ s_a25_sshd_policy_unverified() {
         ref=$(fact decision <<<"$f")
         f=$(must_runner "$w" attended -- decision approve "$ref") || return 1
         dbg "approve-$w" <<<"$f"
-        eq "runner_approval_prompted_$v" "$(fact prompted <<<"$f")" true || return 1
+        eqr "runner_approval_prompted_$v" "$(fact prompted <<<"$f")" true "$f" || return 1
         eq "limited_invitation_$v" "$(fact code <<<"$f") $(fact reason <<<"$f")" "CAPABILITY_UNAVAILABLE management_sshd_unverified" || return 1
         # The owner's own management still works on that runner (owner-only, not unusable).
         eq "owner_record_$v" "$(status "$w" "$ENVIRONMENT" r=role q=record.role | grep -c '=owner$')" 1 || return 1
@@ -1361,9 +1405,14 @@ case "$prebuilt" in
 esac
 for t in python3 ssh ssh-keygen ssh-agent ssh-add lsof shasum jq; do command -v "$t" >/dev/null 2>&1 || blocked "missing tool: $t"; done
 [ "$(uname -s)" = Darwin ] || blocked "the controller of this journey is macOS (the build host)"
-scratch_parent=${HM_XH_SCRATCH:-${TMPDIR:-/tmp}}
+scratch_parent=${HM_XH_SCRATCH:-/tmp}
 [ -d "$scratch_parent" ] || blocked "HM_XH_SCRATCH is not a directory"
 scratch_parent=$(cd "$scratch_parent" && pwd)
+# The controller's K_mgmt agent socket is <home>/run/mgmt/<12 hex>/a.sock (and p.sock beside it),
+# and macOS holds 103 bytes of a socket path. A longer one fails the bind, which the product
+# reports as "the management key agent could not be started" after the bootstrap (the W5
+# candidate run under the default $TMPDIR, w5q). Refused before anything is created.
+socket_room "$scratch_parent" || blocked "HM_XH_SCRATCH is too long for the controller's sockets ($(socket_longest "$scratch_parent") bytes, the limit is $SOCKET_MAX): give a shorter one"
 
 mkdir -p "$out" || exit 2
 out=$(cd "$out" && pwd)

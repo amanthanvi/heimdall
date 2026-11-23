@@ -4,7 +4,8 @@
 //! test:
 //! * `rev6_reason_golden`: the M06 reasons and their codes (`golden/rev6-reasons.golden.json`)
 //!   against `envelope::reason::M06`, both ways; every one `CAPABILITY_UNAVAILABLE` except
-//!   revision 6.3's `local_owner_required` (`INTERACTION_REQUIRED`); no
+//!   revision 6.3's `local_owner_required` (`INTERACTION_REQUIRED`) and revision 6.5's
+//!   retryable `mgmt_agent_address_in_use` and `mgmt_agent_unavailable` (`STATE_UNAVAILABLE`); no
 //!   reason string reused across M02–M06 (`route_dependency_out_of_scope` stays M04's); the
 //!   pending reason has no code and is not an error reason; the code table is unchanged;
 //! * `rev6_request_forms`: one request of every revision-6 form
@@ -107,15 +108,20 @@ fn rev6_reason_golden() {
     assert_eq!(got, want, "M06 reasons and codes");
     assert_eq!(
         got.len(),
-        26,
+        30,
         "revision 6.2 added mgmt_key_store_unavailable; revision 6.3 added \
-         local_owner_required and resync_pending"
+         local_owner_required and resync_pending; revision 6.5 added the four mgmt_agent_*"
     );
     for (r, c) in &got {
         // Revision 6.3 (ADR-0006 §18.7): `local_owner_required` is the one M06 reason under
-        // `INTERACTION_REQUIRED`; every other is `CAPABILITY_UNAVAILABLE`.
+        // `INTERACTION_REQUIRED`. Revision 6.5 (§18.9): of the four `mgmt_agent_*` reasons,
+        // the two an unchanged retry can help are under `STATE_UNAVAILABLE`; path-too-long
+        // and permission-denied, which it cannot, are `CAPABILITY_UNAVAILABLE` like every
+        // other.
         let code = if r == reason::LOCAL_OWNER_REQUIRED {
             "INTERACTION_REQUIRED"
+        } else if r == reason::MGMT_AGENT_ADDRESS_IN_USE || r == reason::MGMT_AGENT_UNAVAILABLE {
+            "STATE_UNAVAILABLE"
         } else {
             "CAPABILITY_UNAVAILABLE"
         };

@@ -311,10 +311,33 @@ function Select-Environment($Envelope, [string]$Environment) {
 # What a failed step may say: codes, reasons and states only (lowercase/uppercase words, digits,
 # `_`, `=`, `-`, `,`, spaces). Anything else in a reason is replaced, so no path, account, address
 # or key can reach the log through a failure.
-function Protect-Reason([string]$Text) {
+function Protect-Reason([string]$Text, [int]$Limit = 300) {
     $one = ($Text -replace "[`r`n]+", ' ')
-    if ($one.Length -gt 300) { $one = $one.Substring(0, 300) }
+    if ($one.Length -gt $Limit) { $one = $one.Substring(0, $Limit) }
     return ($one -replace '[^A-Za-z0-9_=,\- ]', '?')
+}
+
+# ⟨M06 W5 `w5s`, PC job 38 diagnostics⟩ What a driver or command result says about itself, for a
+# failed step's reason: its code, reason and exit, and its message through Protect-Reason (codes and
+# words only, never a path, address or quote). $Result is a driver's facts (a hashtable) or a
+# command's JSON envelope; a part it does not have reads `none`.
+function Format-ResultSummary($Result) {
+    if ($Result -is [System.Collections.IDictionary]) {
+        $get = { param($k) if ($Result.Contains($k) -and "$($Result[$k])") { [string]$Result[$k] } else { 'none' } }
+        $code = & $get 'code'; $why = & $get 'reason'; $exit = & $get 'exit'; $message = & $get 'message'
+        $fields = & $get 'error_fields'; $envelope = & $get 'envelope'
+    } else {
+        $pick = { param($path) $v = Get-Field $Result $path; if ($v) { $v } else { 'none' } }
+        $code = & $pick 'code'; $why = & $pick 'data.error.reason'; $exit = 'none'; $message = & $pick 'data.error.message'
+        $fields = 'none'; $envelope = if ($null -eq $Result) { 'absent' } else { 'present' }
+    }
+    return "code=$code reason=$why exit=$exit envelope=$envelope error_fields=$(Protect-Reason $fields) message=$(Protect-Reason $message 600)"
+}
+# The first assertion of a step on a result: as Assert-Equal, and a failure also says the result's
+# code, reason and (protected) message, so a step that fails early is never reported by the one
+# asserted field alone.
+function Assert-Result([string]$What, [string]$Got, [string]$Want, $Result) {
+    if ($Got -cne $Want) { throw "$What=$Got wanted=$Want $(Format-ResultSummary $Result)" }
 }
 
 # The log section m02-evidence.py reads. $Results: ordered list of @{ Test; Case; Step; Ok;
@@ -335,7 +358,7 @@ function Format-JourneyLog([object[]]$Results, [int]$Code, [string[]]$Planned = 
     }
     if ($failed.Count -gt 0) {
         [void]$s.Append("`nfailures:`n`n")
-        foreach ($r in $failed) { [void]$s.Append("---- $($r.Test) stdout ----`nfailed: $(Protect-Reason $r.Reason)`n`n") }
+        foreach ($r in $failed) { [void]$s.Append("---- $($r.Test) stdout ----`nfailed: $(Protect-Reason $r.Reason 900)`n`n") }
     }
     [void]$s.Append("test result: $(if ($failed.Count -eq 0) { 'ok' } else { 'FAILED' }). $($passed.Count) passed; $($failed.Count) failed; $($notRun.Count) ignored`n")
     [void]$s.Append("### $Target exit=$Code`n")
@@ -414,6 +437,21 @@ function Invoke-SelfTest {
     Check 'P01 a failure reason keeps codes and loses paths, addresses and quotes' (
         $p.Contains('code=STATE_UNAVAILABLE') -and -not $p.Contains('\') -and -not $p.Contains('/') -and -not $p.Contains('.') -and
         -not $p.Contains('"') -and -not $p.Contains("`n") -and (Protect-Reason ('x' * 900)).Length -eq 300)
+    # ⟨`w5s`, PC job 38 diagnostics⟩ A failing first assertion names the result's code, reason and
+    # protected message: never a path, address, quote or secret.
+    $driverFacts = @{ prompted = 'false'; code = 'STATE_UNAVAILABLE'; reason = 'mgmt_agent_unavailable'; exit = '3'
+        message = 'the controller''s management key agent could not start at C:\Users\someone\x /home/u/.ssh 127.0.0.1 "s3cretT0ken"' }
+    $driverFail = try { Assert-Result 'first_pass_prompted' $driverFacts['prompted'] 'true' $driverFacts; '' } catch { $_.Exception.Message }
+    $envFail = try { Assert-Result 'code' 'DENIED' 'OK' (ConvertFrom-Envelope '{"code":"DENIED","data":{"error":{"reason":"policy_paused","message":"paused at /var/x"}}}'); '' } catch { $_.Exception.Message }
+    $logged = Protect-Reason $driverFail 900
+    Check 'P02 a failed first assertion prints the result''s code, reason and protected message, never a path or secret' (
+        $driverFail.StartsWith('first_pass_prompted=false wanted=true code=STATE_UNAVAILABLE reason=mgmt_agent_unavailable exit=3 ') -and
+        $driverFail.Contains('message=the controller') -and $driverFail.Contains('management key agent could not start') -and
+        -not $driverFail.Contains('\') -and -not $driverFail.Contains('/') -and -not $driverFail.Contains('127.0.0.1') -and -not $driverFail.Contains('"') -and
+        -not $logged.Contains('/') -and
+        $envFail.StartsWith('code=DENIED wanted=OK code=DENIED reason=policy_paused ') -and -not $envFail.Contains('/') -and
+        (Format-ResultSummary $null).StartsWith('code=none reason=none') -and
+        $null -eq (& { try { Assert-Result 'x' 'a' 'a' $driverFacts } catch { 'threw' } }))
     $ok = @{ Test = 'a24_pair'; Case = 'a24'; Step = 'pair'; Ok = $true; Observation = 'owner_enrolled=true'; Reason = '' }
     $bad = @{ Test = 'a24_approve'; Case = 'a24'; Step = 'approve'; Ok = $false; Observation = ''; Reason = 'code=CAPABILITY_UNAVAILABLE reason=x at /p' }
     $log = Format-JourneyLog @($ok, $bad) 1 @('a24_pair', 'a24_approve', 'a07_issued')
@@ -940,7 +978,7 @@ $stepBodies = @{
         # start it; the journey declines. The controller then cannot open its management session,
         # records nothing, and its refusal names the next step. Nothing here is silent.
         $first = Invoke-Driver 'environment_add' $add
-        Assert-Equal 'first_pass_prompted' $first['prompted'] 'true'
+        Assert-Result 'first_pass_prompted' $first['prompted'] 'true' $first
         Assert-Equal 'first_pass_runtime_offer' $first['runtime_offer'] 'declined'
         Assert-Equal 'first_pass_runtime_stated' $first['runtime_stated'] 'not_started'
         Assert-Equal 'first_pass_code' $first['code'] 'DESTINATION_UNREACHABLE'
@@ -953,10 +991,10 @@ $stepBodies = @{
         [void](Invoke-Runner 'seed')
         Assert-Equal 'runner_runtime' ([string](Start-Serving 'runtime' 'runtime-serve')['runtime']) 'running'
         $second = Invoke-Driver 'environment_add' $add
-        Assert-Equal 'pair_prompted' $second['prompted'] 'true'
+        Assert-Result 'pair_prompted' $second['prompted'] 'true' $second
         Assert-Equal 'pair_runtime_offer' $second['runtime_offer'] 'not_offered'
         Assert-Equal 'pair_runtime_stated' $second['runtime_stated'] 'running'
-        if ($second['code'] -cne 'OK') { throw "pair_code=$($second['code']) reason=$($second['reason'])" }
+        Assert-Result 'pair_code' $second['code'] 'OK' $second
         if ($second['environment'] -cnotmatch '\Aenv_[0-9a-f]+\z') { throw 'pair_environment=none' }
         $journey.Environment = $second['environment']
         $status = Get-Status $journey.Environment
@@ -974,7 +1012,7 @@ $stepBodies = @{
     }
     'a24_approve' = {
         $a = Invoke-ForwardedEnsure $journey.Environment 'job-w-a07' 'w-fwd-1' '1h'
-        Assert-Equal 'code' (Get-Field $a 'code') 'OK'
+        Assert-Result 'code' (Get-Field $a 'code') 'OK' $a
         Assert-Equal 'environment' (Get-Field $a 'data.environment_id') $journey.Environment
         Assert-Equal 'mechanism' (Get-Field $a 'data.credential_mechanism') 'managed_certificate'
         Assert-Equal 'refresh_dependency' (Get-Field $a 'data.refresh_dependency') 'controller'
@@ -1004,7 +1042,7 @@ $stepBodies = @{
     }
     'a07_revoke_pending' = {
         $r = (Invoke-Controller @('access', 'revoke', $journey.Grant) 60).Envelope
-        Assert-Equal 'code' (Get-Field $r 'code') 'OK'
+        Assert-Result 'code' (Get-Field $r 'code') 'OK' $r
         Assert-Equal 'local_applied' (Get-Field $r 'data.local_applied') 'false'
         Assert-Equal 'remote_pending_names_the_grant' ([string]((Get-Field $r 'data.remote_pending.0') -ceq $journey.Grant)).ToLowerInvariant() 'true'
         $s = Get-Status $journey.Environment
@@ -1036,7 +1074,7 @@ $stepBodies = @{
     'a24_controller_leaves' = {
         # A grant for the work that outlives the controller, in use on the runner before it leaves.
         $a = Invoke-ForwardedEnsure $journey.Environment 'job-w-a24' 'w-fwd-3' '1h'
-        Assert-Equal 'code' (Get-Field $a 'code') 'OK'
+        Assert-Result 'code' (Get-Field $a 'code') 'OK' $a
         $e = Invoke-Runner 'ensure' @('job-w-local-2', 'w-local-2', '30s')
         if (@('OK', 'ACCESS_READY') -cnotcontains $e['code']) { throw "runner_ensure=$($e['code'])" }
         $journey.Endpoint2 = $e['endpoint']

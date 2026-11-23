@@ -155,3 +155,10 @@ mod lift;
 fn a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally() {
     lift::journey();
 }
+
+/// ⟨M06 W5 `w5s`, M06-W5-R01⟩ A delivered pause of a policy the runner holds: the ordinary
+/// `access resume <policy>` writes a decision that names it, and its approval lifts it.
+#[test]
+fn a_delivered_pause_of_a_held_policy_is_named_by_access_resume() {
+    lift::held_policy_journey();
+}

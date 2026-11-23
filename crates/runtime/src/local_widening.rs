@@ -89,8 +89,9 @@ pub(crate) fn submission_of(caller: &Caller) -> Result<Submission, OpError> {
     })
 }
 
-/// What `delta` widens, in words, for a refusal's detail: each added relay by its URL (a
-/// normalised relay URL carries no credential), the bind scope's change, direct fallback,
+/// What `delta` widens, in words, for a refusal's detail: each added relay in its shown
+/// form (scheme, host, port and a digest: never its path, which may carry a token;
+/// [`heimdall_contract::route::relay_display`]), the bind scope's change, direct fallback,
 /// public infrastructure, serving, an adopted roost.
 fn widening_words(delta: &ExposureDelta) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -105,7 +106,10 @@ fn widening_words(delta: &ExposureDelta) -> String {
         ));
     }
     for relay in &delta.relays_added {
-        parts.push(format!("the relay {relay}"));
+        parts.push(format!(
+            "the relay {}",
+            heimdall_contract::route::relay_display(relay)
+        ));
     }
     if delta.direct_fallback_added {
         parts.push("direct fallback to learned addresses".to_owned());

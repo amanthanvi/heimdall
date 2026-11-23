@@ -649,7 +649,11 @@ pub(crate) fn journey() {
     assert!(
         unattended_hint.data["error"]["message"]
             .as_str()
-            .is_some_and(|m| m.contains("the relay https://relay.invalid./")),
+            // ⟨`w5s`, M06-W5-R05⟩ Shown as scheme, host and port with the URL's digest.
+            .is_some_and(|m| m.contains(&format!(
+                "the relay {}",
+                heimdall_contract::route::relay_display("https://relay.invalid./")
+            ))),
         "{unattended_hint:?}"
     );
     assert_eq!(routes().len(), 1, "{:?}", routes());

@@ -619,5 +619,31 @@ check "m06_crosshost_never_uses_the_owner_agent_for_a_fixture_and_never_a_blanke
         grep -q -- "-o ControlMaster=no -o ControlPath=none" "$1/run-crosshost.sh" && grep -q "HEIMDALL_TEST_MGMT_STORE=" "$1/run-crosshost.sh" &&
         grep -q "HEIMDALL_TEST_IROH_KEY_STORE=" "$1/run-crosshost.sh" && ! grep -q "tests/evidence" "$1/run-crosshost.sh"' _ "$here"
 
+# ⟨M06 W5 `w5s`, M06-W5-R04⟩ The runner-side scripts start every `heimdall` with the three fixture
+# key stores (AGENTS.md "Boundaries"): each environment that names the runner's Heimdall home, the
+# runner's own sshd's SetEnv and the seed driver's name all three, in ROOT.
+check "m06_runner_scripts_start_heimdall_with_the_three_fixture_key_stores" \
+    python3 -I -c '
+import re, sys
+bad = []
+for path in sys.argv[1:]:
+    lines = open(path).read().splitlines()
+    starts = [i for i, l in enumerate(lines)
+              if re.search(r"HEIMDALL_HOME=\"\$home\"|HM_M06J_HOME=\"\$home\"|^SetEnv ", l)]
+    if not starts:
+        bad.append(path + ": no launch found")
+    for i in starts:
+        block = " ".join(lines[max(0, i - 1):i + 4])
+        for v in ("HEIMDALL_TEST_SECRET_STORE=scratch", "HEIMDALL_TEST_MGMT_STORE=\"$mgmt_store\"",
+                  "HEIMDALL_TEST_IROH_KEY_STORE=\"$iroh_store\""):
+            if v not in block:
+                bad.append("%s:%d: %s missing" % (path, i + 1, v.split("=")[0]))
+    text = "\n".join(lines)
+    if "mgmt_store=\"fixture-file:$root/" not in text or "iroh_store=$root/" not in text:
+        bad.append(path + ": the stores are not in ROOT")
+print("\n".join(bad))
+sys.exit(1 if bad else 0)
+' "$here/windows-controller-runner.sh" "$here/crosshost-runner.sh"
+
 echo "m06-selftest: $passes passed, $fails failed"
 [ "$fails" = 0 ]

@@ -784,6 +784,34 @@ pub mod reason {
     /// and resynchronization (ADR-0012 §7.4): the controller's barrier and the runner's
     /// per-session gate both answer it.
     pub const RESYNC_PENDING: &str = "resync_pending";
+    /// ⟨M06, rev6.5⟩ `CAPABILITY_UNAVAILABLE`: this controller's management key agent could
+    /// not start because its socket path would be longer than the platform allows (ADR-0006
+    /// §18.9). A fault on this controller, not on the runner, that an unchanged retry
+    /// cannot fix (a shorter runtime or temporary directory does).
+    pub const MGMT_AGENT_PATH_TOO_LONG: &str = "mgmt_agent_path_too_long";
+    /// ⟨M06, rev6.5⟩ `CAPABILITY_UNAVAILABLE`: the operating system denied this controller's
+    /// management key agent its owner-only directory, socket or pipe (ADR-0006 §18.9); an
+    /// unchanged retry cannot fix it (that directory's ownership or permissions can).
+    pub const MGMT_AGENT_PERMISSION_DENIED: &str = "mgmt_agent_permission_denied";
+    /// ⟨M06, rev6.5⟩ `STATE_UNAVAILABLE`: the name of this controller's management key
+    /// agent was already taken under every fresh random name it tried; what is there is
+    /// never reused or removed (ADR-0006 §18.9). Retryable.
+    pub const MGMT_AGENT_ADDRESS_IN_USE: &str = "mgmt_agent_address_in_use";
+    /// ⟨M06, rev6.5⟩ `STATE_UNAVAILABLE`: this controller's management key agent could not
+    /// start for any other reason (ADR-0006 §18.9). Retryable.
+    pub const MGMT_AGENT_UNAVAILABLE: &str = "mgmt_agent_unavailable";
+
+    /// ⟨M06, rev6.5⟩ The reasons of a management session that failed on this controller
+    /// before anything reached the runner: its management key agent's, and its K_mgmt
+    /// store's.
+    pub const MGMT_CONTROLLER_SIDE: &[&str] = &[
+        MGMT_AGENT_PATH_TOO_LONG,
+        MGMT_AGENT_PERMISSION_DENIED,
+        MGMT_AGENT_ADDRESS_IN_USE,
+        MGMT_AGENT_UNAVAILABLE,
+        MGMT_KEY_STORE_LOCKED,
+        MGMT_KEY_STORE_UNAVAILABLE,
+    ];
 
     /// ⟨M06⟩ Revision 6's reasons with their codes, kept separate from [`ALL`], [`M03`],
     /// [`M04`] and [`M05`] (the code table is unchanged): golden
@@ -815,6 +843,10 @@ pub mod reason {
         (KEY_ALREADY_AUTHORIZED, Code::CapabilityUnavailable),
         (LOCAL_OWNER_REQUIRED, Code::InteractionRequired),
         (RESYNC_PENDING, Code::CapabilityUnavailable),
+        (MGMT_AGENT_PATH_TOO_LONG, Code::CapabilityUnavailable),
+        (MGMT_AGENT_PERMISSION_DENIED, Code::CapabilityUnavailable),
+        (MGMT_AGENT_ADDRESS_IN_USE, Code::StateUnavailable),
+        (MGMT_AGENT_UNAVAILABLE, Code::StateUnavailable),
     ];
 
     /// ⟨M06⟩ A `remote_pending` reason, not an error reason: an Iroh revocation is

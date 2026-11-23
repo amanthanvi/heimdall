@@ -30,7 +30,7 @@
 use std::sync::Arc;
 
 use heimdall_contract::ids::DestinationId;
-use heimdall_contract::route::{DestinationRoute, InfrastructureProfile};
+use heimdall_contract::route::{DestinationRoute, InfrastructureProfile, relay_display};
 use heimdall_store::ext_transport::RouteConsentRecord;
 use heimdall_store::{NoFaults, Store};
 use heimdall_testkit::assert_no_canary;
@@ -45,8 +45,18 @@ use super::world::state_db;
 const CASE: &str = "local-widening";
 /// The destination in the world (`ex1`, alias `exit1`).
 const DEST: &str = "ex1";
-const RELAY: &str = "https://relay.invalid./";
-const OTHER_RELAY: &str = "https://other-relay.invalid./";
+/// ⟨`w5s`, M06-W5-R05⟩ Each relay URL carries a token in its path: stored as given, never
+/// shown (every answer shows scheme, host and port with the URL's digest).
+const RELAY: &str = "https://relay.invalid./t0k3nRelayPath";
+const OTHER_RELAY: &str = "https://other-relay.invalid./0therT0k3nPath";
+const TOKENS: [&str; 2] = ["t0k3nRelayPath", "0therT0k3nPath"];
+
+/// Neither relay URL's path appears in `text` (an answer, a prompt, a listing).
+fn path_unseen(what: &str, text: &str) {
+    for t in TOKENS {
+        assert!(!text.contains(t), "{what} shows a relay URL's path");
+    }
+}
 
 fn endpoint(c: char) -> String {
     c.to_string().repeat(64)
@@ -167,9 +177,11 @@ pub(crate) fn route_add() {
     );
     let detail = unattended["data"]["error"]["message"].as_str().unwrap();
     assert!(
-        detail.contains("`route.add` widens") && detail.contains(&format!("the relay {RELAY}")),
+        detail.contains("`route.add` widens")
+            && detail.contains(&format!("the relay {}", relay_display(RELAY))),
         "{detail}"
     );
+    path_unseen("the unattended refusal", &unattended.to_string());
     assert!(local_records(&w).is_empty());
     assert_eq!(stored(&w), before);
     observe(
@@ -190,9 +202,11 @@ pub(crate) fn route_add() {
     assert_eq!(record["request"]["request_kind"], "route.add", "{record}");
     assert_eq!(
         record["request"]["exposure"]["relays_added"],
-        serde_json::json!([RELAY]),
+        serde_json::json!([relay_display(RELAY)]),
         "{record}"
     );
+    path_unseen("the approval request", &submitted.stdout);
+    path_unseen("inspect decisions", &record.to_string());
     assert_eq!(
         record["request"]["request"]["route"]["endpoint"],
         ep.as_str(),
@@ -246,9 +260,10 @@ pub(crate) fn route_add() {
     let declined = w.confirm_answers(&["--json", "decision", "approve", &second], &["no"]);
     assert_eq!(declined.code, 3, "{}", w.redact(&declined.stdout));
     assert!(
-        declined.stdout.contains(OTHER_RELAY),
+        declined.stdout.contains(&relay_display(OTHER_RELAY)),
         "the prompt shows the delta"
     );
+    path_unseen("the approval prompt", &declined.stdout);
     assert_eq!(
         local_records(&w).len(),
         2,
@@ -265,8 +280,11 @@ pub(crate) fn route_add() {
     // route-approve
     let approved = w.confirm_answers(&["--json", "decision", "approve", &first], &["yes"]);
     let shown = &approved.stdout;
+    path_unseen("the approval prompt and its answer", shown);
     assert!(
-        shown.contains(RELAY) && shown.contains("\"origin\": \"local\"") && shown.contains(&ep),
+        shown.contains(&relay_display(RELAY))
+            && shown.contains("\"origin\": \"local\"")
+            && shown.contains(&ep),
         "the approval prompt did not show the recorded request and delta: {}",
         w.redact(shown)
     );
@@ -305,6 +323,20 @@ pub(crate) fn route_add() {
     let again = answer(&w.confirm_answers(&add, &[]));
     assert_eq!(again["code"], "OK", "{again}");
     assert_eq!(again["data"]["already_present"], true, "{again}");
+    path_unseen("already_present", &again.to_string());
+    for args in [
+        &["--json", "inspect", "destinations"][..],
+        &["--json", "operation", "events", "--limit", "500"][..],
+    ] {
+        let out = w.cli(args);
+        assert_eq!(
+            out.json()["code"],
+            "OK",
+            "{args:?}: {}",
+            w.redact(&out.stdout)
+        );
+        path_unseen(&format!("{args:?}"), &out.stdout);
+    }
     assert_eq!(again["data"]["route"], route.as_str(), "{again}");
     let left: Vec<String> = decisions(&w)
         .iter()
