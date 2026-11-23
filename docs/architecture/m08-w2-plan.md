@@ -7,19 +7,24 @@
 - The candidate build does not exist yet. U3b (the candidate archives) waits for the contract handoff after M06's exit (m08-plan rule 2).
 - A number measured on any other build is a rehearsal. The record says so and never presents it as the release figure.
 
-## W2-1. Fuzz to the stopping rule, and its record
+## W2-1. Fuzz: the record of the old build, defect hunting, and the campaign of record
 
-- **Now:**
-  - the campaign runs on, one capped container at a time, toward the rule;
-  - time counts per build (`fuzz/accounting.txt`; build `9dd72f8fd9e5c17c` = `ec985922`);
-  - the ten targets not met run on to the 8 CPU-hour ceiling (28,800 s counted).
-- **Record:** `tests/evidence/m08-fuzz-campaign.json`, following `record.schema.json`.
-  - One row per target: counted time; the closing run's edges, features and corpus at load and at end; findings; and `met`, or `not met` with the reason.
-  - The pins: image, nightly, cargo-fuzz, libfuzzer-sys, the fuzz lock digest and the build identity.
-  - The raw extracts stay in `tests/evidence/artifacts/m08-fuzz/`.
-  - A target that reaches the ceiling with edges still growing is recorded as `not met` at the ceiling, which ADR-0014 §2.3 permits, with its coverage curve. It is never relabelled `met`. The go/no-go draft names each such target, with its final edge count, as a stated limit.
-- **Rerun rule:** a target whose linked crates change at the candidate is rerun (ADR-0014 §2.3). The build identity shows which.
-- **Where:** the Mac, in the existing container. No PC fuzzing: no target is Windows-specific.
+Ruled 2026-11-23, after M06 W5 merged into main (`f0ee5c87`):
+
+- **The build `9dd72f8fd9e5c17c` (= `ec985922`'s linked crates) is closed after round 2's closing
+  run.** Round 3 is not run. Its final record lists each target as met or not met at that
+  build, with counted time, edges and features. It is history: M06 W5 changes crates most
+  targets link, so none of its time counts toward the candidate.
+- **Until the candidate:** the newest merged build is fuzzed whenever the capped-container slot
+  is free, as defect hunting. A crash is a finding, handled as ADR-0014 §2.4 says. Its time
+  counts only if no later change touches the target's linked crates, which the per-build
+  accounting (`fuzz/accounting.txt`, `build=` per run) shows.
+- **The campaign of record runs on the release candidate's build** (U0's contract rev 7 changes
+  the contract and store crates again). Record: `tests/evidence/m08-fuzz-campaign.json`, one row
+  per target (counted time; the closing run's edges, features and corpus at load and end;
+  findings; met or not met). A target at the 8 CPU-hour ceiling still gaining edges is `not met`
+  at the ceiling, and the go/no-go draft names it with its final edge count.
+- **Where:** the Mac, in the capped container. No PC fuzzing.
 
 ## W2-2. A29's spec §14.3 table
 
@@ -68,7 +73,11 @@
   - M on a debug build with the scratch store (mechanism evidence only, as m08-plan §6.2 says);
   - R only if M06's exit supports runners in containers.
 - **The Mac is shared** with other workloads. The record says so, and the soak captures the host's load samples (1-, 5- and 15-minute load and free memory, every 30 s) beside its own. A soak whose failure lines up with host overload is run again, never silently discarded.
-- **Start:** when U3b freezes the candidate's feature set and archives. The orchestrator reads the status file at start, +1 h, +6 h, +24 h, +48 h and +72 h.
+- **Start:** when U3b freezes the candidate's feature set and archives.
+- **Two capped containers in the candidate phase** (ruled 2026-11-23): the 72-hour soak of record and
+  the fuzz campaign of record may run at once, each with `--cpus 2` and its memory cap. The host
+  load sampling covers both. If the 15-minute load stays above 30 for an hour, the fuzz pauses
+  and the soak keeps running; the pause and resume are written into the campaign's `results.txt`. The orchestrator reads the status file at start, +1 h, +6 h, +24 h, +48 h and +72 h.
 - **Before the candidate:** one 6-hour rehearsal on `main`'s Linux arm64 release archive, lanes S and L, to confirm the thresholds and the self-stop. It is not a soak of record.
 - **Invalidation:** ADR-0014 §6.5. A change to any crate linked into the runtime, the issuer, a helper or a bridge after the soak starts means the soak is run again.
 - **Blocked rows, named in A34** (ADR-0014 §6.4):
@@ -153,9 +162,12 @@
    - W2-6, which needs one PC job and two Mac builds;
    - W2-3's harness and its rehearsals;
    - W2-5's dry run;
-   - W2-1 continues throughout.
-2. **After the contract handoff:** U0's deltas, U2b's wiring of `crates/stategen` (with H15's write-through rename), U6b, U1b, U3c, then the candidate (U3b) and its records.
-3. **Gates and reviews:**
+   - W2-1: the old build closed after round 2; defect hunting on the newest merged build when the slot is free.
+2. **Before the W2 candidate gate:** merge main (M06 W5 and later) into `m08/w2`. The rehearsals
+   name their build's executable digest; at the candidate the record says whether the product code
+   differs from what they measured, and the benchmarks are rerun only if it does.
+3. **After the contract handoff:** U0's deltas, U2b's wiring of `crates/stategen` (with H15's write-through rename), U6b, U1b, U3c, then the candidate (U3b) and its records.
+4. **Gates and reviews:**
    - `check.sh` once per commit to `m08/w2`;
    - Windows and the devbox at the merge candidate;
    - one scoped re-check for W2, covering the R01 to R09 fixes and anything new.
