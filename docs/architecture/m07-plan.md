@@ -272,7 +272,7 @@ Each unit lists its marking, owner role, owned paths, dependencies, what it buil
      - gap endings and exact `backlog` (D6, PC6, PC9, PC10);
      - byte-bounded and singleton pages (PC5);
      - `response_too_large` with truthful effects (PC4);
-     - verified-hello status (D12).
+     - verified-hello status (D12), **with a three-state read** (ADR-0014 §7 H14, from M08's installer review; lands with M08 W0): nothing advertised (`runtime_not_running`), advertised and verified, and advertised but not connectable (`runtime_unreachable`, a new reason). Today `service status` answers "no runtime is running" for both the first and the third, so an installer or a wrapper cannot tell them apart.
   5. **D13's transactional guard,** with U8b.
 - **Tests:**
   - **Lists and pages:**
