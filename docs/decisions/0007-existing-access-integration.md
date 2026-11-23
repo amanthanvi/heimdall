@@ -4927,6 +4927,25 @@ The evidence-generator and importer fixes (items 1–3) change no `*.rs` file. E
       - **R2, doubled separators.** `//home/<name>` and `//Users/<name>` passed the importer's home rules. A run of separators before `home` or `Users` now counts as one.
       - **Neither defect touches the M02 exit evidence.** No `runs.json` sets `exit_codes`, and no committed artifact holds a doubled separator before a home. The fixed generator rates `e4f43f84` exactly as before: exit 0, and an identical `case-summary.json`. The widened rules flag the same 444 of 50,234 artifact files as before.
 
+### 12.52 The debug pinned-client redirect for the Windows pseudoconsole rows (contract owner, 2026-11-23)
+
+**Source.** The M07 W7 rulings on the rows M02 deferred to a Windows pseudoconsole driver: D2 and D3 (§12.47 item 3), T06's typed yes (§12.49 item 2) and A01's personal-profile case (§12.49 item 4). M03 wave 6 built the driver (`heimdall_testkit::console`, ConPTY on Windows). What was still missing is a faithful way to run `connect` on Windows without the owner's configuration: `connect` launches only the pinned in-box `%SystemRoot%\System32\OpenSSH\ssh.exe` (ADR-0004 E6), which finds the account's profile from its token and, without `-F`, reads the real `%USERPROFILE%\.ssh\config` (§9 item 5).
+
+1. **The variable.** `HEIMDALL_TEST_PINNED_CLIENT` (`testcfg::PINNED_CLIENT_ENV`) is an absolute path of a scratch wrapper. In a debug build, `connect` launches it in place of the verified client it selected.
+   - **Only the program path changes.** The path is resolved, reported (`verified client <path> (sha256 …)`), recorded and launched exactly as the selected client's. The arguments, the environment, the standard handles, the console and the launch itself (spawn and wait on Windows, with the same console guard) are the product's.
+   - **Debug builds only.** The variable is in `LAUNCH_ENV`, so a release build refuses `run` and `connect` with exit 2 (`USAGE_ERROR`, the fixed refusal text) before anything else happens. `tools/validation/release-gate.sh` probes it through `run -- true` and `connect x` with every launch variable, and once more through `connect alpha` with the value naming a real scratch program that leaves a marker when it runs: the probe fails if the marker appears.
+   - `run` accepts the variable and does not use it: it launches the program its own argv names.
+2. **The wrapper.** `hm-pinned-ssh` is a `heimdall-testkit` program (`heimdall_testkit::pinned_ssh`), not a script. A test copies it into its scratch directory with a sidecar file (`<wrapper>.json`). It starts the real in-box `ssh.exe` (on other platforms the sidecar's client) with `-F <scratch config>`, `-o ControlMaster=no`, `-o ControlPath=none` and the isolated known-hosts options, then the arguments `connect` gave, then the sidecar's remote command, if any (the Unix twins' wrappers append the same). The client inherits the console and the standard handles.
+   - **It refuses (exit 125, nothing started)** without a sidecar, without an existing absolute `-F` file, without `UserKnownHostsFile` and `GlobalKnownHostsFile`, or when the sidecar sets `IdentityAgent`, `IdentityFile`, `IdentitiesOnly`, `HostName`, `User` or `Port` (§9 item 1). On Windows it also refuses a sidecar that names any other client.
+   - **Its selftest** (`heimdall_testkit-unit pinned_ssh::tests`) shows the refusals in process and through the built program, and that with the scratch config the program starts the client.
+3. **The rows.** These tests run on Windows on a pseudoconsole:
+   - **A21 (D2):** `e2e_tui_m02 console::search_never_probes` and `console::config_commands_authorization_requires_typed_yes`. The pinned client cannot be a stub, so the probe oracle is a `Match exec` in the scratch configuration that runs the fixture hook's `touch <log>`: any probe that evaluates the configuration appends to that log, and the passive static pass never does. The search case also counts a loopback listener and the decoy agent. Revert-style proof (build host, with the modules compiled for Unix through `script(1)` and an authorized `evaluate` probe forced into each case): both cases failed on the log (exit 101), and the files were restored byte for byte.
+   - **T06 (D4):** `e2e_cli_m02 json::console::uninstall_with_incomplete_rollback_typed_yes_purge_is_refused`, the exit-6 refusal after a typed yes.
+   - **A01 (§12.49 item 4):** `e2e_cli_m02 ssh::console::a01_personal_profile_without_repository`.
+   - **A11 and A27 (D3):** `e2e_run_m02 a11::console::a11_interactive_connect_succeeds_after_provider_approval`, through the redirect.
+
+   They become `platform_required` on Windows. They close those rows once they pass natively. The "ordinary ssh without `-F`" rows of A01 and A35 on a real `%USERPROFILE%\.ssh\config` stay blocked on B2.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

@@ -15,6 +15,9 @@
 #     `HEIMDALL_TEST_SESSION_LOCK=<abs scratch path>`, `HEIMDALL_TEST_SCRIPT_PAUSE_DIR=<abs
 #     scratch dir>`) run through `heimdall service run`, the command whose
 #     `testcfg::requested()` gate they join.
+#   * ⟨ADR-0007 section 12.52⟩ the debug pinned-client redirect (`HEIMDALL_TEST_PINNED_CLIENT`,
+#     in `LAUNCH_ENV`) also through `heimdall connect alpha` with the value naming a real
+#     scratch program that leaves a marker when run: the probe also fails if the marker appears.
 #   * ⟨ADR-0008 section 17.25 item 7 (b)⟩ the product-file selector
 #     (`HEIMDALL_TEST_SECRET_STORE=product-file:<abs scratch path>`) through `service run`,
 #     `issuer status` and `issuer init --backup-out <scratch>` (the CLI's own store selection).
@@ -125,6 +128,7 @@ value_for() {
         HEIMDALL_TEST_SESSION_LOCK) printf '%s/session-lock-state' "${vals}" ;;
         HEIMDALL_TEST_SCRIPT_PAUSE_DIR) printf '%s/script-pause' "${vals}" ;;
         HEIMDALL_TEST_PURGE_TRUSTED_TOP) printf '%s' "${vals}" ;;
+        HEIMDALL_TEST_PINNED_CLIENT) printf '%s/pinned-client' "${vals}" ;;
         *) printf '1' ;;   # a variable this script does not know yet: any value must be refused
     esac
 }
@@ -224,6 +228,21 @@ probe HEIMDALL_TEST_SCRIPT_PAUSE_DIR "enroll x" enroll x
 # ⟨ADR-0008 §17.33 item 14⟩ The purge's debug-only trusted top is read CLI-side by
 # `uninstall`: a release `uninstall` refuses it before anything else.
 probe HEIMDALL_TEST_PURGE_TRUSTED_TOP "uninstall" uninstall
+# ⟨M07 W7b; ADR-0007 §12.52⟩ The debug pinned-client redirect is in LAUNCH_ENV, so the loop
+# above already probes it through `run -- true` and `connect x`. This probe names a real
+# executable at that path, a scratch script that leaves a marker when it runs: a release
+# `connect` refuses the variable (exit 2, home untouched) and never starts the named program.
+printf '#!/bin/sh\n: > "%s/pinned-client-ran"\nexit 0\n' "${vals}" >"${vals}/pinned-client"
+chmod 700 "${vals}/pinned-client"
+probe HEIMDALL_TEST_PINNED_CLIENT "connect alpha (wrapper)" connect alpha
+probe_count=$((probe_count + 1))
+if [ -e "${vals}/pinned-client-ran" ]; then
+    fail_count=$((fail_count + 1))
+    status=1
+    echo "release-gate: HEIMDALL_TEST_PINNED_CLIENT          connect started the named program: FAIL"
+else
+    echo "release-gate: HEIMDALL_TEST_PINNED_CLIENT          the named program never ran: PASS"
+fi
 # The product-file test store (a disposable product-kind store, debug builds only): a release
 # build refuses it like every test variable, before any store or runtime is touched.
 PROBE_VALUE="product-file:${vals}/test.keychain-db"

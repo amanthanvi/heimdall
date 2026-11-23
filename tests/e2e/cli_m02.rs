@@ -1284,6 +1284,210 @@ mod terminal {
     }
 }
 
+/// ⟨M07 W7b; ADR-0007 §12.52⟩ The Windows pseudoconsole (ConPTY) driver of this suite's
+/// terminal cases: `heimdall_testkit::console`, the Windows form of [`terminal`]'s pty child
+/// (`e2e_cli_m03`'s `windows_console` is the model).
+///
+/// The pseudoconsole runs this test binary again in child mode ([`console_child`]): attached
+/// to the pseudoconsole, it starts `heimdall` with **stdin the console** (so
+/// `stdin().is_terminal()` holds and the run is interactive, as on a terminal) and stdout
+/// and stderr **files of its own**, waits, and exits with heimdall's exit code. The
+/// confirmation prompt is written to stderr (`output::prompt`), so a case reads the prompt,
+/// the disclosures before it and the envelope byte for byte from those files, never from the
+/// console's re-rendered text; it types its answer at the console. Every program heimdall
+/// starts inherits the same console and files.
+#[cfg(windows)]
+mod windows_console {
+    use std::time::{Duration, Instant};
+
+    use heimdall_testkit::console::{Terminal, TerminalCommand};
+
+    use super::*;
+
+    const ARGV: &str = "HM_W7B_CONSOLE_ARGV";
+    const ENVS: &str = "HM_W7B_CONSOLE_ENV";
+    const STDOUT: &str = "HM_W7B_CONSOLE_STDOUT";
+    const STDERR: &str = "HM_W7B_CONSOLE_STDERR";
+
+    /// How long a case waits for a prompt or for the program to end.
+    pub(crate) const LIMIT: Duration = Duration::from_secs(120);
+
+    /// Child-mode entry (module docs); does nothing in a normal run.
+    #[test]
+    #[ignore = "child-mode entry of the Windows console cases, started by them"]
+    fn console_child() {
+        let (Ok(argv), Ok(envs), Some(stdout), Some(stderr)) = (
+            std::env::var(ARGV),
+            std::env::var(ENVS),
+            std::env::var_os(STDOUT),
+            std::env::var_os(STDERR),
+        ) else {
+            return;
+        };
+        let argv: Vec<String> = serde_json::from_str(&argv).unwrap();
+        let envs: Vec<(String, String)> = serde_json::from_str(&envs).unwrap();
+        let status = Command::new(&argv[0])
+            .args(&argv[1..])
+            .env_clear()
+            .envs(envs)
+            .stdin(Stdio::inherit())
+            .stdout(std::fs::File::create(stdout).unwrap())
+            .stderr(std::fs::File::create(stderr).unwrap())
+            .status()
+            .unwrap_or_else(|e| panic!("the case's program did not start: {e}"));
+        std::process::exit(status.code().unwrap_or(-1));
+    }
+
+    /// `env`, plus the Windows system variables it does not set (the networking, crypto
+    /// and process APIs read them) and the scratch fixture key stores in `root` (AGENTS.md:
+    /// a debug heimdall that reaches a key store never uses the account's).
+    pub(crate) fn with_system(
+        root: &Path,
+        env: Vec<(OsString, OsString)>,
+    ) -> Vec<(OsString, OsString)> {
+        let mut env = env;
+        let mgmt = root.join("fixture-mgmt-store");
+        let iroh = root.join("fixture-iroh-store");
+        env.extend([
+            ("HEIMDALL_TEST_SECRET_STORE".into(), "scratch".into()),
+            (
+                "HEIMDALL_TEST_MGMT_STORE".into(),
+                format!("fixture-file:{}", mgmt.display()).into(),
+            ),
+            ("HEIMDALL_TEST_IROH_KEY_STORE".into(), iroh.into_os_string()),
+        ]);
+        for k in ["SystemRoot", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP"] {
+            let set = env
+                .iter()
+                .any(|(n, _)| n.to_string_lossy().eq_ignore_ascii_case(k));
+            if !set && let Some(v) = std::env::var_os(k) {
+                env.push((k.into(), v));
+            }
+        }
+        env
+    }
+
+    /// One started case: the console and the case's output files.
+    pub(crate) struct Case {
+        term: Terminal,
+        stdout: PathBuf,
+        stderr: PathBuf,
+    }
+
+    /// `heimdall <args>` with exactly `env` on a new pseudoconsole, in `cwd`; its stdout and
+    /// stderr go to `<dir>/<case>.stdout` and `.stderr`.
+    pub(crate) fn start(
+        dir: &Path,
+        cwd: &Path,
+        case: &str,
+        args: &[OsString],
+        env: &[(OsString, OsString)],
+    ) -> Case {
+        let stdout = dir.join(format!("{case}.stdout"));
+        let stderr = dir.join(format!("{case}.stderr"));
+        let mut argv = vec![bin()];
+        argv.extend(args.iter().map(|a| a.to_string_lossy().into_owned()));
+        let vars: Vec<(String, String)> = env
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.to_string_lossy().into_owned(),
+                )
+            })
+            .collect();
+        let term = TerminalCommand::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "windows_console::console_child",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+                "-q",
+            ])
+            .current_dir(cwd)
+            .size(200, 50)
+            .env(ARGV, serde_json::to_string(&argv).unwrap())
+            .env(ENVS, serde_json::to_string(&vars).unwrap())
+            .env(STDOUT, &stdout)
+            .env(STDERR, &stderr)
+            .spawn()
+            .unwrap_or_else(|e| panic!("{case}: the pseudoconsole did not start: {e}"));
+        Case {
+            term,
+            stdout,
+            stderr,
+        }
+    }
+
+    impl Case {
+        /// What the program wrote to stderr so far.
+        pub(crate) fn stderr(&self) -> String {
+            std::fs::read_to_string(&self.stderr).unwrap_or_default()
+        }
+
+        /// Wait until stderr holds `needle` (a prompt); panics with what was written and
+        /// the exit code otherwise.
+        pub(crate) fn wait_stderr(&mut self, needle: &str) -> String {
+            let deadline = Instant::now() + LIMIT;
+            loop {
+                let text = self.stderr();
+                if text.contains(needle) {
+                    return text;
+                }
+                if let Some(code) = self.term.try_wait() {
+                    std::thread::sleep(Duration::from_millis(300));
+                    let text = self.stderr();
+                    assert!(
+                        text.contains(needle),
+                        "the program exited ({code}) before {needle:?}; stderr: {text}; console: {}",
+                        self.term.text()
+                    );
+                    return text;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "{needle:?} did not show in time; stderr: {text}; console: {}",
+                    self.term.text()
+                );
+                std::thread::sleep(Duration::from_millis(25));
+            }
+        }
+
+        /// Type `bytes` at the console, after a short pause (the program's read is posted).
+        pub(crate) fn send(&mut self, bytes: &[u8]) {
+            std::thread::sleep(Duration::from_millis(300));
+            self.term.send(bytes).unwrap();
+        }
+
+        /// Wait for the program to end: its exit code, stdout and stderr (scanned for
+        /// canaries), and the console's text.
+        pub(crate) fn finish(&mut self) -> (Out, String) {
+            let code = self.term.wait(LIMIT);
+            let console = self.term.text();
+            let code = code.unwrap_or_else(|| {
+                panic!(
+                    "the case did not finish; stderr: {}; console: {console}",
+                    self.stderr()
+                )
+            });
+            let o = Out {
+                code: Some(code),
+                stdout: std::fs::read_to_string(&self.stdout).unwrap_or_default(),
+                stderr: self.stderr(),
+            };
+            assert_no_canary(&o.stdout);
+            assert_no_canary(&o.stderr);
+            assert_no_canary(&console);
+            assert!(
+                !o.stderr.contains("panicked") && !console.contains("panicked"),
+                "{o:?}\n{console}"
+            );
+            (o, console)
+        }
+    }
+}
+
 /// Cross-platform: a usage error exits 2 with one schema-valid `USAGE_ERROR` envelope,
 /// before any runtime contact (the Heimdall home is never created).
 #[test]
@@ -1980,6 +2184,90 @@ mod json {
             "the quarantine keeps its owner-only protection"
         );
         assert!(w.serving(), "the runtime was not stopped");
+    }
+
+    /// ⟨M07 W7b⟩ T06's Windows terminal half on a pseudoconsole (ADR-0007 §12.47 item 4,
+    /// §12.49 item 2; the console driver is `crate::windows_console`).
+    #[cfg(windows)]
+    mod console {
+        use super::*;
+        use crate::windows_console;
+
+        /// ADR-0007 §12.49 item 2: the exit-6 refusal of the purge after a typed yes, in
+        /// the incomplete-rollback state of the JSON halves ([`incomplete_rollback`]: P
+        /// edited by the owner, a foreign entry in an owner-only quarantine), through `heimdall
+        /// --json uninstall --purge-state` on a pseudoconsole: the confirmation lists the
+        /// conflict and quarantine copies as kept, with the quarantine, before it asks; the
+        /// owner types `yes`; the incomplete rollback then refuses the purge (exit 6, effect
+        /// `partial`, `purged` false), and the state store, the recovery record and the
+        /// quarantine are listed as remaining. Nothing is purged: the store, the foreign
+        /// entry's bytes and the quarantine's owner-only DACL are kept. The Windows twin of
+        /// `unix::uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses`.
+        #[test]
+        fn uninstall_with_incomplete_rollback_typed_yes_purge_is_refused() {
+            let (w, q, entry) = incomplete_rollback();
+            let guarded = protection(&q);
+            let env = windows_console::with_system(&w.home.root, w.env());
+            let mut case = windows_console::start(
+                &w.home.root,
+                &w.home.root,
+                "purge",
+                &os(&["--json", "uninstall", "--purge-state"]),
+                &env,
+            );
+            let asked = case.wait_stderr("[y/N]");
+            let prompt_at = asked.find("[y/N]").unwrap();
+            let kept_at = asked
+                .find("Conflict and quarantine copies, kept")
+                .unwrap_or_else(|| panic!("the kept copies are listed: {asked}"));
+            let listed_at = asked
+                .find(".hm-quarantine")
+                .unwrap_or_else(|| panic!("the quarantine is listed: {asked}"));
+            assert!(
+                kept_at < prompt_at && listed_at < prompt_at,
+                "listed before the owner answers: {asked}"
+            );
+            assert!(
+                w.home.state_dir.join("state.db").exists(),
+                "nothing happened before the answer"
+            );
+            case.send(b"yes\r");
+            let (out, console) = case.finish();
+            assert_eq!(out.code, Some(6), "{out:?}\nconsole: {console}");
+            assert_eq!(
+                out.stderr.matches("[y/N]").count(),
+                1,
+                "one confirmation: {out:?}"
+            );
+            let env = out.json();
+            assert_envelope_valid(&env);
+            assert_eq!(env["data"]["error"]["effect_status"], "partial", "{env}");
+            let kinds: Vec<&str> = env["data"]["remaining"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["kind"].as_str().unwrap())
+                .collect();
+            for k in ["state_store", "quarantine", "recovery_record"] {
+                assert!(kinds.contains(&k), "{k}: {env}");
+            }
+            assert_eq!(env["data"]["purged"], false, "{env}");
+            assert!(
+                w.home.state_dir.join("state.db").exists(),
+                "the store is kept"
+            );
+            assert_eq!(
+                std::fs::read(&entry).unwrap(),
+                b"foreign bytes\n",
+                "the foreign entry is kept"
+            );
+            assert!(
+                protection(&q) == guarded,
+                "the quarantine keeps its owner-only protection"
+            );
+            let quarantine = env["data"]["quarantine"].to_string();
+            assert!(quarantine.contains("managed_ssh-9-00ff"), "{quarantine}");
+        }
     }
 }
 
@@ -3723,6 +4011,163 @@ mod ssh {
             "{after:?}"
         );
         assert_eq!(f.decoy(), 0);
+    }
+
+    /// ⟨M07 W7b⟩ A01's pseudoconsole row on Windows (ADR-0007 §12.49 item 4, §12.52; the
+    /// console driver is `crate::windows_console`).
+    #[cfg(windows)]
+    mod console {
+        use heimdall_testkit::home::ssh_option_path;
+        use heimdall_testkit::pinned_ssh::WrapperConfig;
+
+        use super::*;
+        use crate::windows_console;
+
+        /// The scratch wrapper the debug pinned-client redirect names (ADR-0007 §12.52):
+        /// testkit's `hm-pinned-ssh` in `<root>/pinned`, adding `-F` with the scratch user
+        /// configuration and the isolated known-hosts options (no `BatchMode`: an interactive
+        /// client), then `trailing`. On Windows it starts the real in-box
+        /// `%SystemRoot%\System32\OpenSSH\ssh.exe`; elsewhere `ssh`.
+        fn pinned_wrapper(w: &World, ssh: &Path, trailing: &[&str]) -> PathBuf {
+            let dir = w.home.root.join("pinned");
+            std::fs::create_dir_all(&dir).unwrap();
+            WrapperConfig {
+                config: w.home.user_config.clone(),
+                options: vec![
+                    format!(
+                        "UserKnownHostsFile={}",
+                        ssh_option_path(&w.home.known_hosts)
+                    ),
+                    format!(
+                        "GlobalKnownHostsFile={}",
+                        ssh_option_path(&w.home.global_known_hosts)
+                    ),
+                ],
+                trailing: trailing.iter().map(|t| (*t).to_owned()).collect(),
+                client: (!cfg!(windows)).then(|| ssh.to_owned()),
+            }
+            .install(&dir)
+            .unwrap_or_else(|e| panic!("the pinned-client wrapper: {e}"))
+        }
+
+        /// `ssh::a01_personal_profile_without_repository` (m02-plan U9, Q3; ADR-0007 §12.30
+        /// item 1) on a Windows pseudoconsole, through the debug pinned-client redirect
+        /// (ADR-0007 §12.49 item 4, §12.52): the working directory has no `.git`; the adopted
+        /// key is **undeclared**; ordinary ssh with the scratch `-F` logs in; `heimdall
+        /// connect alpha`, with stdin the console, launches the redirect's wrapper, which
+        /// adds only the scratch isolation (and the twin's remote `true`) and starts the real
+        /// in-box `ssh.exe`, and the fixture sshd accepts the adopted key; an
+        /// **interactive** `run --profile personal` (stdin the console, no
+        /// `--non-interactive`; no standing policy covers `personal`) asks for exactly one
+        /// attended owner decision, and after the typed `yes` the launch runs: the server
+        /// accepts the adopted key and nothing is left pending. The decoy agent is never
+        /// contacted. The "ordinary ssh without `-F`" rows stay blocked on B2.
+        #[test]
+        fn a01_personal_profile_without_repository() {
+            let f = Fix::build(World::new(1), &[0], 6, "");
+            f.apply();
+            let listed =
+                f.w.cli(&["--json", "--non-interactive", "identity", "list"]);
+            let identity = listed.json()["data"]["identities"][0].clone();
+            assert!(identity["identity_id"].is_string(), "{identity}");
+            assert!(
+                identity["declaration"].is_null() && identity["declared_at"].is_null(),
+                "the adopted key is undeclared: {identity}"
+            );
+            assert_ne!(identity["interaction_basis"], "declared", "{identity}");
+            let cwd = f.w.home.root.join("not-a-repo");
+            std::fs::create_dir_all(&cwd).unwrap();
+            assert!(!cwd.join(".git").exists());
+            assert!(f.login(ALPHA).status.success());
+            // `connect` through the redirect: only the program path differs.
+            f.w.home.check_alias(ALPHA).unwrap();
+            let wrapper = pinned_wrapper(&f.w, &f.ssh, &["true"]);
+            let mut env = windows_console::with_system(&f.w.home.root, f.w.env());
+            env.push((
+                "HEIMDALL_TEST_PINNED_CLIENT".into(),
+                wrapper.clone().into_os_string(),
+            ));
+            let accepted_before = f.accepted().len();
+            let mut case = windows_console::start(
+                &f.w.home.root,
+                &cwd,
+                "connect",
+                &os(&["connect", ALPHA]),
+                &env,
+            );
+            let (connected, console) = case.finish();
+            assert_eq!(connected.code, Some(0), "{connected:?}\nconsole: {console}");
+            assert!(
+                connected.stderr.contains("heimdall: verified client ")
+                    && connected
+                        .stderr
+                        .contains(heimdall_testkit::pinned_ssh::NAME),
+                "connect launched the redirect's wrapper: {connected:?}"
+            );
+            let accepted = f.accepted();
+            assert!(
+                accepted.len() > accepted_before
+                    && accepted[accepted_before..].iter().all(|fp| *fp == f.fp(0)),
+                "connect logged in with the adopted key: {accepted:?}"
+            );
+            // `run --profile personal`: one attended decision on the console, then the
+            // launch.
+            f.w.catalog(CatalogRequest::UpsertProfile {
+                profile: heimdall_contract::catalog::ProfileSpec {
+                    id: heimdall_contract::ids::ProfileId::parse("personal").unwrap(),
+                    pairs: [heimdall_contract::request::AccessPairRef {
+                        destination: heimdall_contract::ids::DestinationId::parse("dst-alpha")
+                            .unwrap(),
+                        account: heimdall_contract::ids::AccountName::parse(&f.account).unwrap(),
+                    }]
+                    .into_iter()
+                    .collect(),
+                    label: None,
+                },
+                request_id: f.w.next_id("personal"),
+            })
+            .unwrap();
+            let mut argv = os(&["run", "--profile", "personal", "--"]);
+            argv.push(f.ssh.clone().into_os_string());
+            argv.extend(f.w.home.isolation_args());
+            argv.extend(os(&[ALPHA, "true"]));
+            let accepted_before = f.accepted().len();
+            let env = windows_console::with_system(&f.w.home.root, f.w.env());
+            let mut case = windows_console::start(&f.w.home.root, &cwd, "run", &argv, &env);
+            case.wait_stderr("[y/N]");
+            case.send(b"yes\r");
+            let (ran, console) = case.finish();
+            assert_eq!(ran.code, Some(0), "{ran:?}\nconsole: {console}");
+            assert_eq!(
+                ran.stderr.matches("[y/N]").count(),
+                1,
+                "exactly one decision: {ran:?}"
+            );
+            assert!(
+                !ran.stderr.contains("INTERACTION_REQUIRED"),
+                "the approved interactive run is never refused for interaction: {ran:?}"
+            );
+            let accepted = f.accepted();
+            assert!(
+                accepted.len() > accepted_before
+                    && accepted[accepted_before..].iter().all(|fp| *fp == f.fp(0)),
+                "the launch logged in with the adopted key: {accepted:?}"
+            );
+            let pending =
+                f.w.cli(&["--json", "--non-interactive", "decision", "list"]);
+            assert_eq!(
+                pending.json()["data"]["decisions"].as_array().map(Vec::len),
+                Some(0),
+                "nothing left pending: {pending:?}"
+            );
+            let after =
+                f.w.cli(&["--json", "--non-interactive", "identity", "list"]);
+            assert!(
+                after.json()["data"]["identities"][0]["declaration"].is_null(),
+                "{after:?}"
+            );
+            assert_eq!(f.decoy(), 0);
+        }
     }
 
     /// m02-plan U9 `host_key_substitution_fails_closed_and_nothing_written_to_known_hosts`

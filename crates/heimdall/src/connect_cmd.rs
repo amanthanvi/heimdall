@@ -129,6 +129,13 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
             Failure::refused(heimdall_launch::resolve::LaunchRefusal::NotFound),
         );
     };
+    // ⟨M07 W7b; ADR-0007 §12.52⟩ The debug pinned-client redirect
+    // (`testcfg::PINNED_CLIENT_ENV`, debug builds only: a release build refused the variable
+    // in `launch_hooks` above, exit 2, before anything happened). It replaces the program
+    // path and nothing else: the path is resolved, reported, checked and launched below
+    // exactly as the selected client's, with the same arguments, environment, standard
+    // handles and console. This is the only difference from the product path.
+    let client_path = hooks.pinned_client.clone().unwrap_or(client_path);
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
     let program = match resolve_program(client_path.as_os_str(), &env, &cwd, platform) {
         Ok(p) => p,
