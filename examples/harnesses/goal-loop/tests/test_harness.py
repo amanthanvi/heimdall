@@ -5,7 +5,7 @@ import importlib.util
 import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import subprocess
 import sys
 import tempfile
@@ -72,6 +72,15 @@ SAMPLES = {
 # `sleep:wait-garbled:` makes it print something that is no envelope and end; later
 # waits answer as the mode says. Mode `ready-wrong-exit` answers a wait with a view that
 # succeeded and names its binding, with exit 3.
+# M07 W7: `sleep:wait-unavailable:` refuses the first wait with `SERVICE_UNAVAILABLE` (exit 5),
+# `sleep:wait-wrong:` answers it with a view still `running` and exit 0 (the wrong class),
+# and `sleep:wait-unknown:` with a view whose own outcome is unknown (exit 7); later waits
+# answer as the mode says. Profile `uncertain-none` is answered `OUTCOME_UNKNOWN` naming no
+# operation, with effect `none` (M07-W6-R03's probe). The stub logs when each request
+# arrived, and for which profile; a name in NAMES written `NAME/made-N` was made just after
+# the Nth request arrived, for that request's profile (M07-W6-R02's probes). Mode `spawned`
+# writes the Windows `spawned` run record after `launching`, as the stub always does on
+# Windows.
 STUB = r'''
 import json
 import os
@@ -176,6 +185,8 @@ elif args[:2] == ["access", "ensure"]:
     assert args[2] == "--profile" and args[4] == "--work-id" and args[6] == "--request-id", args
     profile, options = args[3], args[8:]
     (root / "last-profile").write_text(profile)
+    with (root / "received").open("a", encoding="utf-8") as received:  # each request's arrival
+        print(time.time_ns(), profile, file=received)
     if profile == "silent":
         time.sleep(60)
     if profile == "garbled":
@@ -193,6 +204,10 @@ elif args[:2] == ["access", "ensure"]:
         refuse("NOT_FOUND", "fix_request", 2)
     if profile == "uncertain":
         refuse("OUTCOME_UNKNOWN", "reconcile", 7, effect="unknown", operation_id=OP)
+    if profile == "uncertain-none":  # M07-W6-R03's probe: no operation, and effect `none`
+        following = {"action": "reconcile"}
+        emit("OUTCOME_UNKNOWN", 7, {"error": {"code": "OUTCOME_UNKNOWN", "effect_status": "none",
+                                              "next": following}}, following, state="outcome_unknown")
     if profile in ("uncertain-unnamed", "uncertain-unlinked"):
         # `next` names no operation; the second envelope still carries its own.
         following = {"action": "reconcile"}
@@ -228,6 +243,12 @@ elif args[:2] == ["operation", "wait"]:
     if sleeps == "wait-garbled" and count("slept-wait") == 0:
         print("this is no envelope", flush=True)
         sys.exit(0)
+    if sleeps == "wait-unavailable" and count("slept-wait") == 0:
+        refuse("SERVICE_UNAVAILABLE", "retry_after", 5)
+    if sleeps == "wait-wrong" and count("slept-wait") == 0:  # still running, yet exit 0
+        view(None, "running", "unknown", None)
+    if sleeps == "wait-unknown" and count("slept-wait") == 0:
+        view("OUTCOME_UNKNOWN", "outcome_unknown", "unknown", {"error": {}}, exit_code=7)
     if mode == "ready-wrong-exit":
         view("ACCESS_READY", "succeeded", "applied", {"binding_id": BINDING}, exit_code=3)
     if uncertain:  # the operation of an uncertain release
@@ -307,9 +328,15 @@ elif args == ["inspect", "bindings"]:
 
     def entry(name, work, state):
         name, _, tie = name.partition("/")
+        stamp, profile = made, asked
+        if tie.startswith("made-"):  # made just after the Nth request arrived, for its profile
+            arrived, profile = (root / "received").read_text().splitlines()[int(tie[5:]) - 1].split()
+            moment = int(arrived) + 1000000
+            stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(moment // 10**9)) + ".%09dZ" % (
+                moment % 10**9)
         listed = {"binding_id": name, "grant_id": "grant_fixture", "work_id": work,
-                  "profile": "someone-else" if tie == "other" else asked, "profile_revision": 1,
-                  "state": state, "created_at": "2001-02-03T04:05:06Z" if tie == "before" else made}
+                  "profile": "someone-else" if tie == "other" else profile, "profile_revision": 1,
+                  "state": state, "created_at": "2001-02-03T04:05:06Z" if tie == "before" else stamp}
         if tie == "undated":
             del listed["created_at"]
         return listed
@@ -335,6 +362,8 @@ elif args[0] == "run":
                           "binding_id": SECOND if mode == "second-binding" else BINDING,
                           "pid": 1 if mode == "other-pid" else os.getpid(),
                           "consumer_overrides": []}), file=meta)
+        if os.name == "nt" or mode == "spawned":  # Windows: the child exists (here, this process)
+            print(json.dumps({"type": "spawned", "schema_version": "1", "pid": os.getpid()}), file=meta)
     if sleeps == "run-recorded":
         time.sleep(60)
     if mode == "silent-child":
@@ -537,16 +566,21 @@ class TableTests(unittest.TestCase):
 
     def test_a_failed_uncertain_outcome_names_its_operation_whenever_one_is_known(self):
         known = h2.State("failed", code="OUTCOME_UNKNOWN", operation_id="op_sample")
-        # The operation's own outcome is unknown: the one being observed.
-        for name in h2.IN_FLIGHT + ("reconciling",):
+        # The operation's own outcome is unknown: the one being observed. The report
+        # names the request too, which is remembered (W7).
+        self.assertEqual(h2.TRACKED, h2.IN_FLIGHT + ("reconciling",))
+        for name in h2.TRACKED:
             with self.subTest(state=name):
-                ended = h2.Reading("OUTCOME_UNKNOWN", "none", "unknown", {"code": "OUTCOME_UNKNOWN"})
+                ended = h2.Reading("OUTCOME_UNKNOWN", "none", "unknown",
+                                   {"code": "OUTCOME_UNKNOWN", "request": {"request_id": "request-sample"}})
                 after, row = h2.transition(sample_state(name), ended)
                 self.assertIsNotNone(row)
-                self.assertEqual(after, known)
+                self.assertEqual(after, h2.State("failed", code="OUTCOME_UNKNOWN", operation_id="op_sample",
+                                                 request_id="request-sample"))
                 self.assertEqual(after.record(), {"state": "failed", "code": "OUTCOME_UNKNOWN",
-                                                  "operation_id": "op_sample"})
-                # With an action no row pairs it with, there is no row, and it is still named.
+                                                  "operation_id": "op_sample", "request_id": "request-sample"})
+                # With an action no row pairs it with, there is no row, and the operation
+                # is still named.
                 odd = ended._replace(action="report")
                 self.assertEqual(h2.transition(sample_state(name), odd), (known, None))
         # The answer to a request whose `next` names none: the envelope's own, when it has one.
@@ -705,9 +739,18 @@ class TableTests(unittest.TestCase):
         self.assertEqual(after, h2.State("unresolved", code="OUTCOME_UNKNOWN", operation_id="op_sample"))
         self.assertEqual(after.record(), {"state": "unresolved", "code": "OUTCOME_UNKNOWN",
                                           "operation_id": "op_sample"})
-        # Only `reconciling` has a row for the step limit, and that state ends the goal.
+        # Only the states that wait on the operation of an answered request have a row for
+        # the step limit (M07-W6-R01). `reconciling` ends the goal in `unresolved`; an
+        # accepted operation or an approval still open ends it in `failed`, which names
+        # the request and its operation.
         self.assertEqual([row.states for row in h2.TRANSITIONS if row.code == h2.BOUND],
-                         [("reconciling",)])
+                         [("reconciling",), h2.IN_FLIGHT])
+        for name in h2.IN_FLIGHT:
+            before = sample_state(name)
+            limit = h2.Reading(h2.BOUND, "none", None, {"request": {"request_id": "request-sample"}})
+            self.assertEqual(h2.transition(before, limit)[0].record(), {
+                "state": "failed", "code": "OUTCOME_UNKNOWN", "operation_id": "op_sample",
+                "request_id": "request-sample"})
         self.assertNotIn("unresolved", h2.FOLLOW)
         self.assertFalse(any("unresolved" in row.states for row in h2.TRANSITIONS))
         self.assertFalse(any("unresolved" in goal["accept"] for goal in h2.GOALS.values()))
@@ -1208,16 +1251,19 @@ class TableTests(unittest.TestCase):
                 self.assertIn(row.states, (h2.SENDING, h2.TRACKED), row)
                 self.assertEqual(row.to, "failed", row)
         self.assertNotIn("failed", h2.FOLLOW)
-        # M07 W6c: a wait on the accepted operation of a request that brought no answer,
-        # or was never started, leaves the request uncertain: `failed` names it with the
-        # operation, whichever fault it was.
-        self.assertEqual(h2.TRACKED, ("observing",))
-        for own in h2.FAULTS.values():
-            reading = h2.Reading(own, "none", None, {"request": mine})
-            self.assertEqual(h2.transition(sample_state("observing"), reading)[0].record(),
-                             dict(unsettled, state="failed", operation_id=SAMPLES["operation_id"]))
-        # Only the step limit while reconciling keeps a request that was answered.
-        self.assertEqual(h2.KEPT, {"unresolved": "outcome_unknown"})
+        # M07 W6c, and W7 for `pending_approval` and `reconciling`: a wait on the operation
+        # of the request in progress that brought no answer, or was never started, leaves
+        # the request uncertain: `failed` names it with the operation, whichever fault it was.
+        self.assertEqual(h2.TRACKED, ("observing", "pending_approval", "reconciling"))
+        for name in h2.TRACKED:
+            for own in h2.FAULTS.values():
+                reading = h2.Reading(own, "none", None, {"request": mine})
+                self.assertEqual(h2.transition(sample_state(name), reading)[0].record(),
+                                 dict(unsettled, state="failed", operation_id=SAMPLES["operation_id"]))
+        # Only the step limit while reconciling keeps a request with the outcome of its own
+        # uncertain answer; an answer of UNCERTAIN_CODES that ends its goal is kept so too.
+        self.assertEqual((h2.KEPT, h2.UNCERTAIN_OUTCOME, h2.UNCERTAIN_CODES),
+                         ({"unresolved": "outcome_unknown"}, "outcome_unknown", ("OUTCOME_UNKNOWN",)))
         # A stop begins at a request that brought no answer, before any binding: by its
         # operation where it named one, else by the list of bindings for its work.
         held = {"held": {"binding_id": "binding_older"}}
@@ -1423,7 +1469,7 @@ class PlannerTests(unittest.TestCase):
 
     def fresh(self):
         """Forget the stub's log and its counts: subtests share one root."""
-        for kept in [self.root / "calls.jsonl", *self.root.glob("count-*")]:
+        for kept in [self.root / "calls.jsonl", self.root / "received", *self.root.glob("count-*")]:
             kept.unlink(missing_ok=True)
 
     def watched(self, seconds=None, limited=(["access", "release"], ["operation", "wait"],
@@ -1444,6 +1490,19 @@ class PlannerTests(unittest.TestCase):
         patched.start()
         self.addCleanup(patched.stop)
         return seen
+
+    def whole(self, argv, stub, stdout):
+        """Run H2 as a whole against the stub, its summary into `stdout`, and return its
+        exit status. On POSIX through `main`, the stub started through its interpreter
+        line. Elsewhere (Windows) through `run`, the internal entry `main` calls, with
+        the stub started through the interpreter: the same goals, exit code and summary."""
+        posix = os.name == "posix"
+        self.stub.write_text(f"#!{sys.executable} -IB\n{stub}" if posix else stub, encoding="utf-8")
+        with patch.dict(os.environ, self.environment), contextlib.redirect_stdout(stdout):
+            if posix:
+                self.stub.chmod(0o700)
+                return h2.main(argv)
+            return h2.run(h2.parse_arguments(argv), [sys.executable, "-IB", str(self.stub)])
 
     def holding(self, mode, count):
         """A planner that was given `count` bindings (`binding_many_0` and so on), and
@@ -1513,14 +1572,21 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(commands, [["access", "ensure"], ["operation", "wait"], ["operation", "wait"]])
 
     def test_observing_is_bounded(self):
-        record = h2.run_goal(self.planner("never"), self.access("wider", pairs=["h3:deploy"]))
+        planner = self.planner("never")
+        record = h2.run_goal(planner, self.access("wider", pairs=["h3:deploy"]))
         self.assertFalse(record["success"])
         self.assertEqual(record["calls"], h2.MAX_STEPS)
-        self.assertEqual(record["final_state"]["state"], "pending_approval")
         self.assertEqual(record["human_handoffs"], 1)
-        # The step limit has a row only for an uncertain outcome: here the state is kept.
-        self.assertEqual(record["detail"], "the goal was not met within the step limit")
-        self.assertEqual(len(record["transitions"]), h2.MAX_STEPS)
+        # M07-W6-R01: the approval is still open at the step limit, so the request is
+        # uncertain. `failed` names it with its operation, and it is remembered.
+        request_id = self.calls()[0][7]
+        self.assertEqual(record["final_state"], {"state": "failed", "code": "OUTCOME_UNKNOWN",
+                                                 "operation_id": "op_fixture", "request_id": request_id})
+        self.assertEqual(record["detail"], "the goal was not met within the step limit: "
+                                           + repr(planner.state))
+        self.assertEqual(len(record["transitions"]), h2.MAX_STEPS + 1)
+        self.assertEqual(record["transitions"][-1]["code"], h2.BOUND)
+        self.assertEqual(set(planner.requests), {request_id})
 
     def test_the_human_step_is_excluded_from_wall_time(self):
         def slow(report):
@@ -1644,7 +1710,8 @@ class PlannerTests(unittest.TestCase):
              ("reconciling", "ACCESS_READY", "none", "ready"), ready),
             # the operation's own outcome is unknown: the failure names that operation
             ("still-unknown", 1, ("reconciling", "OUTCOME_UNKNOWN", "none", "failed"),
-             {"state": "failed", "code": "OUTCOME_UNKNOWN", "operation_id": "op_fixture"}),
+             {"state": "failed", "code": "OUTCOME_UNKNOWN", "operation_id": "op_fixture",
+              "request_id": "(the request)"}),
             ("denied", 1, ("reconciling", "CAPABILITY_UNAVAILABLE", "none", "failed"),
              {"state": "failed", "code": "CAPABILITY_UNAVAILABLE"}),
         )
@@ -1653,6 +1720,8 @@ class PlannerTests(unittest.TestCase):
                 seen = len(self.calls())
                 (self.root / "count-wait").unlink(missing_ok=True)  # the stub's count, per case
                 record = h2.run_goal(self.planner(mode), self.access("uncertain"))
+                if final.get("request_id"):  # the operation's own outcome is unknown: named (W7)
+                    final = dict(final, request_id=self.calls()[seen][7])
                 self.assertEqual(record["success"], final is ready, record)
                 self.assertEqual(self.path(record), [
                     ("start", "OUTCOME_UNKNOWN", "reconcile", "reconciling"),
@@ -1736,7 +1805,8 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(self.path(record), [("start", "ACCEPTED", "observe", "observing"),
                                              ("observing", "OUTCOME_UNKNOWN", "none", "failed")])
         self.assertEqual(record["final_state"], {"state": "failed", "code": "OUTCOME_UNKNOWN",
-                                                 "operation_id": "op_fixture"})
+                                                 "operation_id": "op_fixture",
+                                                 "request_id": self.calls()[0][7]})
         self.assertEqual(record["detail"], "failed: OUTCOME_UNKNOWN")
 
     def test_an_exit_class_that_does_not_fit_its_answer_fails_the_goal(self):
@@ -1813,9 +1883,12 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual((ensure[3], ensure[5]), (launch[2], launch[4]))  # for the same work
         self.assertEqual(launch[9:], ["--", *child])
         self.assertEqual((ready["held"], running["held"]), (["binding_fixture"], ["binding_fixture"]))
-        self.assertEqual(list(self.root.glob("h2-run-*")), [])
+        # The launch's run record file stays while its child runs (on Windows, Heimdall
+        # holds it open), and goes when the child has ended.
+        self.assertEqual(len(list(self.root.glob("h2-run-*"))), 1)
         process = planner.child.process
         stopped = h2.run_goal(planner, {"goal": "stop"})
+        self.assertEqual(list(self.root.glob("h2-run-*")), [])
         self.assertTrue(stopped["success"], stopped)
         self.assertEqual(self.path(stopped), [("running", "OK", "none", "stopped")])
         self.assertEqual(stopped["child_exit_code"], 0)
@@ -2707,6 +2780,288 @@ class PlannerTests(unittest.TestCase):
                         dict(own, by="access"), dict(observation, by=by)])})
                 self.assertEqual(planner.by_binding(), {})
 
+    def left_open(self, rows, seconds=2.0):
+        """Each row: a goal whose request was answered and whose operation the goal left
+        open, then the close or a stop goal, which observes the request first. A row is
+        (the stub's mode, the profile and the goal's fields; the goal's path, its final
+        state with `request_id` True where the request is named, and the list of its
+        record that holds the request's own attempt, that attempt; who observes next,
+        the observation, and the calls after the goal, as the harness made them; a
+        handoff the person abandons)."""
+        mine = "binding_fixture"
+        release = ["access", "release", mine]
+        seen = self.watched(seconds, limited=(["operation", "wait"],))
+        for (mode, profile, fields, path, final, kept, own, by, observation, calls,
+             abandoned) in rows:
+            with self.subTest(mode=mode, profile=profile, fields=fields, by=by):
+                self.fresh()
+                del seen[:]
+                planner = self.planner(mode, handoff=(lambda report: False) if abandoned else None)
+                record = h2.run_goal(planner, self.access(profile, **fields))
+                request_id, sent = seen[0][7], len(seen)
+                asked = {"call": "access ensure", "profile": profile, "work_id": "work-1"}
+                uncertain = observation["outcome"] == "still_unknown"
+                # The goal failed, and its record names the request, which is remembered
+                # with the operation it left open, if any. Nothing more was sent.
+                self.assertFalse(record["success"], record)
+                self.assertEqual(self.path(record), path)
+                # Every step came from a row, but a wait refused with a code no row acts on.
+                self.assertEqual([step["by_table"] for step in record["transitions"]],
+                                 [step["code"] in h2.known_codes() for step in record["transitions"]])
+                self.assertEqual(record["final_state"], dict(final, **(
+                    {"request_id": request_id} if final.get("request_id") else {})))
+                attempt = {key: value for key, value in own.items() if key != "outcome"}
+                for name in h2.REQUEST_RECORDED:
+                    self.assertEqual(record[name], [dict(asked, request_id=request_id, **attempt)]
+                                     if name == kept else [], name)
+                named = {"operation_id": own["operation_id"]} if "operation_id" in own else {}
+                self.assertEqual(planner.requests, {request_id: dict(asked, **named)})
+                if by == "close":
+                    planner.close()
+                else:
+                    stopped = h2.run_goal(planner, {"goal": "stop"})
+                    self.assertEqual(stopped["success"], not uncertain, stopped)
+                # The observation comes first, before any binding, and the request is
+                # never sent again. A binding it shows is released.
+                self.assertEqual(seen[sent:], calls)
+                self.assertEqual(sum(command[:2] == ["access", "ensure"] for command in seen), 1)
+                self.assertEqual((planner.held, set(planner.requests)),
+                                 ([], {request_id} if uncertain else set()))
+                self.assertEqual(planner.by_request(), {request_id: dict(
+                    asked, uncertain=uncertain, attempts=[
+                        dict(own, by="access"), dict(observation, by=by)])})
+                self.assertEqual(planner.by_binding(), {})
+                self.assertEqual(release in calls, mine in planner.ever_held)
+
+    def test_an_answered_request_whose_operation_is_still_open_when_its_goal_stops_is_remembered(self):
+        # M07-W6-R01, and W7 item 4 (an accepted request whose observation is answered by
+        # Heimdall's own timeout: `operation wait` exits 5 with the operation still
+        # going). The goal stops while the operation of its answered request is open: at
+        # the step limit after `ACCEPTED` (`observing`) or an approval
+        # (`pending_approval`), or at a wait refused for a transient reason. The
+        # operation may yet make a binding. The request is remembered with its
+        # operation, never sent again, and observed by the close or a later stop.
+        steps = h2.MAX_STEPS
+        wait = ["operation", "wait", "op_fixture", "--timeout-ms", "20000"]
+        release = ["access", "release", "binding_fixture"]
+        named = {"operation_id": "op_fixture"}
+        bound = {"state": "failed", "code": "OUTCOME_UNKNOWN", "operation_id": "op_fixture",
+                 "request_id": True}
+        unfinished = dict(named, outcome="still_unknown", code="OK", exit_code=5, observed="operation")
+        unavailable = dict(unfinished, code="SERVICE_UNAVAILABLE")
+        found = dict(named, outcome="binding_found", code="ACCESS_READY", exit_code=0,
+                     observed="operation", bindings=["binding_fixture"])
+        accepted = ([("start", "ACCEPTED", "observe", "observing")]
+                    + [("observing", "OK", "observe", "observing")] * (steps - 1)
+                    + [("observing", h2.BOUND, "none", "failed")])
+        approval = ([("start", "INTERACTION_REQUIRED", "interact", "pending_approval")]
+                    + [("pending_approval", "OK", "observe", "pending_approval")] * (steps - 1)
+                    + [("pending_approval", h2.BOUND, "none", "failed")])
+        refused = lambda state: [("start", *{"observing": ("ACCEPTED", "observe"),
+                                            "pending_approval": ("INTERACTION_REQUIRED", "interact")}[state],
+                                  state), (state, "SERVICE_UNAVAILABLE", "retry_after", "failed")]
+        transient = {"state": "failed", "code": "SERVICE_UNAVAILABLE"}
+        late, pair = {"timeout_ms": 1}, {"pairs": ["h3:deploy"]}
+        rows = (
+            # `observing` at the step limit: every wait found it unfinished (exit 5). The
+            # close then finds that it made a binding, or still unfinished.
+            (f"unfinished-{steps - 1}", "covered", late, accepted, bound, "requests_still_unknown",
+             unfinished, "close", found, [wait, release], False),
+            (f"unfinished-{steps - 1}", "covered", late, accepted, bound, "requests_still_unknown",
+             unfinished, "stop", found, [wait, release], False),
+            ("never", "covered", late, accepted, bound, "requests_still_unknown",
+             unfinished, "close", unfinished, [wait], False),
+            # `pending_approval` at the step limit: the owner approves after the goal gave up.
+            (f"unfinished-{steps - 1}", "covered", pair, approval, bound, "requests_still_unknown",
+             unfinished, "close", found, [wait, release], False),
+            ("never", "covered", pair, approval, bound, "requests_still_unknown",
+             unfinished, "stop", unfinished, [wait], False),
+            # A wait refused for a transient reason, in either state.
+            ("sleep:wait-unavailable:normal", "covered", late, refused("observing"), transient,
+             "requests_still_unknown", unavailable, "close", found, [wait, release], False),
+            ("sleep:wait-unavailable:normal", "covered", pair, refused("pending_approval"), transient,
+             "requests_still_unknown", unavailable, "stop", found, [wait, release], False),
+        )
+        self.left_open(rows)
+        # The published code is not called unknown (the re-check's side note).
+        reading = h2.Reading("SERVICE_UNAVAILABLE", "retry_after", None, {})
+        self.assertEqual(h2.no_row(h2.State("observing", operation_id="op_sample"), reading),
+                         "no transition from observing for SERVICE_UNAVAILABLE with next retry_after")
+
+    def test_the_other_requests_left_open_are_remembered_and_observed_later(self):
+        # W7 item 5, the four cases the W6 workers left open, and an approval handoff the
+        # person abandons: each is remembered and observed later like the others.
+        wait = ["operation", "wait", "op_fixture", "--timeout-ms", "20000"]
+        inspect = ["inspect", "bindings"]
+        release = lambda binding="binding_fixture": ["access", "release", binding]
+        named = {"operation_id": "op_fixture"}
+        answered = {"outcome": "outcome_unknown", "code": "OUTCOME_UNKNOWN", "exit_code": 7}
+        found = dict(named, outcome="binding_found", code="ACCESS_READY", exit_code=0,
+                     observed="operation", bindings=["binding_fixture"])
+        listed = {"outcome": "binding_found", "code": "OK", "exit_code": 0, "observed": "bindings",
+                  "listed": ["binding_second"], "candidates": ["binding_second"],
+                  "bindings": ["binding_second"]}
+        silent = dict(named, outcome="still_unknown", code=None, exit_code=None, observed="operation",
+                      fault="timed_out", detail="a CLI call ran past its time limit")
+        wrong = lambda code, status, state: dict(
+            named, outcome="still_unknown", code=code, exit_code=status, observed="operation",
+            inconsistent=True, detail=f"exit {status} does not fit {state}: its documented exit "
+                                      f"class is {0 if code == 'ACCESS_READY' else 5}; a probable product defect")
+        failed = {"state": "failed", "code": "OUTCOME_UNKNOWN"}
+        late, pair = {"timeout_ms": 1}, {"pairs": ["h3:deploy"]}
+        accepted = ("start", "ACCEPTED", "observe", "observing")
+        asked = ("start", "INTERACTION_REQUIRED", "interact", "pending_approval")
+        rows = (
+            # 1. `OUTCOME_UNKNOWN` whose `next` names no operation: remembered with none,
+            # and observed through the list of bindings for its work; or with the
+            # envelope's own operation, and observed by it.
+            ("work:binding_second:active", "uncertain-unnamed", {},
+             [("start", "OUTCOME_UNKNOWN", "reconcile", "failed")], failed, "requests_outcome_unknown",
+             answered, "close", listed, [inspect, release("binding_second")], False),
+            ("normal", "uncertain-unlinked", {},
+             [("start", "OUTCOME_UNKNOWN", "reconcile", "failed")], dict(failed, **named),
+             "requests_outcome_unknown", dict(answered, **named), "stop", found, [wait, release()], False),
+            # 2. A wait with no answer while reconciling, and while an approval is pending.
+            ("sleep:wait:normal", "uncertain", {},
+             [("start", "OUTCOME_UNKNOWN", "reconcile", "reconciling"),
+              ("reconciling", h2.UNANSWERED, "none", "failed")], dict(failed, request_id=True, **named),
+             "requests_still_unknown", silent, "close", found, [wait, release()], False),
+            ("sleep:wait:normal", "covered", pair, [asked, ("pending_approval", h2.UNANSWERED, "none", "failed")],
+             dict(failed, request_id=True, **named), "requests_still_unknown", silent, "stop", found,
+             [wait, release()], False),
+            # 3. An observation inside the goal in the wrong exit class: an operation still
+            # going answered with exit 0; one that succeeded and names its binding,
+            # answered with exit 3 (the binding is held and released, and the request
+            # stays unknown).
+            ("sleep:wait-wrong:normal", "covered", late, [accepted, ("observing", h2.MISMATCH, "none",
+                                                                     "inconsistent")],
+             {"state": "inconsistent", "code": "OK", "exit_code": 0}, "requests_still_unknown",
+             wrong("OK", 0, "an operation that is running"), "close", found, [wait, release()], False),
+            ("ready-wrong-exit", "covered", late, [accepted, ("observing", h2.MISMATCH, "none", "inconsistent")],
+             {"state": "inconsistent", "code": "ACCESS_READY", "exit_code": 3}, "requests_still_unknown",
+             dict(wrong("ACCESS_READY", 3, "ACCESS_READY"), bindings=["binding_fixture"]), "close",
+             wrong("ACCESS_READY", 3, "ACCESS_READY"), [wait, release()], False),
+            # 4. An observed operation whose own code is `OUTCOME_UNKNOWN`.
+            ("sleep:wait-unknown:normal", "covered", late,
+             [accepted, ("observing", "OUTCOME_UNKNOWN", "none", "failed")],
+             dict(failed, request_id=True, **named), "requests_still_unknown",
+             dict(named, outcome="still_unknown", code="OUTCOME_UNKNOWN", exit_code=7, observed="operation"),
+             "close", found, [wait, release()], False),
+            # And an approval the person never came back from: its operation is open.
+            ("normal", "covered", pair, [asked], {"state": "pending_approval", "decision_ref": "dec_fixture",
+                                                  "operation_id": "op_fixture"},
+             "requests_still_unknown", dict(named, outcome="still_unknown", code="INTERACTION_REQUIRED",
+                                            exit_code=3),
+             "close", found, [wait, release()], True),
+        )
+        self.left_open(rows)
+
+    def test_an_expected_refusal_of_an_uncertain_outcome_is_never_met(self):
+        # M07-W6-R03 (the re-check's E2): `OUTCOME_UNKNOWN` naming no operation, with a
+        # contradictory effect `none`, met a goal that expected that code, and the run
+        # exited 0. An uncertain outcome is never a refusal a goal can expect: the goal
+        # fails, and the request is remembered (W7 item 5) and observed through the list
+        # of bindings for its work.
+        found = "binding_second"
+        asked = {"call": "access ensure", "profile": "uncertain-none", "work_id": "work-1"}
+        for mode, later, released in ((f"work:{found}:active", "binding_found", [found]),
+                                      (f"work:{found}:none", "still_unknown", [])):
+            with self.subTest(mode=mode):
+                self.fresh()
+                planner = self.planner(mode)
+                record = h2.run_goal(planner, self.access("uncertain-none", expect_refusal="OUTCOME_UNKNOWN"))
+                request_id = self.calls()[0][7]
+                self.assertFalse(record["success"], record)
+                self.assertEqual(self.path(record), [("start", "OUTCOME_UNKNOWN", "reconcile", "failed")])
+                self.assertEqual((record["final_state"], record["detail"]),
+                                 ({"state": "failed", "code": "OUTCOME_UNKNOWN"}, "failed: OUTCOME_UNKNOWN"))
+                self.assertEqual(record["requests_outcome_unknown"], [dict(
+                    asked, request_id=request_id, code="OUTCOME_UNKNOWN", exit_code=7)])
+                self.assertEqual(planner.requests, {request_id: asked})
+                self.assertEqual(planner.close(), {"released": released, "held": []})
+                self.assertEqual([attempt["outcome"] for attempt in planner.by_request()[request_id]["attempts"]],
+                                 ["outcome_unknown", later])
+                self.assertEqual(sum(call[:2] == ["access", "ensure"] for call in self.calls()), 1)
+        # Expecting another refusal is as before: met only by that refusal with effect none.
+        record = h2.run_goal(self.planner(), self.access(require_unattended=True,
+                                                          expect_refusal="CAPABILITY_UNAVAILABLE"))
+        self.assertTrue(record["success"], record)
+
+    def test_the_run_fails_while_a_request_or_a_release_is_still_uncertain(self):
+        # M07-W6-R03, generally: whatever the goals' own results, the run exits 1 while a
+        # request or a release is still uncertain.
+        planner = self.planner()
+        met, closed = [{"success": True}], {"released": [], "held": []}
+        self.assertEqual(h2.exit_status(met, closed, planner), 0)
+        planner.requests["request-open"] = {"call": "access ensure", "profile": "covered", "work_id": "work-1"}
+        self.assertEqual(h2.exit_status(met, closed, planner), 1)
+        planner.requests.clear()
+        planner.uncertain["binding_open"] = {"request_id": None}
+        self.assertEqual(h2.exit_status(met, closed, planner), 1)
+        planner.uncertain.clear()
+        self.assertEqual(h2.exit_status([{"success": False}], closed, planner), 1)
+        self.assertEqual(h2.exit_status(met, {"released": [], "held": ["binding_x"]}, planner), 1)
+
+    def test_requests_for_one_work_and_profile_are_observed_together_and_each_binding_is_credited_once(self):
+        # M07-W6-R02 (the re-check's A15 and A16): two requests for the same work and
+        # profile bring no answer and name no operation. One read of the list of bindings
+        # observes both, the newest first, and each binding is credited to one request at
+        # most: the newest has the fewest candidates.
+        one, two = "binding_second", "binding_many_7"
+        inspect = ["inspect", "bindings"]
+        rows = (
+            # A15: each request made a binding. Both are released, each credited to its own.
+            (f"work:{one}/made-1,{two}/made-2:active", "close",
+             {1: ("binding_found", [one, two], [one]), 2: ("binding_found", [one, two], [two])}),
+            (f"work:{one}/made-1,{two}/made-2:active", "stop",
+             {1: ("binding_found", [one, two], [one]), 2: ("binding_found", [one, two], [two])}),
+            # A16: only the newer made one. It is credited to that request; the older one
+            # is still unknown, and is not settled by another's binding.
+            (f"work:{two}/made-2:active", "close",
+             {1: ("still_unknown", [two], []), 2: ("binding_found", [two], [two])}),
+        )
+        seen = self.watched(2.0, limited=(["access", "ensure"],))
+        for mode, by, outcomes in rows:
+            with self.subTest(mode=mode, by=by):
+                self.fresh()
+                del seen[:]
+                planner = self.planner(mode)
+                for _ in range(2):
+                    self.assertFalse(h2.run_goal(planner, self.access("silent"))["success"])
+                requests = [command[7] for command in seen[:2]]
+                self.assertEqual(list(planner.requests), requests)
+                if by == "close":
+                    closing = planner.close()
+                else:
+                    stopped = h2.run_goal(planner, {"goal": "stop"})
+                    closing = planner.close()
+                    self.assertEqual(stopped["success"], all(
+                        outcome == "binding_found" for outcome, _, _ in outcomes.values()))
+                released = {binding for _, _, given in outcomes.values() for binding in given}
+                # One read for both, then one release for each binding credited.
+                after = seen[2:]
+                self.assertEqual(after[0], inspect)
+                self.assertEqual(sorted(command[2] for command in after if command[:2] == ["access", "release"]),
+                                 sorted(released))
+                self.assertEqual(after.count(inspect), 1 + (by == "stop") * (
+                    "still_unknown" in [outcome for outcome, _, _ in outcomes.values()]))
+                self.assertEqual(planner.held, [])
+                self.assertEqual(set(planner.ever_held), released)
+                for index, (outcome, listed, given) in outcomes.items():
+                    first = planner.by_request()[requests[index - 1]]["attempts"][1]
+                    self.assertEqual((first["outcome"], first["listed"], first.get("bindings", [])),
+                                     (outcome, listed, given), index)
+                    self.assertEqual(first["candidates"], given, index)
+                if by == "close":
+                    self.assertEqual(sorted(closing["released"]), sorted(released))
+        # A request that named an operation is observed before those observed through the
+        # list: the binding its operation names is its own, and never another's candidate.
+        planner = self.planner()
+        planner.requests.update({"request-listed": {"call": "access ensure", "profile": "p", "work_id": "w"},
+                                 "request-waited": {"call": "access ensure", "profile": "p", "work_id": "w",
+                                                    "operation_id": "op_sample"}})
+        self.assertEqual(planner.open_requests(), ["request-waited", "request-listed"])
+
     def test_a_request_with_no_usable_output_is_observed_by_the_list_of_bindings_for_its_work(self):
         # It named no operation, and today's CLI has no way to observe a request by its
         # ID. The typed means left is the complete list of this caller's bindings, read
@@ -3036,6 +3391,50 @@ class PlannerTests(unittest.TestCase):
         self.assertFalse(record["success"])
         self.assertEqual((record["calls"], self.calls()), (0, []))
 
+    def test_a_windows_launch_is_read_by_its_spawned_record(self):
+        # W7 item 6: on Windows Heimdall writes `launching` with its own PID, spawns the
+        # child, writes `spawned` with the child's, and waits for it. That pair is a
+        # launch there, and `launching` alone is one on Unix (LAUNCHED). Either platform's
+        # records on the other are not, and the child is ended. Stub-covered here; the
+        # real Windows sequence is A32's task 5 in tests/e2e/harness_m07.rs.
+        child = [str(self.stub), "fixture-argument"]
+        self.assertEqual(h2.LAUNCHED, {"posix": ("launching",), "nt": ("launching", "spawned")})
+        for platform, mode in (("nt", "spawned"), ("posix", "normal"), ("posix", "spawned"), ("nt", "normal")):
+            # What the stub writes: on Windows it always writes `spawned`, as Heimdall does.
+            written = ("launching", "spawned") if mode == "spawned" or os.name == "nt" else ("launching",)
+            launched = written == h2.LAUNCHED[platform]
+            with self.subTest(platform=platform, mode=mode), patch.object(h2, "SPAWNED_SECONDS", 0.3):
+                self.fresh()
+                planner = self.planner(mode)
+                planner.platform = platform
+                self.assertTrue(h2.run_goal(planner, self.access())["success"])
+                record = h2.run_goal(planner, {"goal": "run", "profile": "covered", "work_id": "work-1",
+                                               "argv": child})
+                self.assertEqual(record["success"], launched, record)
+                if launched:
+                    self.assertEqual(record["final_state"]["pid"], planner.child.process.pid)
+                    stopped = h2.run_goal(planner, {"goal": "stop"})
+                    self.assertEqual((stopped["success"], stopped["child_exit_code"]), (True, 0))
+                else:
+                    self.assertEqual(record["detail"], "the run records do not tell of a launch on "
+                                                       "this platform: " + ", ".join(written))
+                    self.assertIsNone(planner.child)
+                    self.assertEqual(planner.close(), {"released": ["binding_fixture"], "held": []})
+                self.assertEqual(list(self.root.glob("h2-run-*")), [])
+        # The child may be the in-box OpenSSH client itself on Windows, and nothing else
+        # outside the scratch root: never on another platform, never where it is no file.
+        self.assertEqual(h2.in_box_ssh("C:\\Windows"), PureWindowsPath("c:/windows/system32/openssh/SSH.EXE"))
+        for odd in ("Windows", "", None, "\\Windows"):
+            self.assertIsNone(h2.in_box_ssh(odd), odd)
+        for platform in ("nt", "posix"):
+            planner = self.planner(environment=dict(self.environment, SystemRoot="C:\\Windows"))
+            planner.platform = platform
+            record = h2.run_goal(planner, {"goal": "run", "profile": "covered", "work_id": "work-5",
+                                           "argv": ["C:\\Windows\\System32\\OpenSSH\\ssh.exe", "-T"]})
+            self.assertEqual((record["success"], record["calls"]), (False, 0))
+            self.assertEqual(record["detail"], "the child executable is not a file inside the scratch "
+                                               "root, nor the in-box OpenSSH client")
+
     def test_a_child_that_ignores_its_input_is_stopped_by_handle(self):
         planner = self.planner("stubborn-child")
         goal = {"goal": "run", "profile": "covered", "work_id": "work-6", "argv": [str(self.stub)]}
@@ -3167,18 +3566,14 @@ class PlannerTests(unittest.TestCase):
             self.assertEqual(json.loads(stderr.getvalue()), report)
             self.assertEqual(stderr.getvalue().count("\n"), 1)
 
-    @unittest.skipUnless(os.name == "posix", "the stub is started through its interpreter line")
     def test_main_prints_one_summary_and_reports_failure_by_exit_code(self):
-        self.stub.write_text(f"#!{sys.executable} -IB\n{STUB}", encoding="utf-8")
-        self.stub.chmod(0o700)
         stdout = io.StringIO()
         goals = [json.dumps({"goal": "discover"}), json.dumps(self.access()),
                  json.dumps(self.access("novel", task="novel"))]
         argv = ["--heimdall-bin", str(self.stub), "--scratch-root", str(self.root)]
         for goal in goals:
             argv += ["--goal", goal]
-        with patch.dict(os.environ, self.environment), contextlib.redirect_stdout(stdout):
-            status = h2.main(argv)
+        status = self.whole(argv, STUB, stdout)
         self.assertEqual(status, 1)
         self.assertEqual(len(stdout.getvalue().splitlines()), 1)
         summary = json.loads(stdout.getvalue())
@@ -3200,15 +3595,46 @@ class PlannerTests(unittest.TestCase):
                           "requests_not_sent", "requests_still_unknown"):
                 self.assertIn(field, task)
 
-    @unittest.skipUnless(os.name == "posix", "the stub is started through its interpreter line")
+    def test_run_is_main_with_the_command_it_is_given(self):
+        # W7 item 7: `main` parses its arguments and calls `run` with the executable they
+        # name. `run` with the stub started through the interpreter, as the whole-run tests
+        # do on Windows, gives the same exit status and summary.
+        goals = [{"goal": "discover"}, self.access(), self.access("novel", task="novel"),
+                 self.access("uncertain-none", task="e2", expect_refusal="OUTCOME_UNKNOWN")]
+        argv = ["--heimdall-bin", str(self.stub), "--scratch-root", str(self.root)]
+        for goal in goals:
+            argv += ["--goal", json.dumps(goal)]
+        summaries = []
+        for through_run in (False, True):
+            self.fresh()
+            self.stub.write_text(f"#!{sys.executable} -IB\n{STUB}" if not through_run else STUB,
+                                 encoding="utf-8")
+            stdout = io.StringIO()
+            with patch.dict(os.environ, self.environment), contextlib.redirect_stdout(stdout):
+                if through_run:
+                    status = h2.run(h2.parse_arguments(argv), [sys.executable, "-IB", str(self.stub)])
+                elif os.name == "posix":
+                    self.stub.chmod(0o700)
+                    status = h2.main(argv)
+                else:
+                    continue
+            summary = json.loads(stdout.getvalue())
+            summaries.append((status, [task["success"] for task in summary["tasks"]], summary["close"],
+                              [entry["call"] for entry in summary["request_attempts"].values()]))
+        self.assertEqual(summaries[-1], (1, [True, True, False, False],
+                                         {"released": ["binding_fixture"], "held": []}, ["access ensure"]))
+        self.assertEqual(len(set(map(repr, summaries))), 1)
+        with self.assertRaises(SystemExit):
+            with contextlib.redirect_stderr(io.StringIO()):
+                h2.parse_arguments(["--heimdall-bin", "relative", "--scratch-root", str(self.root),
+                                    "--goal", "{}"])
+
     def test_main_exits_1_when_a_release_was_refused_and_names_it(self):
         many = "binding_many_{}".format
         refused = {"binding_id": many(1), "code": "CAPABILITY_UNAVAILABLE", "exit_code": 4}
         default = 'mode = "normal" if'
         self.assertEqual(STUB.count(default), 1)
         stub = STUB.replace(default, f'mode = "refuse:{many(1)}" if')
-        self.stub.write_text(f"#!{sys.executable} -IB\n{stub}", encoding="utf-8")
-        self.stub.chmod(0o700)
         access = [json.dumps(self.access("many", task=f"access-{index}")) for index in range(3)]
         # The refusal meets a stop goal, or only the close that ends the run.
         for last, close in (([json.dumps({"goal": "stop"})], {"released": [], "held": [many(1)]}),
@@ -3220,8 +3646,7 @@ class PlannerTests(unittest.TestCase):
                 for goal in access + last:
                     argv += ["--goal", goal]
                 stdout = io.StringIO()
-                with patch.dict(os.environ, self.environment), contextlib.redirect_stdout(stdout):
-                    status = h2.main(argv)
+                status = self.whole(argv, stub, stdout)
                 self.assertEqual(status, 1)
                 summary = json.loads(stdout.getvalue())
                 self.assertEqual([task["success"] for task in summary["tasks"]],
@@ -3238,20 +3663,16 @@ class PlannerTests(unittest.TestCase):
                 self.assertEqual([call[2] for call in self.calls()[3:]],
                                  [many(2), many(1), many(0)] + [many(1)] * len(last))
 
-    @unittest.skipUnless(os.name == "posix", "the stub is started through its interpreter line")
     def test_main_exits_1_when_no_call_about_a_release_was_answered_and_names_every_binding(self):
         # M07-W5-R01, the second probe as a whole run: a stop goal, then the close.
         many = "binding_many_{}".format
         default = 'mode = "normal" if'
         stub = STUB.replace(default, 'mode = "sleep:always:normal" if')
-        self.stub.write_text(f"#!{sys.executable} -IB\n{stub}", encoding="utf-8")
-        self.stub.chmod(0o700)
         argv = ["--heimdall-bin", str(self.stub), "--scratch-root", str(self.root)]
         for goal in [self.access("many", task=f"access-{index}") for index in range(3)] + [{"goal": "stop"}]:
             argv += ["--goal", json.dumps(goal)]
         seen, stdout = self.watched(0.3), io.StringIO()
-        with patch.dict(os.environ, self.environment), contextlib.redirect_stdout(stdout):
-            status = h2.main(argv)
+        status = self.whole(argv, stub, stdout)
         self.assertEqual(status, 1)
         summary = json.loads(stdout.getvalue())
         self.assertEqual([task["success"] for task in summary["tasks"]], [True, True, True, False])
@@ -3268,7 +3689,6 @@ class PlannerTests(unittest.TestCase):
                                         ("close", "still_unknown", "timed_out")] for index in (2, 1, 0)})
         self.assertTrue(all(entry["held"] for entry in summary["release_attempts"].values()))
 
-    @unittest.skipUnless(os.name == "posix", "the stub is started through its interpreter line")
     def test_main_exits_1_after_an_uncertain_release_and_lists_its_attempts_by_binding(self):
         many = "binding_many_{}".format
         default = 'mode = "normal" if'
@@ -3311,14 +3731,11 @@ class PlannerTests(unittest.TestCase):
             with self.subTest(means=means, says=says, stop_goal=stopped):
                 self.fresh()
                 stub = STUB.replace(default, f'mode = "uncertain:{many(1)}:{means}:{says}" if')
-                self.stub.write_text(f"#!{sys.executable} -IB\n{stub}", encoding="utf-8")
-                self.stub.chmod(0o700)
                 argv = ["--heimdall-bin", str(self.stub), "--scratch-root", str(self.root)]
                 for goal in access + stop * stopped:
                     argv += ["--goal", goal]
                 stdout = io.StringIO()
-                with patch.dict(os.environ, self.environment), contextlib.redirect_stdout(stdout):
-                    status = h2.main(argv)
+                status = self.whole(argv, stub, stdout)
                 # Whatever the close then observed, the run fails: a release was uncertain.
                 self.assertEqual(status, 1)
                 summary = json.loads(stdout.getvalue())
@@ -3343,7 +3760,6 @@ class PlannerTests(unittest.TestCase):
                                  2 if says == "never-ran" else 1)
 
 
-    @unittest.skipUnless(os.name == "posix", "the stub is started through its interpreter line")
     def test_main_exits_1_after_a_request_with_no_answer_and_names_it(self):
         # M07 W6b as a whole run: `access ensure` brings no answer, then a stop goal,
         # then the close.
@@ -3389,20 +3805,28 @@ class PlannerTests(unittest.TestCase):
             # operation never ends.
             ("sleep:wait:never", "covered", {"timeout_ms": 1}, accepted,
              [dict(unfinished, by="stop"), dict(unfinished, by="close")], False, [wait] * 3, True),
+            # W7, M07-W6-R03 (E2): answered `OUTCOME_UNKNOWN` naming no operation, with
+            # effect `none`, by a goal that expected that code. It is no success, and the
+            # run exits 1.
+            ("work:binding_second:none", "uncertain-none", {"expect_refusal": "OUTCOME_UNKNOWN"},
+             {"by": "access", "outcome": "outcome_unknown", "code": "OUTCOME_UNKNOWN", "exit_code": 7},
+             [dict(still, by="stop"), dict(still, by="close")], False, [["inspect", "bindings"]] * 2, True),
+            # W7, M07-W6-R01 (G1): answered `ACCEPTED`, and every wait found the operation
+            # unfinished until the step limit (Heimdall's own timeout, exit 5).
+            ("never", "covered", {"timeout_ms": 1}, dict(unfinished, by="access"),
+             [dict(unfinished, by="stop"), dict(unfinished, by="close")], False,
+             [wait] * (h2.MAX_STEPS - 1 + 2), True),
         )
         for mode, profile, fields, own, later, stopped, calls, uncertain in rows:
             with self.subTest(mode=mode, profile=profile):
                 self.fresh()
                 del seen[:]
                 stub = STUB.replace(default, f'mode = "{mode}" if')
-                self.stub.write_text(f"#!{sys.executable} -IB\n{stub}", encoding="utf-8")
-                self.stub.chmod(0o700)
                 argv = ["--heimdall-bin", str(self.stub), "--scratch-root", str(self.root)]
                 for goal in (self.access(profile, task="late", **fields), {"goal": "stop"}):
                     argv += ["--goal", json.dumps(goal)]
                 stdout = io.StringIO()
-                with patch.dict(os.environ, self.environment), contextlib.redirect_stdout(stdout):
-                    status = h2.main(argv)
+                status = self.whole(argv, stub, stdout)
                 self.assertEqual(status, 1)
                 summary = json.loads(stdout.getvalue())
                 self.assertEqual([task["success"] for task in summary["tasks"]], [False, stopped])

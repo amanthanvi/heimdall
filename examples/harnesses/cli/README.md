@@ -33,7 +33,7 @@ in-box OpenSSH directory, `System32`, and `SystemRoot`, and sets
 | `covered` | Preapproved profile. One `access ensure` reaches `ACCESS_READY` and supplies a binding for `release`. |
 | `approval` | Profile with a missing pair. `--approval-pair destination:account` enables the fixture-driver handoff. |
 | `timeout` | A fresh profile with delayed preparation. After the 1 ms caller timeout, `operation wait` observes the original ensure reach `ACCESS_READY`. |
-| `bind-run` | Preapproved profile. Supply an absolute scratch child executable and its arguments through `--child` at the end of the command. The child prints `h1-fixture-child` and exits 0. |
+| `bind-run` | Preapproved profile. Supply an absolute scratch child executable and its arguments through `--child` at the end of the command. On Windows the child may also be the in-box OpenSSH client (`%SystemRoot%\System32\OpenSSH\ssh.exe`) with its scratch config and isolated options on its own command line. The child prints `h1-fixture-child` and exits 0. |
 | `release` | Run `covered`, `approval` or `timeout` earlier in the same invocation. Each of them ends holding a binding. `release` drops every one with its own `access release` call, the newest first. |
 | `capability-refusal` | Existing-access profile. `access ensure --require-unattended` must exit 4 with `CAPABILITY_UNAVAILABLE` and effect `none`. |
 

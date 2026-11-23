@@ -42,6 +42,18 @@
 //! `-i`). A dead endpoint fails the first login, so it fails the task. The driver checks both
 //! logins in the sshd's log, the first one's output, and a signature by the fixture agent.
 //!
+//! **On Windows (M07 W7)** the child of task 5 is the **in-box OpenSSH client**,
+//! `%SystemRoot%\System32\OpenSSH\ssh.exe`, started by `heimdall run` itself (the `run -- ssh`
+//! form of the AGENTS.md rule): `-F <scratch config>` and the isolated option set (every agent
+//! and default identity off, the generated key by `-i`, scratch known hosts) are on its own
+//! command line, with no wrapper and no redirect. It makes the isolated login, and the driver
+//! checks it in the sshd's log. The login through the binding's endpoint is **not made on
+//! Windows**: with `ssh.exe` itself as the child, nothing runs between `heimdall run` and the
+//! client that could check that `SSH_AUTH_SOCK` names this run's disposable agent before the
+//! client asks it, and an unchecked `IdentityAgent=SSH_AUTH_SOCK` falls back to the account's
+//! own agent pipe whenever `SSH_AUTH_SOCK` is unset. So on Windows task 5 proves a launch under
+//! the binding (H2 reads the `spawned` record) and an isolated login, not the endpoint.
+//!
 //! **The human step** of task 3 is this driver: it reads the pending decision, checks that it
 //! asks for exactly the missing pair, and approves it through the real CLI on a testkit terminal
 //! (`script(1)` on Unix, ConPTY on Windows), typing `yes`.
@@ -57,8 +69,8 @@
 //! All invocations use `-I -B` and set `PYTHONDONTWRITEBYTECODE=1`.
 //!
 //! **Platforms.** Unix runs both worlds together. Windows has a self-contained adapter test
-//! (tasks 3 and 4) and a test using the native runner's disposable loopback sshd (tasks 1, 2
-//! and 7). Tasks 5 and 6 also need the child login oracle and the Windows `spawned` run record.
+//! (tasks 3 and 4) and a test using the native runner's disposable loopback sshd (tasks 1, 2,
+//! 5, 6 and 7), whose task 5 child is the in-box `ssh.exe` (above).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout)]
 
 /// H1's source, as shipped.
@@ -189,6 +201,7 @@ mod journey {
     use heimdall_testkit::agent::{AgentMode, Endpoint, FakeAgent, FakeAgentConfig, FixtureKey};
     use heimdall_testkit::console::TerminalCommand;
     use heimdall_testkit::home::ScratchHome;
+    use heimdall_testkit::home::ssh_option_path;
     #[cfg(unix)]
     use heimdall_testkit::home::{find_program, sh_join};
     use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
@@ -556,6 +569,23 @@ mod journey {
         }
     }
 
+    /// The `ssh` client of every fixture login: the one on the `PATH` on Unix, and the in-box
+    /// OpenSSH client (`%SystemRoot%\System32\OpenSSH\ssh.exe`) on Windows.
+    fn ssh_client() -> PathBuf {
+        #[cfg(unix)]
+        let ssh = find_program("ssh").expect("ssh client");
+        #[cfg(windows)]
+        let ssh = PathBuf::from(std::env::var_os("SystemRoot").expect("SystemRoot"))
+            .join("System32")
+            .join("OpenSSH")
+            .join("ssh.exe");
+        assert!(
+            ssh.is_absolute() && ssh.is_file(),
+            "blocked: journey not run; the ssh client is missing"
+        );
+        ssh
+    }
+
     // ---- the existing-access world (as `cli_m07.rs` builds it) ------------------------------
 
     fn owner(root: &Path) -> Caller {
@@ -732,7 +762,6 @@ mod journey {
         key: FixtureKey,
         account: AccountName,
         /// The fixture key's private half, for the pinned login of the fixture children.
-        #[cfg(unix)]
         login_key: PathBuf,
     }
 
@@ -761,10 +790,12 @@ mod journey {
                 "blocked: existing-access journey not run; the loopback sshd needs HM_FIXTURE_SSHD_USER",
             );
             let account = AccountName::parse(account).unwrap();
-            #[cfg(unix)]
             let login_key = {
                 let path = suite.home.root.join("login-key");
                 key.write_private(&path).unwrap();
+                // The in-box client refuses a key file that others may read.
+                #[cfg(windows)]
+                heimdall_testkit::win::set_owner_only(&path).unwrap();
                 path
             };
             Lab {
@@ -772,13 +803,11 @@ mod journey {
                 agent,
                 key,
                 account,
-                #[cfg(unix)]
                 login_key,
             }
         }
 
         /// Logins the fixture sshd accepted so far, each checked to be the generated key's.
-        #[cfg(unix)]
         fn logins(&self) -> usize {
             let accepted = self.sshd.accepted_log();
             assert!(
@@ -842,6 +871,9 @@ mod journey {
                 #[cfg(unix)]
                 std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
             }
+            // Windows has no /dev/null for the client's global known hosts: an empty file.
+            #[cfg(windows)]
+            std::fs::write(root.join("global_known_hosts"), "").unwrap();
             let paths = Paths::under(&root.join("heimdall-home"));
             let mut projection = ProjectionConfig::new(
                 SshPaths::with_test_override(ssh_home.clone(), ssh_home.join("etc-ssh")),
@@ -880,12 +912,18 @@ mod journey {
 
         /// One pinned login to the fixture sshd (alias `lab`) that runs `remote`: the option set
         /// every fixture login shares, then `identity`, which says where the key comes from.
-        #[cfg(unix)]
+        /// The client is the one on the `PATH` on Unix, and the in-box OpenSSH client on Windows.
         fn login(&self, identity: &[&str], key: Option<&Path>, remote: &str) -> Vec<OsString> {
             let ssh_dir = self.root.join("ssh-home/.ssh");
-            let ssh = find_program("ssh").expect("ssh client");
-            let mut words: Vec<OsString> = vec![ssh.into(), "-T".into(), "-F".into()];
+            let mut words: Vec<OsString> = vec![ssh_client().into(), "-T".into(), "-F".into()];
             words.push(ssh_dir.join("config").into());
+            #[cfg(unix)]
+            let global = "GlobalKnownHostsFile=/dev/null".to_owned();
+            #[cfg(windows)]
+            let global = format!(
+                "GlobalKnownHostsFile={}",
+                ssh_option_path(&self.root.join("global_known_hosts"))
+            );
             for option in [
                 "IdentityFile=none",
                 "CertificateFile=none",
@@ -893,7 +931,7 @@ mod journey {
                 "ControlPath=none",
                 "BatchMode=yes",
                 "StrictHostKeyChecking=yes",
-                "GlobalKnownHostsFile=/dev/null",
+                global.as_str(),
             ]
             .iter()
             .chain(identity)
@@ -905,7 +943,7 @@ mod journey {
             words.push(
                 format!(
                     "UserKnownHostsFile={}",
-                    heimdall_testkit::home::ssh_option_path(&ssh_dir.join("known_hosts"))
+                    ssh_option_path(&ssh_dir.join("known_hosts"))
                 )
                 .into(),
             );
@@ -957,6 +995,27 @@ mod journey {
             std::fs::write(&script, text).unwrap();
             std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
             script
+        }
+
+        /// The child of task 5 as `heimdall run` starts it, program first. On Unix it is
+        /// [`Self::child`], which makes both logins. On Windows it is the **in-box OpenSSH
+        /// client** itself, with `-F <scratch config>` and the isolated option set on its own
+        /// command line (the `run -- ssh` form): it makes the isolated login only (see the
+        /// module documentation, "On Windows").
+        fn task5_child(&self, lab: &Lab, name: &str, remote: &str) -> Vec<OsString> {
+            #[cfg(unix)]
+            {
+                vec![self.child(lab, name, remote).into()]
+            }
+            #[cfg(windows)]
+            {
+                let _ = name;
+                self.login(
+                    &["IdentitiesOnly=yes", "IdentityAgent=none"],
+                    Some(&lab.login_key),
+                    remote,
+                )
+            }
         }
 
         async fn stop(self) {
@@ -1218,7 +1277,7 @@ mod journey {
             .collect()
     }
 
-    /// After a harness's existing-access tasks.
+    /// After a harness's existing-access tasks (Unix).
     ///
     /// The child `name` of task 5 logged in twice, each time with the generated key: once
     /// through the signing endpoint its binding gave it, which the disposable agent signed for,
@@ -1238,6 +1297,17 @@ mod journey {
             lab.logins(),
             before.logins + 2,
             "the child of task 5 logged in to the fixture sshd exactly twice"
+        );
+    }
+
+    /// After a harness's existing-access tasks (Windows): the child of task 5, the in-box
+    /// `ssh.exe`, logged in to the fixture sshd exactly once, isolated, with the generated key.
+    #[cfg(windows)]
+    fn check_logins(lab: &Lab, before: usize) {
+        assert_eq!(
+            lab.logins(),
+            before + 1,
+            "the child of task 5 logged in to the fixture sshd exactly once, with the generated key"
         );
     }
 
@@ -1304,39 +1374,24 @@ mod journey {
             "discover",
             "--task",
             "covered",
+            "--task",
+            "bind-run",
+            "--task",
+            "release",
+            "--task",
+            "capability-refusal",
+            "--child",
         ]);
         #[cfg(unix)]
         let before = lab.seen();
-        #[cfg(unix)]
-        {
-            let child = world.child(lab, "h1-child", "echo h1-fixture-child");
-            args.extend(words(&[
-                "--task",
-                "bind-run",
-                "--task",
-                "release",
-                "--task",
-                "capability-refusal",
-                "--child",
-            ]));
-            args.push(child.into());
-        }
         #[cfg(windows)]
-        args.extend(words(&[
-            "--task",
-            "capability-refusal",
-            "--task",
-            "release",
-        ]));
+        let before = lab.logins();
+        args.extend(world.task5_child(lab, "h1-child", "echo h1-fixture-child"));
         let summary = run_harness(suite, &world.root, &suite.h1, args, 0).await;
-        #[cfg(windows)]
-        let summary = {
-            let mut summary = summary;
-            take_cleanup(&mut summary, "release", 1);
-            summary
-        };
         #[cfg(unix)]
         check_logins(lab, &world, "h1-child", &before);
+        #[cfg(windows)]
+        check_logins(lab, before);
         check_no_active_bindings(suite, &world).await;
         world.stop().await;
         records("H1", "existing-access", &summary)
@@ -1400,7 +1455,6 @@ mod journey {
     /// The bindings H2 reports holding once the child of task 5 runs: the one task 2 prepared,
     /// and the child's own when the build made another for the same work. Read from H2's typed
     /// records only.
-    #[cfg(unix)]
     fn h2_held_for_the_run(tasks: &Value) -> Vec<String> {
         let (covered, running) = (&tasks[1], &tasks[2]);
         let prepared = covered["final_state"]["binding_id"]
@@ -1428,11 +1482,19 @@ mod journey {
         held
     }
 
-    #[cfg(unix)]
+    /// H2's existing-access tasks. On Windows the child of task 5 is the in-box `ssh.exe`
+    /// itself, which H2 starts through `heimdall run` and reads by its `spawned` run record.
     async fn run_h2_child(suite: &Suite, lab: &Lab, world: &ExistingAccess) -> Value {
         // The child reports that it is up, then holds its login open until its input ends.
-        let child = world.child(lab, "h2-child", "echo h2-fixture-child; cat");
+        let child: Vec<String> = world
+            .task5_child(lab, "h2-child", "echo h2-fixture-child; cat")
+            .iter()
+            .map(|word| word.to_str().expect("a UTF-8 child argument").to_owned())
+            .collect();
+        #[cfg(unix)]
         let before = lab.seen();
+        #[cfg(windows)]
+        let before = lab.logins();
         let work = "h2-lab-work";
         let summary = run_harness(
             suite,
@@ -1442,7 +1504,7 @@ mod journey {
                 json!({"goal": "discover"}),
                 json!({"task": "covered", "goal": "access", "profile": PROFILE, "work_id": work}),
                 json!({"task": "bind-run", "goal": "run", "profile": PROFILE, "work_id": work,
-                       "argv": [child]}),
+                       "argv": child}),
                 json!({"goal": "stop"}),
                 json!({"task": "capability-refusal", "goal": "access", "profile": PROFILE,
                        "work_id": "h2-unattended-work", "require_unattended": true,
@@ -1486,49 +1548,16 @@ mod journey {
             json!({"released": [], "held": []}),
             "H2 had nothing left to release when it closed"
         );
+        #[cfg(unix)]
         check_logins(lab, world, "h2-child", &before);
-        summary
-    }
-
-    #[cfg(windows)]
-    async fn run_h2_without_child(suite: &Suite, world: &ExistingAccess) -> Value {
-        let mut summary = run_harness(
-            suite,
-            &world.root,
-            &suite.h2,
-            goals(&[
-                json!({"goal": "discover"}),
-                json!({"task": "covered", "goal": "access", "profile": PROFILE,
-                       "work_id": "h2-lab-work"}),
-                json!({"task": "capability-refusal", "goal": "access", "profile": PROFILE,
-                       "work_id": "h2-unattended-work", "require_unattended": true,
-                       "expect_refusal": "CAPABILITY_UNAVAILABLE"}),
-                json!({"task": "cleanup", "goal": "stop"}),
-            ]),
-            0,
-        )
-        .await;
-        check_h2_paths(
-            &summary,
-            &[
-                ("discover", &["discovered"]),
-                ("covered", &["ready"]),
-                ("capability-refusal", &["failed"]),
-                ("cleanup", &["stopped"]),
-            ],
-        );
-        let cleanup = take_cleanup(&mut summary, "cleanup", 1);
-        assert_eq!(cleanup["held"], json!([]), "{cleanup}");
-        assert_eq!(summary["close"], json!({"released": [], "held": []}));
+        #[cfg(windows)]
+        check_logins(lab, before);
         summary
     }
 
     async fn run_h2_existing(suite: &Suite, lab: &Lab) -> Vec<Value> {
         let world = ExistingAccess::start(suite, lab, "h2e").await;
-        #[cfg(unix)]
         let summary = run_h2_child(suite, lab, &world).await;
-        #[cfg(windows)]
-        let summary = run_h2_without_child(suite, &world).await;
         check_no_active_bindings(suite, &world).await;
         world.stop().await;
         records("H2", "existing-access", &summary)
@@ -1657,8 +1686,9 @@ mod journey {
         record_composition(&suite, records, &[1, 2, 3, 4, 5, 6, 7], &[]);
     }
 
+    /// What the Windows run of task 5 does not prove (module documentation, "On Windows").
     #[cfg(windows)]
-    const WINDOWS_HELD: &str = "tasks 5 and 6: need a Windows child login oracle and H2 support for the spawned run record";
+    const WINDOWS_HELD: &str = "task 5 on Windows: the child is the in-box ssh.exe with the isolated options, so it makes no login through the binding's signing endpoint (M07-W3-R02 is proven on Unix)";
 
     #[cfg(windows)]
     #[tokio::test(flavor = "current_thread")]
@@ -1666,9 +1696,14 @@ mod journey {
         let suite = Suite::new();
         let mut records = run_h1_adapter(&suite).await;
         records.extend(run_h2_adapter(&suite).await);
-        record_composition(&suite, records, &[3, 4], &[WINDOWS_HELD]);
+        record_composition(&suite, records, &[3, 4], &[]);
     }
 
+    /// Tasks 1, 2, 5, 6 and 7 on Windows. The child of task 5 is the **in-box OpenSSH client**,
+    /// `%SystemRoot%\System32\OpenSSH\ssh.exe`, started by `heimdall run` with
+    /// `-F <scratch config>` and the isolated option set on its own command line; it makes the
+    /// isolated login, which the driver checks in the fixture sshd's log (see
+    /// [`WINDOWS_HELD`]).
     #[cfg(windows)]
     #[tokio::test(flavor = "current_thread")]
     async fn both_harnesses_use_existing_access_on_windows() {
@@ -1676,6 +1711,6 @@ mod journey {
         let lab = Lab::start(&suite);
         let mut records = run_h1_existing(&suite, &lab).await;
         records.extend(run_h2_existing(&suite, &lab).await);
-        record_composition(&suite, records, &[1, 2, 7], &[WINDOWS_HELD]);
+        record_composition(&suite, records, &[1, 2, 5, 6, 7], &[WINDOWS_HELD]);
     }
 }
