@@ -195,7 +195,10 @@ closing line is in `results.txt`. Round 2 was 3,600 s on eight targets, then 1,8
   text once and find end markers in one pass, and compute block positions in one pass.
 - **Regression test (for U0 to land with the fix):** deterministic, not timed. A synthetic input
   of N lines `# >>> heimdall managed include (id hm-d5a1da95ac1fdca4)` with no end marker,
-  N = 2,000 and 4,000; with a counting allocator in its own test binary, the allocations for 4,000
-  stay under 2.5 times those for 2,000 (linear), and the result reports N blocks, none intact.
+  N = 2,000, 4,000 and 8,000 (three points, so a near-quadratic result cannot pass by luck); with a
+  counting allocator in its own test binary, each doubling stays under 2.5 times the allocations,
+  and the result reports N blocks, none intact (accepted by the orchestrator, 2026-11-23).
+- **Closed only when:** after the fix, `gitedit_scan` is fuzzed again on the newest build (defect
+  hunting) and the sanitizer build no longer runs out of memory. Until then F1 stays open here.
 - `gitedit_scan` stays **not met** while M08-W2-F1 is open.
 

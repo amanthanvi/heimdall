@@ -100,6 +100,7 @@ Ruled 2026-11-23, after M06 W5 merged into main (`f0ee5c87`):
 | 12 h trusted-work window; 7 d retention; 90-day deprecation window | Defaults and a policy, not measured claims. The release notes say so; M09's normal week tests the window (plan §8.4) |
 | Matrix observations and M07's caps | Observations and design values. The matrix labels them as probe observations; U0 confirms the caps |
 | The fuzz stopping rule | W2-1 |
+| Configuration scanning near the 1 MiB read limit | **No spec §15.1 claim covers it.** Finding M08-W2-F1 (low; `edit::locate` is quadratic: a 993 KB file costs 4.2 s and 7.3 GB of transient allocation) is named here so that no later budget or limitation statement about large configuration files omits it |
 | Release-binary facts (crate counts, size, the home path) | Superseded at the candidate by its SBOMs, build records and `verify_artifact` (W2-5) |
 
 ## W2-4. The floors and the matrix (U7)
