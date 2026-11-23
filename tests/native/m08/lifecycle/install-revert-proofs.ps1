@@ -1,4 +1,5 @@
-# Revert proofs for install.ps1's two merge-relevant fixes (review M08-W01-R01 and R02).
+# Revert proofs for install.ps1's merge-relevant fixes (review M08-W01-R01 and R02; PC job 40's
+# finding M08-W1-F1).
 #
 # STATUS: rehearsed under PowerShell 7 on macOS only; the evidence is its run on the PC.
 #
@@ -60,6 +61,30 @@ $helperOk = $exeOk
     Write-Host "W01-R02 reverted: exit $($b.Code); failing cases:"; $b.Fails | ForEach-Object { Write-Host "   $_" }
     $want = @($b.Fails | Where-Object { $_ -match "W01-R02: a rerun after a kill between the renames repairs the pair" })
     if ($b.Code -eq 0 -or $want.Count -ne 1) { Write-Host "REVERT PROOF FAILED for W01-R02: the mixed-pair case did not fail without the fix"; $failed = 1 }
+
+    # W1-F1 reverted (PC job 40): the half-pair rule, in which an update moves and stages only
+    # the half that differs. With it, an executable-only update keeps no helper under
+    # .previous, and the rollback that follows is refused (or, without the rollback check,
+    # leaves the install without its helper).
+    $f1r = Between $text "# W1-F1-BEGIN" "# W1-F1-END" @'
+$update = -not $exeOk
+$stageExe = $update
+$stageHelper = (-not $helperOk) -and $wantHelper.Count -gt 0
+$replaceHelper = -not $helperOk
+'@
+    $f3 = Join-Path $T "install-f1-reverted.ps1"; [System.IO.File]::WriteAllText($f3, $f1r)
+    $c = Run $f3
+    Write-Host "W1-F1 reverted: exit $($c.Code); failing cases:"; $c.Fails | ForEach-Object { Write-Host "   $_" }
+    $want = @($c.Fails | Where-Object { $_ -match "W1-F1: an executable-only update then a rollback restores the complete old pair" })
+    if ($c.Code -eq 0 -or $want.Count -ne 1) { Write-Host "REVERT PROOF FAILED for W1-F1: the executable-only rollback case did not fail without the fix"; $failed = 1 }
+
+    # W1-F1's rollback check reverted: a rollback no longer insists on a complete pair.
+    $f1b = Between $text "# W1-F1-ROLLBACK-BEGIN" "# W1-F1-ROLLBACK-END" ""
+    $f4 = Join-Path $T "install-f1-rollback-reverted.ps1"; [System.IO.File]::WriteAllText($f4, $f1b)
+    $d = Run $f4
+    Write-Host "W1-F1 rollback check reverted: exit $($d.Code); failing cases:"; $d.Fails | ForEach-Object { Write-Host "   $_" }
+    $want = @($d.Fails | Where-Object { $_ -match "W1-F1: a rollback with an incomplete .previous pair refuses" })
+    if ($d.Code -eq 0 -or $want.Count -ne 1) { Write-Host "REVERT PROOF FAILED for W1-F1's rollback check: the incomplete-pair case did not fail without it"; $failed = 1 }
 } finally {
     Remove-Item -Recurse -Force -LiteralPath $T -ErrorAction SilentlyContinue
 }

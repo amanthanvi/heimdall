@@ -139,3 +139,49 @@ under 5.1 and 7.
 These close the paragraph above that calls Windows the open evidence, for the self-test's
 cases. They do not show an install of a real Windows archive: `build-release.ps1` has never
 been run, so no Windows archive exists. The `Kind` access-denied line stays untested.
+
+## W1: finding M08-W1-F1 (PC job 40, 2026-11-23)
+
+**The defect.** On the PC, `-Rollback` after an executable-only update (a new executable
+whose helper bytes equal the installed helper's) left the install with no WSL helper, and
+every step exited 0. The update moved only the half that differed: `heimdall.exe` went to
+`.previous` and the helper stayed. The rollback then moved the current helper aside and had
+no `.previous` helper to put back. The same rule left a mismatched `.previous` pair after an
+earlier full update, and a helper-only repair discarded the older `.previous` helper.
+
+**The fix in `install.ps1`** (the contract owner's ruling):
+- **An update** (the executable is not this version) moves the whole current pair to the
+  `.previous` names as one unit, discarding the older `.previous` pair first, and stages a
+  complete new pair, the helper included even when its bytes match.
+- **A repair** (the executable is this version, the helper is missing or different) replaces
+  the helper in place and leaves `.previous` untouched.
+- **`-Rollback`** refuses, changing nothing, unless `.previous` holds a complete pair. It
+  names what is missing and says to install the older archive again.
+- A directory the run will remove is checked first to hold only the script's own files.
+- A stop between the two renames of step 3 is finished by the next run.
+
+**`install.sh`: not applicable.** It manages one file, `heimdall`, and has no helper
+directory, so it has no half-pair path (`tools/packaging/install.sh`: `cur`, `prev`, one
+rename).
+
+**Self-test,** seven cases (`W1-F1:` in `install-selftest.ps1`, 60 checks in all):
+- an executable-only update keeps the whole old pair;
+- that update, then a rollback, restores both halves (by digest);
+- a helper-only repair leaves `.previous` byte-identical;
+- after an earlier full update, an executable-only update leaves a matched `.previous`;
+- a rollback with a missing `.previous` helper file, and with no `.previous` helper
+  directory, refuses with every file unchanged;
+- an update whose older `.previous` helper holds a foreign file refuses before any write.
+
+The interrupted-rollback settle (`ra1` to `rc1`) and the interrupted update (after `1` to
+`4b`) still pass with complete pairs.
+
+**Revert proofs** (`install-revert-proofs.ps1`, under PowerShell 7 on macOS, 2026-11-23):
+
+| Taken out | Failing cases |
+|---|---|
+| Rule 1: the `W1-F1` block replaced with the half-pair rule | 3: the executable-only update keeps the old pair; then a rollback restores it; the matched `.previous` after a full update |
+| The rollback check: the `W1-F1-ROLLBACK` block removed | 2: the incomplete-pair and the missing-directory rollbacks |
+
+These are rehearsals of the logic only. The evidence is the PC run under Windows PowerShell
+5.1 and PowerShell 7.
