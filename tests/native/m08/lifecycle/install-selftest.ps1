@@ -42,14 +42,20 @@ function Pair([string]$prefix) { "$(Exe $prefix)|$(Helper $prefix)" }
 function PrevPair([string]$prefix) { "$(PrevExe $prefix)|$(PrevHelper $prefix)" }
 function V([string]$v) { "fake heimdall $v|fake helper $v" }
 
-function Archive([string]$name, [string]$version) {
+function Archive([string]$name, [string]$version, [bool]$deep = $false) {
     $d = Join-Path $T $name
     [void][System.IO.Directory]::CreateDirectory((Join-Path $d "linux-x86_64"))
+    $names = @("README", "heimdall.exe", "install.ps1", "linux-x86_64/heimdall")
+    if ($deep) {   # a helper with a file in a subdirectory
+        [void][System.IO.Directory]::CreateDirectory((P $d @("linux-x86_64", "sub")))
+        [System.IO.File]::WriteAllText((P $d @("linux-x86_64", "sub", "tool")), "fake tool $version")
+        $names += "linux-x86_64/sub/tool"
+    }
     [System.IO.File]::WriteAllText((Join-Path $d "heimdall.exe"), "fake heimdall $version")
     [System.IO.File]::WriteAllText((P $d @("linux-x86_64", "heimdall")), "fake helper $version")
     [System.IO.File]::WriteAllText((Join-Path $d "README"), "notes for $version")
     Copy-Item -LiteralPath $sut -Destination (Join-Path $d "install.ps1")
-    $lines = foreach ($f in "README", "heimdall.exe", "install.ps1", "linux-x86_64/heimdall") { "{0}  {1}" -f (Sha (P $d $f.Split('/'))), $f }
+    $lines = foreach ($f in $names) { "{0}  {1}" -f (Sha (P $d $f.Split('/'))), $f }
     [System.IO.File]::WriteAllText((Join-Path $d "MANIFEST.sha256"), (($lines -join "`n") + "`n"))
     return $d
 }
@@ -135,6 +141,29 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $D6 ".heimdall.new.exe"), "stale staged exe")
     $r = Install $a2 $D6
     Check "a leftover staged pair holding only the script's own files is cleared and the update completes" (($r.Code -eq 0) -and ((Pair $D6) -eq (V "2.0.0")) -and ((PrevPair $D6) -eq (V "1.0.0")))
+
+    # --- W0.3: a manifest name that is not a plain relative path is refused before any write.
+    $outsideFile = Join-Path $T "outside.txt"; [System.IO.File]::WriteAllText($outsideFile, "mine")
+    foreach ($badname in "linux-x86_64/../../outside.txt", "../outside.txt", "/outside.txt", "linux-x86_64//x", "linux-x86_64/./heimdall", "a\b", "c:x") {
+        $mn = Join-Path $T "mn"; Copy-Item -Recurse -LiteralPath $a2 -Destination $mn
+        [System.IO.File]::AppendAllText((Join-Path $mn "MANIFEST.sha256"), ("{0}  {1}`n" -f (Sha $outsideFile), $badname))
+        $MP = Join-Path $T "prefix-mn"
+        $r = Install $mn $MP
+        Check "W0.3: a manifest naming '$badname' is refused, nothing written" (($r.Code -eq 1) -and ($r.Out -match "will not use") -and -not (Test-Path -LiteralPath (Join-Path $MP "heimdall.exe")) -and ((Text $outsideFile) -eq "mine"))
+        Remove-Item -Recurse -Force -LiteralPath $mn
+    }
+    # --- W0.3: nothing is deleted THROUGH a link inside a staged helper directory.
+    $a4 = Archive "a4" "4.0.0" $true
+    $DL = Join-Path $T "prefix-deeplink"; [void](Install $a1 $DL)
+    $far = Join-Path $T "far"; [void][System.IO.Directory]::CreateDirectory($far); [System.IO.File]::WriteAllText((Join-Path $far "tool"), "mine")
+    $stgl = Join-Path $DL ".linux-x86_64.new"; [void][System.IO.Directory]::CreateDirectory($stgl)
+    Link (Join-Path $stgl "sub") $far
+    $r = Install $a4 $DL
+    Check "W0.3: a junction (or link) at a subdirectory inside a staged helper is refused; the file behind it survives" (($r.Code -eq 1) -and ((Text (Join-Path $far "tool")) -eq "mine") -and ((Pair $DL) -eq (V "1.0.0")) -and ($r.Out -match "inside a directory this script manages"))
+    $DL2 = Join-Path $T "prefix-deeplink2"; [void](Install $a4 $DL2)
+    Check "W0.3: (an archive whose helper has a subdirectory installs)" ((Text (P $DL2 @("linux-x86_64", "sub", "tool"))) -eq "fake tool 4.0.0")
+    $r = Install $a1 $DL2
+    Check "W0.3: and updating away from it keeps the pair, subdirectory included, under .previous" (($r.Code -eq 0) -and ((Pair $DL2) -eq (V "1.0.0")) -and ((Text (P $DL2 @("linux-x86_64.previous", "sub", "tool"))) -eq "fake tool 4.0.0"))
 
     # --- M08-W01-R02: the executable and the helper are one unit.
     # A failure injected between the two renames of step 4 puts BOTH halves back.

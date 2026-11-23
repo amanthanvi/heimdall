@@ -5,9 +5,9 @@ Install, update, roll back and uninstall from release archives (m08-plan §7.2, 
 
 | File | What it does |
 |---|---|
-| `install-selftest.sh` | Tests `tools/packaging/install.sh` with fake archives: no real executable is used or run, so it is safe on any host. 35 checks, including the W0 review's cases (a failed backup, symlinks at staging names, an unterminated manifest, a runtime that does not answer, an interrupted rollback) |
+| `install-selftest.sh` | Tests `tools/packaging/install.sh` with fake archives: no real executable is used or run, so it is safe on any host. 41 checks, including the W0 review's cases (a failed backup, symlinks at staging names, an unterminated manifest, a runtime that does not answer, an interrupted rollback) |
 | `journey.sh` | The journey itself. `--build release`: archives, run as a disposable account; it sets no test variable, refuses outside a container and refuses if any `HEIMDALL_TEST_*` is set; there is no override. `--build debug`: two debug executables, on a host; it exports and verifies all six scratch variables first, runs every `ssh` with `-F` on the scratch configuration behind a default-identity guard, and **skips every `heimdall connect` step** (see the incident below) |
-| `install-selftest.ps1` | The Windows counterpart, for `install.ps1`: 43 checks. **Rehearsed under PowerShell 7 on macOS only** (the logic, with symbolic links standing in for junctions); **not yet run on Windows** |
+| `install-selftest.ps1` | The Windows counterpart, for `install.ps1`: 53 checks. **Rehearsed under PowerShell 7 on macOS only** (the logic, with symbolic links standing in for junctions); **not yet run on Windows** |
 | `install-revert-proofs.ps1` | Takes one fix at a time out of a scratch copy of `install.ps1` (by its marker comments) and shows the self-test then fails in the expected cases. For the PC job |
 | `run-journey.sh` | Starts `journey.sh --build release` in the M08 container (no network, 2 CPUs, 2 GiB, an init process) |
 
@@ -106,3 +106,20 @@ The debug-build journey was not rerun after this change.
 renaming a mapped image, junctions and other reparse points, sharing violations, Windows
 PowerShell 5.1. The PC job runs `install-selftest.ps1` and `install-revert-proofs.ps1`
 under 5.1 and 7.
+
+## W0.3 (2026-11-23): the orchestrator's read of `install.ps1`
+
+- **Manifest names are validated in both installers** when the manifest is read, before any
+  write: a plain relative path only (no empty, `.` or `..` segment, no backslash, no colon,
+  no leading `/`, no control character). `install-selftest.sh`: 6 names refused, 41 checks
+  in all. `install-selftest.ps1`: 7 names refused.
+- **`install.ps1` never reads, checks or deletes through a link inside a helper directory:**
+  every intermediate component must be a real directory (`Resolve-Under`). Case: a junction
+  (a symbolic link on macOS) at `.linux-x86_64.new\sub` is refused and the file behind it
+  survives. `install.sh` has no counterpart to fix: it manages one file and deletes inside
+  no directory.
+- **`Kind` stops the script on any error other than "not there",** so a path it cannot
+  inspect is never treated as free. No test injects an access-denied error; that line is
+  untested.
+- `install-selftest.ps1`: PASS, 53 checks, and `install-revert-proofs.ps1`: PASS, both under
+  PowerShell 7 **on macOS only**.

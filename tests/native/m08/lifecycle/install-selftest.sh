@@ -177,6 +177,15 @@ kill "$alive" 2>/dev/null; wait "$alive" 2>/dev/null
 sh "$T/a2/install.sh" --prefix "$A" >/dev/null 2>&1; rc=$?
 check "once that process has ended, the update proceeds" '[ "$rc" = 0 ] && [ "$("$A/heimdall")" = "heimdall 2.0.0" ]'
 
+# --- W0.3: a manifest name that is not a plain relative path is refused before any write.
+echo outside >"$T/outside.txt"
+for badname in "../outside.txt" "/etc/hosts" "sub//x" "./README" 'a\\b' "c:x"; do
+    cp -R "$T/a2" "$T/mn"; printf '%s  %s\n' "$(sha "$T/outside.txt")" "$badname" >>"$T/mn/MANIFEST.sha256"
+    sh "$T/mn/install.sh" --prefix "$T/prefix-mn" >"$T/omn" 2>&1; rc=$?
+    check "a manifest naming '$badname' is refused, nothing written" '[ "$rc" = 1 ] && grep -q "will not use" "$T/omn" && [ ! -e "$T/prefix-mn/heimdall" ] && [ "$(cat "$T/outside.txt")" = outside ]'
+    rm -rf "$T/mn"
+done
+
 # --- R10: a prefix that looks like an option.
 (cd "$T" && mkdir dash && cd dash && sh "$T/a1/install.sh" --prefix -x >"$T/od" 2>&1); rc=$?
 check "R10: a prefix beginning with a dash is a directory, not an option" '[ "$rc" = 0 ] && [ "$("$T/dash/-x/heimdall")" = "heimdall 1.0.0" ]'

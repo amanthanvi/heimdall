@@ -179,6 +179,13 @@ want_exe=""
 while IFS= read -r line || [ -n "$line" ]; do
     want=${line%%  *}; name=${line#*  }
     [ "$want" != "$line" ] && [ ${#want} = 64 ] || die "MANIFEST.sha256 has a malformed line"
+    # A manifest name is a plain relative path: no empty, . or .. segment, no backslash, no
+    # colon, no leading slash, no control character. Refused before anything is written, so
+    # a name is never joined into a path outside the archive.
+    case "/$name/" in
+        *//*|*/./*|*/../*|*\\*|*:*) die "MANIFEST.sha256 names a path this script will not use (it must be a plain relative path). Nothing was changed." ;;
+    esac
+    case "$name" in *[[:cntrl:]]*|"") die "MANIFEST.sha256 names a path this script will not use (it must be a plain relative path). Nothing was changed." ;; esac
     [ -f "$here/$name" ] || die "the archive is incomplete: $name is missing"
     [ "$(sha "$here/$name")" = "$want" ] || die "the archive is damaged: $name does not match MANIFEST.sha256"
     [ "$name" != heimdall ] || want_exe=$want

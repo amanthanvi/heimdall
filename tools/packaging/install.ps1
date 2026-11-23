@@ -70,8 +70,12 @@ $swapH = Join-Path $Prefix ".$helperName.swap"
 
 # 'absent', 'file', 'dir' or 'link' (any reparse point: junction, symbolic link, mount point;
 # a dangling link too). Nothing is followed.
+# A path that cannot be inspected (access denied, an invalid name, any error other than
+# "not there") is never treated as free: the script stops.
 function Kind([string]$p) {
-    try { $a = [System.IO.FileInfo]::new($p).Attributes } catch { return 'absent' }
+    try { $a = [System.IO.FileInfo]::new($p).Attributes }
+    catch [System.IO.FileNotFoundException], [System.IO.DirectoryNotFoundException] { return 'absent' }
+    catch { Die "cannot inspect $p ($($_.Exception.GetType().Name)). Nothing was changed by this step; resolve that and run this again." }
     if ([int]$a -eq -1) { return 'absent' }
     if ($a -band [System.IO.FileAttributes]::ReparsePoint) { return 'link' }
     if ($a -band [System.IO.FileAttributes]::Directory) { return 'dir' }
@@ -92,6 +96,30 @@ function Assert-Names {
 }
 # W01-R01-END
 
+# A manifest name is a relative path with '/' separators and nothing else: no empty, '.' or
+# '..' segment, no backslash, no colon (so no drive and no stream), no leading '/', no
+# control character. Anything else is refused when the manifest is read, before any write,
+# so a name can never be joined into a path outside the archive or the prefix.
+function Test-ManifestName([string]$name) {
+    if (-not $name -or $name.StartsWith('/') -or $name.IndexOfAny([char[]]@('\', ':')) -ge 0) { return $false }
+    foreach ($c in $name.ToCharArray()) { if ([int]$c -lt 32 -or [int]$c -eq 127) { return $false } }
+    foreach ($seg in $name.Split('/')) { if ($seg -eq '' -or $seg -eq '.' -or $seg -eq '..') { return $false } }
+    return $true
+}
+# The path of `rel` under `dir`, walking one component at a time: every intermediate
+# component must be a real directory. Returns $null when one is absent; stops the script
+# when one is a link (junction, symbolic link, any reparse point) or a file, so nothing is
+# ever read, checked or deleted THROUGH a link.
+function Resolve-Under([string]$dir, [string]$rel) {
+    $parts = $rel.Split('/'); $at = $dir
+    for ($i = 0; $i -lt $parts.Length - 1; $i++) {
+        $at = Join-Path $at $parts[$i]
+        $k = Kind $at
+        if ($k -eq 'absent') { return $null }
+        if ($k -ne 'dir') { Die "$at is a $k inside a directory this script manages. It was left untouched; remove or move it yourself and run this again." }
+    }
+    return (Join-Path $at $parts[$parts.Length - 1])
+}
 # The files the archive's manifest names inside the helper directory (relative, with '/').
 $script:helperFiles = @()
 # Remove a helper directory this script owns: only the files the manifest names, then the
@@ -99,9 +127,8 @@ $script:helperFiles = @()
 function Remove-OwnedHelper([string]$dir) {
     if ((Kind $dir) -eq 'absent') { return }
     foreach ($rel in $script:helperFiles) {
-        $f = $dir
-        foreach ($part in $rel.Split('/')) { $f = Join-Path $f $part }
-        if ((Kind $f) -eq 'file') { [System.IO.File]::Delete($f) }
+        $f = Resolve-Under $dir $rel
+        if ($f -and (Kind $f) -eq 'file') { [System.IO.File]::Delete($f) }
     }
     # Empty subdirectories the manifest's files lived in, deepest first, non-recursively.
     $subs = $script:helperFiles | ForEach-Object { $parts = $_.Split('/'); for ($i = $parts.Length - 1; $i -ge 1; $i--) { ($parts[0..($i - 1)] -join '/') } } | Sort-Object -Unique -Descending
@@ -246,6 +273,7 @@ $wantHelper = @{}
 foreach ($line in [System.IO.File]::ReadAllLines($manifest)) {
     if ($line -notmatch '^([0-9a-f]{64})  (.+)$') { Die "MANIFEST.sha256 has a malformed line" }
     $want = $Matches[1]; $name = $Matches[2]
+    if (-not (Test-ManifestName $name)) { Die "MANIFEST.sha256 names a path this script will not use (it must be a plain relative path). Nothing was changed." }
     $file = $here
     foreach ($part in $name.Split('/')) { $file = Join-Path $file $part }
     if ((Kind $file) -ne 'file') { Die "the archive is incomplete: $name is missing" }
@@ -267,9 +295,8 @@ function Helper-Ok {
     if ($wantHelper.Count -eq 0) { return ((Kind $curH) -eq 'absent') }
     if ((Kind $curH) -ne 'dir') { return $false }
     foreach ($rel in $wantHelper.Keys) {
-        $f = $curH
-        foreach ($part in $rel.Split('/')) { $f = Join-Path $f $part }
-        if ((Kind $f) -ne 'file' -or (Sha $f) -ne $wantHelper[$rel]) { return $false }
+        $f = Resolve-Under $curH $rel
+        if (-not $f -or (Kind $f) -ne 'file' -or (Sha $f) -ne $wantHelper[$rel]) { return $false }
     }
     return $true
 }
