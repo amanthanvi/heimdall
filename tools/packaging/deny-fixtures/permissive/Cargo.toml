@@ -1,0 +1,4 @@
+# Fixture workspace for tools/packaging/deny-selftest.sh. Not part of the Heimdall workspace.
+[workspace]
+resolver = "3"
+members = ["app", "mit-dep"]

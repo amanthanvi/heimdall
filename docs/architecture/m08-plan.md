@@ -201,6 +201,7 @@ Each unit lists its marking, owner role, owned paths, what it builds, its tests 
 **U2b — after the contract handoff.**
 - **Owns:** new `crates/heimdall/src/state_cmd.rs` and the stop-preview code in `service_cmd.rs`; **in `crates/store` and `crates/runtime` (the store and path files, M06's and M07's today, named in the handoff):** the generation layout, the pointer, the operation record, the adoption (intent, fence, copy, pointer), the request ledger, the restore staging and sanitization; the doctor finding for a moved executable; the residue rows in `uninstall_cmd.rs` and the purge sweep's handling of generations; the moved-block report in `crates/localenv/src/projection/`.
 - **Depends:** U0; M06's exit (its client, invitation, exposure, pending-effect and effect-ledger records are what §3.6 quarantines and reconciles).
+- **Requirement (ADR-0014 §3.6, ruling of 2026-11-22):** every backup, adoption copy, staging copy and carry-forward read goes through SQLite and never copies the main database file alone. Test: `no_store_copy_reads_the_main_file_alone` (a store whose state is only in its write-ahead log, after a kill: each of those paths still sees it).
 - **Builds:** ADR-0014 §3 in full, with §3.6: the generation switch, the restore epoch and replay fence, identity binding, exclusion under the instance lock, staging, sanitization, the report; reset as a generation.
 - **Tests:**
   - **`migration_ladder_keeps_identity_and_authority`:** over M07 U0's replay corpus (stores written by the M02, M03, M04/M05 and M06 exit builds), after adoption and migration to the candidate schema the environment ID, tombstones, cutoffs, pauses, grant deadlines and the authority generation are unchanged, and no grant is more active than before. The corpus is M07's; this test adds only these assertions;
@@ -321,7 +322,12 @@ Each unit lists its marking, owner role, owned paths, what it builds, its tests 
 - **Owns:** new `crates/heimdall/src/support_cmd.rs`.
 - **Depends:** U0, U6a.
 - **Builds:** `heimdall support bundle`, with the frozen-bytes preview, working when the runtime is down or the store is unreadable; the mapping of the frozen views onto U6a's input types, in which **a field is free text unless its type says otherwise**.
-- **Tests:** the A33 journey of §7.3; `bundle_works_with_a_corrupt_store`; `bundle_writes_nothing_without_the_command`; `every_view_field_has_a_declared_export_type` (a source check: a new field with no declared type fails the build, so it cannot be exported by default).
+- **Requirements carried from U6a's review (2026-11-22; orchestrator's ruling):**
+  - **The bundle reads the store through SQLite, as a family, read-only** (ADR-0014 §5.1). Test: `bundle_counts_see_state_that_is_only_in_the_write_ahead_log`.
+  - **Codes come only from enumerations.** No string that arrives as data (a name, a label, a reason text) is passed to the collector as a code. A code-shaped host name would otherwise be exported.
+  - **Identifier inclusion never exports a word-like value typed as an identifier, unless its type is an enumerated identifier kind** (user name, host name, alias, path, fingerprint, Heimdall ID). A field whose kind is not one of those stays pseudonymized or withheld even with `--include-identifiers`.
+  - **Random-looking path segments stay withheld.** More withheld fields than expected is the safe direction and is not "fixed" by loosening the check.
+- **Tests:** the A33 journey of §7.3; `bundle_works_with_a_corrupt_store`; `bundle_writes_nothing_without_the_command`; `every_view_field_has_a_declared_export_type`; `codes_are_taken_only_from_enumerations` (a source check on the mapping); `identifier_inclusion_needs_an_enumerated_kind`; (a source check: a new field with no declared type fails the build, so it cannot be exported by default).
 - **Native:** macOS, the devbox and Windows at the merge candidate.
 
 ### U7: Privacy defaults, release notes, policies and runbooks (T06; plan §10.2–§10.4)

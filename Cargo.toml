@@ -37,6 +37,7 @@ members = [
     # feature-gated Iroh transport. Skeletons only; they fail closed.
     "crates/remote",
     "crates/transport-iroh",
+    "crates/support",
 ]
 
 [workspace.package]
@@ -69,6 +70,7 @@ heimdall-wsl = { path = "crates/wsl" }
 heimdall-project = { path = "crates/project" }
 heimdall-remote = { path = "crates/remote" }
 heimdall-transport-iroh = { path = "crates/transport-iroh" }
+heimdall-support = { path = "crates/support" }
 
 # --- serialization and schemas ---------------------------------------------
 serde = { version = "=1.0.229", features = ["derive"] }
