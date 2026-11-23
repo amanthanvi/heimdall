@@ -6,8 +6,8 @@
 # is recorded, nothing here is evidence.
 #
 # Usage, from inside the unpacked archive (Windows PowerShell 5.1 or PowerShell 7):
-#   powershell -ExecutionPolicy Bypass -File .\install.ps1                install or update
-#   powershell -ExecutionPolicy Bypass -File .\install.ps1 -Rollback      put the previous pair back
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1                install or update
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Rollback      put the previous pair back
 #   ... -Prefix <dir>          default: %LOCALAPPDATA%\Programs\Heimdall
 #   ... -AssumeStopped         you have checked that no Heimdall runtime is running, and the
 #                              installed executable cannot say so itself (it is broken)

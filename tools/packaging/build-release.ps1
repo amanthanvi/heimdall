@@ -5,7 +5,7 @@
 # rehearsal; nothing it produces is evidence until that run is recorded.
 #
 # Usage (PowerShell 5.1 or 7, from the repository root):
-#   powershell -ExecutionPolicy Bypass -File tools\packaging\build-release.ps1 `
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\packaging\build-release.ps1 `
 #       -LinuxHelper <path to the Linux x86_64 heimdall from the Linux archive> `
 #       [-Features <list>] [-AllowDirty] [-Offline]
 # Exit code: 0 when the archive was built and passed verify_artifact.py; 1 when the build,

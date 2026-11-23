@@ -2,7 +2,7 @@
 #
 # STATUS: rehearsed under PowerShell 7 on macOS only; the evidence is its run on the PC.
 #
-# Usage: powershell -ExecutionPolicy Bypass -File tests\native\m08\lifecycle\install-revert-proofs.ps1
+# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tests\native\m08\lifecycle\install-revert-proofs.ps1
 # Exit code: 0 when the self-test PASSES on the real install.ps1 and, for each fix, FAILS in
 # exactly the expected cases once that one fix is taken out of a scratch copy; 1 otherwise.
 #

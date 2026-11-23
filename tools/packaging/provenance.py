@@ -483,6 +483,25 @@ def builder_os():
     return f"{system} {platform.release()} {platform.machine()}"
 
 
+def toolchain_record(run=subprocess.run):
+    """The compiler and cargo that built the executables. A build record with no toolchain
+    describes nothing, so a host without `rustc` or `cargo` is refused by name."""
+    got = {}
+    for tool, args in (("rustc", ["-Vv"]), ("cargo", ["-V"])):
+        try:
+            out = run([tool] + args, capture_output=True, text=True, check=False, timeout=30)
+        except FileNotFoundError:
+            raise Refused(f"{tool} was not found on PATH: a build record needs the toolchain "
+                          "that built the executables") from None
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise Refused(f"{tool} could not be run ({type(e).__name__})") from None
+        if out.returncode != 0 or not out.stdout.strip():
+            raise Refused(f"{tool} {' '.join(args)} failed (exit {out.returncode})")
+        got[tool] = out.stdout
+    return {"rustc": dict(l.split(": ", 1) for l in got["rustc"].splitlines() if ": " in l),
+            "cargo": got["cargo"].strip().splitlines()[0]}
+
+
 def make_record(a):
     """The build inputs and the digests of the executables only (ADR-0014 section 4.4): no
     digest of the record itself, of the manifest or of the archive."""
@@ -492,14 +511,13 @@ def make_record(a):
                for f in stage_files(stage) if is_executable_image(os.path.join(stage, f))]
     if not outputs:
         raise Refused("the stage holds no executable")
-    rustc = subprocess.run(["rustc", "-Vv"], capture_output=True, text=True, check=False).stdout
+    toolchain = a.get("toolchain") or toolchain_record()
     return {
         "schema": "heimdall-build-record/1",
         "commit": a["commit"], "commit_time": a["time"], "tree_clean": a["clean"] == "yes",
         "target": a["target"], "profile": "release", "features": a.get("features") or "default",
         "rustflags": a["flags"],
-        "toolchain": {"rustc": dict(l.split(": ", 1) for l in rustc.splitlines() if ": " in l),
-                      "cargo": tool_version(["cargo", "-V"])},
+        "toolchain": toolchain,
         "cargo_lock_sha256": sha256(os.path.join(REPO, "Cargo.lock")),
         "builder_os": builder_os(),
         "tools": {"zig": tool_version(["zig", "version"]), "python": platform.python_version(),
@@ -697,9 +715,28 @@ def self_test():
         write_manifest(stage)
         with open(os.path.join(stage, MANIFEST), encoding="utf-8") as fh:
             check("manifest stable when rewritten", fh.read() == body)
+        # A stub toolchain record: the self-test must pass on a host with no Rust toolchain.
+        stub = {"rustc": {"release": "0.0.0", "host": "stub"}, "cargo": "cargo 0.0.0 (stub)"}
         rec = make_record({"stage": stage, "commit": "0" * 40, "time": "2026-01-01T00:00:00Z", "clean": "yes",
-                           "target": "t", "flags": "f", "started": "s", "finished": "f"})
+                           "target": "t", "flags": "f", "started": "s", "finished": "f",
+                           "toolchain": stub})
         check("record lists executables only", [o["path"] for o in rec["outputs"]] == ["heimdall"])
+        check("record carries the toolchain it was given", rec["toolchain"] == stub)
+
+        def absent(cmd, **_):
+            if cmd[0] == "cargo":
+                raise FileNotFoundError(cmd[0])
+            return subprocess.CompletedProcess(cmd, 0, "rustc 0.0.0\nrelease: 0.0.0\n", "")
+        try:
+            toolchain_record(absent)
+            check("an absent cargo is refused", False)
+        except Refused as e:
+            check("an absent cargo is refused by name", "cargo was not found on PATH" in str(e))
+        try:
+            toolchain_record(lambda cmd, **_: subprocess.CompletedProcess(cmd, 1, "", ""))
+            check("a failing rustc is refused", False)
+        except Refused as e:
+            check("a failing rustc is refused by name", str(e).startswith("rustc -Vv failed"))
         a, b = os.path.join(tmp, "out", "a.tar.gz"), os.path.join(tmp, "out", "b.tar.gz")
         os.makedirs(os.path.dirname(a))
         pack(stage, a, "2026-01-01T00:00:00Z")

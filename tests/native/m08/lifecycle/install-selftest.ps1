@@ -5,7 +5,7 @@
 # semantics). NOT YET RUN ON WINDOWS; it runs on the PC under Windows PowerShell 5.1 and
 # PowerShell 7 in a later job. A macOS rehearsal is not evidence for Windows.
 #
-# Usage: powershell -ExecutionPolicy Bypass -File tests\native\m08\lifecycle\install-selftest.ps1
+# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tests\native\m08\lifecycle\install-selftest.ps1
 #   $env:HM_INSTALL_UNDER_TEST = <file>   test that copy of install.ps1 (for a revert proof)
 # Exit code: 0 when every case passes; 1 otherwise.
 #
