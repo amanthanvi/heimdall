@@ -553,6 +553,51 @@ pub fn classify_preflight(stderr: &[u8]) -> PreflightVerdict {
     }
 }
 
+/// ⟨M06 W5 `w5v`, PC job 44⟩ The variable Win32-OpenSSH needs before it can start or say
+/// anything: `w32posix_initialize` (contrib/win32/win32compat/w32fd.c, PowerShell/openssh-portable
+/// v9.5.0.0) calls `init_prog_paths` first, which does `fatal("couldn't find ProgramData
+/// environment variable")` when it is unset. That runs before `fd_table_initialize`, so the
+/// message is written to an fd that does not exist yet (`w32_write`: `EBADF`) and the client
+/// exits 255 having printed nothing. That was job 44: the journey's driver started
+/// `heimdall` with an explicit environment that had no `ProgramData`, and the preflight's
+/// `ssh.exe` inherited it.
+pub const WINDOWS_CLIENT_REQUIRED_ENV: &str = "ProgramData";
+
+/// ⟨`w5v`⟩ The refusal when the environment an `ssh` child would inherit lacks
+/// [`WINDOWS_CLIENT_REQUIRED_ENV`] (`env` looks a name up; the product passes the process
+/// environment). `None` when it is set and not empty. Checked before every non-interactive
+/// `ssh` this controller starts on Windows ([`BootstrapSsh::preflight`],
+/// [`spawn_management`]); elsewhere the check is never made. The OpenSSH client would not start
+/// properly and would not say why, so nothing is started: `CAPABILITY_UNAVAILABLE`,
+/// `ssh_client_not_started`, and the message names the variable. No path.
+#[must_use]
+pub fn windows_client_environment_refusal(
+    env: &dyn Fn(&str) -> Option<OsString>,
+) -> Option<OpError> {
+    let set = env(WINDOWS_CLIENT_REQUIRED_ENV).is_some_and(|v| !v.is_empty());
+    (!set).then(|| {
+        OpError::new(
+            Code::CapabilityUnavailable,
+            format!(
+                "this controller's environment has no {WINDOWS_CLIENT_REQUIRED_ENV} variable, \
+                 which the Windows OpenSSH client needs before it can start or report an error, \
+                 so no ssh was started and nothing was sent; run Heimdall from an ordinary \
+                 Windows session (or set {WINDOWS_CLIENT_REQUIRED_ENV}), then try again"
+            ),
+        )
+        .with_reason(reason::SSH_CLIENT_NOT_STARTED)
+    })
+}
+
+/// [`windows_client_environment_refusal`] for this process, on Windows only.
+fn client_environment_refusal() -> Option<OpError> {
+    if cfg!(windows) {
+        windows_client_environment_refusal(&|n| std::env::var_os(n))
+    } else {
+        None
+    }
+}
+
 /// ⟨`w5v`⟩ A finished preflight: [`classify_preflight`], except that a client that said
 /// nothing and ended with a status no OpenSSH client uses (`ssh` exits 0–255; a Windows
 /// loader failure such as a missing DLL ends with an NTSTATUS, a negative `i32`) did not
@@ -677,6 +722,13 @@ impl BootstrapSsh {
     pub async fn preflight(&self, plan: &BootstrapPlan, pin_file: &Path) -> Result<(), OpError> {
         self.check_client()?;
         let args = preflight_args(plan, pin_file, self.config.as_deref(), &self.extra_options)?;
+        // ⟨`w5v`, PC job 44⟩ A Windows client that cannot start says nothing: refuse first.
+        if let Some(refusal) = client_environment_refusal() {
+            if let Some(file) = &self.stderr_file {
+                append_stderr_record(file, "preflight (not started: no ProgramData)", None, b"");
+            }
+            return Err(refusal);
+        }
         let mut command = crate::no_window!(tokio::process::Command::new(&self.ssh_client));
         command
             .args(&args)
@@ -802,8 +854,14 @@ pub struct ManagementChild {
 /// Spawn the management `ssh` (module docs).
 ///
 /// # Errors
-/// `LAUNCH_FAILED` when the client cannot be started.
+/// `LAUNCH_FAILED` when the client cannot be started; on Windows `CAPABILITY_UNAVAILABLE`
+/// (`ssh_client_not_started`) when the environment lacks `ProgramData`
+/// ([`windows_client_environment_refusal`]).
 pub fn spawn_management(ssh_client: &Path, args: &[OsString]) -> Result<ManagementChild, OpError> {
+    // ⟨`w5v`⟩ As the preflight: a Windows client that cannot start says nothing.
+    if let Some(refusal) = client_environment_refusal() {
+        return Err(refusal);
+    }
     let mut command = crate::no_window!(tokio::process::Command::new(ssh_client));
     command
         .args(args)
@@ -1652,6 +1710,148 @@ mod tests {
             "{}",
             redact(&record)
         );
+    }
+
+    /// ⟨`w5v`, PC job 44⟩ An environment without `ProgramData` (what the journey's driver
+    /// gave `heimdall`) is refused before any Windows `ssh` starts, with the variable named;
+    /// an empty value counts as unset; a set one passes.
+    #[test]
+    fn a_windows_client_without_program_data_is_never_started() {
+        let refused = windows_client_environment_refusal(&|_| None).unwrap();
+        assert_eq!(refused.code, Code::CapabilityUnavailable);
+        assert_eq!(
+            refused.reason.as_deref(),
+            Some(reason::SSH_CLIENT_NOT_STARTED)
+        );
+        assert!(
+            refused.message.contains("no ProgramData variable"),
+            "{}",
+            refused.message
+        );
+        assert!(
+            !refused.message.contains(['/', '\\']),
+            "{}",
+            refused.message
+        );
+        assert!(
+            windows_client_environment_refusal(&|n| (n == "ProgramData").then(OsString::new))
+                .is_some()
+        );
+        assert!(
+            windows_client_environment_refusal(&|n| {
+                (n == "ProgramData").then(|| OsString::from("C:\\ProgramData"))
+            })
+            .is_none()
+        );
+        // Off Windows nothing is checked.
+        #[cfg(not(windows))]
+        assert!(client_environment_refusal().is_none());
+    }
+
+    /// ⟨`w5v`, PC job 44⟩ The child half of
+    /// [`the_windows_inbox_client_preflight_from_a_pseudoconsole`]: a real preflight to a
+    /// closed loopback port, run inside that test's pseudoconsole, printing what it got.
+    /// Does nothing unless the parent set `HM_W5V_CHILD`.
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "the child of the_windows_inbox_client_preflight_from_a_pseudoconsole"]
+    #[allow(clippy::print_stdout)]
+    async fn conpty_preflight_child() {
+        if std::env::var_os("HM_W5V_CHILD").is_none() {
+            return;
+        }
+        let root = std::env::var_os("SystemRoot").expect("SystemRoot");
+        let ssh = PathBuf::from(root)
+            .join("System32")
+            .join("OpenSSH")
+            .join("ssh.exe");
+        let (dir, config, isolation) = real_client_fixture("conpty");
+        let adapter = BootstrapSsh {
+            ssh_client: ssh,
+            scratch_dir: dir.join("mgmt"),
+            config: Some(config),
+            extra_options: isolation,
+            stderr_file: None,
+            issuer_ca: None,
+            iroh_endpoint: None,
+        };
+        let plan = plan();
+        let pin = adapter.write_pin_file(&plan).unwrap();
+        let got = adapter.preflight(&plan, &pin).await;
+        let _ = std::fs::remove_dir_all(&dir);
+        let reason = got
+            .err()
+            .and_then(|e| e.reason)
+            .unwrap_or_else(|| "none".to_owned());
+        // The parent reads this line from the pseudoconsole.
+        println!("w5v-child reason={reason} end");
+    }
+
+    /// ⟨`w5v`, PC job 44; the orchestrator's test (c)⟩ The journey's conditions for the
+    /// preflight: this test binary re-run on a pseudoconsole (`TerminalCommand`, as the
+    /// journey's driver runs `heimdall environment add`) with the driver's explicit
+    /// environment, its preflight's in-box `ssh.exe` started windowless from there, against
+    /// 127.0.0.1:1.
+    /// * With `ProgramData` (what the driver now passes): "connection refused", exactly as
+    ///   without a pseudoconsole (so the pseudoconsole loses no standard error).
+    /// * Without it (what the driver passed in job 44): refused before any ssh starts,
+    ///   `ssh_client_not_started`. Before the fix the client exited 255 silently, which read
+    ///   `ssh_unreachable_other`: job 44's result.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "needs the in-box OpenSSH client: run on the Windows PC by exact name"]
+    fn the_windows_inbox_client_preflight_from_a_pseudoconsole() {
+        let me = std::env::current_exe().unwrap();
+        for (with_program_data, want) in [
+            (true, reason::SSH_CONNECTION_REFUSED),
+            (false, reason::SSH_CLIENT_NOT_STARTED),
+        ] {
+            let mut command = heimdall_testkit::console::TerminalCommand::new(&me)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "remote_env::ssh::tests::conpty_preflight_child",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .size(400, 50)
+                .env("HM_W5V_CHILD", "1");
+            // The driver's list (tests/e2e/windows_controller_m06.rs `environment_add`).
+            let mut names = vec![
+                "PATH",
+                "USERPROFILE",
+                "LOCALAPPDATA",
+                "APPDATA",
+                "TEMP",
+                "TMP",
+                "USERNAME",
+            ];
+            if with_program_data {
+                names.push("ProgramData");
+            }
+            for name in names {
+                if let Some(value) = std::env::var_os(name) {
+                    command = command.env(name, value);
+                }
+            }
+            let mut terminal = command.spawn().expect("a pseudoconsole");
+            let shown = terminal.expect("w5v-child reason=", Duration::from_secs(120));
+            let _ = terminal.wait(Duration::from_secs(60));
+            let text = terminal.text();
+            assert!(
+                shown.is_ok(),
+                "ProgramData={with_program_data}: the child said nothing"
+            );
+            let line = text
+                .lines()
+                .find(|l| l.contains("w5v-child reason="))
+                .unwrap_or_default()
+                .to_owned();
+            assert!(
+                line.contains(&format!("w5v-child reason={want} end")),
+                "ProgramData={with_program_data}: {line}"
+            );
+        }
     }
 
     /// ⟨`w5v`⟩ POSIX OpenSSH (the system client, as the macOS rehearsal and the devbox use).

@@ -330,7 +330,17 @@ fn environment_add() {
         command = command.env("HEIMDALL_TEST_SSH_STDERR_FILE", file);
     }
     // The platform's own directories, which the DPAPI store and the client need on Windows.
-    for name in ["LOCALAPPDATA", "APPDATA", "TEMP", "TMP", "USERNAME"] {
+    // ⟨M06 W5 `w5v`, PC job 44⟩ `ProgramData` included: the in-box `ssh.exe` that `heimdall`
+    // starts inherits this environment, and Win32-OpenSSH exits 255 without a word when it
+    // is unset (`init_prog_paths`, before its standard error exists).
+    for name in [
+        "LOCALAPPDATA",
+        "APPDATA",
+        "TEMP",
+        "TMP",
+        "USERNAME",
+        "ProgramData",
+    ] {
         if let Some(value) = std::env::var_os(name) {
             command = command.env(name, value);
         }
