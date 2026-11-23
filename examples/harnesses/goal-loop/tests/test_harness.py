@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
@@ -3426,11 +3427,15 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(h2.in_box_ssh("C:\\Windows"), PureWindowsPath("c:/windows/system32/openssh/SSH.EXE"))
         for odd in ("Windows", "", None, "\\Windows"):
             self.assertIsNone(h2.in_box_ssh(odd), odd)
+        # A system directory that exists on no host (a fresh random name), so the case never
+        # depends on the machine's own System32: on a real Windows host the in-box client is a
+        # file there (PC job 46 found the earlier fixed C:\\Windows accepted).
+        absent = "C:\\heimdall-h2-absent-" + uuid.uuid4().hex
         for platform in ("nt", "posix"):
-            planner = self.planner(environment=dict(self.environment, SystemRoot="C:\\Windows"))
+            planner = self.planner(environment=dict(self.environment, SystemRoot=absent))
             planner.platform = platform
             record = h2.run_goal(planner, {"goal": "run", "profile": "covered", "work_id": "work-5",
-                                           "argv": ["C:\\Windows\\System32\\OpenSSH\\ssh.exe", "-T"]})
+                                           "argv": [str(h2.in_box_ssh(absent)), "-T"]})
             self.assertEqual((record["success"], record["calls"]), (False, 0))
             self.assertEqual(record["detail"], "the child executable is not a file inside the scratch "
                                                "root, nor the in-box OpenSSH client")

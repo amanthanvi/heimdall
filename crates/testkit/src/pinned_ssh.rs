@@ -1343,6 +1343,17 @@ mod tests {
     #[test]
     fn the_built_wrapper_refuses_to_run_without_the_scratch_config() {
         let built = locate().unwrap_or_else(|e| panic!("{e}"));
+        // The program's own digest, for the native run's build facts (PC job 46: the
+        // harness removes `target` before it records them).
+        #[cfg(feature = "fixtures")]
+        #[allow(clippy::print_stdout)] // a build fact for the native run's report
+        {
+            println!(
+                "{NAME}{} sha256: {}",
+                std::env::consts::EXE_SUFFIX,
+                crate::owner_digest::sha256_hex(&std::fs::read(&built).unwrap())
+            );
+        }
         let d = scratch();
         let exe = d
             .path()

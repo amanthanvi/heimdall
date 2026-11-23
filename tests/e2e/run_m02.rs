@@ -5435,6 +5435,7 @@ mod a11 {
                 "HEIMDALL_TEST_PINNED_CLIENT".into(),
                 wrapper.into_os_string(),
             ));
+            let failed_before = s.sshd.failed_publickey_log().len();
             let mut cmd = TerminalCommand::new(bin())
                 .args(["connect", ALPHA.alias])
                 .current_dir(&s.w.home.root)
@@ -5479,6 +5480,18 @@ mod a11 {
                 "the wrapper's identity check passed on the fixture's agent: {text}"
             );
             s.assert_only_key(0);
+            // No other key was offered (PC job 46's item 5, as evidence rather than by
+            // construction): the server refused none during this connect.
+            let offered = s.sshd.failed_publickey_log();
+            let other = offered[failed_before.min(offered.len())..]
+                .iter()
+                .filter(|k| k.fingerprint != s.w.keys[0].fingerprint())
+                .count();
+            #[allow(clippy::print_stdout)] // a fact for the native run's report
+            {
+                println!("a11 console: other keys offered: {other}");
+            }
+            assert_eq!(other, 0, "only key 0 was offered: {offered:?}");
             assert_eq!(s.w.home.decoy_agent().contact_count(), 0);
             assert_no_canary(&text);
         }

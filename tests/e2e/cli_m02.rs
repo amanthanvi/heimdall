@@ -4091,6 +4091,7 @@ mod ssh {
                 wrapper.clone().into_os_string(),
             ));
             let accepted_before = f.accepted().len();
+            let failed_before = f.sshd.failed_publickey_log().len();
             let mut case = windows_console::start(
                 &f.w.home.root,
                 &cwd,
@@ -4123,6 +4124,18 @@ mod ssh {
                     && accepted[accepted_before..].iter().all(|fp| *fp == f.fp(0)),
                 "connect logged in with the adopted key: {accepted:?}"
             );
+            // No other key was offered (PC job 46's item 5, as evidence rather than by
+            // construction): the server refused none during this connect.
+            let offered = f.sshd.failed_publickey_log();
+            let other = offered[failed_before.min(offered.len())..]
+                .iter()
+                .filter(|k| k.fingerprint != f.fp(0))
+                .count();
+            #[allow(clippy::print_stdout)] // a fact for the native run's report
+            {
+                println!("a01 console: other keys offered: {other}");
+            }
+            assert_eq!(other, 0, "only the adopted key was offered: {offered:?}");
             // `run --profile personal`: one attended decision on the console, then the
             // launch.
             f.w.catalog(CatalogRequest::UpsertProfile {
