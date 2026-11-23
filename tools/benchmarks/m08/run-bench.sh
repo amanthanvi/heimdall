@@ -46,7 +46,7 @@ os=$( (sw_vers -productVersion 2>/dev/null && sw_vers -buildVersion 2>/dev/null)
 power=$( (pmset -g batt 2>/dev/null | head -1 | sed "s/.*'\(.*\)'.*/\1/") || echo unknown)
 python3 -I -c 'import json,sys; print(json.dumps({"host_started_at":sys.argv[1],"container":sys.argv[2],"image":sys.argv[3],"limits":"network none, 2 CPUs, 2 GiB, 512 pids","host_model":sys.argv[4],"host_cpu":sys.argv[5],"host_memory_bytes":sys.argv[6],"host_os":sys.argv[7].strip(),"host_power":sys.argv[8],"host_shared":"the Mac runs other workloads; host load is sampled in host-load.ndjson"}))' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$name" "$image" "$model" "$cpu" "$mem" "$os" "$power" >"$out/host.json"
-docker run -d --init --name "$name" --network none --cpus 2 --memory 2g --pids-limit 512 \
+docker run -d --init --name "$name" --network none --cpus 2 --memory 2g --pids-limit 512 ${BENCH_CAPTURE:+-e BENCH_CAPTURE=1} \
     -v "$repo":/src:ro -v "$stage":/a:ro -v "$out":/out \
     "$image" bash /src/tools/benchmarks/m08/bench-entry.sh "$dests" "$samples" "$settle" "$window" "$windows" >/dev/null
 echo "run-bench: started $name; output in target/m08-bench/$id"

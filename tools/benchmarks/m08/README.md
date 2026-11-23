@@ -111,10 +111,21 @@ memory, OS build and power source are recorded, and its load is sampled every 30
 | `ensure_replay` | informational: the approved request ID replayed (answered from its record) |
 | `activate_covered` | informational: `heimdall activate --hook --cwd <trusted project>` end to end, including process start |
 | `cli_status`, `cli_inspect` | informational: the CLI end to end, including process start |
-| `tui_first_frame` | spawn of `heimdall tui` on a 120x40 pty to the first frame drawn from the runtime's listings (the Overview's "N destinations," line) (ruled) |
-| `key_to_frame` | in one TUI, a view key (`2`, then `1`, in turn) to the last byte before 20 ms of quiet (ruled); **no background work** in this version (M05 U0b's delaying proxy is not wired) |
+| `tui_first_useful_frame` | **the spec row** (ruled): spawn of `heimdall tui` on a 120x40 pty to the first screen showing the catalog counts (`<N> destinations,`) |
+| `tui_first_runtime_frame` | informational: spawn to the first screen showing "listings read" |
+
+Both TUI rows read a reconstructed screen (`Screen` in `bench.py`: cursor position and forward,
+erase, CR, LF, text), never raw bytes: the TUI redraws only changed cells and moves the cursor
+over the rest, so a raw byte search misses whole words (`listings\x1b[3;30Hread`).
+| `key_to_frame` | in one TUI, a view key (`2`, then `1`, in turn) to the last byte before 20 ms of quiet (ruled), **under background work**: a second session keeps policy-covered ensures in flight for profile `slow`, whose provider sits behind `agent-delay.py` (each request held `BG_DELAY_MS`, default 500); the record gives the background ensures' count and latency |
+| `key_to_frame_quiet` | the same with no background work, for comparison |
 | `idle` | after a settle (600 s), three 300 s windows: the runtime's CPU time as a share of one core, and its RSS |
 
 Every latency metric has at least 200 samples (a floor) and reports P50 and P95. A run on any
 build but the candidate's is a rehearsal and is labelled with its executable's digest.
+
+**The delaying proxy relays only to a fixture agent.** `agent-delay.py`'s upstream is a plain
+`ssh-agent` the run starts inside the container, holding a key generated for that run.
+`bench-world.sh` refuses to start the proxy unless the upstream socket is inside the run's scratch
+directory; the container boundary and `--network none` also keep the owner's agent unreachable.
 

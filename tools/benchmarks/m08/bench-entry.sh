@@ -12,7 +12,7 @@ install -m 0755 /a/heimdall /usr/local/bin/heimdall-under-test
 printf '{"container_started_at":"%s","kernel":"%s","arch":"%s","cpus_seen":%s,"mem_total_kib":%s,"binary_sha256":"%s"}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(uname -r)" "$(uname -m)" "$(nproc)" \
     "$(awk '/^MemTotal:/{print $2}' /proc/meminfo)" "$(sha256sum /a/heimdall | cut -d' ' -f1)" >/out/run.json
-runuser -u soaks -- bash /src/tools/benchmarks/m08/bench-world.sh /usr/local/bin/heimdall-under-test /out/bench "$@" >/out/bench/world.log 2>&1
+runuser -u soaks -- env ${BENCH_CAPTURE:+BENCH_CAPTURE=1} bash /src/tools/benchmarks/m08/bench-world.sh /usr/local/bin/heimdall-under-test /out/bench "$@" >/out/bench/world.log 2>&1
 code=$?
 printf '{"container_stopped_at":"%s","exit":%s}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$code" >/out/end.json
 exit $code

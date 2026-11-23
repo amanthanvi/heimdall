@@ -56,7 +56,24 @@ echo $! >"$S/agent.pid"
 HOME="$S/decoy-home" ssh-agent -D -a "$S/decoy.sock" </dev/null >/dev/null 2>&1 &
 i=0; while [ $i -lt 100 ] && { [ ! -S "$S/agent.sock" ] || [ ! -S "$S/decoy.sock" ]; }; do sleep 0.1; i=$((i + 1)); done
 SSH_AUTH_SOCK="$S/agent.sock" ssh-add -q "$S/k0" </dev/null >/dev/null 2>&1 || fail ssh-add
-{ printf 'restrict '; cat "$S/k0.pub"; } >"$S/authorized_keys"
+# The slow provider for the background work: a second key in a second agent, reached only through
+# a proxy that holds every request BG_DELAY_MS before forwarding it (agent-delay.py).
+ssh-keygen -q -t ed25519 -N '' -C hm-m08-bench-k1 -f "$S/k1" </dev/null >/dev/null 2>&1 || fail keygen1
+mkdir -m 700 "$S/agent1-home"
+HOME="$S/agent1-home" ssh-agent -D -a "$S/agent1.sock" </dev/null >/dev/null 2>&1 &
+i=0; while [ $i -lt 100 ] && [ ! -S "$S/agent1.sock" ]; do sleep 0.1; i=$((i + 1)); done
+SSH_AUTH_SOCK="$S/agent1.sock" ssh-add -q "$S/k1" </dev/null >/dev/null 2>&1 || fail ssh-add1
+# The proxy relays only to this run's own fixture agent: its upstream must be inside the run's
+# scratch directory (never the owner's agent; the container and --network none also keep it out).
+upstream="$S/agent1.sock"
+case "$(cd "$(dirname "$upstream")" && pwd -P)/$(basename "$upstream")" in
+    "$(cd "$S" && pwd -P)"/*) ;;
+    *) fail "the delaying proxy's upstream is not inside the run's scratch directory" ;;
+esac
+python3 -I /src/tools/benchmarks/m08/agent-delay.py "$S/slow.sock" "$upstream" "${BG_DELAY_MS:-500}" </dev/null >/dev/null 2>&1 &
+i=0; while [ $i -lt 100 ] && [ ! -S "$S/slow.sock" ]; do sleep 0.1; i=$((i + 1)); done
+[ -S "$S/slow.sock" ] || fail "the delaying proxy did not start"
+{ printf 'restrict '; cat "$S/k0.pub"; printf 'restrict '; cat "$S/k1.pub"; } >"$S/authorized_keys"
 hm2_sshd_start "$S/sshd" "$S/authorized_keys" "$S/sshd.log" || fail "sshd: $HM2_SSHD_WHY"
 port=$HM2_SSHD_PORT
 mkdir -p -m 700 "$HOME/.ssh"
@@ -76,6 +93,11 @@ identity=$(jget "$S/adopt.json" data identity_id)
 # on a terminal with a typed yes), so a non-interactive ensure can use it.
 on_pty "$S/declare.txt" identity declare-interaction "$identity" none
 [ "$(jget "$S/declare.txt" code)" = OK ] || fail "declare-interaction: $(jget "$S/declare.txt" code)"
+SSH_AUTH_SOCK="$S/slow.sock" hmcli "$S/adopt1.json" identity adopt --from-agent --active-probe agent
+slow_identity=$(jget "$S/adopt1.json" data identity_id)
+[ -n "$slow_identity" ] || fail "identity adopt (slow): $(jget "$S/adopt1.json" code)"
+on_pty "$S/declare1.txt" identity declare-interaction "$slow_identity" none
+[ "$(jget "$S/declare1.txt" code)" = OK ] || fail "declare-interaction (slow): $(jget "$S/declare1.txt" code)"
 account=$(id -un)
 n=0
 while [ "$n" -lt "$dests" ]; do
@@ -84,11 +106,14 @@ while [ "$n" -lt "$dests" ]; do
         fail "destination add $alias: $(jget "$S/dest-$n.json" code)"
     n=$((n + 1))
 done
+hmcli "$S/dest-slow.json" destination add hmbslow --hostname 127.0.0.1 --port "$port" --account "$account" --identity "$slow_identity" ||
+    fail "destination add hmbslow: $(jget "$S/dest-slow.json" code)"
 on_pty "$S/apply.txt" setup apply
 [ "$(jget "$S/apply.txt" code)" = OK ] || fail "setup apply: $(jget "$S/apply.txt" code)"
 SSH_AUTH_SOCK="$S/decoy.sock" ssh -o BatchMode=yes hmb000 true </dev/null >/dev/null 2>&1 || fail "first ordinary ssh login"
 
 hmcli "$S/profile.json" profile create bench --pair "hmb000:$account" || fail "profile create: $(jget "$S/profile.json" code)"
+hmcli "$S/profile-slow.json" profile create slow --pair "hmbslow:$account" || fail "profile create slow: $(jget "$S/profile-slow.json" code)"
 # The runtime may already run: the world's earlier commands start it on demand.
 if ! { hmcli "$S/status0.json" service status && [ -n "$(jget "$S/status0.json" data environment_id)" ]; }; then
     "$HM" service run --detach </dev/null >"$S/service.log" 2>&1 || fail "service run"
@@ -105,6 +130,8 @@ control=$(find "$HOME" -name control.sock -type s 2>/dev/null | head -1)
 # one owner decision on a terminal with a typed yes. Ensures it covers then need none.
 python3 -I "$lib/pty-answer.py" "$S/allow.txt" yes 120 -- "$HM" --json access allow --profile bench
 [ "$(jget "$S/allow.txt" code)" = OK ] || fail "access allow: $(jget "$S/allow.txt" code)"
+python3 -I "$lib/pty-answer.py" "$S/allow-slow.txt" yes 120 -- "$HM" --json access allow --profile slow
+[ "$(jget "$S/allow-slow.txt" code)" = OK ] || fail "access allow slow: $(jget "$S/allow-slow.txt" code)"
 
 # Also a trusted project (M05), for the informational hook row whose manifest asks for it. The
 # trust is one owner decision, on a terminal with a typed yes; ensures it covers then need none.
@@ -140,5 +167,5 @@ fi
 printf '{"phase":"world","state":"READY","destinations":%s}\n' "$dests" >"$out/status.json"
 
 exec python3 -I /src/tools/benchmarks/m08/bench.py --heimdall "$HM" --control "$control" --environment "$environment" \
-    --profile bench --work-id bench-work --request-id bench-r0 --project "$proj" --out "$out" --samples "$samples" --destinations "$dests" \
+    --profile bench --work-id bench-work --request-id bench-r0 --project "$proj" --slow-profile slow --bg-delay-ms "${BG_DELAY_MS:-500}" ${BENCH_CAPTURE:+--capture} --out "$out" --samples "$samples" --destinations "$dests" \
     --settle "$settle" --idle-window "$window" --idle-windows "$windows"
