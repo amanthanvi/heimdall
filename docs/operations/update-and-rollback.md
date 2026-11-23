@@ -26,8 +26,10 @@ This lists what stopping the runtime interrupts and changes nothing. In short:
 1. Verify the new archive against `SHA256SUMS` from the repository (see `install.md`).
 2. Stop the runtime: `heimdall service stop`.
 3. Run the new archive's install script. It keeps your current executable as
-   `heimdall.previous`. If it is interrupted, run it again: it finishes or undoes the step,
-   and tells you which executable is in place.
+   `heimdall.previous`. If it is interrupted, run it again: it finishes the update. Until then
+   the install path still holds a complete executable, the old one or the new one. If it
+   cannot keep your current executable (for example, the disk is full), it stops before
+   replacing anything and says so.
 4. `heimdall status`, then `heimdall doctor`.
 
 An update keeps your environment's identity, your profiles, your stops and pauses, your

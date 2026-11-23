@@ -188,7 +188,11 @@ trap 'rm -f -- "$forbid"' EXIT
 # (crates/runtime/src/autostart/render.rs). Here the two names are the same string, so a
 # global allowance would hide a real local leak; only those exact bytes are masked. If the
 # label is renamed (owner input B17), this allowance goes away.
-{ echo "$HOME"; echo "$repo"; echo "$cargo_home"; echo "$rustup_home"; id -un; } | awk 'length($0) >= 4' | sort -u >"$forbid"
+{ echo "$HOME"; echo "$repo"; echo "$cargo_home"; echo "$rustup_home"; } | sort -u >"$forbid"
+# A user name shorter than 4 characters would match ordinary text everywhere, so it is not
+# forbidden as a bare string. That is said out loud, never done silently; the home path
+# above and the verifier's own home-path rule still cover it.
+if [ "$(id -un | awk '{ print length($0) }')" -ge 4 ]; then id -un >>"$forbid"; else echo "== note: the builder's user name is shorter than 4 characters and is not forbidden as a bare string"; fi
 label=$(sed -n 's/^pub const LAUNCH_AGENT_LABEL_PREFIX: &str = "\(.*\)";$/\1/p' crates/runtime/src/autostart/render.rs | head -1)
 [ -n "$label" ] || { echo "build-release: the login-entry label was not found in crates/runtime/src/autostart/render.rs" >&2; exit 2; }
 

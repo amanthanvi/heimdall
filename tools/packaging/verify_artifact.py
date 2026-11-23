@@ -15,12 +15,21 @@ Checks:
   * MANIFEST.sha256, the inner payload manifest, lists every file except itself with a
     matching digest, and nothing else; SHA256SUMS, the external index, is never inside;
   * with --index, the archive's own digest is in that external index (ADR-0014 section 4.4);
-  * no file holds a build-host path (a home directory, a cargo registry or rustup
-    toolchain path), a private-key block, a full canary value, or any --forbid text
+  * no file, and no text field of the archive itself (member names, owner and group names,
+    PAX records, comments, the gzip header), holds: a home directory path, meaning exactly
+    /Users/<name>/, /home/<name>/ or <drive>:/Users/<name>/ (with backslashes) for any name outside the fixed
+    placeholder list HOME_PLACEHOLDERS (name, user, username, you, me, example, owner,
+    builder, Shared, Public, Default, soaks, soakl, fixture, alice, bob); a cargo registry,
+    cargo checkout or rustup toolchain path; a private-key block; a canary value, meaning
+    exactly HEIMDALL_CANARY_ + optional upper-case KIND_ parts + 8 or more lower-case hex
+    digits (the shape the test kit generates; other shapes are not recognized); or any
+    --forbid text. Each is looked for as bytes and as ASCII-range UTF-16
     (the build script passes the builder's home, cargo, rustup and checkout paths and the
     builder's user name). `--allow-exact <text>` names one exact string that may contain a
-    forbidden text: each occurrence of exactly those bytes is masked before the scan, so the
-    same text anywhere else still fails. It exists for the product's own identifiers (the
+    forbidden text: an occurrence of a forbidden text is excused only when the WHOLE of it
+    lies inside an occurrence of exactly those bytes, so the same text anywhere else, or
+    merely overlapping the allowed string, still fails. It never excuses a generic rule.
+    An empty --forbid value is a usage error. It exists for the product's own identifiers (the
     macOS login-entry label embeds the repository owner's account name), not for paths;
   * each executable imports only the libraries the bare operating system has:
     macOS system frameworks, libSystem and libiconv; glibc's own libraries with no
@@ -51,11 +60,48 @@ GENERIC = [
     ("cargo registry path", re.compile(rb"\.cargo[/\\]registry[/\\]")),
     ("cargo git checkout path", re.compile(rb"\.cargo[/\\]git[/\\]checkouts")),
     ("rustup toolchain path", re.compile(rb"\.rustup[/\\]toolchains")),
-    ("home directory path", re.compile(
-        rb"(?:/Users/|/home/|[A-Za-z]:\\Users\\)[A-Za-z0-9._-]{1,64}[/\\](?:\.cargo|\.rustup|\.t3|GitRepos|src|code|work|dev|projects)[/\\]")),
     ("private key block", re.compile(rb"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----")),
     ("canary value", re.compile(rb"HEIMDALL_CANARY_(?:[A-Z0-9]+_)*[0-9a-f]{8,}")),
 ]
+
+# A home directory path: /Users/<name>/, /home/<name>/ or <drive>:\Users\<name>\, for ANY
+# name (review M08-W0-R06), except the fixed placeholder names below. Those are what the
+# product's own text and the packaged documents use when they describe a path, and what the
+# harness accounts are called; none is a person's account. A real build-host name that
+# happens to equal one of them is still caught by the build script's --forbid list.
+HOME_PATH = re.compile(rb"(?:/Users/|/home/|[A-Za-z]:\\Users\\)([A-Za-z0-9._-]{1,64})[/\\]")
+HOME_PLACEHOLDERS = frozenset(b.lower() for b in (
+    b"name", b"user", b"username", b"you", b"me", b"example", b"owner", b"builder",
+    b"Shared", b"Public", b"Default", b"soaks", b"soakl", b"fixture", b"alice", b"bob"))
+
+
+def home_path_hits(data):
+    return [m.group(0) for m in HOME_PATH.finditer(data) if m.group(1).lower() not in HOME_PLACEHOLDERS]
+
+
+def utf16_views(data):
+    """ASCII-range UTF-16 text, either byte order and either alignment, shows up as plain
+    ASCII in the even bytes or in the odd bytes. Scanning both covers wide strings."""
+    return (data[0::2], data[1::2])
+
+
+def forbidden_hits(data, needle, allowed):
+    """Occurrences of `needle` that do not lie ENTIRELY inside an occurrence of an allowed
+    exact string. A forbidden text that only overlaps an allowed string still counts."""
+    spans = []
+    for a in allowed:
+        start = data.find(a)
+        while start != -1:
+            spans.append((start, start + len(a)))
+            start = data.find(a, start + 1)
+    hits, start = 0, data.find(needle)
+    while start != -1:
+        end = start + len(needle)
+        if not any(s0 <= start and end <= e0 for s0, e0 in spans):
+            hits += 1
+        start = data.find(needle, start + 1)
+    return hits
+
 
 MACOS_ALLOWED = re.compile(
     r"^(?:/System/Library/Frameworks/[A-Za-z0-9]+\.framework/Versions/[A-Z0-9]+/[A-Za-z0-9]+"
@@ -75,16 +121,26 @@ class Failure(Exception):
 
 # --------------------------------------------------------------------------- unpack
 
-def unpack(src, dest):
-    """Extract `src` into `dest` with every member checked; return the root directory."""
+def unpack(src, dest, metadata=None):
+    """Extract `src` into `dest` with every member checked; return the root directory.
+    `metadata`, when given, collects the archive's own text fields (member names, owner and
+    group names, PAX records, comments, the gzip header's file name) for the scan."""
+    meta = metadata if metadata is not None else []
     if os.path.isdir(src):
         return os.path.abspath(src)
     if src.endswith((".tar.gz", ".tgz")):
+        with open(src, "rb") as fh:
+            head = fh.read(4096)
+        if len(head) > 10 and head[3] & 0x1C:  # FEXTRA, FNAME or FCOMMENT set
+            meta.append(head[10:])
         with tarfile.open(src, "r:gz") as tar:
+            meta.append(repr(sorted(tar.pax_headers.items())).encode("utf-8", "replace"))
             for m in tar.getmembers():
                 if not (m.isreg() or m.isdir()):
                     raise Failure(f"archive member is not a regular file or directory: {m.name}")
                 _safe_name(m.name)
+                for field in (m.name, m.uname, m.gname, m.linkname, repr(sorted(m.pax_headers.items()))):
+                    meta.append(field.encode("utf-8", "replace"))
             for m in tar.getmembers():
                 target = os.path.join(dest, m.name)
                 if m.isdir():
@@ -95,8 +151,10 @@ def unpack(src, dest):
                     out.write(fh.read())
     elif src.endswith(".zip"):
         with zipfile.ZipFile(src) as z:
+            meta.append(z.comment)
             for info in z.infolist():
                 _safe_name(info.filename)
+                meta += [info.filename.encode("utf-8", "replace"), info.comment, info.extra]
                 if (info.external_attr >> 16) & 0o170000 == 0o120000:
                     raise Failure(f"archive member is a link: {info.filename}")
                 target = os.path.join(dest, info.filename)
@@ -321,7 +379,8 @@ def verify(src, target=None, forbid=(), index=None, allow_exact=()):
             elif want != sha256(src):
                 fail(f"the archive's digest differs from the external index")
     with tempfile.TemporaryDirectory(prefix="hm-verify-") as tmp:
-        root = unpack(src, tmp)
+        metadata = []
+        root = unpack(src, tmp, metadata)
         files = files_under(root)
 
         if INDEX in files:
@@ -346,25 +405,42 @@ def verify(src, target=None, forbid=(), index=None, allow_exact=()):
         for f in sorted(set(listed) - set(actual)):
             fail(f"{f}: listed in {SUMS} but absent")
 
-        # Generic rules always scan the real bytes; only the --forbid texts scan the masked
-        # copy, so an allowed string can never hide a path, a key block or a canary.
-        rules = [(label, rx, False) for label, rx in GENERIC] + [
-            (f"forbidden text #{i + 1}", re.compile(re.escape(t.encode("utf-8"))), True)
-            for i, t in enumerate(forbid) if t]
+        # Generic rules and the home-path rule scan the real bytes, and ASCII-range UTF-16
+        # (R07). A --forbid text is excused only where the whole of it lies inside an
+        # --allow-exact string, so an allowed string can never hide a path, a key block, a
+        # canary, or a forbidden text that merely overlaps it.
+        allowed = [a.encode("utf-8") for a in allow_exact if a]
+        needles = [(f"forbidden text #{i + 1}", t.encode("utf-8")) for i, t in enumerate(forbid)]
+
+        def scan(where, data, wide=True):
+            views = [("", data)] + ([(" (UTF-16)", v) for v in utf16_views(data)] if wide else [])
+            for suffix, view in views:
+                for label, rx in GENERIC:
+                    n = len(rx.findall(view))
+                    if n:
+                        fail(f"{where}: {label}{suffix}, {n} occurrence(s)")
+                n = len(home_path_hits(view))
+                if n:
+                    fail(f"{where}: home directory path{suffix}, {n} occurrence(s)")
+                for label, needle in needles:
+                    n = forbidden_hits(view, needle, allowed)
+                    if n:
+                        fail(f"{where}: {label}{suffix}, {n} occurrence(s)")
+            for label, needle in needles:  # non-ASCII forbidden text in UTF-16
+                text = needle.decode("utf-8")
+                if not text.isascii():
+                    for enc in ("utf-16-le", "utf-16-be"):
+                        if text.encode(enc) in data:
+                            fail(f"{where}: {label} (UTF-16), 1 or more occurrence(s)")
+
+        # The archive's own text fields: defence in depth (the packer zeroes the owner fields).
+        scan("(archive metadata)", b"\n".join(m for m in metadata if m), wide=False)
         kinds = 0
         executables = set()
         for f in files:
             with open(os.path.join(root, f), "rb") as fh:
                 data = fh.read()
-            scanned = data
-            for exact in allow_exact:
-                raw = exact.encode("utf-8")
-                if raw:
-                    scanned = scanned.replace(raw, b"\0" * len(raw))
-            for label, rx, masked in rules:
-                n = len(rx.findall(scanned if masked else data))
-                if n:
-                    fail(f"{f}: {label}, {n} occurrence(s)")
+            scan(f, data)
             try:
                 if check_binary(f, data, target, fail):
                     kinds += 1
@@ -465,7 +541,25 @@ def self_test():
          {"heimdall": good + b"\0io.example.builder-name.other\0"},
          {"forbid": ["builder-name"], "allow": ["io.example.builder-name.label."]}, "forbidden text #1"),
         ("an allowed string does not mask a generic rule",
-         {"heimdall": good + home}, {"allow": ["/.cargo/"]}, "home directory path"),
+         {"heimdall": good + home}, {"allow": ["/.cargo/"]}, "cargo registry path"),
+        ("an allowed string does not mask the home-path rule",
+         {"heimdall": good + b"\0/Users/" + b"realperson/x\0"}, {"allow": ["/Users/" + "realperson/"]}, "home directory path"),
+        # R06: any home path, not only a few subdirectories; placeholders are not people.
+        ("home path, Desktop", {"heimdall": good + b"\0/Users/" + b"realperson/Desktop/x\0"}, {}, "home directory path"),
+        ("home path, Linux dot-local", {"heimdall": good + b"\0/home/" + b"realperson/.local/share/x\0"}, {}, "home directory path"),
+        ("home path, Windows AppData", {"heimdall": good + b"\0C:\\Users\\" + b"realperson\\AppData\\Local\0"}, {}, "home directory path"),
+        ("placeholder home paths are allowed", {"heimdall": good + b"\0/Users/<name>\0/home/user/x\0/Users/name/.ssh\0C:\\Users\\you\\x\0/home/builder/y\0"}, {}, None),
+        # R07: an overlapping forbidden text is not hidden by an allowed string.
+        ("an overlapping forbidden text still fails",
+         {"heimdall": good + b"\0/opt/builderx.label.suffix\0"},
+         {"forbid": ["/opt/builderx"], "allow": ["builderx.label."]}, "forbidden text #1"),
+        # R07: UTF-16, both byte orders.
+        ("forbidden text in UTF-16LE", {"heimdall": good + "xx-builder-name-xx".encode("utf-16-le")},
+         {"forbid": ["builder-name"]}, "forbidden text #1 (UTF-16)"),
+        ("forbidden text in UTF-16BE", {"heimdall": good + b"\0" + "xx-builder-name-xx".encode("utf-16-be")},
+         {"forbid": ["builder-name"]}, "forbidden text #1 (UTF-16)"),
+        ("a canary in UTF-16LE", {"heimdall": good, "w.bin": canary.decode().encode("utf-16-le")}, {}, "canary value (UTF-16)"),
+        ("a home path in UTF-16LE", {"heimdall": good, "w.bin": "C:\\Users\\realperson\\x".encode("utf-16-le")}, {}, "home directory path (UTF-16)"),
         ("extra library", {"heimdall": _elf(["libc.so.6", "libssl.so.3"])}, {}, "libssl.so.3"),
         ("glibc above the floor", {"heimdall": _elf(["libc.so.6"], "GLIBC_2.38")}, {}, "GLIBC_2.38"),
         ("no executable", {"README": b"ok\n"}, {}, "no executable"),
@@ -521,6 +615,34 @@ def self_test():
             if (not got) != (expect is None) or (expect and not any(expect in g for g in got)):
                 bad += 1
                 print(f"self-test FAILED: external index, {label}: {got}")
+        # R07: the archive's own metadata is scanned (owner names, PAX records).
+        import io
+        root = _tree(tmp, "metasrc", {"heimdall": good})
+        for label, uname, pax, expect in (
+                ("owner name", "builder-name", {}, "(archive metadata): forbidden text #1"),
+                ("PAX record", "", {"comment": "/Users/" + "realperson/x"}, "(archive metadata): home directory path")):
+            arc = os.path.join(tmp, "meta-" + label.replace(" ", "-") + ".tar.gz")
+            with tarfile.open(arc, "w:gz", format=tarfile.PAX_FORMAT) as tar:
+                for name in sorted(os.listdir(root)):
+                    info = tar.gettarinfo(os.path.join(root, name), "heimdall-0.0.0-test/" + name)
+                    info.uname, info.gname, info.pax_headers = uname, "", dict(pax)
+                    with open(os.path.join(root, name), "rb") as fh:
+                        tar.addfile(info, fh)
+            got = verify(arc, forbid=["builder-name"])
+            if not any(expect in g for g in got):
+                bad += 1
+                print(f"self-test FAILED: archive metadata, {label}: {got}")
+        # R07: an empty --forbid is a usage error (exit 2), from the command line.
+        for args in (["--forbid", ""],):
+            saved = sys.stdout
+            sys.stdout = io.StringIO()
+            try:
+                code = main([root] + args)
+            finally:
+                sys.stdout = saved
+            if code != 2:
+                bad += 1
+                print(f"self-test FAILED: empty --forbid gave exit {code}")
         # A tar member that leaves the root is refused before extraction.
         evil = os.path.join(tmp, "evil.tar.gz")
         with tarfile.open(evil, "w:gz") as tar:
@@ -536,7 +658,7 @@ def self_test():
         if os.path.exists(os.path.join(os.path.dirname(tmp), "escape")):
             bad += 1
             print("self-test FAILED: escaping tar member written")
-    print(f"verify_artifact self-test: {len(cases) + 8} cases, {bad} failed")
+    print(f"verify_artifact self-test: {len(cases) + 11} cases, {bad} failed")
     return 1 if bad else 0
 
 
@@ -554,10 +676,16 @@ def main(argv):
             elif a == "--allow-exact":
                 allow.append(next(it))
             elif a == "--forbid":
-                forbid.append(next(it))
+                value = next(it)
+                if not value:
+                    raise Failure("an empty --forbid value (it would forbid nothing, silently)")
+                forbid.append(value)
             elif a == "--forbid-file":
                 with open(next(it), encoding="utf-8") as fh:
-                    forbid += [l for l in fh.read().splitlines() if l]
+                    lines = fh.read().splitlines()
+                if not lines or any(not l for l in lines):
+                    raise Failure("--forbid-file is empty or holds an empty line")
+                forbid += lines
             elif a.startswith("-"):
                 raise Failure(f"unknown option {a}")
             elif src is None:

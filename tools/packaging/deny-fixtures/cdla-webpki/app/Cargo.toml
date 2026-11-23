@@ -1,0 +1,8 @@
+[package]
+name = "hm-deny-fixture-app"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+webpki-roots = { path = "../webpki-roots", version = "0.0.0" }

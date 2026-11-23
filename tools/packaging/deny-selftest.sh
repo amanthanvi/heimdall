@@ -37,7 +37,11 @@ out=$("$deny" --manifest-path crates/heimdall/Cargo.toml --offline --features ir
 if [ "$code" = 0 ]; then echo "ok   the binary with the iroh feature passes (exit 0)"; else echo "FAIL the binary with the iroh feature (exit $code)"; bad=1; fi
 run "a permissive fixture passes" 0 "$fix/permissive/Cargo.toml"
 run "a copyleft crate is refused for its licence" 1 "$fix/copyleft/Cargo.toml" "GPL-3.0"
-# cargo writes a lock file beside each fixture manifest; remove exactly those two.
-rm -f -- "$fix/permissive/Cargo.lock" "$fix/copyleft/Cargo.lock"
+# The one recorded exception is exactly as narrow as ADR-0014 section 4.6 says: the crate
+# named webpki-roots may be CDLA-Permissive-2.0; any other crate under that licence is refused.
+run "webpki-roots under CDLA-Permissive-2.0 passes (the recorded exception)" 0 "$fix/cdla-webpki/Cargo.toml"
+run "another crate under CDLA-Permissive-2.0 is refused" 1 "$fix/cdla-other/Cargo.toml" "CDLA-Permissive-2.0"
+# cargo writes a lock file beside each fixture manifest; remove exactly those.
+rm -f -- "$fix/permissive/Cargo.lock" "$fix/copyleft/Cargo.lock" "$fix/cdla-webpki/Cargo.lock" "$fix/cdla-other/Cargo.lock"
 echo "deny-selftest: $([ $bad = 0 ] && echo PASS || echo FAIL)"
 exit $bad

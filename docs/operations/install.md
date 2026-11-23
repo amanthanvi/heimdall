@@ -25,9 +25,9 @@ notes. Unsigned means unsigned.
 
 ## 2. Unpack and install
 
-```planned
+```
 ./install.sh              # macOS, Linux (inside the unpacked directory)
-.\install.ps1             # Windows
+.\install.ps1             # Windows (written; not yet run on Windows)
 ```
 
 The script checks the unpacked files against `MANIFEST.sha256`, copies the executable to a

@@ -353,25 +353,59 @@ fn is_dash(c: char) -> bool {
     )
 }
 
-/// A control character (C0, DEL, C1: so every newline, carriage return and tab), a
-/// Unicode line or paragraph separator, or an invisible or bidirectional formatting
-/// character (zero-width spaces and joiners, directional marks, embeddings, overrides and
-/// isolates, word joiners, the byte-order mark), which would make an included value read
-/// differently in the preview than it is.
+/// A character that would make an included value read differently in the preview than it
+/// is (review M08-W0-R05). The preview is the bundle, so nothing a reader cannot see may be
+/// in a value:
+///
+/// * every control character (C0, DEL, C1: so every newline, carriage return and tab);
+/// * the Unicode line and paragraph separators;
+/// * every format character (general category `Cf`): the soft hyphen, the Arabic letter
+///   mark and the Arabic and Syriac prepended marks, zero-width spaces and joiners,
+///   directional marks, embeddings, overrides and isolates, the word joiner and the
+///   invisible operators, the deprecated format characters U+206A–U+206F, the byte-order
+///   mark, interlinear annotation marks, the shorthand and musical format controls, the
+///   Egyptian hieroglyph format controls, and the whole tag block U+E0000–U+E007F;
+/// * the variation selectors (U+FE00–U+FE0F, U+E0100–U+E01EF, the Mongolian U+180B–U+180F);
+/// * invisible fillers and joiners that are not `Cf`: the combining grapheme joiner, the
+///   Hangul fillers, the Khmer inherent vowels, and the reserved U+2065.
+///
+/// `std` has no general-category test, so the ranges are listed. A test names one
+/// character of each class.
 fn has_control(text: &str) -> bool {
-    text.chars().any(|c| {
-        c.is_control()
-            || matches!(
-                c,
-                '\u{2028}'
-                    | '\u{2029}'
-                    | '\u{200B}'..='\u{200F}'
-                    | '\u{202A}'..='\u{202E}'
-                    | '\u{2060}'..='\u{2064}'
-                    | '\u{2066}'..='\u{2069}'
-                    | '\u{FEFF}'
-            )
-    })
+    text.chars()
+        .any(|c| c.is_control() || is_invisible_or_format(c))
+}
+
+fn is_invisible_or_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'                      // soft hyphen
+            | '\u{034F}'                // combining grapheme joiner
+            | '\u{0600}'..='\u{0605}'  // Arabic prepended format marks
+            | '\u{061C}'                // Arabic letter mark
+            | '\u{06DD}'
+            | '\u{070F}'                // Syriac abbreviation mark
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08E2}'
+            | '\u{115F}'..='\u{1160}'  // Hangul fillers
+            | '\u{17B4}'..='\u{17B5}'  // Khmer inherent vowels
+            | '\u{180B}'..='\u{180F}'  // Mongolian variation selectors and vowel separator
+            | '\u{200B}'..='\u{200F}'  // zero-width spaces, joiners, directional marks
+            | '\u{2028}'..='\u{202E}'  // line and paragraph separators, embeddings, overrides
+            | '\u{2060}'..='\u{206F}'  // word joiner, invisible operators, U+2065, isolates, deprecated
+            | '\u{3164}'                // Hangul filler
+            | '\u{FE00}'..='\u{FE0F}'  // variation selectors
+            | '\u{FEFF}'                // byte-order mark
+            | '\u{FFA0}'                // halfwidth Hangul filler
+            | '\u{FFF9}'..='\u{FFFB}'  // interlinear annotation
+            | '\u{110BD}'
+            | '\u{110CD}'
+            | '\u{13430}'..='\u{1343F}' // Egyptian hieroglyph format controls
+            | '\u{1BCA0}'..='\u{1BCA3}' // shorthand format controls
+            | '\u{1D173}'..='\u{1D17A}' // musical format controls
+            | '\u{E0000}'..='\u{E007F}' // tags
+            | '\u{E0100}'..='\u{E01EF}' // variation selectors supplement
+    )
 }
 
 fn is_run_char(c: char) -> bool {
@@ -548,6 +582,73 @@ mod tests {
             screen_code("aB3dE5fG7hJ9kL1mN3pQ"),
             Err(Withheld::FailedSecretCheck)
         );
+    }
+
+    /// Review M08-W0-R05: one character of every invisible or formatting class, inside an
+    /// otherwise ordinary host name, makes the identifier fail. Each class is listed.
+    #[test]
+    fn invisible_and_format_characters_of_every_class_are_refused() {
+        let classes: &[(&str, char)] = &[
+            ("soft hyphen", '\u{00AD}'),
+            ("combining grapheme joiner", '\u{034F}'),
+            ("Arabic number sign (prepended format)", '\u{0600}'),
+            ("Arabic letter mark", '\u{061C}'),
+            ("Arabic end of ayah", '\u{06DD}'),
+            ("Syriac abbreviation mark", '\u{070F}'),
+            ("Hangul choseong filler", '\u{115F}'),
+            ("Khmer inherent vowel", '\u{17B4}'),
+            ("Mongolian vowel separator", '\u{180E}'),
+            ("Mongolian variation selector", '\u{180B}'),
+            ("zero-width space", '\u{200B}'),
+            ("right-to-left mark", '\u{200F}'),
+            ("line separator", '\u{2028}'),
+            ("right-to-left override", '\u{202E}'),
+            ("word joiner", '\u{2060}'),
+            ("invisible times", '\u{2062}'),
+            ("reserved U+2065", '\u{2065}'),
+            ("first strong isolate", '\u{2068}'),
+            ("deprecated inhibit symmetric swapping", '\u{206A}'),
+            ("deprecated nominal digit shapes", '\u{206F}'),
+            ("Hangul filler", '\u{3164}'),
+            ("variation selector 16", '\u{FE0F}'),
+            ("variation selector 1", '\u{FE00}'),
+            ("byte-order mark", '\u{FEFF}'),
+            ("halfwidth Hangul filler", '\u{FFA0}'),
+            ("interlinear annotation anchor", '\u{FFF9}'),
+            ("Egyptian hieroglyph format control", '\u{13430}'),
+            ("shorthand format control", '\u{1BCA0}'),
+            ("musical format control", '\u{1D173}'),
+            ("language tag", '\u{E0001}'),
+            ("tag letter", '\u{E0053}'),
+            ("cancel tag", '\u{E007F}'),
+            ("variation selector 17", '\u{E0100}'),
+            ("variation selector 256", '\u{E01EF}'),
+            ("C0 control", '\u{0007}'),
+            ("C1 control", '\u{0085}'),
+            ("delete", '\u{007F}'),
+        ];
+        for (name, c) in classes {
+            for value in [
+                format!("build{c}host"),
+                format!("{c}buildhost"),
+                format!("buildhost{c}"),
+            ] {
+                assert_eq!(
+                    screen_identifier(IdentKind::Host, &value),
+                    Err(Withheld::FailedSecretCheck),
+                    "{name} (U+{:04X}) was accepted",
+                    u32::from(*c)
+                );
+            }
+        }
+        // Visible text in other scripts, and ordinary combining marks, are not refused.
+        for ok in ["b\u{00FC}ro-host", "\u{6771}\u{4EAC}-1", "cafe\u{0301}"] {
+            assert_eq!(
+                screen_identifier(IdentKind::Host, ok),
+                Ok(()),
+                "a visible name was refused"
+            );
+        }
     }
 
     #[test]

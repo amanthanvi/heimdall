@@ -5,8 +5,9 @@ Install, update, roll back and uninstall from release archives (m08-plan §7.2, 
 
 | File | What it does |
 |---|---|
-| `install-selftest.sh` | Tests `tools/packaging/install.sh` with fake archives: no real executable is used or run, so it is safe on any host. 18 checks |
-| `journey.sh` | The journey itself, run as a disposable account. `--build release` sets no test variable, refuses outside a container and refuses if any `HEIMDALL_TEST_*` is set; there is no override. `--build debug` exports and verifies all six scratch variables first; the debug journey itself is not written yet |
+| `install-selftest.sh` | Tests `tools/packaging/install.sh` with fake archives: no real executable is used or run, so it is safe on any host. 31 checks, including the W0 review's cases (a failed backup, symlinks at staging names, an unterminated manifest, a runtime that does not answer, an interrupted rollback) |
+| `journey.sh` | The journey itself. `--build release`: archives, run as a disposable account; it sets no test variable, refuses outside a container and refuses if any `HEIMDALL_TEST_*` is set; there is no override. `--build debug`: two debug executables, on a host; it exports and verifies all six scratch variables first, runs every `ssh` with `-F` on the scratch configuration behind a default-identity guard, and **skips every `heimdall connect` step** (see the incident below) |
+| `install-selftest.ps1` | The Windows counterpart of `install-selftest.sh`, for `install.ps1`. Parses under PowerShell 7 on the Mac; **not yet run** (a later PC job) |
 | `run-journey.sh` | Starts `journey.sh --build release` in the M08 container (no network, 2 CPUs, 2 GiB, an init process) |
 
 ## Runs
@@ -47,3 +48,42 @@ the transport in use; a native (non-container) account.
 **A harness defect found on the way:** the first two runs reported leftover `heimdall`
 processes. They were zombies: the container had no init process to reap the older build's
 failed start attempts. Both launchers now pass `--init`.
+
+## Debug-build journey on a host
+
+| Date | Executables | Result |
+|---|---|---|
+| 2026-11-22 | one debug `heimdall` of the candidate tree (`064134a3` plus the uncommitted U2a files), macOS arm64 host, as both sides | **12 steps ok, 0 failed;** the two index steps, the three `connect` steps and the six update and rollback steps skipped (one executable). Install from a staged tree, setup on a scratch SSH home, the identity guard, a login, a held session, uninstall restoring the scratch configuration byte for byte, no process of the run left. **Mechanism evidence only** (a debug build on fixture stores) |
+
+Not run yet: a debug journey with two different executables (it needs a debug build of an
+older commit), and any run on Windows.
+
+## Incident (2026-11-22): a debug `heimdall connect` on the host read the real SSH configuration
+
+The first debug run included `heimdall connect <alias>`. For an existing-access
+destination, `connect` starts the verified `ssh` with the alias as its only argument and no
+`-F`; `HEIMDALL_TEST_SSH_HOME` redirects Heimdall's own static pass, not the `ssh` child. On
+the host that `ssh` therefore read the account's real `~/.ssh/config`. The step failed, the
+run happened once, nothing was written under the real `~/.ssh`, and `SSH_AUTH_SOCK` was the
+scratch decoy agent. The step's output was not kept, so why `ssh` failed (most likely an
+unresolvable name, which would mean one DNS lookup for it) and whether any wildcard block
+of the real configuration applied to that name are **not known**. That run's results were
+discarded. The driver now skips every `connect` step in a debug run and says why; `connect`
+runs only in the release journey, which refuses outside a container. Reported to the
+orchestrator the same hour.
+
+## After the W0 review (W0.1, 2026-11-22/23)
+
+| Run | Archives | Result |
+|---|---|---|
+| Release journey | the same two Linux arm64 builds, re-packed with the fixed `install.sh` and a fresh manifest and index (nothing recompiled): older `42a49389…`, newer `f6c72866…` | **30 steps ok, 0 failed** |
+| Release journey, `--kill-before-update` | the same | **30 steps ok, 0 failed** |
+
+New in these runs: seven shell profiles and `~/.ssh` exist before the install and are
+unchanged after it; the runtime is signalled only by the PID it advertises, after checking
+that the process belongs to the account and was started from the run's own executable.
+
+**R01 revert proof** (`HM_INSTALL_UNDER_TEST=<install.sh with only the R01 fix taken out>
+bash install-selftest.sh`): the case prints `exit 0, cur=heimdall 3.0.0, prev=heimdall 1.0.0`
+and fails, the reviewer's result. With the fix: `exit 1, cur=heimdall 2.0.0, prev=heimdall
+1.0.0`, and the case passes.

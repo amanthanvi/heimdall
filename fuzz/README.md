@@ -1,7 +1,7 @@
 # Fuzz targets (M08 U1a)
 
 Coverage-guided fuzzing of the parsers that take outside input (ADR-0014 §2). **Provisional,
-to be integrated:** sixteen targets cover boundaries 1–12 of ADR-0014 §2.1; 13–15 wait for
+to be integrated:** seventeen targets cover boundaries 1–12 of ADR-0014 §2.1; 13–15 wait for
 M06 and M07. Boundary 12 is covered only in its pure part: the known-hosts file reader and
 the `ssh -G` output reader take files and a child process, and have no target.
 
@@ -31,13 +31,13 @@ the `ssh -G` output reader take files and a child process, and have no target.
 | `runtime_instance` | 11 | `runtime::instance::InstanceInfo`, decoded as `read_file` does |
 | `sshconf_eval` | 1 | `sshconf::eval::evaluate` over an in-memory root file and one included file |
 | `frame_codec` | 4 | `ipc::session::BoundedFrameCodec`, fed in attacker-chosen chunk sizes |
+| `registry_script` | 7 | `registry::script::{RegistryPath, Marker, RegistryLine, StepToken}::parse` |
 | `registry_line` | 7 | `registry::line::{lines, marker_of, marker_ok, marker_lines, contains}` |
 | `issuer_protocol` | 8 | `issuer::protocol::{Request::decode, Response::decode, split_frame}` |
 | `issuer_backup` | 9 | `credential::cert::SecretCaKey::decrypt_openssh` (a fixed fixture passphrase), the recovery bundle's JSON, `issuer::backup::fingerprint_from_file_stem` |
 | `known_hosts_match` | 12 | `localenv::known_hosts::{hosts_match, lookup_name}` (the pure part) |
 
-Not reached by any target: `registry::script`'s parsers, the known-hosts file reader and
-the `ssh -G` output reader.
+Not reached by any target: the known-hosts file reader and the `ssh -G` output reader.
 
 ## Campaigns so far
 

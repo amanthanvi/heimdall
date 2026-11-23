@@ -12,6 +12,11 @@
 # this is the release build's own behaviour. The account's home is disposable: it exists
 # only in this container.
 set -u
+# Refuse outside a container (review M08-W0-R08): this script installs into /usr/local/bin,
+# starts an sshd and agents, and runs a release build. Only run-soak.sh's container runs it.
+in_container() { [ -f /.dockerenv ] || [ -f /run/.containerenv ] || grep -qE '(docker|containerd|kubepods|libpod)' /proc/1/cgroup 2>/dev/null; }
+in_container || { echo "refused: this runs only inside the M08 container (no container was detected)" >&2; exit 2; }
+if env | grep -q '^HEIMDALL_TEST_'; then echo "refused: a HEIMDALL_TEST_* variable is set in the environment of a release run" >&2; exit 2; fi
 lane=$1; hm_src=$2; out=$3; seconds=$4; seed=$5; tick=$6
 lib=/src/tests/native/m02
 # shellcheck source=tests/native/m02/remote-lib.sh

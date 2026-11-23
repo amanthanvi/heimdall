@@ -425,7 +425,25 @@ class Lane:
         return 0 if verdict == "DONE" else 1
 
 
+def in_container():
+    if os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv"):
+        return True
+    try:
+        with open("/proc/1/cgroup", encoding="utf-8") as fh:
+            return any(k in fh.read() for k in ("docker", "containerd", "kubepods", "libpod"))
+    except OSError:
+        return False
+
+
 def main():
+    # Refuse outside a container (review M08-W0-R08): this starts and kills processes and
+    # runs a release build.
+    if not in_container():
+        sys.stderr.write("refused: this runs only inside the M08 container (no container was detected)\n")
+        return 2
+    if any(k.startswith("HEIMDALL_TEST_") for k in os.environ):
+        sys.stderr.write("refused: a HEIMDALL_TEST_* variable is set in the environment of a release run\n")
+        return 2
     p = argparse.ArgumentParser()
     for name in ("lane", "heimdall", "scratch", "alias", "out", "sshd-config", "sshd-log"):
         p.add_argument("--" + name, required=True)

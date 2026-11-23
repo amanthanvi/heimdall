@@ -11,7 +11,8 @@
 #
 # Linker: lld. With M06's code the sanitizer-instrumented runtime binary is about 250 MB,
 # and the default linker fails on arm64 with `relocation truncated to fit: R_AARCH64_CALL26`.
-# What is pinned: the base image, the nightly toolchain, cargo-fuzz and libfuzzer-sys (PINS
+# What is pinned: the base image, the rustup installer (version and SHA-256), the nightly
+# toolchain, cargo-fuzz and libfuzzer-sys (PINS
 # below and fuzz/Cargo.toml). The product's own toolchain pin is not touched: the nightly
 # exists only in the volume this script creates.
 # Where things live: the repository is mounted READ-ONLY. Sources are copied into the volume
@@ -26,6 +27,9 @@ set -euo pipefail
 IMAGE="debian:13-slim"
 NIGHTLY="nightly-2026-11-15"
 CARGO_FUZZ="0.13.2"
+RUSTUP_VERSION="1.29.3"
+RUSTUP_SHA_AARCH64="9f608c142e0e38a78957d0661ba1dfaf0b6fb37184cfaa4b9a0aa57af6184282"
+RUSTUP_SHA_X86_64="b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55"
 VOLUME="hm-m08-fuzz"
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
@@ -33,7 +37,7 @@ repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 TARGETS="sshconf_parse:1052672 gitedit_scan:1052672 agent_reply:266240 control_frame:1052672
 signing_request:266240 userauth_request:70000 registry_hm1:70000 project_manifest:1052672 runtime_config:1052672
 sshconf_eval:1052672 frame_codec:1052672 registry_line:1052672 issuer_protocol:1052672 issuer_backup:70000
-known_hosts_match:70000 runtime_instance:70000"
+known_hosts_match:70000 runtime_instance:70000 registry_script:70000"
 
 command -v docker >/dev/null || { echo "run-campaign: docker not found" >&2; exit 2; }
 in_container() { # NETWORK SCRIPT [ARGS...]
@@ -41,7 +45,7 @@ in_container() { # NETWORK SCRIPT [ARGS...]
     docker run --rm --network "$net" --cpus 2 --memory "${HM_FUZZ_MEMORY:-4g}" --pids-limit 512 \
         -v "$repo":/src:ro -v "$VOLUME":/vol \
         -e CARGO_HOME=/vol/cargo -e RUSTUP_HOME=/vol/rustup -e CARGO_BUILD_JOBS="${HM_FUZZ_JOBS:-2}" \
-        -e RUSTFLAGS="-Clink-arg=-fuse-ld=lld" -e NIGHTLY="$NIGHTLY" -e CARGO_FUZZ="$CARGO_FUZZ" -e TARGETS="$TARGETS" \
+        -e RUSTFLAGS="-Clink-arg=-fuse-ld=lld" -e RUSTUP_VERSION="$RUSTUP_VERSION" -e RUSTUP_SHA_AARCH64="$RUSTUP_SHA_AARCH64" -e RUSTUP_SHA_X86_64="$RUSTUP_SHA_X86_64" -e NIGHTLY="$NIGHTLY" -e CARGO_FUZZ="$CARGO_FUZZ" -e TARGETS="$TARGETS" \
         "$IMAGE" bash -euo pipefail -c "$script" campaign "$@"
 }
 
@@ -55,7 +59,18 @@ setup)
         apt-get update -qq >/dev/null
         apt-get install -y -qq --no-install-recommends ca-certificates curl build-essential lld >/dev/null
         if ! command -v rustup >/dev/null; then
-            curl -fsS https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none >/dev/null
+            # The installer is pinned by version and digest and checked before it runs;
+            # nothing is piped from the network into a shell.
+            case "$(uname -m)" in
+                aarch64) ru_arch=aarch64-unknown-linux-gnu; ru_sha=$RUSTUP_SHA_AARCH64 ;;
+                x86_64) ru_arch=x86_64-unknown-linux-gnu; ru_sha=$RUSTUP_SHA_X86_64 ;;
+                *) echo "run-campaign: no pinned rustup installer for $(uname -m)" >&2; exit 2 ;;
+            esac
+            curl -fsS -o /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/$RUSTUP_VERSION/$ru_arch/rustup-init"
+            echo "$ru_sha  /tmp/rustup-init" | sha256sum -c - >/dev/null || { echo "run-campaign: the rustup installer does not match its pinned digest" >&2; exit 1; }
+            chmod 0755 /tmp/rustup-init
+            /tmp/rustup-init -y --profile minimal --default-toolchain none >/dev/null
+            rm -f /tmp/rustup-init
         fi
         rustup toolchain install "$NIGHTLY" --profile minimal >/dev/null
         cargo "+$NIGHTLY" install --locked --version "=$CARGO_FUZZ" cargo-fuzz >/dev/null 2>&1 || cargo "+$NIGHTLY" install --locked --version "=$CARGO_FUZZ" cargo-fuzz

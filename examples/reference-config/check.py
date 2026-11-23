@@ -65,6 +65,16 @@ def validate(value, schema, root, path="$"):
         errs.append(f"{path}: not the required value")
     if "enum" in schema and value not in schema["enum"]:
         errs.append(f"{path}: not one of {schema['enum']}")
+    if "format" in schema:
+        fmt = schema["format"]
+        ranges = {"uint8": (0, 2**8 - 1), "uint16": (0, 2**16 - 1), "uint32": (0, 2**32 - 1), "uint64": (0, 2**64 - 1),
+                  "int32": (-2**31, 2**31 - 1), "int64": (-2**63, 2**63 - 1)}
+        if fmt not in ranges:
+            raise Unsupported(f"{path}: format {fmt} is not supported by this check")
+        if isinstance(value, int) and not isinstance(value, bool):
+            lo, hi = ranges[fmt]
+            if not lo <= value <= hi:
+                errs.append(f"{path}: outside {fmt}")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         if "minimum" in schema and value < schema["minimum"]:
             errs.append(f"{path}: below {schema['minimum']}")
@@ -125,6 +135,19 @@ def self_test():
              ("unknown key", {"n": 1, "zz": 1}, 1), ("wrong enum", {"n": 1, "e": "c"}, 1),
              ("out of range", {"n": 10}, 1), ("wrong item type", {"n": 1, "l": [1]}, 1),
              ("a boolean is not an integer", {"n": True}, 1)]
+    fmt_root = {"type": "object", "properties": {"v": {"type": "integer", "format": "uint32"}}}
+    for name, value, want in (("format: in range", {"v": 1}, 0), ("format: negative", {"v": -1}, 1),
+                              ("format: above uint32", {"v": 2**32}, 1)):
+        if bool(validate(value, fmt_root, fmt_root)) != bool(want):
+            cases.append((name, None, None))
+            print(f"self-test FAILED: {name}")
+            return 1
+    try:
+        validate({"v": "x"}, {"type": "object", "properties": {"v": {"type": "string", "format": "date-time"}}}, {})
+        print("self-test FAILED: an unsupported format was ignored")
+        return 1
+    except Unsupported:
+        pass
     bad = 0
     for name, value, want in cases:
         if bool(validate(value, root, root)) != bool(want):
@@ -136,7 +159,7 @@ def self_test():
         print("self-test FAILED: an unsupported keyword was ignored")
     except Unsupported:
         pass
-    print(f"reference-config check self-test: {len(cases) + 1} cases, {bad} failed")
+    print(f"reference-config check self-test: {len(cases) + 5} cases, {bad} failed")
     return 1 if bad else 0
 
 

@@ -1338,6 +1338,36 @@ fn include_identifiers_never_bypasses_secret_checks() {
         ("nul", format!("fixture-{tok}\0x")),
         ("line separator", format!("fixture-{tok}\u{2028}x")),
         ("bidi override", format!("fixture-{tok}\u{202E}x")),
+        // Review M08-W0-R05: one of each invisible or formatting class the filter lists.
+        ("soft hyphen", format!("fixture-{tok}\u{00AD}x")),
+        (
+            "combining grapheme joiner",
+            format!("fixture-{tok}\u{034F}x"),
+        ),
+        ("Arabic letter mark", format!("fixture-{tok}\u{061C}x")),
+        (
+            "Mongolian vowel separator",
+            format!("fixture-{tok}\u{180E}x"),
+        ),
+        ("reserved U+2065", format!("fixture-{tok}\u{2065}x")),
+        (
+            "deprecated format U+206A",
+            format!("fixture-{tok}\u{206A}x"),
+        ),
+        (
+            "deprecated format U+206F",
+            format!("fixture-{tok}\u{206F}x"),
+        ),
+        ("Hangul filler", format!("fixture-{tok}\u{3164}x")),
+        ("variation selector 16", format!("fixture-{tok}\u{FE0F}x")),
+        (
+            "variation selector supplement",
+            format!("fixture-{tok}\u{E0100}x"),
+        ),
+        (
+            "tag-encoded text",
+            format!("fixture-{tok}\u{E0053}\u{E0045}\u{E0043}\u{E007F}"),
+        ),
         (
             "over the cap",
             format!("fixture-{tok}-{}", "x".repeat(1100)),

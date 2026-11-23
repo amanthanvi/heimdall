@@ -96,6 +96,13 @@ Everything goes under `target/release-artifacts/`:
 - **Roles:** `target` (compiled for the target; nothing is claimed about what the linker
   kept), `host` (a proc macro, a build script, or a dependency of one), `test-support`
   (reached only through `heimdall-testkit`; removed from release builds before the candidate).
+- **What the verifier's rules match, exactly** (review M08-W0-R06, R07): a home path is
+  `/Users/<name>/`, `/home/<name>/` or `<drive>:\Users\<name>\` for any name outside the fixed
+  placeholder list in `verify_artifact.py` (`HOME_PLACEHOLDERS`); a canary is
+  `HEIMDALL_CANARY_`, optional upper-case `KIND_` parts and 8 or more lower-case hex digits,
+  and no other shape; each rule is looked for as bytes and as ASCII-range UTF-16, in every
+  file and in the archive's own text fields. An empty `--forbid` is a usage error. A builder
+  user name shorter than 4 characters is not forbidden as a bare string, and the build says so.
 - **The builder's user name is forbidden everywhere except one exact string:** the macOS
   login-entry label prefix, which embeds the repository owner's account name. The verifier
   masks exactly those bytes (`--allow-exact`) and nothing else, so the name anywhere else
@@ -103,8 +110,9 @@ Everything goes under `target/release-artifacts/`:
 
 ## Not done yet
 
-- `LICENSE`, `SECURITY.md` (owner inputs B17, B18) and the install scripts (U2a) are packaged
-  when they exist; today the build prints them as missing.
+- `LICENSE` and `SECURITY.md` (owner inputs B17, B18) are packaged when they exist; today the
+  build prints them as missing. `install.sh` is packaged. `install.ps1` exists and has not
+  been run on Windows; its self-test waits for a PC job.
 - The binary does not yet report its own commit and target (contract delta H7), so the check
   cannot compare them with the build record.
 - `deny-selftest.sh` checks `deny.toml` against the real workspace, a permissive fixture and a copyleft fixture. The `[sources]` rules have no fixture: a git dependency cannot be resolved offline.

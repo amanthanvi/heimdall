@@ -148,3 +148,10 @@ path = "fuzz_targets/runtime_instance.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "registry_script"
+path = "fuzz_targets/registry_script.rs"
+test = false
+doc = false
+bench = false
