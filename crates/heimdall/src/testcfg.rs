@@ -44,6 +44,7 @@
 //! | `HEIMDALL_TEST_FORCE_EXEC_FAILURE` | `1`: the exec (Unix) fails after `launching` (`heimdall_launch::unix::TestHooks`). |
 //! | `HEIMDALL_TEST_SSH_HOME` | Absolute scratch account home for the CLI's static selection pass (`SshPaths::with_test_override`, system directory `<home>/etc-ssh`), so a test never reads the account's real `~/.ssh` or `/etc/ssh`. ⟨M02⟩ W4: a runtime started under any test variable wires its projection over this scratch home, or none without it, never the account's (`isolate_projection`). |
 //! | `HEIMDALL_TEST_CLOCK_OFFSET_S` | As above: the CLI's wall clock for the pre-launch check. |
+//! | `HEIMDALL_TEST_PINNED_CLIENT` | ⟨M07 W7b; ADR-0007 §12.52⟩ Absolute path of a scratch wrapper (testkit's `hm-pinned-ssh`): `connect` launches it in place of the verified client it would select (on Windows the pinned in-box `%SystemRoot%\System32\OpenSSH\ssh.exe`). **Only the program path changes**: the arguments, the environment, the standard handles, the console and the launch itself are the product's. `run` accepts it and does not use it (it launches the program its own argv names). |
 //! | `HEIMDALL_TEST_SSH_STDERR_FILE` | ⟨M06 W5 `w5v`⟩ Absolute scratch file: `environment add`'s bootstrap appends its host-key preflight's `ssh` standard error there (each run under a `### <leg> exit=<n>` header), and its interactive session's `ssh` gets `-E <file>` (that client's own messages go there instead of the terminal). Diagnostics of a native run only; a release `environment` command refuses it like every variable here. |
 //!
 //! **⟨M03⟩ managed credentials** (m03-plan U0b row 16; ADR-0008 §18). Four more
@@ -91,18 +92,25 @@ pub const PRE_CHECK_PAUSE_ENV: &str = "HEIMDALL_TEST_PRE_CHECK_PAUSE";
 pub const FORCE_EXEC_FAILURE_ENV: &str = "HEIMDALL_TEST_FORCE_EXEC_FAILURE";
 /// ⟨M02⟩ U8: scratch account home for the CLI's static selection pass.
 pub const SSH_HOME_ENV: &str = "HEIMDALL_TEST_SSH_HOME";
+/// ⟨M07 W7b; ADR-0007 §12.52⟩ The debug pinned-client redirect: an absolute path of a
+/// scratch wrapper `connect` launches instead of the verified client (module docs).
+pub const PINNED_CLIENT_ENV: &str = "HEIMDALL_TEST_PINNED_CLIENT";
+
 /// ⟨M06 W5 `w5v`⟩ Absolute scratch file for the bootstrap's `ssh` standard error (module
 /// docs).
 pub const SSH_STDERR_FILE_ENV: &str = "HEIMDALL_TEST_SSH_STDERR_FILE";
 
 /// ⟨M02⟩ Every variable `run` and `connect` read (⟨`w5v`⟩ and the bootstrap's diagnostic
-/// file, which `environment add` reads from the same set).
-pub const LAUNCH_ENV: [&str; 6] = [
+/// file, which `environment add` reads from the same set). A release build refuses `run` and
+/// `connect` (exit 2, before anything else happens) when any of them is set, and
+/// `tools/validation/release-gate.sh` probes each of them through both commands.
+pub const LAUNCH_ENV: [&str; 7] = [
     PRE_EXEC_PAUSE_ENV,
     PRE_CHECK_PAUSE_ENV,
     FORCE_EXEC_FAILURE_ENV,
     SSH_HOME_ENV,
     CLOCK_OFFSET_ENV,
+    PINNED_CLIENT_ENV,
     SSH_STDERR_FILE_ENV,
 ];
 
@@ -172,6 +180,10 @@ pub struct LaunchHooks {
     pub ssh_home: Option<std::path::PathBuf>,
     /// [`CLOCK_OFFSET_ENV`].
     pub clock_offset: Option<ClockOffset>,
+    /// [`PINNED_CLIENT_ENV`]: the scratch wrapper `connect` launches instead of the verified
+    /// client (debug builds only: a release build refuses the variable, so this is always
+    /// `None` there).
+    pub pinned_client: Option<std::path::PathBuf>,
     /// ⟨`w5v`⟩ [`SSH_STDERR_FILE_ENV`].
     pub ssh_stderr_file: Option<std::path::PathBuf>,
 }
@@ -224,6 +236,7 @@ pub fn launch_hooks(
         clock_offset: env(CLOCK_OFFSET_ENV)
             .map(|v| ClockOffset::parse(&v))
             .transpose()?,
+        pinned_client: absolute(PINNED_CLIENT_ENV)?,
         ssh_stderr_file: absolute(SSH_STDERR_FILE_ENV)?,
     })
 }
@@ -1881,6 +1894,16 @@ mod tests {
             assert!(h.force_exec_failure);
             assert_eq!(h.clock_offset, Some(ClockOffset::Fixed(-90)));
             assert!(launch_hooks(&set(&[(PRE_CHECK_PAUSE_ENV, "relative")])).is_err());
+            assert_eq!(
+                h.pinned_client, None,
+                "the redirect is off unless it is set"
+            );
+            let pinned = launch_hooks(&set(&[(PINNED_CLIENT_ENV, FIFO)])).unwrap();
+            assert_eq!(
+                pinned.pinned_client.as_deref(),
+                Some(std::path::Path::new(FIFO))
+            );
+            assert!(launch_hooks(&set(&[(PINNED_CLIENT_ENV, "hm-pinned-ssh")])).is_err());
             assert!(launch_hooks(&set(&[(FORCE_EXEC_FAILURE_ENV, "yes")])).is_err());
             assert!(launch_hooks(&set(&[(CLOCK_OFFSET_ENV, "soon")])).is_err());
             // ⟨`w5v`⟩ The bootstrap's diagnostic file: absolute only.
@@ -1892,6 +1915,28 @@ mod tests {
             assert!(launch_hooks(&set(&[(SSH_STDERR_FILE_ENV, "relative")])).is_err());
         } else {
             assert!(launch_hooks(&set(&[(SSH_HOME_ENV, "/scratch/home")])).is_err());
+            assert!(launch_hooks(&set(&[(PINNED_CLIENT_ENV, FIFO)])).is_err());
+        }
+    }
+
+    /// ⟨M07 W7b; ADR-0007 §12.52⟩ The pinned-client redirect is a launch variable: in the
+    /// launch set (so `release-gate.sh` probes it through `run` and `connect`), and a build
+    /// without the test configuration refuses it before reading its value; a debug build
+    /// takes only an absolute path.
+    #[test]
+    fn the_pinned_client_redirect_is_in_the_launch_set_and_refused_without_the_configuration() {
+        assert!(LAUNCH_ENV.contains(&PINNED_CLIENT_ENV));
+        assert!(PINNED_CLIENT_ENV.starts_with("HEIMDALL_TEST_"));
+        let one = |n: &str| (n == PINNED_CLIENT_ENV).then(|| std::ffi::OsString::from("x"));
+        let refused = refusal(false, LAUNCH_ENV.iter().any(|n| one(n).is_some()));
+        assert!(refused.is_some_and(|m| m.contains("HEIMDALL_TEST_")));
+        // A release build refuses it; a debug build refuses the relative value "x".
+        assert!(launch_hooks(&one).is_err());
+        if !AVAILABLE {
+            let abs = |n: &str| {
+                (n == PINNED_CLIENT_ENV).then(|| std::ffi::OsString::from("/scratch/hm-pinned-ssh"))
+            };
+            assert!(launch_hooks(&abs).is_err(), "refused before it is parsed");
         }
     }
 

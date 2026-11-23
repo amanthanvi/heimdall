@@ -125,6 +125,12 @@ Each has what today's build does (observed, with where), and a recommendation.
   and exits 1. A typed way to ask "what became of request R" (its operation, or its recorded
   outcome) would settle it. Recommended: answer it with the same decision as the release question,
   since both rest on the idempotency record.
+- **Also in scope (ruled 2026-11-23): a field naming the caller or the request in the binding
+  view.** `inspect bindings` lists `binding_id`, `grant_id`, `work_id`, `profile`,
+  `profile_revision`, `state` and `created_at`, and nothing that names who asked for a binding or
+  which request made it. H2 therefore attributes a binding to its own request by work, profile and
+  creation time only, and a caller that sees other callers' bindings could still match one made
+  by another caller after its request.
 - **Consequence either way:** harness H2 changes once U0 rules. Today it never sends a release
   again while its outcome is unknown. Where the uncertain answer named no operation it reads the
   binding list: a binding listed `active`, or a list it cannot read, is `still_unknown` (held, exit

@@ -5350,6 +5350,153 @@ mod a11 {
         assert_no_canary(&pty.transcript());
     }
 
+    /// ⟨M07 W7b⟩ A11's pseudoconsole row on Windows (ADR-0007 §12.47 item 3 (D3), §12.52).
+    #[cfg(windows)]
+    mod console {
+        use heimdall_testkit::agent::{AgentMode, msg};
+        use heimdall_testkit::console::{TerminalCommand, strip_escapes};
+        use heimdall_testkit::home::ssh_option_path;
+        use heimdall_testkit::pinned_ssh::WrapperConfig;
+
+        use super::*;
+
+        /// The scratch fixture key stores and the Windows system variables `env` does not
+        /// set (AGENTS.md: a debug heimdall that reaches a key store never uses the
+        /// account's).
+        fn with_system(
+            root: &Path,
+            mut env: Vec<(OsString, OsString)>,
+        ) -> Vec<(OsString, OsString)> {
+            env.extend([
+                ("HEIMDALL_TEST_SECRET_STORE".into(), "scratch".into()),
+                (
+                    "HEIMDALL_TEST_MGMT_STORE".into(),
+                    format!("fixture-file:{}", root.join("fixture-mgmt-store").display()).into(),
+                ),
+                (
+                    "HEIMDALL_TEST_IROH_KEY_STORE".into(),
+                    root.join("fixture-iroh-store").into_os_string(),
+                ),
+            ]);
+            for k in ["SystemRoot", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP"] {
+                let set = env
+                    .iter()
+                    .any(|(n, _)| n.to_string_lossy().eq_ignore_ascii_case(k));
+                if !set && let Some(v) = std::env::var_os(k) {
+                    env.push((k.into(), v));
+                }
+            }
+            env
+        }
+
+        /// `a11_interactive_connect_succeeds_after_provider_approval` (m02-plan U8) on a
+        /// Windows pseudoconsole, through the debug pinned-client redirect (ADR-0007 §12.52):
+        /// interactive `heimdall connect alpha` (stdin the console, no `--non-interactive`)
+        /// against the fixture sshd, the adopted key (not declared: interaction `unknown`)
+        /// served by a `FakeAgent` in `ApprovalPending` mode, as a provider's approval
+        /// dialog. `connect` launches the redirect's scratch wrapper, which adds only the
+        /// scratch isolation (no `BatchMode`: an interactive session) and the twin's remote
+        /// `echo`, and starts the real in-box `%SystemRoot%\System32\OpenSSH\ssh.exe` on the
+        /// same console. The login waits at the agent's signature until
+        /// `release_pending()`, then succeeds: the session's output reaches the console,
+        /// connect exits 0, the server accepted only key 0 and the decoy was never contacted.
+        #[test]
+        fn a11_interactive_connect_succeeds_after_provider_approval() {
+            let s = SshWorld::build(World::with_mode(2, AgentMode::ApprovalPending), &[0], false);
+            let marker = "hm-u8-connected-after-approval";
+            let dir = s.w.home.root.join("pinned");
+            std::fs::create_dir_all(&dir).unwrap();
+            let wrapper = WrapperConfig {
+                config: s.w.home.user_config.clone(),
+                // ⟨M07 W7.1⟩ The scratch root: the wrapper's identity guard accepts only
+                // identity, agent and known-hosts paths inside it (or a fixture pipe).
+                scratch_root: s.w.home.root.clone(),
+                options: vec![
+                    format!(
+                        "UserKnownHostsFile={}",
+                        ssh_option_path(&s.w.home.known_hosts)
+                    ),
+                    format!(
+                        "GlobalKnownHostsFile={}",
+                        ssh_option_path(&s.w.home.global_known_hosts)
+                    ),
+                ],
+                trailing: vec!["echo".to_owned(), marker.to_owned()],
+                client: (!cfg!(windows)).then(|| s.ssh.clone()),
+            }
+            .install(&dir)
+            .unwrap_or_else(|e| panic!("the pinned-client wrapper: {e}"));
+            let mut env = with_system(&s.w.home.root, s.w.env());
+            env.push((
+                "SSH_AUTH_SOCK".into(),
+                s.w.home.decoy_agent().endpoint().locator(),
+            ));
+            env.push((
+                "HEIMDALL_TEST_PINNED_CLIENT".into(),
+                wrapper.into_os_string(),
+            ));
+            let failed_before = s.sshd.failed_publickey_log().len();
+            let mut cmd = TerminalCommand::new(bin())
+                .args(["connect", ALPHA.alias])
+                .current_dir(&s.w.home.root)
+                // Wide enough that no shown line wraps (a pseudoconsole repaints at a wrap).
+                .size(1000, 50);
+            for (k, v) in &env {
+                cmd = cmd.env(k, v);
+            }
+            let mut t = cmd
+                .spawn()
+                .unwrap_or_else(|e| panic!("the pseudoconsole did not start: {e}"));
+            // The client asks the agent for the login signature; the provider holds it.
+            assert!(
+                s.w.agent.wait_until(Duration::from_secs(60), |a| {
+                    a.log().iter().any(|c| c.msg_type == msg::SIGN_REQUEST)
+                }),
+                "no signing request; exit {:?}; console: {}",
+                t.try_wait(),
+                t.text()
+            );
+            std::thread::sleep(Duration::from_millis(300));
+            assert!(s.sshd.accepted_log().is_empty(), "held before approval");
+            assert!(!t.text().contains(marker));
+            s.w.agent.release_pending();
+            let code = t.wait(Duration::from_secs(60));
+            let text = strip_escapes(&t.output()).replace('\n', "");
+            assert_eq!(code, Some(0), "{text}");
+            assert!(
+                text.contains(marker),
+                "the session's output reached the console: {text}"
+            );
+            assert!(
+                text.contains("verified client")
+                    && text.contains(heimdall_testkit::pinned_ssh::NAME),
+                "connect launched the redirect's wrapper: {text}"
+            );
+            // The guard's verdict (ADR-0007 §12.52): the wrapper checked the effective
+            // identity agent, found the fixture's pipe, and refused nothing.
+            assert!(
+                text.contains("hm-pinned-ssh: checked: identity agent fixture pipe")
+                    && !text.contains("hm-pinned-ssh: refused:"),
+                "the wrapper's identity check passed on the fixture's agent: {text}"
+            );
+            s.assert_only_key(0);
+            // No other key was offered (PC job 46's item 5, as evidence rather than by
+            // construction): the server refused none during this connect.
+            let offered = s.sshd.failed_publickey_log();
+            let other = offered[failed_before.min(offered.len())..]
+                .iter()
+                .filter(|k| k.fingerprint != s.w.keys[0].fingerprint())
+                .count();
+            #[allow(clippy::print_stdout)] // a fact for the native run's report
+            {
+                println!("a11 console: other keys offered: {other}");
+            }
+            assert_eq!(other, 0, "only key 0 was offered: {offered:?}");
+            assert_eq!(s.w.home.decoy_agent().contact_count(), 0);
+            assert_no_canary(&text);
+        }
+    }
+
     /// ADR-0007 §12.24 item 1 (`connect`'s side): the catalog lists an observed
     /// destination `gamma` that the user's own configuration defines, and `connect
     /// gamma` accepts it under the same pre-launch check as a managed alias. Through the

@@ -6,6 +6,7 @@ from pathlib import Path
 import runpy
 import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
@@ -147,6 +148,22 @@ class WindowsEnvironmentTests(unittest.TestCase):
             })
         with self.assertRaisesRegex(HARNESS["HarnessError"], "SystemRoot"):
             HARNESS["windows_environment"](r"D:Windows", home)
+
+
+    def test_only_the_in_box_ssh_client_may_run_from_outside_the_root_on_windows(self):
+        # M07 W7: task 5 on Windows runs the in-box OpenSSH client as the `run` child.
+        check = HARNESS["windows_ssh_client"]
+        windows = types.SimpleNamespace(name="nt", environ={"SystemRoot": r"D:\Windows"})
+        with patch.dict(check.__globals__, {"os": windows}):
+            self.assertTrue(check(r"D:\Windows\System32\OpenSSH\ssh.exe"))
+            self.assertTrue(check("d:/windows/system32/openssh/SSH.EXE"))
+            for other in (r"D:\Windows\System32\cmd.exe", r"C:\Windows\System32\OpenSSH\ssh.exe",
+                          "ssh.exe", r"D:\Windows\System32\OpenSSH\ssh.exe.bat"):
+                self.assertFalse(check(other), other)
+            windows.environ = {"SystemRoot": "Windows"}
+            self.assertFalse(check(r"Windows\System32\OpenSSH\ssh.exe"))
+        if os.name != "nt":  # never elsewhere
+            self.assertFalse(check(r"D:\Windows\System32\OpenSSH\ssh.exe"))
 
 
 class HarnessTests(unittest.TestCase):

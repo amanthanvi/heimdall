@@ -72,6 +72,17 @@ def windows_environment(system_root, home):
     }
 
 
+def windows_ssh_client(program):
+    """Whether `program` is the in-box OpenSSH client of this Windows system. The fixture
+    driver may run it as the `run` child directly, with its scratch config and isolated
+    options on its own command line."""
+    if os.name != "nt":
+        return False
+    system_root = PureWindowsPath(os.environ.get("SystemRoot", ""))
+    return system_root.is_absolute() and PureWindowsPath(program) == (
+        system_root / "System32" / "OpenSSH" / "ssh.exe")
+
+
 def scratch_environment(root):
     require(root.is_absolute() and root.is_dir(), "expected an absolute fixture scratch root")
     real = root.resolve(strict=True)
@@ -247,8 +258,10 @@ class Journey:
     def bind_run(self, metrics, profile, child):
         executable = Path(child[0])
         require(executable.is_absolute() and executable.is_file()
-                and executable.resolve().is_relative_to(self.root.resolve()),
-                "expected an absolute fixture child executable inside the scratch root")
+                and (executable.resolve().is_relative_to(self.root.resolve())
+                     or windows_ssh_client(child[0])),
+                "expected an absolute fixture child executable inside the scratch root"
+                " (or, on Windows, the in-box OpenSSH client)")
         status, output = self.call(metrics, "run", *work_args(profile), "--", *child)
         require(status == 0 and output.splitlines() == [b"h1-fixture-child"],
                 "fixture child did not return the expected marker and exit 0")

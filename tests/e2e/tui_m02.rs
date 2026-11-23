@@ -1906,3 +1906,513 @@ mod pty {
         assert!(!w.screen_file().exists(), "no frame was drawn");
     }
 }
+
+/// ⟨M07 W7b; ADR-0007 §12.47 item 3 (D2)⟩ The A21 TUI cases on a Windows pseudoconsole
+/// (ConPTY, `heimdall_testkit::console`): `heimdall tui` runs on the console itself, against
+/// this test's in-process runtime over a `ScratchHome`, as the Unix [`pty`] cases do.
+///
+/// **The probe oracle.** On Windows the TUI's verified client is the pinned in-box
+/// `%SystemRoot%\System32\OpenSSH\ssh.exe` (ADR-0004 E6), so no stub `ssh` on `PATH` can
+/// record its runs. The scratch user configuration instead carries a `Match exec` that runs
+/// the fixture hook (`hm-fixture-hook touch <log>`): any probe that evaluates the
+/// configuration (the `evaluate` level, `ssh -G`, or any connection) runs it and appends a
+/// line to the hook's log, while the passive static pass never executes it. The search case
+/// also counts every connection to a loopback listener the aliases point at and every contact
+/// with the decoy agent at `SSH_AUTH_SOCK`. The text checks read the frame the TUI drew
+/// (`HEIMDALL_TEST_TUI_SCREEN`).
+#[cfg(windows)]
+mod console {
+    use std::ffi::OsString;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+
+    use heimdall_app::{Attendance, Caller, OpError, Operations};
+    use heimdall_contract::catalog::{CatalogRequest, DestinationDefinitionSpec, DestinationSpec};
+    use heimdall_contract::ids::{DestinationId, RequestId};
+    use heimdall_contract::request::InteractionMode;
+    use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+    use heimdall_localenv::env::{Env, Platform};
+    use heimdall_localenv::paths::SshPaths;
+    use heimdall_localenv::projection::ProjectionConfig;
+    use heimdall_runtime::config::{Config, Paths};
+    use heimdall_runtime::service::{ProjectionWiring, Service, ServiceOptions};
+    use heimdall_testkit::assert_no_canary;
+    use heimdall_testkit::console::{Terminal, TerminalCommand};
+    use heimdall_testkit::home::{ScratchHome, ssh_config_quote};
+    use heimdall_testkit::hook::{HookBinary, HookMode};
+    use serde_json::Value;
+    use tokio_util::sync::CancellationToken;
+
+    use super::bin;
+
+    const LONG: Duration = Duration::from_secs(60);
+
+    /// This account as the runtime names a CLI client of it: its SID (Windows), or the
+    /// scratch home's owner uid.
+    fn owner_principal(home: &Path) -> PrincipalRef {
+        #[cfg(windows)]
+        {
+            let _ = home;
+            PrincipalRef::WindowsUser {
+                sid: heimdall_ipc::windows::current_user_sid().unwrap(),
+            }
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            PrincipalRef::UnixUser {
+                uid: std::fs::metadata(home).unwrap().uid(),
+            }
+        }
+    }
+
+    /// The scratch home, the hook, the in-process runtime and the TUI's environment.
+    struct World {
+        home: ScratchHome,
+        hook: HookBinary,
+        /// The hook's log: one line per run of the configuration's `Match exec`.
+        log: PathBuf,
+        ops: Operations,
+        handle: tokio::runtime::Handle,
+        token: CancellationToken,
+        thread: Option<std::thread::JoinHandle<()>>,
+        principal: PrincipalRef,
+        n: AtomicU32,
+    }
+
+    impl World {
+        fn new() -> World {
+            let home = ScratchHome::new();
+            for d in [
+                home.root.join("etc-ssh"),
+                home.git_home.join("etc-ssh"),
+                home.root.join("appdata"),
+                home.root.join("localappdata"),
+                home.root.join("programdata"),
+            ] {
+                std::fs::create_dir_all(d).unwrap();
+            }
+            let hook = HookBinary::locate().unwrap_or_else(|e| panic!("{e}"));
+            let log = home.root.join("match-exec-runs.log");
+            let principal = owner_principal(&home.root);
+            let paths =
+                SshPaths::with_test_override(home.git_home.clone(), home.root.join("etc-ssh"));
+            let mut projection =
+                ProjectionConfig::new(paths, Platform::current(), home.config_dir.clone());
+            projection.env = Env::from_vars([
+                ("HOME", home.git_home.display().to_string()),
+                ("GIT_CONFIG_NOSYSTEM", "1".to_owned()),
+            ]);
+            let root = home.root.clone();
+            let token = CancellationToken::new();
+            let service_token = token.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let thread = std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let handle = rt.handle().clone();
+                rt.block_on(async move {
+                    let clock =
+                        Arc::new(heimdall_runtime::platform::SystemClock::try_new().unwrap());
+                    let mut o = ServiceOptions::with_clock(
+                        clock,
+                        heimdall_testkit::ScriptedTimeSync::new(
+                            heimdall_domain::time::SyncStatus::Synchronized,
+                        ),
+                    );
+                    o.projection = ProjectionWiring::Config(Box::new(projection));
+                    o.existing_access = true;
+                    let service = Service::start_with(
+                        Paths::under(&root),
+                        Config::default(),
+                        o,
+                        service_token,
+                    )
+                    .await
+                    .unwrap();
+                    let _ = tx.send((handle, service.operations().clone()));
+                    let _ = service.run().await;
+                });
+            });
+            let (handle, ops) = rx.recv().expect("the runtime started");
+            World {
+                home,
+                hook,
+                log,
+                ops,
+                handle,
+                token,
+                thread: Some(thread),
+                principal,
+                n: AtomicU32::new(0),
+            }
+        }
+
+        fn attended(&self) -> Caller {
+            Caller {
+                context: CallerContext {
+                    principal: self.principal.clone(),
+                    role: ClientRole::Owner,
+                    remote_client: None,
+                },
+                attendance: Attendance::Attended {
+                    since: heimdall_contract::Timestamp::now(),
+                },
+                interaction: InteractionMode::Interactive,
+            }
+        }
+
+        fn catalog(&self, req: CatalogRequest) -> Result<Value, OpError> {
+            let caller = self.attended();
+            let ops = self.ops.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.handle.spawn(async move {
+                let _ = tx.send(ops.catalog(&caller, req).await.map(|c| c.data));
+            });
+            rx.recv().expect("the runtime task finished")
+        }
+
+        /// An observed catalog destination `alias`.
+        fn observed(&self, alias: &str) {
+            let n = self.n.fetch_add(1, Ordering::SeqCst);
+            self.catalog(CatalogRequest::UpsertDestination {
+                destination: DestinationSpec {
+                    id: DestinationId::parse(&format!("dst-{alias}")).unwrap(),
+                    alias: alias.to_owned(),
+                    definition: DestinationDefinitionSpec::Observed,
+                    label: None,
+                },
+                request_id: RequestId::parse(&format!("r-dest-{n}")).unwrap(),
+            })
+            .unwrap();
+        }
+
+        /// The `Match exec` line whose command is the hook's `touch <log>` (on Windows in
+        /// the form `e2e`'s doctor cases run natively: short paths, the slash pipe form, `%`
+        /// doubled, one quoted token).
+        fn match_exec_line(&self) -> String {
+            let mode = HookMode::Touch {
+                path: self.log.clone(),
+            };
+            if cfg!(windows) {
+                let command = self
+                    .hook
+                    .shell_command(&mode)
+                    .replace(r"\\?\", "")
+                    .replace(r"\\.\pipe\", "//./pipe/");
+                format!(
+                    "Match exec {}",
+                    ssh_config_quote(&command.replace('%', "%%"))
+                )
+            } else {
+                self.hook.match_exec_line(&mode)
+            }
+        }
+
+        /// How many times the configuration's `Match exec` ran.
+        fn hook_runs(&self) -> usize {
+            std::fs::read_to_string(&self.log)
+                .map(|t| t.lines().filter(|l| !l.trim().is_empty()).count())
+                .unwrap_or(0)
+        }
+
+        fn screen_file(&self) -> PathBuf {
+            self.home.root.join("screen.txt")
+        }
+
+        fn screen(&self) -> String {
+            std::fs::read_to_string(self.screen_file()).unwrap_or_default()
+        }
+
+        /// The TUI's environment: the scratch home as the profile and as the SSH home of the
+        /// static pass, the frame file, the decoy agent, scratch Git configuration and key
+        /// stores, and the system directories (the in-box OpenSSH first on `PATH`, as the
+        /// native harness puts it).
+        fn env(&self) -> Vec<(OsString, OsString)> {
+            let g = &self.home.git_home;
+            let root = &self.home.root;
+            let mut env: Vec<(OsString, OsString)> = Vec::new();
+            if cfg!(windows) {
+                let system = PathBuf::from(
+                    std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()),
+                );
+                let path = std::env::join_paths([
+                    system.join("System32").join("OpenSSH"),
+                    system.join("System32"),
+                    system.clone(),
+                ])
+                .unwrap();
+                env.push(("PATH".into(), path));
+                env.push(("SystemRoot".into(), system.into_os_string()));
+                env.push(("USERPROFILE".into(), g.clone().into_os_string()));
+                env.push(("APPDATA".into(), root.join("appdata").into_os_string()));
+                env.push((
+                    "LOCALAPPDATA".into(),
+                    root.join("localappdata").into_os_string(),
+                ));
+                // In-box OpenSSH exits 255 before logging when ProgramData is absent.
+                env.push((
+                    "ProgramData".into(),
+                    root.join("programdata").into_os_string(),
+                ));
+                for k in ["SystemDrive", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP"] {
+                    if let Some(v) = std::env::var_os(k) {
+                        env.push((k.into(), v));
+                    }
+                }
+            } else {
+                env.push(("PATH".into(), "/usr/bin:/bin".into()));
+                env.push(("TERM".into(), "xterm-256color".into()));
+            }
+            env.extend([
+                ("HOME".into(), g.clone().into_os_string()),
+                ("HEIMDALL_HOME".into(), root.clone().into_os_string()),
+                ("HEIMDALL_TEST_SSH_HOME".into(), g.clone().into_os_string()),
+                (
+                    "HEIMDALL_TEST_TUI_SCREEN".into(),
+                    self.screen_file().into_os_string(),
+                ),
+                ("HEIMDALL_TEST_SECRET_STORE".into(), "scratch".into()),
+                (
+                    "HEIMDALL_TEST_MGMT_STORE".into(),
+                    format!("fixture-file:{}", root.join("fixture-mgmt-store").display()).into(),
+                ),
+                (
+                    "HEIMDALL_TEST_IROH_KEY_STORE".into(),
+                    root.join("fixture-iroh-store").into_os_string(),
+                ),
+                ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+                (
+                    "GIT_CONFIG_GLOBAL".into(),
+                    g.join(".gitconfig").into_os_string(),
+                ),
+                (
+                    "SSH_AUTH_SOCK".into(),
+                    self.home.decoy_agent().endpoint().locator(),
+                ),
+            ]);
+            env
+        }
+
+        /// `heimdall tui` on a new 120×40 pseudoconsole; returns once the runtime's listing
+        /// and the finished static pass are on the screen.
+        fn tui(&self) -> Terminal {
+            let mut cmd = TerminalCommand::new(bin())
+                .arg("tui")
+                .current_dir(&self.home.root)
+                .size(120, 40);
+            for (k, v) in self.env() {
+                cmd = cmd.env(k, v);
+            }
+            let mut t = cmd
+                .spawn()
+                .unwrap_or_else(|e| panic!("the pseudoconsole did not start: {e}"));
+            self.wait_screen(&mut t, "the first frame", |s| s.contains("Overview"));
+            self.wait_screen(&mut t, "the runtime's listing", |s| {
+                s.contains("Runtime: connected")
+            });
+            self.wait_screen(&mut t, "the static pass", |s| {
+                s.contains("Static pass:") && !s.contains("Static pass: running")
+            });
+            t
+        }
+
+        /// Wait until the frame satisfies `cond`; panics with the last frame and the
+        /// console's text when the TUI ends first or the time runs out.
+        fn wait_screen(&self, t: &mut Terminal, what: &str, cond: impl Fn(&str) -> bool) {
+            let deadline = Instant::now() + LONG;
+            loop {
+                let screen = self.screen();
+                if cond(&screen) {
+                    return;
+                }
+                assert!(
+                    t.try_wait().is_none(),
+                    "the TUI exited ({:?}) waiting for {what}; the last frame:\n{screen}\nconsole: {}",
+                    t.try_wait(),
+                    t.text()
+                );
+                assert!(
+                    Instant::now() < deadline,
+                    "timed out waiting for {what}; the last frame:\n{screen}\nconsole: {}",
+                    t.text()
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+    }
+
+    impl Drop for World {
+        fn drop(&mut self) {
+            self.token.cancel();
+            if let Some(t) = self.thread.take() {
+                let _ = t.join();
+            }
+        }
+    }
+
+    /// Type `bytes` at the console.
+    fn send(t: &mut Terminal, bytes: &[u8]) {
+        t.send(bytes).unwrap();
+    }
+
+    /// The screen's text with box borders removed and wrapped lines joined.
+    fn flat(screen: &str) -> String {
+        screen
+            .replace(['│', '┌', '┐', '└', '┘', '─'], " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// `pty::search_never_probes` (m02-plan U10; FakeAgent and listener counts 0) on a
+    /// Windows pseudoconsole: with the decoy counting agent at `SSH_AUTH_SOCK`, the aliases
+    /// pointing at a counting loopback listener, and a `Match exec` canary in the scratch
+    /// configuration, the TUI's whole session (its passive static pass included) and every
+    /// search keystroke contact neither the listener nor the agent, and run no configuration
+    /// command (the hook's log stays empty, so no probe evaluated the configuration).
+    #[test]
+    fn search_never_probes() {
+        let w = World::new();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let counter = {
+            let accepted = Arc::clone(&accepted);
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok(_) => {
+                            accepted.fetch_add(1, Ordering::SeqCst);
+                        }
+                        Err(_) => std::thread::sleep(Duration::from_millis(10)),
+                    }
+                }
+            })
+        };
+        let agent = w.home.decoy_agent().endpoint().locator();
+        w.home
+            .write_user_config(&format!(
+                "Host alpha beta\n  HostName 127.0.0.1\n  Port {port}\n  IdentityAgent {}\n{}\n",
+                ssh_config_quote(&agent.to_string_lossy()),
+                w.match_exec_line()
+            ))
+            .unwrap();
+        w.observed("alpha");
+        w.observed("beta");
+        let mut t = w.tui();
+        send(&mut t, b"2");
+        w.wait_screen(&mut t, "the destinations", |s| {
+            s.contains("alpha") && s.contains("beta")
+        });
+        send(&mut t, b"/");
+        for (typed, shown) in [
+            ("alp", "(1 of 2)"),
+            ("\x7f\x7f\x7f", "(2 of 2)"),
+            ("bet", "(1 of 2)"),
+            ("zz", "(0 of 2)"),
+        ] {
+            send(&mut t, typed.as_bytes());
+            w.wait_screen(&mut t, shown, |s| s.contains(shown));
+        }
+        send(&mut t, b"\x1b");
+        w.wait_screen(&mut t, "the search cleared", |s| s.contains("2 total"));
+        std::thread::sleep(Duration::from_millis(500));
+        send(&mut t, b"q");
+        let code = t.wait(LONG);
+        stop.store(true, Ordering::SeqCst);
+        counter.join().unwrap();
+        let text = t.text();
+        assert_eq!(code, Some(0), "{text}");
+        assert_eq!(w.home.decoy_agent().contact_count(), 0, "agent contacted");
+        assert_eq!(w.home.decoy_agent().connections(), 0, "agent connected to");
+        assert_eq!(
+            accepted.load(Ordering::SeqCst),
+            0,
+            "the listener was contacted"
+        );
+        assert_eq!(
+            w.hook_runs(),
+            0,
+            "a probe evaluated the configuration (its Match exec ran)"
+        );
+        assert_no_canary(&text);
+    }
+
+    /// `pty::config_commands_authorization_requires_typed_yes` (m02-plan U10 ⟨r2⟩/⟨r3⟩) on a
+    /// Windows pseudoconsole: the `evaluate` level shows the authorization text with the
+    /// `Match exec` line the static pass found (`~/.ssh/config:3`); a typed `no` and a bare
+    /// Enter run nothing (the hook's log stays empty); a typed `yes` runs the evaluation
+    /// with the pinned in-box client, which reads the scratch configuration (its `Match
+    /// exec` runs, so the log gains a line); the result labels the command list as found
+    /// before the run and names `allow_config_commands`.
+    #[test]
+    fn config_commands_authorization_requires_typed_yes() {
+        let w = World::new();
+        w.home
+            .write_user_config(&format!(
+                "Host alpha\n  HostName 127.0.0.1\n{}\n",
+                w.match_exec_line()
+            ))
+            .unwrap();
+        w.observed("alpha");
+        let mut t = w.tui();
+        send(&mut t, b"2");
+        w.wait_screen(&mut t, "alpha", |s| s.contains("alpha"));
+        for refusal in ["no", ""] {
+            send(&mut t, b"p");
+            w.wait_screen(&mut t, "the probe menu", |s| s.contains("evaluate"));
+            send(&mut t, b"\x1b[B\r");
+            w.wait_screen(&mut t, "the authorization", |s| {
+                flat(s)
+                    .contains("runs your configuration's commands with whatever effects they have")
+                    && s.contains("~/.ssh/config:3")
+                    && s.contains("[y/N]")
+            });
+            send(&mut t, refusal.as_bytes());
+            send(&mut t, b"\r");
+            w.wait_screen(&mut t, "the decline", |s| {
+                s.contains("config_commands_not_authorized")
+            });
+            std::thread::sleep(Duration::from_millis(500));
+            assert_eq!(w.hook_runs(), 0, "{refusal:?}: nothing ran");
+        }
+        send(&mut t, b"p");
+        w.wait_screen(&mut t, "the probe menu", |s| s.contains("evaluate"));
+        send(&mut t, b"\x1b[B\r");
+        w.wait_screen(&mut t, "the authorization", |s| s.contains("[y/N]"));
+        send(&mut t, b"yes\r");
+        w.wait_screen(&mut t, "the probe result", |s| {
+            flat(s).contains(
+                "configuration commands found before the run; the run may have executed others",
+            )
+        });
+        let screen = flat(&w.screen());
+        assert!(screen.contains("allow_config_commands"), "{screen}");
+        assert!(screen.contains("~/.ssh/config:3"), "{screen}");
+        let deadline = Instant::now() + LONG;
+        while w.hook_runs() == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            w.hook_runs() >= 1,
+            "the authorized evaluation read the scratch configuration and ran its Match exec"
+        );
+        // A lone Escape is decided by a pause (Escape then a key is Alt-key).
+        send(&mut t, b"\x1b");
+        w.wait_screen(&mut t, "the result closed", |s| !s.contains("probe: alpha"));
+        std::thread::sleep(Duration::from_millis(300));
+        send(&mut t, b"q");
+        let code = t.wait(LONG);
+        let text = t.text();
+        assert_eq!(code, Some(0), "{text}");
+        assert_no_canary(&text);
+    }
+}
