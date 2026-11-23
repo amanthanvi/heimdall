@@ -338,11 +338,12 @@ fn lifts_in_force(
 
 /// ⟨M06 W5 `w5s`, M06-W5-R01; ADR-0012 §7.4 ⟨2026-11-22⟩ "The in-force flag"⟩ The delivered
 /// effects in force that applying `action` (a `resume` or a `clear_cutoff`) to the stored
-/// policies `ids` would lift through the report's rule
-/// ([`heimdall_store::Txn::lifted_if`]): a pause or cutoff of **any** scope whose policies
-/// the change leaves unblocked (the policy's own delivered pause on a runner that holds
-/// it, or a profile's cutoff lifted by `clear-cutoff --policy`). Empty for every other
-/// action.
+/// policies `ids` would release ([`heimdall_store::Txn::lifted_if`]): a pause or cutoff of
+/// **any** scope whose policies the change leaves unblocked (the policy's own delivered
+/// pause on a runner that holds it, or a profile's cutoff lifted by `clear-cutoff
+/// --policy`). Empty for every other action. ⟨M06 W5 `w5w`, M06-W5-RC01⟩ These are named in
+/// the decision and cleared only when it is approved ([`apply`]); nothing clears the flag
+/// otherwise (not the report, not a removal or other narrowing).
 fn implied_lifts(
     tx: &mut Txn<'_>,
     action: &PolicyAction,
@@ -933,7 +934,7 @@ impl Operations {
                         return Ok((Err(uncertain(u).with_effect(effect)), ended));
                     }
                     // ⟨M06 W5 `w5s`, M06-W5-R01⟩ And every other delivered effect in force
-                    // that widening exactly these policies lifts through the report's rule
+                    // that widening exactly these policies releases ([`implied_lifts`])
                     // (any scope: a pause delivered for one of them, a cutoff delivered for
                     // their profile), so the approval names each one it lifts. A paired
                     // session's request that would lift one was refused above.

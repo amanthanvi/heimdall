@@ -2351,7 +2351,13 @@ fn session_error(stderr: &[u8]) -> OpError {
              or not enrolled)",
         ),
         // ⟨`w5v`; ADR-0006 §18.9⟩ Why, from what the client said (`Other` keeps the message
-        // it always had).
+        // it always had). ⟨`w5w`, M06-W5-RC03; ADR-0006 §18.9 item 12⟩ The client's own
+        // failures (it refused its options, or did not start) are this controller's, as the
+        // preflight says, so `environment add` never sends the user to the runner for them.
+        env_ssh::PreflightVerdict::Unreachable(
+            cause @ (env_ssh::UnreachableCause::ClientRejected
+            | env_ssh::UnreachableCause::ClientNotStarted),
+        ) => on_this_controller(cause.error("for a management session")),
         env_ssh::PreflightVerdict::Unreachable(cause) => cause.error("for a management session"),
     }
     .with_effect(EffectStatus::None)
@@ -5225,6 +5231,11 @@ mod tests {
                 agent_failed(&Error::from(ErrorKind::AddrInUse)),
             ),
             ("agent other", agent_failed(&Error::other("x"))),
+            // ⟨`w5w`, M06-W5-RC03⟩ The session's own ssh refused its options.
+            (
+                "session ssh rejected its options",
+                session_error(b"command-line line 0: Bad configuration option: x\r\n"),
+            ),
         ];
         for (site, e) in &sites {
             assert!(
@@ -5263,6 +5274,19 @@ mod tests {
         assert_eq!(code("K_mgmt store failed"), Code::ServiceUnavailable);
         assert_eq!(code("configuration render"), Code::CapabilityUnavailable);
         assert_eq!(code("ssh spawn"), Code::LaunchFailed);
+        assert_eq!(
+            code("session ssh rejected its options"),
+            Code::CapabilityUnavailable
+        );
+        let rejected = &sites.last().unwrap().1;
+        assert_eq!(
+            rejected.reason.as_deref(),
+            Some(reason::SSH_CLIENT_CONFIG_REJECTED)
+        );
+        // A network outcome stays the runner's side.
+        assert!(!heimdall_app::remote_env::is_controller_fault(
+            &session_error(b"ssh: connect to host h port 22: Connection refused\r\n")
+        ));
     }
 
     /// ⟨M06 W5 `w5t`⟩ A session directory this controller may not create (an unwritable

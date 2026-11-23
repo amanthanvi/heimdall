@@ -325,8 +325,15 @@ function Protect-Reason([string]$Text, [int]$Limit = 300) {
 # values are named first (the run directory, the account home and profile, the Windows user and
 # computer, the runner account and its scratch directory), then each line goes through
 # Protect-Reason: codes and words, never a path separator, address or quote. At most 80 lines.
+# ⟨`w5w`, M06-W5-RC05⟩ Before that, canary-shaped tokens become <canary>, key fingerprints <fp>,
+# and every IPv4 or IPv6 address but loopback <addr>.
 function Protect-SshStderr([string]$Text, [hashtable]$Known) {
-    $t = $Text
+    $t = [regex]::Replace($Text, 'HEIMDALL_CANARY_\w*', '<canary>')
+    $t = [regex]::Replace($t, '(?i)\b(?:SHA256|SHA1|SHA384|SHA512):[A-Za-z0-9+/]+=*|\bMD5:(?:[0-9a-f]{2}:){15}[0-9a-f]{2}', '<fp>')
+    $t = [regex]::Replace($t, '(?<![\w.])\d{1,3}(?:\.\d{1,3}){3}(?![\w.])', {
+            param($m) if ($m.Value.StartsWith('127.')) { $m.Value } else { '<addr>' } })
+    $t = [regex]::Replace($t, '(?<![\w:])(?:(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?=[0-9A-Fa-f:]*::)(?:[0-9A-Fa-f]{1,4})?(?::[0-9A-Fa-f]{0,4}){2,7})(?:%\w+)?(?![\w:])', {
+            param($m) if ($m.Value -ceq '::1') { $m.Value } else { '<addr>' } })
     foreach ($k in @($Known.Keys | Sort-Object { -([string]$Known[$_]).Length })) {
         $v = [string]$Known[$k]
         if ($v.Length -ge 3) { $t = [regex]::Replace($t, [regex]::Escape($v), "<$k>", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase) }
@@ -469,6 +476,16 @@ function Invoke-SelfTest {
         -not $prot.Contains('Some One') -and -not $prot.Contains('runner7') -and -not $prot.Contains('hm-m06j-0a1b2c3d') -and
         -not $prot.Contains('\') -and -not $prot.Contains('/') -and -not $prot.Contains('127.0.0.1') -and -not $prot.Contains("`r") -and
         @($prot.TrimEnd("`n") -split "`n").Count -eq 5 -and @((Protect-SshStderr (("x`n") * 200) @{}) -split "`n").Count -le 81)
+    # ⟨`w5w`, M06-W5-RC05⟩ The reviewer's input: addresses, fingerprints and canaries never survive.
+    $rc05 = "### preflight exit=255`r`nssh: connect to host 172.28.1.5 port 2222: Connection refused`r`nHost key for [127.0.0.1]:2222 SHA256:AbCdEf0123456789+/xyz is not known`r`n" +
+        "unlisteddistro: HEIMDALL_CANARY_abc123 seen in C:\Users\Some One\x`r`nconnect to host fe80::1c2b:3aff:fe4d:5e6f%eth0 and 2001:db8:0:0:0:0:0:7 or ::1 at 12:34:56`r`n"
+    $p5 = Protect-SshStderr $rc05 @{ profile = 'C:\Users\Some One'; user = 'Some One' }
+    Check 'P04 a non-loopback IPv4 address becomes <addr>; loopback stays' (
+        $p5.Contains('connect to host ?addr? port 2222') -and -not $p5.Contains('172?28') -and $p5.Contains('?127?0?0?1??2222'))
+    Check 'P05 a key fingerprint becomes <fp>' ($p5.Contains('?fp? is not known') -and -not $p5.Contains('AbCdEf'))
+    Check 'P06 a canary-shaped token becomes <canary>' ($p5.Contains('unlisteddistro? ?canary? seen in ?profile??x') -and -not $p5.Contains('CANARY'))
+    Check 'P07 a non-loopback IPv6 address becomes <addr>; ::1 and a clock time stay' (
+        $p5.Contains('connect to host ?addr? and ?addr? or ??1 at 12?34?56') -and -not $p5.Contains('fe80') -and -not $p5.Contains('db8'))
     $driverFacts = @{ prompted = 'false'; code = 'STATE_UNAVAILABLE'; reason = 'mgmt_agent_unavailable'; exit = '3'
         message = 'the controller''s management key agent could not start at C:\Users\someone\x /home/u/.ssh 127.0.0.1 "s3cretT0ken"' }
     $driverFail = try { Assert-Result 'first_pass_prompted' $driverFacts['prompted'] 'true' $driverFacts; '' } catch { $_.Exception.Message }

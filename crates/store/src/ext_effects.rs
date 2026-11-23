@@ -231,8 +231,9 @@ pub struct PolicyRevisionRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fired_uncertain_at: Option<Timestamp>,
     /// ⟨M06 W5; ADR-0006 §18.9 item 4⟩ Whether this delivered effect is **still in force**
-    /// on the runner. `true` from the apply on; cleared, and then never set again, only
-    /// once the runner's own owner lifted it there ([`Txn::note_lifted_policy_revisions`]).
+    /// on the runner. `true` from the apply on; cleared, and then never set again, only by
+    /// an approved runner-local decision that names it ([`Txn::lift_remote_policy_revision`]).
+    /// Removing or narrowing a policy, and the report, never clear it (M06-W5-RC01).
     /// Omitted when `true`, so a row or a report written before the field existed reads as
     /// in force (fail closed).
     #[serde(default = "in_force_default", skip_serializing_if = "is_in_force")]
@@ -937,46 +938,21 @@ impl Txn<'_> {
         Ok(RevisionOutcome::Recorded(stored))
     }
 
-    /// ⟨M06 W5; ADR-0006 §18.9 item 4⟩ Clear `in_force` on every delivered pause or cutoff
-    /// the runner's own owner has lifted; the number of rows cleared. A paired session can
-    /// only narrow, so a policy the effect was applied to that is no longer blocked was
-    /// released by a runner-local attended `resume` (a pause) or `clear_cutoff` (a cutoff).
-    /// The effect is lifted when, of the policies the runner's acknowledgement says it
-    /// applied to, at least one still exists and none that exists is still paused (a
-    /// pause) or still carries a cutoff (a cutoff).
-    ///
-    /// Fail closed everywhere else: a row with no recorded acknowledgement, one that
-    /// applied to **no** policy (a runner without a standing policy in the scope: there is
-    /// nothing its owner could have lifted), and one whose policies are all gone stay in
-    /// force. A policy added to the scope later does not count. Once cleared the flag is
-    /// never set again: a later local pause or cutoff is the runner's own and shows in the
-    /// report's standing policies.
-    pub fn note_lifted_policy_revisions(&mut self) -> Result<usize> {
-        let policies = self.policies()?;
-        let mut cleared = 0;
-        for mut row in self.judged_lifted(&policies)? {
-            row.in_force = false;
-            self.tx.execute(
-                "UPDATE remote_policy_revisions SET record_json = ?4
-                 WHERE scope_key = ?1 AND producer = ?2 AND revision = ?3",
-                rusqlite::params![
-                    row.scope_key,
-                    row.producer.as_str(),
-                    codec::int(row.revision)?,
-                    codec::doc(&row)?,
-                ],
-            )?;
-            cleared += 1;
-        }
-        Ok(cleared)
-    }
-
     /// ⟨M06 W5 `w5s`, M06-W5-R01; ADR-0012 §7.4 ⟨2026-11-22⟩ "The in-force flag"⟩ The
-    /// delivered effects still in force that [`Self::note_lifted_policy_revisions`] would
-    /// clear if the standing policies were `after` instead of what they are now, and would
-    /// not clear today: exactly the effects a change to `after` lifts. Reads only. A caller
-    /// that lets an attended owner widen a policy names these in the approval and binds
-    /// them to it, so no delivered effect is ever lifted unnamed.
+    /// delivered effects still in force that changing the standing policies to `after`
+    /// releases: of the policies the runner's acknowledgement says each applied to, at least
+    /// one still exists in `after` and none that exists there is blocked (paused, for a
+    /// pause; carrying a cutoff, for a cutoff), while that is not already so today. Reads
+    /// only; it clears nothing. A caller that lets an attended owner widen a policy names
+    /// these in the approval and binds them to it, and only that approval clears them
+    /// ([`Self::lift_remote_policy_revision`]).
+    ///
+    /// ⟨M06 W5 `w5w`, M06-W5-RC01⟩ Nothing else clears the flag: not the report, not a
+    /// removal, not a narrowing. An effect the policies already leave unblocked today (one
+    /// whose other policies were removed, say) is not named here and stays in force until
+    /// the local owner lifts it by its exact scope. Fail closed: a row with no recorded
+    /// acknowledgement, one that applied to no policy, and one whose policies are all gone
+    /// in `after` are never named.
     pub fn lifted_if(&mut self, after: &[StandingPolicy]) -> Result<Vec<PolicyRevisionRecord>> {
         let now = self.policies()?;
         let already: Vec<(String, ClientId, u64)> = self
@@ -995,8 +971,8 @@ impl Txn<'_> {
             .collect())
     }
 
-    /// The rows in force that the rule of [`Self::note_lifted_policy_revisions`] judges
-    /// lifted under the standing policies `policies`. Reads only.
+    /// The rows in force that the rule of [`Self::lifted_if`] judges unblocked under the
+    /// standing policies `policies`. Reads only.
     fn judged_lifted(&mut self, policies: &[StandingPolicy]) -> Result<Vec<PolicyRevisionRecord>> {
         let mut out = Vec::new();
         for row in self.remote_policy_revisions()? {
@@ -1089,13 +1065,13 @@ impl Txn<'_> {
     /// ⟨M06 U4⟩ The store's part of the runner's authority report (ADR-0012 §7.4 step 3):
     /// tombstones, delivered policy revisions and the standing policies as they are now. The
     /// caller adds the installed certificates. `None` on a store with no environment of its
-    /// own. ⟨W5⟩ It first records which delivered effects the runner's owner has lifted
-    /// ([`Self::note_lifted_policy_revisions`]), so each row states whether it is in force.
+    /// own. ⟨W5⟩ Each row states whether it is in force. ⟨M06 W5 `w5w`, M06-W5-RC01⟩ The
+    /// report only reads that flag: it never clears one (only an approved lift that names
+    /// the effect does, [`Self::lift_remote_policy_revision`]).
     pub fn authority_report(&mut self) -> Result<Option<AuthorityReport>> {
         let Some(environment) = self.self_environment()? else {
             return Ok(None);
         };
-        self.note_lifted_policy_revisions()?;
         let tombstones = self
             .tombstones()?
             .into_iter()
@@ -1448,7 +1424,9 @@ mod tests {
         })
         .unwrap();
 
-        // A runner with policies: in force while any policy it applied to carries a cutoff.
+        // ⟨M06-W5-RC01⟩ A runner with policies: the report never clears the flag. What the
+        // standing policies would release is only named ([`Txn::lifted_if`]); only an
+        // approved lift that names the effect clears it.
         let s = store();
         s.transaction(|tx| {
             tx.init_self_environment(&env())?;
@@ -1456,16 +1434,37 @@ mod tests {
             tx.upsert_policy(&policy("b", false, true), true)?;
             deliver(tx, 1, &["a", "b"])?;
             assert_eq!(in_force(tx)?, vec![true]);
+            let b_cleared = [policy("a", false, true), policy("b", false, false)];
+            let both_cleared = [policy("a", false, false), policy("b", false, false)];
+            // Clearing one of the two releases nothing; clearing both names the effect.
+            assert!(tx.lifted_if(&b_cleared)?.is_empty());
+            assert_eq!(tx.lifted_if(&both_cleared)?.len(), 1);
             // The runner's owner cleared one of the two: still in force.
             tx.upsert_policy(&policy("a", false, false), false)?;
             assert_eq!(in_force(tx)?, vec![true]);
             // A pause is not a cutoff: resuming or pausing changes nothing here.
             tx.upsert_policy(&policy("a", true, false), true)?;
             assert_eq!(in_force(tx)?, vec![true]);
-            // Both cleared: lifted, and the row says so in the report and in the store.
+            // Both cleared with no lift naming the effect: still in force (the report reads,
+            // it never clears). Already released today, so no later change names it either.
             tx.upsert_policy(&policy("b", false, false), false)?;
+            assert_eq!(in_force(tx)?, vec![true]);
+            assert!(tx.lifted_if(&both_cleared)?.is_empty());
+            // One of them removed (a narrowing): still in force.
+            tx.delete_policy(&PolicyId::parse("a").unwrap())?;
+            assert_eq!(in_force(tx)?, vec![true]);
+            assert!(tx.remote_policy_revisions()?[0].in_force);
+            // The approved lift that names it clears it, in the report and in the store.
+            let row = tx.remote_policy_revisions()?[0].clone();
+            assert!(tx.lift_remote_policy_revision(&row.scope_key, &row.producer, row.revision)?);
             assert_eq!(in_force(tx)?, vec![false]);
             assert!(!tx.remote_policy_revisions()?[0].in_force);
+            // A second lift of the same row writes nothing.
+            assert!(!tx.lift_remote_policy_revision(
+                &row.scope_key,
+                &row.producer,
+                row.revision
+            )?);
             // Sticky: a later local cutoff is the runner's own, not the delivered effect.
             tx.upsert_policy(&policy("b", false, true), true)?;
             assert_eq!(in_force(tx)?, vec![false]);
@@ -1482,7 +1481,7 @@ mod tests {
         })
         .unwrap();
 
-        // Every policy the effect applied to is gone: it stays in force.
+        // Every policy the effect applied to is gone: it stays in force, and nothing names it.
         let s = store();
         s.transaction(|tx| {
             tx.init_self_environment(&env())?;
@@ -1490,6 +1489,7 @@ mod tests {
             deliver(tx, 1, &["a"])?;
             tx.delete_policy(&PolicyId::parse("a").unwrap())?;
             assert_eq!(in_force(tx)?, vec![true]);
+            assert!(tx.lifted_if(&[])?.is_empty());
             Ok(())
         })
         .unwrap();

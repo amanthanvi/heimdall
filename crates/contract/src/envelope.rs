@@ -801,7 +801,7 @@ pub mod reason {
     /// start for any other reason (ADR-0006 §18.9). Retryable.
     pub const MGMT_AGENT_UNAVAILABLE: &str = "mgmt_agent_unavailable";
 
-    // ⟨M06, rev6.5; ADR-0006 §18.9, the `w5v` row⟩ Why an `ssh` the controller ran (the
+    // ⟨M06, rev6.5; ADR-0006 §18.9 item 13⟩ Why an `ssh` the controller ran (the
     // bootstrap's host-key preflight, a management session) did not reach the runner, read
     // from what that `ssh` actually did. The two the client itself caused, which an
     // unchanged retry cannot fix, are `CAPABILITY_UNAVAILABLE`; the network outcomes stay

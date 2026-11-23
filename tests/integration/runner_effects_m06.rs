@@ -1689,3 +1689,158 @@ async fn a_cutoff_delivered_after_the_decision_was_issued_makes_its_approval_sta
     assert_eq!(in_force(&r), vec![true]);
     assert_eq!(state_of(&r, &decision), DecisionState::Pending);
 }
+
+// --- ⟨M06 W5 `w5w`, M06-W5-RC01⟩ removing or narrowing a policy never lifts a delivered effect ---
+
+/// `pol` and `pol-b` in one profile; controller A delivers `scope`'s cutoff (cutting both)
+/// and the runner's attended owner clears `pol-b` only (an approved decision that, with
+/// `pol` still cut, names no lift). The flag is in force and B is blocked.
+async fn cutoff_of_two_policies_one_cleared(
+    scope: PolicyTarget,
+) -> (
+    Rig,
+    Controller,
+    Controller,
+    heimdall_contract::ids::PolicyId,
+) {
+    use heimdall_contract::request::PolicyAction;
+    let r = rig().await;
+    r.w.good_sample();
+    add_policy(&r, "pol-b");
+    let pol_b = heimdall_contract::ids::PolicyId::parse("pol-b").unwrap();
+    let a = owner_controller(&r, &controller_a());
+    let b = owner_controller(&r, &controller_b());
+    a.produce(&Narrowing::Cutoff { scope, at: a.now() })
+        .unwrap();
+    let mut s = r.session(&controller_a());
+    a.resync(&mut s).await.unwrap();
+    assert_eq!(in_force(&r), vec![true]);
+    let decision = pending_of(
+        &r,
+        PolicyAction::ClearCutoff {
+            policy_id: Some(pol_b.clone()),
+            target: None,
+        },
+    )
+    .await;
+    assert_eq!(
+        lifted_effects_shown(&r, &decision).await,
+        serde_json::Value::Null
+    );
+    approve(&r, &decision).await.unwrap();
+    assert!(r.policy().cutoff_at.is_some(), "`pol` is still cut");
+    assert_eq!(
+        in_force(&r),
+        vec![true],
+        "clearing `pol-b` alone lifts nothing"
+    );
+    (r, a, b, pol_b)
+}
+
+/// B's barrier, for a fresh grant naming `policy` (or none).
+async fn b_may_issue(
+    r: &Rig,
+    b: &Controller,
+    policy: Option<&heimdall_contract::ids::PolicyId>,
+    n: u8,
+) -> Result<(), BarrierRefusal> {
+    let mut s = r.session(&b.pin.client);
+    b.resync(&mut s).await.unwrap();
+    let grant = GrantId::from_random_bytes([n; 16]);
+    b.reserve(&grant, policy, plus(b.now(), HOUR)).map(|_| ())
+}
+
+/// `caller` removes `pol` (a narrowing: no decision, no record).
+async fn remove_pol(r: &Rig, caller: &Caller) {
+    let pending = pending_count(r);
+    r.ops
+        .policy(
+            caller,
+            heimdall_contract::request::PolicyAction::Remove {
+                policy_id: policy_id(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(pending_count(r), pending, "a removal needs no decision");
+}
+
+/// The reviewer's probe (an `all` cutoff): a paired owner controller's `policy remove` of
+/// the one policy still cut does not make A's delivered cutoff read lifted, and B's barrier
+/// stays closed for the policy the owner cleared. Only the local owner's exact-scope lift
+/// (`clear-cutoff --all`, which names it) clears it.
+#[tokio::test]
+async fn a_paired_policy_remove_does_not_lift_another_controllers_all_cutoff() {
+    let (r, _a, b, pol_b) = cutoff_of_two_policies_one_cleared(PolicyTarget::All).await;
+    let cut = Err(BarrierRefusal::PolicyCutoff);
+    assert_eq!(b_may_issue(&r, &b, Some(&pol_b), 0xc1).await, cut);
+    remove_pol(&r, &Rig::caller(&controller_b())).await;
+    assert_eq!(
+        in_force(&r),
+        vec![true],
+        "a removal lifted a delivered cutoff"
+    );
+    assert_eq!(
+        b_may_issue(&r, &b, Some(&pol_b), 0xc2).await,
+        cut,
+        "B issued past a cutoff no approval lifted"
+    );
+    // The runner's own owner lifts it by its exact scope; the decision names it.
+    clear_cutoff_at_the_runner(&r).await;
+    assert_eq!(in_force(&r), vec![false]);
+    assert_eq!(b_may_issue(&r, &b, Some(&pol_b), 0xc3).await, Ok(()));
+}
+
+/// The reviewer's first probe (a `profile` cutoff): the same, for B's grant that names no
+/// policy.
+#[tokio::test]
+async fn a_paired_policy_remove_does_not_lift_another_controllers_profile_cutoff() {
+    let scope = PolicyTarget::Profile { profile: profile() };
+    let (r, _a, b, _pol_b) = cutoff_of_two_policies_one_cleared(scope.clone()).await;
+    let blocked = b_may_issue(&r, &b, None, 0xd1).await;
+    assert!(blocked.is_err(), "{blocked:?}");
+    remove_pol(&r, &Rig::caller(&controller_b())).await;
+    assert_eq!(
+        in_force(&r),
+        vec![true],
+        "a removal lifted a delivered cutoff"
+    );
+    assert_eq!(
+        b_may_issue(&r, &b, None, 0xd2).await,
+        blocked,
+        "B issued past a cutoff no approval lifted"
+    );
+    // The local owner's `clear-cutoff --profile` names it, and its approval lifts it.
+    let decision = pending_of(
+        &r,
+        heimdall_contract::request::PolicyAction::ClearCutoff {
+            policy_id: None,
+            target: Some(scope),
+        },
+    )
+    .await;
+    assert_ne!(
+        lifted_effects_shown(&r, &decision).await,
+        serde_json::Value::Null
+    );
+    approve(&r, &decision).await.unwrap();
+    assert_eq!(in_force(&r), vec![false]);
+    assert_eq!(b_may_issue(&r, &b, None, 0xd3).await, Ok(()));
+}
+
+/// The runner owner's own `policy remove` (attended, at the runner) is a narrowing too: it
+/// lifts no delivered effect either.
+#[tokio::test]
+async fn the_runner_owners_own_policy_remove_does_not_lift_a_delivered_cutoff() {
+    let (r, _a, b, pol_b) = cutoff_of_two_policies_one_cleared(PolicyTarget::All).await;
+    remove_pol(&r, &runner_owner(&r)).await;
+    assert_eq!(
+        in_force(&r),
+        vec![true],
+        "a removal lifted a delivered cutoff"
+    );
+    assert_eq!(
+        b_may_issue(&r, &b, Some(&pol_b), 0xe1).await,
+        Err(BarrierRefusal::PolicyCutoff)
+    );
+}
