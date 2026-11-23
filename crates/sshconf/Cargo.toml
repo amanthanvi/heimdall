@@ -39,6 +39,13 @@ path = "../../tests/model/sshconf_parse.rs"
 name = "adversarial_sshconf_hostile"
 path = "../../tests/adversarial/sshconf_hostile.rs"
 
+# M08-W2-F1: the managed-block scan grows linearly with the line count (allocation
+# counts at 2k/4k/8k unterminated begin markers; mixed blocks pinned to the pre-fix
+# scan). Its own binary: it installs a counting global allocator.
+[[test]]
+name = "adversarial_sshconf_block_scan"
+path = "../../tests/adversarial/sshconf_block_scan.rs"
+
 # M02-U2: static evaluation (F1-F10), identity selection, the soundness,
 # unaffected-name and managed-values properties, behaviour digests, rendering.
 [[test]]
