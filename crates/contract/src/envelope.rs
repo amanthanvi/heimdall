@@ -801,6 +801,31 @@ pub mod reason {
     /// start for any other reason (ADR-0006 §18.9). Retryable.
     pub const MGMT_AGENT_UNAVAILABLE: &str = "mgmt_agent_unavailable";
 
+    // ⟨M06, rev6.5; ADR-0006 §18.9, the `w5v` row⟩ Why an `ssh` the controller ran (the
+    // bootstrap's host-key preflight, a management session) did not reach the runner, read
+    // from what that `ssh` actually did. The two the client itself caused, which an
+    // unchanged retry cannot fix, are `CAPABILITY_UNAVAILABLE`; the network outcomes stay
+    // `DESTINATION_UNREACHABLE`. No message carries a path or an address.
+
+    /// ⟨M06, rev6.5⟩ `CAPABILITY_UNAVAILABLE`: this controller's OpenSSH client did not start
+    /// (it could not be spawned, or it ended with a status no OpenSSH client uses and said
+    /// nothing).
+    pub const SSH_CLIENT_NOT_STARTED: &str = "ssh_client_not_started";
+    /// ⟨M06, rev6.5⟩ `CAPABILITY_UNAVAILABLE`: this controller's OpenSSH client refused its
+    /// own options or configuration before connecting (a bad option, a configuration file
+    /// it could not open, or one with a bad owner or permissions).
+    pub const SSH_CLIENT_CONFIG_REJECTED: &str = "ssh_client_config_rejected";
+    /// ⟨M06, rev6.5⟩ `DESTINATION_UNREACHABLE`: the runner's address refused the connection.
+    pub const SSH_CONNECTION_REFUSED: &str = "ssh_connection_refused";
+    /// ⟨M06, rev6.5⟩ `DESTINATION_UNREACHABLE`: the connection (or its banner exchange)
+    /// timed out.
+    pub const SSH_CONNECTION_TIMED_OUT: &str = "ssh_connection_timed_out";
+    /// ⟨M06, rev6.5⟩ `DESTINATION_UNREACHABLE`: the runner's host name did not resolve.
+    pub const SSH_NAME_NOT_RESOLVED: &str = "ssh_name_not_resolved";
+    /// ⟨M06, rev6.5⟩ `DESTINATION_UNREACHABLE`: the runner was not reached for any other
+    /// reason the client stated (or it stated none).
+    pub const SSH_UNREACHABLE_OTHER: &str = "ssh_unreachable_other";
+
     /// ⟨M06, rev6.5⟩ The reasons of a management session that failed on this controller
     /// before anything reached the runner: its management key agent's, and its K_mgmt
     /// store's.
@@ -847,6 +872,12 @@ pub mod reason {
         (MGMT_AGENT_PERMISSION_DENIED, Code::CapabilityUnavailable),
         (MGMT_AGENT_ADDRESS_IN_USE, Code::StateUnavailable),
         (MGMT_AGENT_UNAVAILABLE, Code::StateUnavailable),
+        (SSH_CLIENT_NOT_STARTED, Code::CapabilityUnavailable),
+        (SSH_CLIENT_CONFIG_REJECTED, Code::CapabilityUnavailable),
+        (SSH_CONNECTION_REFUSED, Code::DestinationUnreachable),
+        (SSH_CONNECTION_TIMED_OUT, Code::DestinationUnreachable),
+        (SSH_NAME_NOT_RESOLVED, Code::DestinationUnreachable),
+        (SSH_UNREACHABLE_OTHER, Code::DestinationUnreachable),
     ];
 
     /// ⟨M06⟩ A `remote_pending` reason, not an error reason: an Iroh revocation is

@@ -44,6 +44,7 @@
 //! | `HEIMDALL_TEST_FORCE_EXEC_FAILURE` | `1`: the exec (Unix) fails after `launching` (`heimdall_launch::unix::TestHooks`). |
 //! | `HEIMDALL_TEST_SSH_HOME` | Absolute scratch account home for the CLI's static selection pass (`SshPaths::with_test_override`, system directory `<home>/etc-ssh`), so a test never reads the account's real `~/.ssh` or `/etc/ssh`. ⟨M02⟩ W4: a runtime started under any test variable wires its projection over this scratch home, or none without it, never the account's (`isolate_projection`). |
 //! | `HEIMDALL_TEST_CLOCK_OFFSET_S` | As above: the CLI's wall clock for the pre-launch check. |
+//! | `HEIMDALL_TEST_SSH_STDERR_FILE` | ⟨M06 W5 `w5v`⟩ Absolute scratch file: `environment add`'s bootstrap appends its host-key preflight's `ssh` standard error there (each run under a `### <leg> exit=<n>` header), and its interactive session's `ssh` gets `-E <file>` (that client's own messages go there instead of the terminal). Diagnostics of a native run only; a release `environment` command refuses it like every variable here. |
 //!
 //! **⟨M03⟩ managed credentials** (m03-plan U0b row 16; ADR-0008 §18). Four more
 //! variables, debug builds only. `service run` reads the first three (U10 wires them
@@ -90,14 +91,19 @@ pub const PRE_CHECK_PAUSE_ENV: &str = "HEIMDALL_TEST_PRE_CHECK_PAUSE";
 pub const FORCE_EXEC_FAILURE_ENV: &str = "HEIMDALL_TEST_FORCE_EXEC_FAILURE";
 /// ⟨M02⟩ U8: scratch account home for the CLI's static selection pass.
 pub const SSH_HOME_ENV: &str = "HEIMDALL_TEST_SSH_HOME";
+/// ⟨M06 W5 `w5v`⟩ Absolute scratch file for the bootstrap's `ssh` standard error (module
+/// docs).
+pub const SSH_STDERR_FILE_ENV: &str = "HEIMDALL_TEST_SSH_STDERR_FILE";
 
-/// ⟨M02⟩ Every variable `run` and `connect` read.
-pub const LAUNCH_ENV: [&str; 5] = [
+/// ⟨M02⟩ Every variable `run` and `connect` read (⟨`w5v`⟩ and the bootstrap's diagnostic
+/// file, which `environment add` reads from the same set).
+pub const LAUNCH_ENV: [&str; 6] = [
     PRE_EXEC_PAUSE_ENV,
     PRE_CHECK_PAUSE_ENV,
     FORCE_EXEC_FAILURE_ENV,
     SSH_HOME_ENV,
     CLOCK_OFFSET_ENV,
+    SSH_STDERR_FILE_ENV,
 ];
 
 /// ⟨M02⟩ A wall-clock offset (module docs): fixed, or read from a file at every use.
@@ -166,6 +172,8 @@ pub struct LaunchHooks {
     pub ssh_home: Option<std::path::PathBuf>,
     /// [`CLOCK_OFFSET_ENV`].
     pub clock_offset: Option<ClockOffset>,
+    /// ⟨`w5v`⟩ [`SSH_STDERR_FILE_ENV`].
+    pub ssh_stderr_file: Option<std::path::PathBuf>,
 }
 
 impl LaunchHooks {
@@ -216,6 +224,7 @@ pub fn launch_hooks(
         clock_offset: env(CLOCK_OFFSET_ENV)
             .map(|v| ClockOffset::parse(&v))
             .transpose()?,
+        ssh_stderr_file: absolute(SSH_STDERR_FILE_ENV)?,
     })
 }
 
@@ -1874,6 +1883,13 @@ mod tests {
             assert!(launch_hooks(&set(&[(PRE_CHECK_PAUSE_ENV, "relative")])).is_err());
             assert!(launch_hooks(&set(&[(FORCE_EXEC_FAILURE_ENV, "yes")])).is_err());
             assert!(launch_hooks(&set(&[(CLOCK_OFFSET_ENV, "soon")])).is_err());
+            // ⟨`w5v`⟩ The bootstrap's diagnostic file: absolute only.
+            let h = launch_hooks(&set(&[(SSH_STDERR_FILE_ENV, FIFO)])).unwrap();
+            assert_eq!(
+                h.ssh_stderr_file.as_deref(),
+                Some(std::path::Path::new(FIFO))
+            );
+            assert!(launch_hooks(&set(&[(SSH_STDERR_FILE_ENV, "relative")])).is_err());
         } else {
             assert!(launch_hooks(&set(&[(SSH_HOME_ENV, "/scratch/home")])).is_err());
         }

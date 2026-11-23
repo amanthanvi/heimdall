@@ -1484,6 +1484,7 @@ impl heimdall_app::transport::EndpointAnnouncer for ManagementAnnouncer {
             scratch_dir: root.clone(),
             config: None,
             extra_options: Vec::new(),
+            stderr_file: None,
             issuer_ca: None,
             iroh_endpoint: None,
         };
@@ -2349,10 +2350,9 @@ fn session_error(stderr: &[u8]) -> OpError {
             "the runner refused this device's management key (revoked, an expired invitation, \
              or not enrolled)",
         ),
-        env_ssh::PreflightVerdict::Unreachable => OpError::new(
-            Code::DestinationUnreachable,
-            "the runner could not be reached for a management session",
-        ),
+        // ⟨`w5v`; ADR-0006 §18.9⟩ Why, from what the client said (`Other` keeps the message
+        // it always had).
+        env_ssh::PreflightVerdict::Unreachable(cause) => cause.error("for a management session"),
     }
     .with_effect(EffectStatus::None)
 }
@@ -2694,6 +2694,14 @@ impl ManagementSessions for SshSessions {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .clone();
+                // ⟨`w5v`; debug builds only⟩ The session's `ssh` messages for a native run's
+                // evidence (a release build refuses the variable, so this reads nothing).
+                if let Some(file) = crate::testcfg::launch_hooks(&|n| std::env::var_os(n))
+                    .ok()
+                    .and_then(|h| h.ssh_stderr_file)
+                {
+                    env_ssh::append_stderr_record(&file, "management session", None, &kept);
+                }
                 return Err(cleanup(session_error(&kept)));
             }
             Err(_) => {
@@ -2816,6 +2824,11 @@ async fn wiring(ctx: &Ctx, write: bool) -> Result<Wiring, OpError> {
                 .ok()
                 .flatten(),
             extra_options: Vec::new(),
+            // ⟨`w5v`; debug builds only, refused by a release build with the config above⟩
+            // The preflight's and the session's `ssh` messages for a native run's evidence.
+            stderr_file: crate::testcfg::launch_hooks(&|n| std::env::var_os(n))
+                .ok()
+                .and_then(|h| h.ssh_stderr_file),
             // ⟨M06 W3⟩ The runner trusts this controller's CA and designates it as the time
             // source in the bootstrap's confirmation (omitted without an issuer).
             issuer_ca: controller_issuer_ca(&db),

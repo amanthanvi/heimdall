@@ -459,14 +459,16 @@ async fn add_refuses_an_unverified_host_key_before_anything_runs() {
 #[tokio::test]
 async fn add_names_the_controller_when_its_own_agent_fails_after_the_bootstrap() {
     let mut sessions = FakeSessions::new(env_id(9), always_ok());
-    sessions.bootstrap_failure = Some(
+    // ⟨`w5v`⟩ Built by this controller (the opener's sites go through
+    // `on_this_controller`/`controller_fault`): a reason alone no longer decides it.
+    sessions.bootstrap_failure = Some(super::on_this_controller(
         OpError::new(
             Code::CapabilityUnavailable,
             "the agent's socket path is too long",
         )
         .with_reason(reason::MGMT_AGENT_PATH_TOO_LONG)
         .with_effect(EffectStatus::None),
-    );
+    ));
     let w = World {
         key: FakeKey::default(),
         registry: FakeRegistry::default(),
@@ -489,9 +491,55 @@ async fn add_names_the_controller_when_its_own_agent_fails_after_the_bootstrap()
             .contains("a fault on this controller, not on the runner")
     );
     assert!(!e.message.contains("runtime"), "{}", e.message);
+    assert!(e.message.ends_with(
+        "The session's error: this controller's management session could not start: the \
+         agent's socket path is too long"
+    ));
+    assert!(w.registry.list().unwrap().is_empty(), "nothing recorded");
+}
+
+/// ⟨M06 W5 `w5v`, the integrator's item 5⟩ A refusal the **runner** sent (the
+/// `ServerRefusal::Rejected` path: `OpError::from_detail` of its envelope) is never classed
+/// as this controller's fault, even when its message starts with "this controller's" and
+/// its reason is one of this controller's own: it keeps the runner's text, and the add
+/// says the controller could not open its session, not that the fault is on this
+/// controller.
+#[tokio::test]
+async fn a_runner_refusal_worded_as_this_controllers_fault_is_not_reclassified() {
+    let runner_text = "this controller's management key agent could not start; try again";
+    let detail = OpError::new(Code::StateUnavailable, runner_text)
+        .with_reason(reason::MGMT_AGENT_UNAVAILABLE)
+        .with_effect(EffectStatus::None)
+        .detail();
+    let answered = OpError::from_detail(detail, None);
+    assert!(!super::is_controller_fault(&answered));
+    let mut sessions = FakeSessions::new(env_id(9), always_ok());
+    sessions.bootstrap_failure = Some(answered);
+    let w = World {
+        key: FakeKey::default(),
+        registry: FakeRegistry::default(),
+        catalog: FakeCatalog(Some(access(&[HOST]))),
+        bootstrap: FakeBootstrap::default(),
+        sessions,
+        confirm: FakeConfirm::yes(),
+    };
+    let e = w.controller().add(&add_input()).await.unwrap_err();
+    assert_eq!(e.code, Code::StateUnavailable);
+    assert_eq!(e.reason.as_deref(), Some(reason::MGMT_AGENT_UNAVAILABLE));
+    assert!(
+        e.message.starts_with(super::AFTER_BOOTSTRAP_NO_SESSION),
+        "{}",
+        e.message
+    );
+    assert!(
+        !e.message
+            .starts_with(super::AFTER_BOOTSTRAP_CONTROLLER_FAILED)
+    );
     assert!(
         e.message
-            .ends_with("The session's error: the agent's socket path is too long")
+            .ends_with(&format!("The session's error: {runner_text}")),
+        "the runner's own text is kept: {}",
+        e.message
     );
     assert!(w.registry.list().unwrap().is_empty(), "nothing recorded");
 }

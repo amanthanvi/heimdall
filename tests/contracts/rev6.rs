@@ -5,7 +5,10 @@
 //! * `rev6_reason_golden`: the M06 reasons and their codes (`golden/rev6-reasons.golden.json`)
 //!   against `envelope::reason::M06`, both ways; every one `CAPABILITY_UNAVAILABLE` except
 //!   revision 6.3's `local_owner_required` (`INTERACTION_REQUIRED`) and revision 6.5's
-//!   retryable `mgmt_agent_address_in_use` and `mgmt_agent_unavailable` (`STATE_UNAVAILABLE`); no
+//!   retryable `mgmt_agent_address_in_use` and `mgmt_agent_unavailable` (`STATE_UNAVAILABLE`) and
+//!   its four network outcomes of an ssh that did not reach the runner (`ssh_connection_refused`,
+//!   `ssh_connection_timed_out`, `ssh_name_not_resolved`, `ssh_unreachable_other`:
+//!   `DESTINATION_UNREACHABLE`); no
 //!   reason string reused across M02–M06 (`route_dependency_out_of_scope` stays M04's); the
 //!   pending reason has no code and is not an error reason; the code table is unchanged;
 //! * `rev6_request_forms`: one request of every revision-6 form
@@ -108,9 +111,10 @@ fn rev6_reason_golden() {
     assert_eq!(got, want, "M06 reasons and codes");
     assert_eq!(
         got.len(),
-        30,
+        36,
         "revision 6.2 added mgmt_key_store_unavailable; revision 6.3 added \
-         local_owner_required and resync_pending; revision 6.5 added the four mgmt_agent_*"
+         local_owner_required and resync_pending; revision 6.5 added the four mgmt_agent_* \
+         and the six ssh_* reasons of an ssh that did not reach the runner"
     );
     for (r, c) in &got {
         // Revision 6.3 (ADR-0006 §18.7): `local_owner_required` is the one M06 reason under
@@ -122,6 +126,17 @@ fn rev6_reason_golden() {
             "INTERACTION_REQUIRED"
         } else if r == reason::MGMT_AGENT_ADDRESS_IN_USE || r == reason::MGMT_AGENT_UNAVAILABLE {
             "STATE_UNAVAILABLE"
+        } else if [
+            reason::SSH_CONNECTION_REFUSED,
+            reason::SSH_CONNECTION_TIMED_OUT,
+            reason::SSH_NAME_NOT_RESOLVED,
+            reason::SSH_UNREACHABLE_OTHER,
+        ]
+        .contains(&r.as_str())
+        {
+            // Revision 6.5 (§18.9, `w5v`): the network outcomes of an ssh the controller ran
+            // keep the code they had without a reason.
+            "DESTINATION_UNREACHABLE"
         } else {
             "CAPABILITY_UNAVAILABLE"
         };

@@ -27,6 +27,9 @@
 #     `environment add`'s bootstrap `-F` file in a debug build; crates/heimdall/src/m06_cmd.rs
 #     `bootstrap_test_config`): a release `environment add` and `environment status` refuse it
 #     before the terminal check and before any state.
+#   * <M06 W5 w5v> the bootstrap's ssh diagnostic file (`HEIMDALL_TEST_SSH_STDERR_FILE=<abs
+#     scratch file>`, in LAUNCH_ENV, so `run` and `connect` are probed with it; also a release
+#     `environment add`): the file must not exist afterwards.
 #   * <M06 W5 w5m> the fixture K_mgmt store (`HEIMDALL_TEST_MGMT_STORE=fixture-file:<abs scratch
 #     path>`, read CLI-side where the K_mgmt store is selected; crates/heimdall/src/m06_cmd.rs
 #     `mgmt_store`): a release `service run`, `service run --runner`, `environment status`,
@@ -137,6 +140,7 @@ value_for() {
         HEIMDALL_TEST_PRE_EXEC_PAUSE | HEIMDALL_TEST_PRE_CHECK_PAUSE) printf '%s/%s' "${vals}" "$1" ;;
         HEIMDALL_TEST_FORCE_EXEC_FAILURE) printf '1' ;;
         HEIMDALL_TEST_SSH_HOME) printf '%s/account' "${vals}" ;;
+        HEIMDALL_TEST_SSH_STDERR_FILE) printf '%s/ssh-stderr.txt' "${vals}" ;;
         HEIMDALL_TEST_SECRET_STORE) printf 'scratch' ;;
         HEIMDALL_TEST_KEY_SEED) printf '00' ;;
         HEIMDALL_TEST_SESSION_LOCK) printf '%s/session-lock-state' "${vals}" ;;
@@ -279,6 +283,25 @@ probe HEIMDALL_TEST_SSH_HOME "environment add" environment add --destination dst
     --account fixture --runner-program /nonexistent/heimdall --runner-home /nonexistent/home \
     --runner-sha256 0000000000000000000000000000000000000000000000000000000000000000
 probe HEIMDALL_TEST_SSH_HOME "environment status" environment status
+# <M06 W5 w5v> The bootstrap's ssh diagnostic file (`HEIMDALL_TEST_SSH_STDERR_FILE`, a launch
+# variable: `run` and `connect` are probed above from LAUNCH_ENV): a release `environment add`
+# refuses it before anything else, and the file is never created.
+grep -q '"HEIMDALL_TEST_SSH_STDERR_FILE"' "${TESTCFG}" || {
+    echo "release-gate: HEIMDALL_TEST_SSH_STDERR_FILE is not a constant of ${TESTCFG}"
+    status=1
+    fail_count=$((fail_count + 1))
+}
+probe HEIMDALL_TEST_SSH_STDERR_FILE "environment add" environment add --destination dst_AAAAAAAAAAAAAAAAAAAAAAAAAA \
+    --account fixture --runner-program /nonexistent/heimdall --runner-home /nonexistent/home \
+    --runner-sha256 0000000000000000000000000000000000000000000000000000000000000000
+probe_count=$((probe_count + 1))
+if [ -e "${vals}/ssh-stderr.txt" ]; then
+    fail_count=$((fail_count + 1))
+    status=1
+    echo "release-gate: the bootstrap's ssh diagnostic file was written by a release build: FAIL"
+else
+    echo "release-gate: the bootstrap's ssh diagnostic file was not written by the release build: PASS"
+fi
 # <M06 W5 w5m> The fixture K_mgmt store (debug builds only; the ruling on w5k Q4): a release
 # build refuses the variable in the runtime's gate and in every command that selects the
 # K_mgmt store, before the terminal check and before any key store is read. `environment

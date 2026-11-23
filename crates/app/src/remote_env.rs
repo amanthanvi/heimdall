@@ -551,8 +551,9 @@ pub const AFTER_BOOTSTRAP_NO_SESSION: &str = "the runner confirmed the enrollmen
 
 /// ⟨M06 W5 `w5r`⟩ What `environment add` says instead of [`AFTER_BOOTSTRAP_NO_SESSION`]
 /// when the management session failed on **this controller** before anything reached the
-/// runner (a reason in `reason::MGMT_CONTROLLER_SIDE`: its management key agent, or its
-/// K_mgmt store): the runner and its runtime are not blamed.
+/// runner (an error this controller built itself, [`is_controller_fault`]: its management
+/// key agent, its K_mgmt store, its session files): the runner and its runtime are not
+/// blamed.
 pub const AFTER_BOOTSTRAP_CONTROLLER_FAILED: &str = "the runner confirmed the enrollment, but \
      this controller could not open its management session because of a fault on this \
      controller, not on the runner, so nothing was recorded on this controller. Correct the \
@@ -570,8 +571,10 @@ pub const CONTROLLER_FAULT_HEAD: &str = "this controller's ";
 /// a path.
 #[must_use]
 pub fn controller_fault(code: Code, what: &str, fix: &str) -> OpError {
-    OpError::new(code, format!("{CONTROLLER_FAULT_HEAD}{what}; {fix}"))
-        .with_effect(heimdall_contract::envelope::EffectStatus::None)
+    let mut e = OpError::new(code, format!("{CONTROLLER_FAULT_HEAD}{what}; {fix}"))
+        .with_effect(heimdall_contract::envelope::EffectStatus::None);
+    e.controller_local = true;
+    e
 }
 
 /// ⟨M06 W5 `w5t`⟩ An error of a step on this controller (its K_mgmt store, its OpenSSH
@@ -579,6 +582,7 @@ pub fn controller_fault(code: Code, what: &str, fix: &str) -> OpError {
 /// message under [`CONTROLLER_FAULT_HEAD`] so that no later text blames the runner.
 #[must_use]
 pub fn on_this_controller(mut e: OpError) -> OpError {
+    e.controller_local = true;
     if !e.message.starts_with(CONTROLLER_FAULT_HEAD) {
         e.message = format!(
             "{CONTROLLER_FAULT_HEAD}management session could not start: {}",
@@ -588,15 +592,14 @@ pub fn on_this_controller(mut e: OpError) -> OpError {
     e
 }
 
-/// ⟨M06 W5 `w5r`, `w5t`⟩ Whether a session's failure is this controller's: a reason in
-/// `reason::MGMT_CONTROLLER_SIDE`, or a message from [`controller_fault`] or
-/// [`on_this_controller`].
+/// ⟨M06 W5 `w5r`, `w5t`, `w5v`⟩ Whether a session's failure is this controller's: only an
+/// error this controller built itself ([`controller_fault`], [`on_this_controller`]: the
+/// non-wire `OpError::controller_local`). Neither its reason nor its words decide it: a
+/// refusal the runner sent keeps its own text and is never reclassified, whatever its
+/// reason or its first words.
 #[must_use]
 pub fn is_controller_fault(e: &OpError) -> bool {
-    e.reason
-        .as_deref()
-        .is_some_and(|r| reason::MGMT_CONTROLLER_SIDE.contains(&r))
-        || e.message.starts_with(CONTROLLER_FAULT_HEAD)
+    e.controller_local
 }
 
 /// The first session's failure after a completed bootstrap, with its code, reason and

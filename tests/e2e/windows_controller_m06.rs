@@ -270,7 +270,8 @@ fn seed_controller() {
 /// `heimdall` under test), `HM_M06J_HOME`, `HM_M06J_ACCOUNT_HOME` (the scratch account
 /// home: `HOME` and `HEIMDALL_TEST_SSH_HOME`), `HM_M06J_ACCOUNT`, `HM_M06J_RUNNER_PROGRAM`,
 /// `HM_M06J_RUNNER_HOME`, `HM_M06J_RUNNER_SHA256`, `HM_M06J_PATH` (the `PATH` the command
-/// gets: the directory of the OpenSSH client), `HM_M06J_FACTS_OUT`, and off Windows
+/// gets: the directory of the OpenSSH client), `HM_M06J_FACTS_OUT`, optionally
+/// `HM_M06J_SSH_STDERR_FILE` (⟨`w5v`⟩ passed on as `HEIMDALL_TEST_SSH_STDERR_FILE`), and off Windows
 /// `HM_M06J_MGMT_FIXTURE` and `HM_M06J_IROH_FIXTURE` (the two fixture key stores; both
 /// required there, see [`fixture_stores`]). Facts: `exit`, `code`, `reason`, `message`,
 /// `envelope` (`present` or `absent`), `error_fields` (its error's keys, or `none`),
@@ -321,6 +322,12 @@ fn environment_add() {
         command = command
             .env("HEIMDALL_TEST_MGMT_STORE", format!("fixture-file:{mgmt}"))
             .env("HEIMDALL_TEST_IROH_KEY_STORE", iroh);
+    }
+    // ⟨M06 W5 `w5v`, PC job 42⟩ The bootstrap's `ssh` messages, when the journey asks for them
+    // (`HM_M06J_SSH_STDERR_FILE`, an absolute scratch file): the debug build's
+    // `HEIMDALL_TEST_SSH_STDERR_FILE`. The script protects what it copies out.
+    if let Some(file) = env.get("HM_M06J_SSH_STDERR_FILE").filter(|v| !v.is_empty()) {
+        command = command.env("HEIMDALL_TEST_SSH_STDERR_FILE", file);
     }
     // The platform's own directories, which the DPAPI store and the client need on Windows.
     for name in ["LOCALAPPDATA", "APPDATA", "TEMP", "TMP", "USERNAME"] {

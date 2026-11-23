@@ -1,5 +1,5 @@
 {
- "source": "ADR-0006 revision 6 (M06 wave 0; section 18): ADR-0012 section 9 item 7, transcribed. Every new reason is under CAPABILITY_UNAVAILABLE; route_dependency_out_of_scope is the existing M04 reason and is not repeated here (`reused`). `m06_pending` is the one pending reason (`iroh_admission_closing`, under remote_pending): a state, not an error, so it has no code. No new top-level code and no exit-code change: the code table stays at 30 rows. Revision 6.3 (M06 wave 3; section 18.7) adds local_owner_required, the one M06 reason under INTERACTION_REQUIRED, and resync_pending. Revision 6.5 (M06 wave 5; section 18.9) adds the four reasons of a controller's management key agent that could not start (mgmt_agent_path_too_long, mgmt_agent_permission_denied, mgmt_agent_address_in_use, mgmt_agent_unavailable), split by whether an unchanged retry can help: mgmt_agent_path_too_long and mgmt_agent_permission_denied under CAPABILITY_UNAVAILABLE (the code table's rule for a refusal an unchanged retry cannot fix), mgmt_agent_address_in_use and mgmt_agent_unavailable under STATE_UNAVAILABLE.",
+ "source": "ADR-0006 revision 6 (M06 wave 0; section 18): ADR-0012 section 9 item 7, transcribed. Every new reason is under CAPABILITY_UNAVAILABLE; route_dependency_out_of_scope is the existing M04 reason and is not repeated here (`reused`). `m06_pending` is the one pending reason (`iroh_admission_closing`, under remote_pending): a state, not an error, so it has no code. No new top-level code and no exit-code change: the code table stays at 30 rows. Revision 6.3 (M06 wave 3; section 18.7) adds local_owner_required, the one M06 reason under INTERACTION_REQUIRED, and resync_pending. Revision 6.5 (M06 wave 5; section 18.9) adds the four reasons of a controller's management key agent that could not start (mgmt_agent_path_too_long, mgmt_agent_permission_denied, mgmt_agent_address_in_use, mgmt_agent_unavailable), split by whether an unchanged retry can help: mgmt_agent_path_too_long and mgmt_agent_permission_denied under CAPABILITY_UNAVAILABLE (the code table's rule for a refusal an unchanged retry cannot fix), mgmt_agent_address_in_use and mgmt_agent_unavailable under STATE_UNAVAILABLE. Revision 6.5 (M06 wave 5, unit w5v; section 18.9) also adds the six reasons of an ssh the controller ran that did not reach the runner, read from what that ssh did: ssh_client_not_started and ssh_client_config_rejected (the client itself; an unchanged retry cannot fix them) under CAPABILITY_UNAVAILABLE, and ssh_connection_refused, ssh_connection_timed_out, ssh_name_not_resolved and ssh_unreachable_other under DESTINATION_UNREACHABLE, the code they had without a reason.",
  "m06": [
   {
    "reason": "role_insufficient",
@@ -120,6 +120,30 @@
   {
    "reason": "mgmt_agent_unavailable",
    "code": "STATE_UNAVAILABLE"
+  },
+  {
+   "reason": "ssh_client_not_started",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "ssh_client_config_rejected",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "ssh_connection_refused",
+   "code": "DESTINATION_UNREACHABLE"
+  },
+  {
+   "reason": "ssh_connection_timed_out",
+   "code": "DESTINATION_UNREACHABLE"
+  },
+  {
+   "reason": "ssh_name_not_resolved",
+   "code": "DESTINATION_UNREACHABLE"
+  },
+  {
+   "reason": "ssh_unreachable_other",
+   "code": "DESTINATION_UNREACHABLE"
   }
  ],
  "reused": [

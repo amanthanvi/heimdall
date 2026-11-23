@@ -99,7 +99,9 @@ Output (in -Out, default the current directory): tests.txt (the `### windows-con
 section in the form tests/native/m02/m02-evidence.py reads: one `test <step> ... ok|FAILED` line
 per step and each step's observation under its `---- <step> stdout ----` header), host.txt
 (key=value facts: versions, states and the WSL command forms; no path, account, distribution
-name or address) and results on stdout.
+name or address), ssh-stderr.txt when a bootstrap ran (M06 W5 `w5v`: what the bootstrap's
+`ssh` said, from the debug build's HEIMDALL_TEST_SSH_STDERR_FILE, each line through
+Protect-Reason after the run's own paths and names are replaced) and results on stdout.
 Exit 0: every step passed; 1: a step failed or the cleanup left something; 3: blocked (an input,
 the distribution or a tool in it is missing: no step ran, and what was created is removed).
 
@@ -317,6 +319,24 @@ function Protect-Reason([string]$Text, [int]$Limit = 300) {
     return ($one -replace '[^A-Za-z0-9_=,\- ]', '?')
 }
 
+# ⟨M06 W5 `w5v`, PC job 42 diagnostics⟩ The bootstrap's `ssh` messages
+# (HEIMDALL_TEST_SSH_STDERR_FILE: the preflight's standard error, the interactive session's `-E`
+# log, a failed management session's standard error) for out\ssh-stderr.txt. The run's own
+# values are named first (the run directory, the account home and profile, the Windows user and
+# computer, the runner account and its scratch directory), then each line goes through
+# Protect-Reason: codes and words, never a path separator, address or quote. At most 80 lines.
+function Protect-SshStderr([string]$Text, [hashtable]$Known) {
+    $t = $Text
+    foreach ($k in @($Known.Keys | Sort-Object { -([string]$Known[$_]).Length })) {
+        $v = [string]$Known[$k]
+        if ($v.Length -ge 3) { $t = [regex]::Replace($t, [regex]::Escape($v), "<$k>", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase) }
+        $fwd = $v -replace '\\', '/'
+        if ($fwd -cne $v -and $fwd.Length -ge 3) { $t = [regex]::Replace($t, [regex]::Escape($fwd), "<$k>", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase) }
+    }
+    $lines = @($t -split "\r?\n" | Select-Object -First 80)
+    return (($lines | ForEach-Object { Protect-Reason $_ 300 }) -join "`n") + "`n"
+}
+
 # ⟨M06 W5 `w5s`, PC job 38 diagnostics⟩ What a driver or command result says about itself, for a
 # failed step's reason: its code, reason and exit, and its message through Protect-Reason (codes and
 # words only, never a path, address or quote). $Result is a driver's facts (a hashtable) or a
@@ -439,6 +459,16 @@ function Invoke-SelfTest {
         -not $p.Contains('"') -and -not $p.Contains("`n") -and (Protect-Reason ('x' * 900)).Length -eq 300)
     # ⟨`w5s`, PC job 38 diagnostics⟩ A failing first assertion names the result's code, reason and
     # protected message: never a path, address, quote or secret.
+    $sshErr = "### preflight exit=255`r`ncommand-line: line 0: Bad configuration option: x`r`nBad owner or permissions on C:\hm\hm-m06j-0a1b2c3d\acct/.ssh/config`r`n" +
+        "runner7@127.0.0.1: Permission denied (publickey).`r`nCan't open user config file C:\Users\Some One\x: No such file`r`n"
+    $known = @{ run = 'C:\hm\hm-m06j-0a1b2c3d'; profile = 'C:\Users\Some One'; user = 'Some One'; account = 'runner7' }
+    $prot = Protect-SshStderr $sshErr $known
+    Check 'P03 the bootstrap ssh messages keep their words and lose the run''s paths, names, addresses and quotes' (
+        $prot.Contains('Bad configuration option') -and $prot.Contains('Bad owner or permissions on ?run?') -and
+        $prot.Contains('?account??127?0?0?1? Permission denied ?publickey??') -and $prot.Contains('?profile??x') -and
+        -not $prot.Contains('Some One') -and -not $prot.Contains('runner7') -and -not $prot.Contains('hm-m06j-0a1b2c3d') -and
+        -not $prot.Contains('\') -and -not $prot.Contains('/') -and -not $prot.Contains('127.0.0.1') -and -not $prot.Contains("`r") -and
+        @($prot.TrimEnd("`n") -split "`n").Count -eq 5 -and @((Protect-SshStderr (("x`n") * 200) @{}) -split "`n").Count -le 81)
     $driverFacts = @{ prompted = 'false'; code = 'STATE_UNAVAILABLE'; reason = 'mgmt_agent_unavailable'; exit = '3'
         message = 'the controller''s management key agent could not start at C:\Users\someone\x /home/u/.ssh 127.0.0.1 "s3cretT0ken"' }
     $driverFail = try { Assert-Result 'first_pass_prompted' $driverFacts['prompted'] 'true' $driverFacts; '' } catch { $_.Exception.Message }
@@ -625,6 +655,7 @@ $name = "hm-m06j-$hex"
 $steps = Get-JourneySteps
 $run = Join-Path $scratchItem.FullName $name
 $cHome = Join-Path $run 'home'; $cAcct = Join-Path $run 'acct'; $cSsh = Join-Path $cAcct '.ssh'; $facts = Join-Path $run 'facts'
+$sshStderr = Join-Path $run 'ssh-stderr.txt'
 # Where children start: the scratch root until the run directory exists.
 $workDir = $scratchItem.FullName
 $wslCommands = [System.Collections.Generic.List[string]]::new()
@@ -973,6 +1004,8 @@ $stepBodies = @{
         # 2.6). The journey DECLINES it, as a stated step: its fixture runner is seeded while no
         # runtime runs, and its runtime needs the fixture's own test configuration.
         $add['HM_M06J_RUNTIME_OFFER'] = 'no'
+        # ⟨`w5v`⟩ The bootstrap's ssh messages, for out\ssh-stderr.txt (protected there).
+        $add['HM_M06J_SSH_STDERR_FILE'] = $sshStderr
         # The bootstrap session, confirmed at the runner. The runner's runtime does not run yet
         # (the runner exists only once `remote init` made it): the session says so and offers to
         # start it; the journey declines. The controller then cannot open its management session,
@@ -1229,6 +1262,17 @@ try {
         [void](New-Item -ItemType Directory -Path $Out -Force)
         [System.IO.File]::WriteAllText((Join-Path $Out 'tests.txt'), (Format-JourneyLog @($results) $code @($steps | ForEach-Object { $_.Test })))
         [System.IO.File]::WriteAllText((Join-Path $Out 'host.txt'), $hostFacts.ToString())
+        # ⟨`w5v`⟩ What the bootstrap's ssh said, protected (Protect-SshStderr); absent when no
+        # bootstrap ran.
+        if (Test-Path -LiteralPath $sshStderr -PathType Leaf) {
+            $known = @{ run = $run; acct = $cAcct; home = $cHome }
+            foreach ($k in @('USERPROFILE', 'USERNAME', 'COMPUTERNAME', 'LOCALAPPDATA', 'APPDATA', 'TEMP')) {
+                $v = [System.Environment]::GetEnvironmentVariable($k); if ($v) { $known[$k.ToLowerInvariant()] = $v }
+            }
+            if ($journey.Runner['account']) { $known['account'] = [string]$journey.Runner['account'] }
+            if ($runnerRoot) { $known['runner-root'] = $runnerRoot }
+            [System.IO.File]::WriteAllText((Join-Path $Out 'ssh-stderr.txt'), (Protect-SshStderr ([System.IO.File]::ReadAllText($sshStderr)) $known))
+        }
     }
     $workDir = $scratchItem.FullName
     try { Remove-Item -LiteralPath $run -Recurse -Force -ErrorAction Stop } catch { Write-Output 'the run directory could not be removed'; $code = 1 }
