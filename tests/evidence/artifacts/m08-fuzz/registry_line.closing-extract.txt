@@ -1,0 +1,11 @@
+#3771	INITED cov: 115 ft: 722 corp: 251/106Kb exec/s: 1885 rss: 105Mb
+#23063667	REDUCE cov: 115 ft: 723 corp: 252/91Kb lim: 250583 exec/s: 12920 rss: 513Mb L: 596/23037 MS: 1 EraseBytes-
+#23169102	REDUCE cov: 115 ft: 723 corp: 252/91Kb lim: 251620 exec/s: 12914 rss: 513Mb L: 4212/23037 MS: 5 CopyPart-ChangeByte-InsertRepeatedBytes-PersAutoDict-EraseBytes- DE: "\007\000\000\000\000\000\000\000"-
+#23270437	DONE   cov: 115 ft: 723 corp: 252/91Kb lim: 252623 exec/s: 12920 rss: 513Mb
+#23270437	DONE   cov: 115 ft: 723 corp: 252/91Kb lim: 252623 exec/s: 12920 rss: 513Mb
+Done 23270437 runs in 1801 second(s)
+stat::number_of_executed_units: 23270437
+stat::average_exec_per_sec:     12920
+stat::new_units_added:          744
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              513

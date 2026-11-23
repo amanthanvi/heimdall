@@ -1,9 +1,10 @@
 # Install or update Heimdall for the current Windows user (m08-plan U2a; ADR-0014 section 4.3).
 #
-# STATUS: NOT YET RUN ON WINDOWS. Its self-test (tests\native\m08\lifecycle\
-# install-selftest.ps1, with fake executables) has been rehearsed under PowerShell 7 on
-# macOS only, which exercises the logic and not Windows file semantics. Until a Windows run
-# is recorded, nothing here is evidence.
+# STATUS: run on Windows. Its self-test (tests\native\m08\lifecycle\install-selftest.ps1,
+# fake executables) and revert proofs pass on the PC under Windows PowerShell 5.1 and
+# PowerShell 7 (jobs 31, 32 and 43), and a real Windows archive was installed, updated and
+# rolled back as files (jobs 40 and 43; its executable never run). A release run in a fresh
+# account (B2) or on a clean machine (B15) is still open.
 #
 # Usage, from inside the unpacked archive (Windows PowerShell 5.1 or PowerShell 7):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1                install or update

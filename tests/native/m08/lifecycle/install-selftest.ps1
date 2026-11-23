@@ -1,9 +1,9 @@
 # Self-test of tools\packaging\install.ps1 with fake archives (m08-plan U2a). The Windows
 # counterpart of install-selftest.sh.
 #
-# STATUS: rehearsed under PowerShell 7 on macOS only (the logic, not Windows file
-# semantics). NOT YET RUN ON WINDOWS; it runs on the PC under Windows PowerShell 5.1 and
-# PowerShell 7 in a later job. A macOS rehearsal is not evidence for Windows.
+# STATUS: run on the Windows PC under Windows PowerShell 5.1 and PowerShell 7 (jobs 31, 32
+# and 43; 60 checks at job 43). A run under PowerShell 7 on macOS rehearses the logic only
+# and is not evidence for Windows.
 #
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tests\native\m08\lifecycle\install-selftest.ps1
 #   $env:HM_INSTALL_UNDER_TEST = <file>   test that copy of install.ps1 (for a revert proof)

@@ -1,11 +1,11 @@
 # Build the Heimdall Windows release archive on the PC (m08-plan U3a; ADR-0014 sections 4.2
 # and 4.4). The counterpart of build-release.sh for x86_64-pc-windows-msvc.
 #
-# STATUS: first run on the PC (job 34, at c3abefbf) built heimdall.exe and then stopped at
-# the provenance step: Windows PowerShell 5.1 had written cargo's messages with a byte order
-# mark, and the first compiled package was dropped. Fixed (raw-byte capture below; a strict
-# reader in provenance.py); not yet rerun. Nothing it produces is evidence until a
-# successful run is recorded.
+# STATUS: run successfully on the PC under Windows PowerShell 5.1 (jobs 40 and 43, at
+# 5348551b and 3c8265c5), after two first-run fixes: job 34 stopped at provenance (a byte
+# order mark in cargo's messages; fixed by the raw-byte capture below and a strict reader)
+# and job 36 at verification (combase.dll). The build is not reproducible yet: the linker
+# writes its link time and a PDB GUID (tools/packaging/README.md).
 #
 # Usage (PowerShell 5.1 or 7, from the repository root):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\packaging\build-release.ps1 `

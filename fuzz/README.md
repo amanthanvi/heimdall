@@ -58,7 +58,6 @@ passed three times out of three on a quiet machine, and the gate was rerun alone
 | 2026-11-22 | Rebuild on the merged tree with the default linker | 14 of 16 built. `runtime_config` and `runtime_instance` failed to link: `relocation truncated to fit: R_AARCH64_CALL26`. The instrumented binary that links the runtime crate is about 250 MB with M06's code |
 | 2026-11-22 | Rebuild with `lld` | **16 of 16 built** |
 | 2026-11-22 | 2700 s on `agent_reply`, `signing_request`, `userauth_request`, `registry_hm1` | exit 0 each; 0 findings; about 277 million executions. `signing_request` has plateaued (its last new input was number 41 of 82 million) |
-
 | 2026-11-22 to 2026-11-23 | Further batches of 3300 to 3600 s, two targets at a time, on all 17 targets | exit 0 each; 0 findings. Cumulative on 2026-11-23, before the batch then running: 6900 s `runtime_config`, `sshconf_eval`, `frame_codec`; 6600 s `agent_reply`, `signing_request`, `userauth_request`; 6300 s `registry_hm1`; 3900 s `sshconf_parse`, `gitedit_scan`, `control_frame`, `project_manifest`; 3600 s the other six. Most targets logged a new or reduced input close to their last execution, so **the stopping rule is not met for any target** |
 
 **Cumulative time per target is printed by `run-campaign.sh report`,** with a

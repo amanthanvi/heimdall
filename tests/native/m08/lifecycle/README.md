@@ -7,7 +7,7 @@ Install, update, roll back and uninstall from release archives (m08-plan §7.2, 
 |---|---|
 | `install-selftest.sh` | Tests `tools/packaging/install.sh` with fake archives: no real executable is used or run, so it is safe on any host. 41 checks, including the W0 review's cases (a failed backup, symlinks at staging names, an unterminated manifest, a runtime that does not answer, an interrupted rollback) |
 | `journey.sh` | The journey itself. `--build release`: archives, run as a disposable account; it sets no test variable, refuses outside a container and refuses if any `HEIMDALL_TEST_*` is set; there is no override. `--build debug`: two debug executables, on a host; it exports and verifies all six scratch variables first, runs every `ssh` with `-F` on the scratch configuration behind a default-identity guard, and **skips every `heimdall connect` step** (see the incident below) |
-| `install-selftest.ps1` | The Windows counterpart, for `install.ps1`: 53 checks. Run on the Windows PC under Windows PowerShell 5.1 and PowerShell 7, with real junctions (see Runs) |
+| `install-selftest.ps1` | The Windows counterpart, for `install.ps1`: 60 checks (53 before W1). Run on the Windows PC under Windows PowerShell 5.1 and PowerShell 7, with real junctions (see Runs) |
 | `install-revert-proofs.ps1` | Takes one fix at a time out of a scratch copy of `install.ps1` (by its marker comments) and shows the self-test then fails in the expected cases. For the PC job |
 | `run-journey.sh` | Starts `journey.sh --build release` in the M08 container (no network, 2 CPUs, 2 GiB, an init process) |
 
@@ -138,9 +138,10 @@ under 5.1 and 7.
 | Job 33, at `c3abefbf`: the Linux x86-64 archive in the existing WSL2 distribution, as files only | Archive sha256 and `verify_artifact --index`: PASS; the inner `heimdall` matches `3b90dfc9…`. Without running it: four NEEDED libraries, each found by `ldconfig -p`; highest symbol version `GLIBC_2.30` against the distribution's 2.39. `install-selftest.sh` 41 ok, 0 failed. `install.sh` install, repeat, update to a marked copy and `--rollback` with `--assume-stopped`: exit 0 each, with the expected digests. The distribution list was unchanged. Not a clean-machine row: the distribution is the owner's, not a fresh one |
 | Job 40, at `5348551b`: the real Windows archive, as files only | `install.ps1` install, repeat, update to a marked copy and `-Rollback`, all with `-AssumeStopped`: exit 0 each. The update was executable-only (the marked copy changed `heimdall.exe` alone), and the rollback left the install without its helper: **finding M08-W1-F1**, fixed in `1ea93bf2` (below). `heimdall.exe` was never run |
 
-These close the paragraph above that calls Windows the open evidence, for the self-test's
-cases. They do not show an install of a real Windows archive: `build-release.ps1` has never
-been run, so no Windows archive exists. The `Kind` access-denied line stays untested.
+Jobs 31 and 32 closed the paragraph above that calls Windows the open evidence, for the
+self-test's cases. Jobs 40 and 43 installed a real Windows archive, built by
+`build-release.ps1` on the PC, as files (its executable never run). The `Kind`
+access-denied line stays untested.
 
 ## W1: finding M08-W1-F1 (PC job 40, 2026-11-23)
 
