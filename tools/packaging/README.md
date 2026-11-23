@@ -179,6 +179,22 @@ paths on this build host, with this toolchain: two builds give byte-identical ar
 a build on another host, or with another zig or Rust release. The external
 `<name>.build-record.json` still carries each build's start and finish, as intended.
 
-macOS still differs in its `LC_UUID`. The Windows half is part B of PC job 47 (two clones after
-`/Brepro`, at `2bcf4dc0`, before the record fix, so only its executables can match).
+**macOS, after `fb96ac35`: reproducible too.** The cause of the differing `LC_UUID`: ld64
+derives the UUID from a hash of the output it writes ("a hash of the output file's content",
+`man ld`), and rustc strips the binary only afterwards (`strip = true`). Before stripping, that
+output still holds the linker's debug map, whose object paths name the checkout and rustc's
+temporary directory. `build-release.sh` now links the macOS target with `-Wl,-S` (no debug
+information in the linker's output), and the stripped executable is the same size as before
+(15,903,984 bytes). Built at `fb96ac35` from the same two checkouts:
+
+| Target | Archive (both checkouts) | Executable | `LC_UUID` |
+|---|---|---|---|
+| `aarch64-apple-darwin` | **identical**, sha256 `872b0497f4772c1413d8da3633450ead4b4e00c8b86c968a5413cddeedd73918` | identical, `b184b454…` | `7E42955C-139A-3A5C-9275-06F1F351AC0D` in both; ad-hoc, linker-signed |
+
+So the macOS arm64 archive of `fb96ac35` is **reproducible** across checkout paths on this host,
+with the same limits as Linux. Neither `-no_uuid` (dyld needs the UUID) nor `-oso_prefix` (it
+cannot cover rustc's random temporary directory) is used.
+
+The Windows half is part B of PC job 47 (two clones after `/Brepro`, at `2bcf4dc0`, before the
+record fix, so only its executables can match).
 
