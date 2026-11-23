@@ -144,7 +144,7 @@ $feat = @(); if ($Features) { $feat = @("--features", $Features) }
 $off = @(); if ($Offline) { $off = @("--offline") }
 Py sbom --target $target @feat @off --commit $commit --time $commitTime --tool $sbomTool --build-messages $messages --out (Join-Path $stage "heimdall-$target.cdx.json")
 Py notices --target $target @feat @off --out (Join-Path $stage "THIRD-PARTY-NOTICES.txt")
-Py build-record --target $target @feat --commit $commit --time $commitTime --clean $clean --flags $flagsText --started $started --finished $finished --signature "none (unsigned)" --stage $stage --out (Join-Path $stage "BUILD-RECORD.json")
+Py build-record --target $target @feat --commit $commit --time $commitTime --clean $clean --flags $flagsText --signature "none (unsigned)" --stage $stage --out (Join-Path $stage "BUILD-RECORD.json")
 Py manifest --stage $stage
 Remove-Item -Force -LiteralPath $messages
 
@@ -167,7 +167,8 @@ try {
     & python -I "$here\verify_artifact.py" $archive --target $target --forbid-file $forbid --allow-exact $label
     if ($LASTEXITCODE -ne 0) { Remove-Item -Force -LiteralPath $archive; Fail 1 "the archive failed verification and was removed" }
     Copy-Item (Join-Path $stage "heimdall-$target.cdx.json") (Join-Path $out "$name.cdx.json")
-    Copy-Item (Join-Path $stage "BUILD-RECORD.json") (Join-Path $out "$name.build-record.json")
+    # The external copy adds the build's wall-clock start and finish (W2-6).
+    Py external-record --record (Join-Path $stage "BUILD-RECORD.json") --started $started --finished $finished --out (Join-Path $out "$name.build-record.json")
     Py index --dir $out
     & python -I "$here\verify_artifact.py" $archive --target $target --forbid-file $forbid --allow-exact $label --index (Join-Path $out "SHA256SUMS") | Out-Null
     if ($LASTEXITCODE -ne 0) { Fail 1 "the archive does not match the external index" }

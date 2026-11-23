@@ -6,7 +6,11 @@ Usage (`build-release.sh` calls these in this order):
                                [--build-messages FILE] --out FILE
     provenance.py notices      --target T [--features F] --out FILE
     provenance.py build-record --target T [--features F] --commit C --time ISO --clean yes|no
-                               --flags TEXT --started ISO --finished ISO --stage DIR --out FILE
+                               --flags TEXT --stage DIR --out FILE
+                               (the record packed into the archive: deterministic inputs only)
+    provenance.py external-record --record FILE --started ISO --finished ISO --out FILE
+                               (the copy published beside the archive: the record plus the
+                               build's wall-clock start and finish)
     provenance.py manifest     --stage DIR          (writes DIR/MANIFEST.sha256, excluding itself)
     provenance.py pack         --stage DIR --time ISO --out FILE.tar.gz|FILE.zip
     provenance.py index        --dir DIR            (writes DIR/SHA256SUMS over archives and records)
@@ -524,7 +528,10 @@ def toolchain_record(run=subprocess.run):
 
 def make_record(a):
     """The build inputs and the digests of the executables only (ADR-0014 section 4.4): no
-    digest of the record itself, of the manifest or of the archive."""
+    digest of the record itself, of the manifest or of the archive. Deterministic: nothing
+    in it depends on when the build ran, so two builds of one commit with the same inputs
+    pack the same record (W2-6, ruled 2026-11-23). The wall-clock start and finish go only
+    into the external copy (`external_record`)."""
     stage = a["stage"]
     outputs = [{"path": f, "sha256": sha256(os.path.join(stage, f)),
                 "size": os.path.getsize(os.path.join(stage, f))}
@@ -542,9 +549,16 @@ def make_record(a):
         "builder_os": builder_os(),
         "tools": {"zig": tool_version(["zig", "version"]), "python": platform.python_version(),
                   "cargo-cyclonedx": CYCLONEDX_VERSION},
-        "started_at": a["started"], "finished_at": a["finished"],
         "signature": a.get("signature") or "none",
         "outputs": outputs}
+
+
+def external_record(record, started, finished):
+    """The copy published beside the archive: the packed record plus the build's wall-clock
+    start and finish, which the packed record leaves out."""
+    if "started_at" in record or "finished_at" in record:
+        raise Refused("the record already holds build times: not a packed record")
+    return dict(record, started_at=started, finished_at=finished)
 
 
 def write_manifest(stage):
@@ -737,10 +751,25 @@ def self_test():
             check("manifest stable when rewritten", fh.read() == body)
         # A stub toolchain record: the self-test must pass on a host with no Rust toolchain.
         stub = {"rustc": {"release": "0.0.0", "host": "stub"}, "cargo": "cargo 0.0.0 (stub)"}
-        rec = make_record({"stage": stage, "commit": "0" * 40, "time": "2026-01-01T00:00:00Z", "clean": "yes",
-                           "target": "t", "flags": "f", "started": "s", "finished": "f",
-                           "toolchain": stub})
+        inputs = {"stage": stage, "commit": "0" * 40, "time": "2026-01-01T00:00:00Z", "clean": "yes",
+                  "target": "t", "flags": "f", "toolchain": stub}
+        rec = make_record(inputs)
         check("record lists executables only", [o["path"] for o in rec["outputs"]] == ["heimdall"])
+        # W2-6: two records of the same inputs, built at different times, are byte-identical,
+        # and the build times appear only in the external copy.
+        first = json.dumps(make_record(dict(inputs, started="2026-01-01T10:00:00Z", finished="2026-01-01T10:05:00Z")), indent=1, sort_keys=True)
+        second = json.dumps(make_record(dict(inputs, started="2026-02-02T20:00:00Z", finished="2026-02-02T20:09:00Z")), indent=1, sort_keys=True)
+        check("records of the same inputs at different times are byte-identical", first == second)
+        check("the packed record holds no build time", "started_at" not in rec and "finished_at" not in rec)
+        ext = external_record(rec, "2026-01-01T10:00:00Z", "2026-01-01T10:05:00Z")
+        check("the external record is the packed record plus the two times",
+              {k: v for k, v in ext.items() if k not in ("started_at", "finished_at")} == rec
+              and (ext["started_at"], ext["finished_at"]) == ("2026-01-01T10:00:00Z", "2026-01-01T10:05:00Z"))
+        try:
+            external_record(ext, "a", "b")
+            check("an external record is not extended twice", False)
+        except Refused:
+            pass
         check("record carries the toolchain it was given", rec["toolchain"] == stub)
 
         # The build messages are read strictly (PC job 34): a byte order mark is accepted, a
@@ -873,8 +902,13 @@ def main(argv):
             else:
                 text = make_notices(root, comps, target, features)
         elif cmd == "build-record":
-            need(opts, "target", "commit", "time", "clean", "flags", "started", "finished", "stage", "out")
+            need(opts, "target", "commit", "time", "clean", "flags", "stage", "out")
             text = json.dumps(make_record(opts), indent=1, sort_keys=True) + "\n"
+        elif cmd == "external-record":
+            need(opts, "record", "started", "finished", "out")
+            with open(opts["record"], encoding="utf-8") as fh:
+                record = json.load(fh)
+            text = json.dumps(external_record(record, opts["started"], opts["finished"]), indent=1, sort_keys=True) + "\n"
         elif cmd == "manifest":
             need(opts, "stage")
             write_manifest(opts["stage"])

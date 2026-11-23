@@ -175,7 +175,7 @@ py sbom --target "$target" ${feat_opt[@]+"${feat_opt[@]}"} ${offline[@]+"${offli
 py notices --target "$target" ${feat_opt[@]+"${feat_opt[@]}"} ${offline[@]+"${offline[@]}"} \
     --out "$stage/THIRD-PARTY-NOTICES.txt" || exit 1
 py build-record --target "$target" ${feat_opt[@]+"${feat_opt[@]}"} --commit "$commit" --time "$commit_time" \
-    --clean "$clean" --flags "$flags_text" --started "$started" --finished "$finished" \
+    --clean "$clean" --flags "$flags_text" \
     --signature "$signature" --stage "$stage" --out "$stage/BUILD-RECORD.json" || exit 1
 py manifest --stage "$stage" || exit 1
 rm -f -- "$messages"
@@ -205,7 +205,10 @@ verify "$archive" || { rm -f -- "$archive"; echo "build-release: the archive fai
 
 # --- external records and the index ---------------------------------------------------
 install -m 0644 "$stage/heimdall-$target.cdx.json" "$out/$name.cdx.json"
-install -m 0644 "$stage/BUILD-RECORD.json" "$out/$name.build-record.json"
+# The external copy adds the build's wall-clock start and finish; the packed record has
+# none, so two builds of one commit pack the same record (W2-6).
+py external-record --record "$stage/BUILD-RECORD.json" --started "$started" --finished "$finished" \
+    --out "$out/$name.build-record.json" || exit 1
 py index --dir "$out" || exit 1
 python3 -I "$here/verify_artifact.py" "$archive" --target "$target" --forbid-file "$forbid" --allow-exact "$label" --index "$out/SHA256SUMS" >/dev/null ||
     { echo "build-release: the archive does not match the external index" >&2; exit 1; }
