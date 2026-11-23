@@ -118,6 +118,13 @@ Each has what today's build does (observed, with where), and a recommendation.
     then also carries the H13 restore epoch;
   - **(b)** the contract states that a repeated release of the same binding is safe and answers
     `already_released`, with no other effect.
+- **Also in scope (added 2026-11-23): observing a request by its request ID.** No CLI form
+  observes an `access ensure` or `run` by the request ID it was sent with. So a request that got no
+  answer and named no operation can only be looked for in the binding list, by its work and
+  profile; when nothing new is listed it never settles, and harness H2 reports `still_unknown`
+  and exits 1. A typed way to ask "what became of request R" (its operation, or its recorded
+  outcome) would settle it. Recommended: answer it with the same decision as the release question,
+  since both rest on the idempotency record.
 - **Consequence either way:** harness H2 changes once U0 rules. Today it never sends a release
   again while its outcome is unknown. Where the uncertain answer named no operation it reads the
   binding list: a binding listed `active`, or a list it cannot read, is `still_unknown` (held, exit

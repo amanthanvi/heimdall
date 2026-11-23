@@ -18,8 +18,11 @@ too. Four of them:
   reached Heimdall before its process ran past its time limit.
 - A request (`access ensure`, `run`) that was started and brought no answer is
   remembered too. It may have made a binding H2 was never told of. H2 never sends it
-  again. A later stop, or the close, observes what became of it and releases every
-  binding that shows.
+  again. A later stop, or the close, observes what became of it and releases a binding
+  that shows, but only one it can tie to that request. The same holds for a request
+  that was answered while its operation was left open: `OUTCOME_UNKNOWN` with the
+  operation unfinished at the step limit, or `ACCEPTED` with a wait on the operation
+  that brought no answer.
 - An operation is read by the typed `state` of its view. Only a terminal state says
   what became of it.
 
@@ -117,7 +120,9 @@ Any goal may carry a `task` label for its record.
 `unresolved(code, operation_id)`.
 
 - `observing` holds an accepted operation that is neither an approval nor a provider
-  wait, such as the one left by a caller timeout.
+  wait, such as the one left by a caller timeout. A wait on it that brings no answer
+  ends the goal in `failed(OUTCOME_UNKNOWN)`, and H2 remembers the request. See
+  "Requests with no answer".
 - `reconciling` holds the operation of an uncertain outcome while H2 observes it.
 - `releasing` holds the next binding to release.
 - `observing_release` holds a binding whose release was answered uncertainly, and the
@@ -139,13 +144,16 @@ Any goal may carry a `task` label for its record.
   of its own: it was never started, or H2 ended it at its time limit.
   After a request that brought no answer, `failed` names the request: its
   `request_id`, the operation it named when it named one, and the code
-  `OUTCOME_UNKNOWN`, or `not_started` when it was never sent. A stop that could not
+  `OUTCOME_UNKNOWN`, or `not_started` when it was never sent. After an accepted
+  request whose wait brought no answer, `failed` names the request, its operation
+  and the code `OUTCOME_UNKNOWN`. A stop that could not
   learn what became of such a request ends in `failed` with the same fields.
 - `inconsistent` ends a goal: an answer's process ended in another exit class than
   the one documented for its code. It carries that code and the exit status. An
   answer about a release never ends there. See "Refused releases".
 - `unresolved` ends a goal: the operation of an uncertain outcome was still unfinished
   at the step limit. It carries the code `OUTCOME_UNKNOWN` and that operation's ID.
+  H2 remembers the request with that operation, and a later stop observes it.
 
 Beside the state, H2 keeps the list of bindings it holds: every binding it was given
 and has not released. A binding leaves the list in three ways only:
@@ -166,7 +174,8 @@ when:
 - a run record names it and the launch then fails, for example because the child
   ended before it wrote a line;
 - a request that brought no answer named it before its process stopped;
-- the observation of such a request shows it. See "Requests with no answer".
+- the observation of such a request shows it, in the right exit class or not. See
+  "Requests with no answer".
 
 `TRANSITIONS` in `harness.py` is the whole table. A row names the states it applies
 to, a code, a `next.action`, the new state, and the typed fields of the answer that
@@ -206,6 +215,7 @@ field written `=VALUE` is that fixed value.
   - Still unfinished at the step limit: `unresolved`, with the code `OUTCOME_UNKNOWN`
     and the operation's ID. The goal fails, and its record's `final_state` is
     `{"state": "unresolved", "code": "OUTCOME_UNKNOWN", "operation_id": "<operation>"}`.
+    H2 remembers the request with that operation. See "Requests with no answer".
   - The answer's `next` named no operation: `failed(OUTCOME_UNKNOWN)`, with no
     further call. It carries the envelope's own `operation_id` when there is one.
 
@@ -462,13 +472,29 @@ complete line as an envelope, and the run records of a launch.
 - H2 holds no child from a launch that ran past its time limit. It ends that process
   through its own handle at the limit, as it ends any call that does.
 
+### Requests answered with their operation left open
+
+Two requests were answered, and their operation may still make a binding after the
+goal ends. H2 remembers each of them in the same way, with that operation (ruled
+2026-11-23):
+
+| The request | Then | The goal ends in | The request's attempt |
+| --- | --- | --- | --- |
+| answered `OUTCOME_UNKNOWN`, naming its operation | the operation was still unfinished at the step limit | `unresolved(OUTCOME_UNKNOWN, operation_id)` | `outcome_unknown`, with the code and exit status of the answer, in `requests_outcome_unknown` |
+| answered `ACCEPTED` (`observing`) | the wait on its operation ran past its time limit, came back unreadable, or could not be started | `failed(OUTCOME_UNKNOWN, request_id, operation_id)` | `still_unknown`, an observation with its `fault`, in `requests_still_unknown` |
+
+The request is never sent again. A later stop, or the close, observes it like any
+remembered request.
+
+### Observing a remembered request
+
 **A later stop, or the close, observes it first,** before it asks about any binding.
 Each stop observes each remembered request once.
 
 | The request | H2 observes | State |
 | --- | --- | --- |
 | named an operation | that operation: `operation wait <operation>` | `observing_request` |
-| named no operation | the bindings of its work: `inspect bindings` | `inspecting_request` |
+| named no operation | the list of bindings: `inspect bindings` | `inspecting_request` |
 
 `REQUEST_SAYS` in `harness.py` reads the observation from typed fields only.
 
@@ -477,36 +503,56 @@ Each stop observes each remembered request once.
 | The operation | Outcome | H2 then |
 | --- | --- | --- |
 | is in the terminal state `succeeded`, with its own code `ACCESS_READY`, `next.action` `none`, exit 0, and names a binding in `data.result.binding_id` | `binding_found` | holds that binding, and the same stop releases it |
+| the same, in another exit class | `still_unknown`, with `inconsistent: true` | holds that binding all the same, and the same stop releases it. The request stays uncertain |
 | is in the terminal state `failed` or `cancelled`, with another code, `next.action` `none` and `effect_status` `none`, in that code's exit class | `not_run` | has nothing to release |
 | anything else | `still_unknown` | keeps the request as uncertain, and sends nothing |
 
 **Where it named no operation,** today's CLI has no way to observe a request by its
 request ID: `operation show` and `operation wait` take an operation ID, and no
 `inspect` subject takes a request ID. The typed means left is the complete list of
-`inspect bindings`. H2 reads three fields of each entry: `work_id`, `state` and
-`binding_id`.
+`inspect bindings`.
+
+**H2 never releases a binding it cannot tie to its own request** (ruled 2026-11-23).
+Each entry of the list carries `binding_id`, `grant_id`, `work_id`, `profile`,
+`profile_revision`, `state` and `created_at`. No field names a caller or a request:
+the list is this caller's own. A binding is a candidate only if it passes every check
+of `ATTRIBUTION` in `harness.py`:
+
+| Field | Check |
+| --- | --- |
+| `state` | `active` |
+| `work_id` | the request's work |
+| `profile` | the request's profile |
+| `created_at` | an RFC 3339 instant in UTC, later than the moment H2 sent the request (taken just before the process started) |
+
+A binding H2 was ever given is not a candidate: it is the binding of the answer that
+gave it. `grant_id` and `profile_revision` tie a binding to no request.
 
 | The list of bindings | Outcome | H2 then |
 | --- | --- | --- |
-| names a binding for the request's work, in the state `active`, that H2 does not hold | `binding_found` | holds every such binding, and the same stop releases them |
-| names no such binding | `still_unknown` | keeps the request as uncertain, and sends nothing |
-| could not be read, is not the complete list, or came in the wrong exit class | `still_unknown` | the same |
+| names exactly one candidate | `binding_found` | holds it, and the same stop releases it |
+| the same, in another exit class | `still_unknown`, with `inconsistent: true` | holds it all the same, and the same stop releases it. The request stays uncertain |
+| names more than one candidate | `still_unknown` | releases none of them: which one is the request's is not known |
+| names none: another profile, an older binding, one with no creation time, one H2 was given, or no binding for the work | `still_unknown` | keeps the request as uncertain, and sends nothing |
+| could not be read, or is not the complete list | `still_unknown` | the same |
 
-Three rules follow from the contract owner's ruling of 2026-11-22:
+Rules that follow from the contract owner's rulings of 2026-11-22 and 2026-11-23:
 
-- **An `active` binding for that work is a binding to release.** H2 holds it and
-  releases it under the same rules as every other binding.
+- **A binding the observation names is held, whatever its exit class.** Cleanup is
+  the safer side. An answer in the wrong exit class still settles nothing, so the
+  request stays `still_unknown`, and the attempt is marked `inconsistent`.
+- **A binding H2 cannot tie to its request is left alone.** That covers another
+  caller's binding of the same work, and another request's.
 - **A list that names none is no evidence that the request never ran.** It may not
-  have been applied yet. That is also what the list says when the only bindings for
-  the work are ones H2 held before. The request stays `still_unknown`.
+  have been applied yet. The request stays `still_unknown`.
 - **Still unknown is an end, not a retry.** The stop goes on with the bindings it
   holds, and then fails in `failed(OUTCOME_UNKNOWN, request_id)`. The run exits 1, and
   the summary names the request. A later stop, or the close, observes once more.
 
-**What the list cannot say.** It carries no request ID. So H2 cannot tell which
-request made a binding it shows, whether the request reached Heimdall at all, or
-whether it is still in progress and will make a binding later. Only the operation of
-a request can say that it never ran.
+**What the list cannot say.** It carries no request ID. So H2 cannot tell whether the
+request reached Heimdall at all, or whether it is still in progress and will make a
+binding later. Only the operation of a request can say that it never ran. A creation
+time is the runtime's wall clock, compared with H2's own on the same host.
 
 Each outcome has a step code of its own in `transitions`:
 
@@ -514,9 +560,14 @@ Each outcome has a step code of its own in `transitions`:
 | --- | --- | --- |
 | `unanswered` | `(no answer)` | `failed`, in the goal that sent the request |
 | `not_sent` | `(not started)` | `failed`, in the goal that did not send it |
+| `still_unknown` of a wait in `observing` | `(no answer)` or `(not started)` | `failed`, in the goal that sent the request |
 | `binding_found` | `(a request observed)` | the next request, or the first binding to release |
 | `not_run` | `(a request that never ran)` | the next request or binding, or the end of the stop |
 | `still_unknown` | `(a request still unknown)` | the next request or binding, or `failed` |
+| `still_unknown`, with a binding held | `(a binding found out of its exit class)` | the next request or binding, or `failed` |
+
+A request that ends `unresolved` has the step code `(the step limit)`, as any
+`unresolved` goal does.
 
 No real-binary run produces any of these answers today. The stub tests alone cover
 them.
@@ -527,7 +578,9 @@ them.
 an observed run.** H2 has the list's word for the binding's state. It did not see
 the release run, and no real-binary run answers a release uncertainly today. The
 stub tests alone cover this reading. The same holds for the bindings the list names
-for a work: `work_id` is a field of the list as today's build prints it.
+for a request: `work_id`, `profile` and `created_at` are fields of the list as today's
+build prints it (`crates/app/src/operations.rs`, the bindings arm of `inspect`). No
+published schema covers `inspect bindings` yet.
 
 **`inspect bindings` is the one call H2 uses that the skill does not list yet**
 (`skills/heimdall/SKILL.md`). It is a read-only call of the CLI contract. The skill
@@ -608,38 +661,71 @@ ends the goal.
 
 ## Records
 
-Stdout is one JSON summary: `harness`, `call_set`, one record per goal in `tasks`,
-`close`, `release_attempts` and `request_attempts`. A record has the fields H1's records have (`task`, `success`, `calls`,
-`round_trips`, `human_handoffs`, `invalid_retries`, `wall_time_ms`,
-`discovery_bytes`, `detail`, `skipped`) and adds `goal`, `final_state`,
-`transitions` (the path it took), `held` (the bindings H2 still holds after the
-goal), and six lists of what the goal's calls about releases came to:
+Stdout is one JSON summary. Every field H2 writes is in this table. "Task" is one
+record of `tasks`, one for each goal. "Attempt" is one call about a release or about
+a request, as `release_attempts` and `request_attempts` list it; an entry of a task's
+lists is the same attempt with the fields named there.
 
-| List | Holds |
-| --- | --- |
-| `refused_releases` | the releases Heimdall refused during the goal |
-| `outcome_unknown` | the releases answered `OUTCOME_UNKNOWN` during the goal |
-| `unanswered` | the releases of the goal that were started and brought no answer |
-| `not_sent` | the releases of the goal that were never sent: the CLI could not be started |
-| `still_unknown` | the observations of the goal that did not say what became of an uncertain release |
-| `not_listed` | the bindings the goal found missing from the complete list of bindings |
+| Field | Meaning | Where it appears |
+| --- | --- | --- |
+| `harness` | `H2` | the summary |
+| `call_set` | where the call set came from | the summary |
+| `tasks` | one record for each goal, in order | the summary |
+| `close` | what the close did: `released` and `held` | the summary |
+| `release_attempts` | each binding with an attempt that did not release it, keyed by binding ID | the summary |
+| `request_attempts` | each request whose outcome was ever unknown or that was never sent, keyed by request ID | the summary |
+| `released` | the bindings the close released, by an answer or by an observed release, in the order H2 first held them | `close` |
+| `held` | the bindings H2 still holds | `close`; a task, after its goal; an entry of `release_attempts` (`true` or `false`) |
+| `task` | the goal's task label (its `task`, else the goal's name) | a task |
+| `goal` | the goal's name: `discover`, `access`, `run` or `stop` | a task |
+| `success` | whether the goal was met | a task |
+| `calls`, `round_trips` | how many CLI processes the goal started (the same number) | a task |
+| `human_handoffs` | how many times the goal handed off to a person | a task |
+| `invalid_retries` | answers whose `next.action` is `fix_request` or `new_request_id` | a task |
+| `wall_time_ms` | the goal's wall time, without the time spent in a handoff | a task |
+| `discovery_bytes` | the stdout bytes of the discovery call | a task |
+| `detail` | how the goal was met, or why it failed | a task |
+| `skipped` | always `false` | a task |
+| `final_state` | the state the goal ended in, with its fields | a task |
+| `transitions` | the path the goal took: one step for each call, and one for the step limit | a task |
+| `from`, `to`, `code`, `action`, `by_table` | a step: the states before and after, the answer's code (or a step code of H2's own), its `next.action`, and whether a row of the table chose it | each step of `transitions` |
+| `child_exit_code` | the exit status of the child a stop ended | a task of a stop that ended a child |
+| `refused_releases` | the releases Heimdall refused during the goal | a task |
+| `outcome_unknown` | the releases answered `OUTCOME_UNKNOWN` during the goal | a task |
+| `unanswered` | the releases of the goal that were started and brought no answer | a task |
+| `not_sent` | the releases of the goal that were never sent | a task |
+| `still_unknown` | the observations of the goal that did not say what became of an uncertain release | a task |
+| `not_listed` | the bindings the goal found missing from the complete list of bindings | a task |
+| `requests_outcome_unknown` | the requests of the goal answered `OUTCOME_UNKNOWN` whose operation was unfinished at the step limit | a task |
+| `requests_unanswered` | the requests of the goal that were started and brought no answer | a task |
+| `requests_not_sent` | the requests of the goal that were never sent | a task |
+| `requests_still_unknown` | the observations of the goal that did not say what became of a request: a wait on an accepted request's operation with no answer, and each later observation that settled nothing | a task |
+| `attempts` | every attempt about the binding or the request, in order: the stop goals', then the close's | an entry of `release_attempts` or `request_attempts` |
+| `call` | `access ensure` or `run` | an entry of `request_attempts`; an entry of a task's `requests_*` list |
+| `profile`, `work_id` | what the request asked for | the same |
+| `uncertain` | whether H2 still does not know what became of the request | an entry of `request_attempts` |
+| `by` | who made the call: `stop` or `close` for a release; the goal (`access`, `run`, `stop`) or `close` for a request | an attempt. Not in a task's lists |
+| `outcome` | what the call came to. Release: `released`, `refused`, `outcome_unknown`, `unanswered`, `not_sent`, `still_unknown`, `not_run`, `not_listed`. Request: `outcome_unknown`, `unanswered`, `not_sent`, `binding_found`, `not_run`, `still_unknown` | an attempt. Not in a task's lists: the list names it |
+| `binding_id` | the binding the release was about | an entry of a task's six release lists |
+| `request_id` | the request's ID. For a release it is `null`: today's `access release` takes none | an entry of a task's `requests_*` list; a release attempt while it is `outcome_unknown`, `unanswered` or `still_unknown` |
+| `code`, `exit_code` | the answer's code and the exit status of its process. For an observed operation, the code is the operation's own once its state says it is over. After a call with no answer, `code` is that of the first complete line it printed, or `null`, and `exit_code` is `null` when the call was never started or H2 ended it | an attempt |
+| `operation_id` | the operation the answer or the request named, to observe later | a release attempt while it is uncertain; a request attempt where an operation is known |
+| `observed` | an observation: `operation` or `bindings` | an attempt that is an observation |
+| `state` | the binding's state in the list, or `(not listed)` | a release attempt that read the list of bindings |
+| `listed` | the bindings the list names for the request's work in the state `active` | a request attempt that read the list |
+| `candidates` | those of `listed` that pass every check of `ATTRIBUTION` and that H2 was never given | a request attempt that read the list |
+| `bindings` | the bindings this attempt gave H2 to hold: the one the request named before it stopped, or the one an observation showed | a request attempt that gave H2 a binding |
+| `inconsistent` | `true`: the exit class does not fit the answer | an attempt in the wrong exit class |
+| `fault` | why the call brought no answer: `timed_out`, `unreadable` or `not_started` | an attempt after a call with no answer |
+| `detail` | with `inconsistent`, the mismatch named as a probable product defect; with `fault`, what went wrong | an attempt with either |
 
-A binding in one of the first five is still held. A binding in `not_listed` is not.
-
-Three more lists are about requests that brought no answer. They stand beside the
-lists about releases, so that an entry of either kind has one shape:
-
-| List | Holds |
-| --- | --- |
-| `requests_unanswered` | the requests of the goal that were started and brought no answer |
-| `requests_not_sent` | the requests of the goal that were never sent: the CLI could not be started |
-| `requests_still_unknown` | the observations of the goal that did not say what became of such a request |
+A binding in one of a task's first five release lists is still held. A binding in
+`not_listed` is not.
 
 Before it exits, H2 releases whatever the goals left held and ends a child that is
-still running. `close` reports that: `released` lists the bindings released then, by
-an answer or by an observed release, and `held` lists those still on H2's list. A
-binding the close found `not_listed` is in neither: it is not held, and it was not
-observed to be released. `release_attempts` names it.
+still running. A binding the close found `not_listed` is in neither of `close`'s
+lists: it is not held, and it was not observed to be released. `release_attempts`
+names it.
 
 The close is always a stop of its own, whatever state the goals left, and every call
 it makes is an attempt of its own, recorded with `by` `close`. It is made in rounds
@@ -651,17 +737,14 @@ that are each bounded by the step limit.
   and set aside, and the rest are still released.
 - It observes a release an earlier stop left uncertain, and does not send it again.
 - It does not observe a release that it was itself answered uncertainly.
-- It observes each request that brought no answer first, once, and does not send it
-  again. `released` also names a binding such an observation showed and the close then
+- It observes each remembered request first, once, and does not send it again.
+  `released` also names a binding such an observation showed and the close then
   released.
 - Every call it makes about a binding is an attempt, a call with no answer included.
   So a failure about one binding never ends it while another binding is still to be
   asked about.
 
-The summary's `release_attempts` is keyed by binding. It has one entry for each
-binding with an attempt that did not release it. The entry says whether the binding
-is still `held`, and lists every attempt about that binding in order: those of the
-stop goals, then those of the close.
+`release_attempts`, for a binding refused twice:
 
 ```json
 {"<binding>": {"held": true, "attempts": [
@@ -669,28 +752,8 @@ stop goals, then those of the close.
   {"by": "close", "outcome": "refused", "code": "CAPABILITY_UNAVAILABLE", "exit_code": 4}]}}
 ```
 
-An attempt is one call. Its fields:
-
-| Field | Meaning |
-| --- | --- |
-| `by` | `stop` for a stop goal, `close` for the close |
-| `outcome` | `released`, `refused`, `outcome_unknown` (the release was answered `OUTCOME_UNKNOWN`), `unanswered` (the release was started and brought no answer), `not_sent` (the CLI could not be started), `still_unknown` (an observation did not say what became of it), `not_run` (its operation ended and said the release did not happen) or `not_listed` (the complete list of bindings does not name the binding) |
-| `code`, `exit_code` | the answer's code and the exit status of its process. For an observed operation, the code is the operation's own once its state says the operation is over. After a call with no answer, `code` is the code of the first complete line it printed, or `null`; `exit_code` is `null` when the call was never started or H2 ended it |
-| `observed` | present on an observation: `operation` or `bindings` |
-| `state` | present on a `bindings` observation that could be read: the binding's state, or `(not listed)` |
-| `request_id`, `operation_id` | present while the outcome is `outcome_unknown`, `unanswered` or `still_unknown`. See "Uncertain releases" |
-| `inconsistent` | present when the exit class does not fit the answer: `true` |
-| `fault` | present after a call with no answer: `timed_out`, `unreadable` or `not_started`. See "Calls with no answer" |
-| `detail` | present with `inconsistent` (the mismatch named as a probable product defect) or with `fault` (what went wrong with the call) |
-
-An entry in one of a goal's six lists about releases is the same attempt with its
-`binding_id`, and without `by` and `outcome`.
-
-The summary's `request_attempts` is keyed by request ID. It has one entry for each
-request that brought no answer. The entry says what was asked (`call`: `access ensure`
-or `run`; `profile`; `work_id`), whether H2 still does not know what became of it
-(`uncertain`), and lists every attempt about it in order: the request itself, then
-each observation.
+`request_attempts`, for a request that ran past its time limit after naming its
+operation, and whose operation the close then found to have made a binding:
 
 ```json
 {"<request-id>": {"call": "access ensure", "profile": "<profile>", "work_id": "<work-id>",
@@ -702,19 +765,13 @@ each observation.
    "observed": "operation", "operation_id": "<operation>", "bindings": ["<binding>"]}]}}
 ```
 
-| Field | Meaning |
-| --- | --- |
-| `by` | the goal that made the call (`access`, `run`, `stop`), or `close` |
-| `outcome` | `unanswered` or `not_sent` for the request itself; `binding_found`, `not_run` or `still_unknown` for an observation |
-| `code`, `exit_code` | as for a release. For the request itself, `code` is the code of the first complete line it printed, or `null` |
-| `fault`, `detail`, `inconsistent` | as for a release |
-| `operation_id` | present when the request named an operation |
-| `observed` | present on an observation: `operation` or `bindings` |
-| `listed` | present on a `bindings` observation that could be read: the bindings the list names for the work in the state `active` |
-| `bindings` | the bindings this attempt gave H2, which it then holds: the one the request named before it stopped, or those an observation showed |
+A request observed through the list, where two bindings could be its own:
 
-An entry in one of a goal's three lists about requests is the same attempt with its
-`request_id`, `call`, `profile` and `work_id`, and without `by` and `outcome`.
+```json
+{"by": "close", "outcome": "still_unknown", "code": "OK", "exit_code": 0,
+ "observed": "bindings", "listed": ["<binding-a>", "<binding-b>"],
+ "candidates": ["<binding-a>", "<binding-b>"]}
+```
 
 A release whose operation said it did not happen, and that was then released, has
 three attempts: `outcome_unknown`, `not_run`, `released`. A binding found missing
@@ -734,16 +791,15 @@ from the list has two, and it is not held:
 - A refused release is a call, and it is counted. Its step in `transitions` has the
   code `(a refused release)`. An observation of an uncertain release is a call too.
 - The releases H2 makes when it closes are in no record's counts.
-- Wall time excludes the time spent in a handoff.
-- Discovery bytes are the stdout bytes of the discovery call.
-- Invalid retries count answers whose `next.action` is `fix_request` or
-  `new_request_id`: Heimdall saying the request was wrong or wrongly repeated.
+- Invalid retries count answers with which Heimdall said the request was wrong or
+  wrongly repeated.
 
 The process exits 0 when every goal was met, `release_attempts` and
 `request_attempts` are empty and nothing is left held. It exits 1 otherwise: a release
 that was refused, uncertain, unanswered or not sent fails the run, whatever a later
-attempt made of it. That includes a binding later found `not_listed`. A request that
-brought no answer fails the run too, whatever an observation then showed.
+attempt made of it. That includes a binding later found `not_listed`. A request whose
+outcome was ever unknown, or that was never sent, fails the run too, whatever an
+observation then showed.
 
 ## Held
 
@@ -760,14 +816,21 @@ brought no answer fails the run too, whatever an observation then showed.
   observing it are covered by the stub tests only. That includes an operation view
   that contradicts its envelope. No real-binary run produces any of these answers
   today.
-- **Every request that brought no answer.** A request that ran past its time limit,
-  one whose answer could not be read, one that was never started, and each result of
-  observing one are covered by the stub tests only. No real-binary run produces any of
-  these today.
+- **Every request whose outcome is unknown.** A request that ran past its time limit,
+  one whose answer could not be read, one that was never started, one answered
+  `OUTCOME_UNKNOWN` that ended `unresolved`, one answered `ACCEPTED` whose wait brought
+  no answer, and each result of observing one are covered by the stub tests only. No
+  real-binary run produces any of these today.
 - **Observing a request by its request ID.** Today's CLI has no such call, so a
-  request that named no operation is observed through `inspect bindings` for its work.
-  That list cannot say whether the request ran. If the contract gains such a call, H2
-  uses it there.
+  request that named no operation is observed through `inspect bindings`, tied to the
+  request by its work, its profile and a creation time later than its sending. That
+  list cannot say whether the request ran, and has no field that names the caller. If
+  the contract gains such a call, H2 uses it there.
+- **Other requests whose operation is left open.** These still end their goal with
+  nothing remembered: an `OUTCOME_UNKNOWN` whose `next` names no operation; a wait
+  with no answer in `reconciling` or `pending_approval`; and a wait answered in the
+  wrong exit class (`inconsistent`). `TRACKED` and `KEPT` in `harness.py` name the
+  states that remember one today.
 - **The request ID of a release.** Today's `access release` takes none. If it takes
   one later, H2 records it in `request_id`. Whether H2 may then send the release
   again under the same ID is the contract owner's to say.
@@ -811,13 +874,24 @@ The tests use a stub `heimdall` in a temporary directory. They cover:
   attempt;
 - requests with no answer: `access ensure` that prints `ACCESS_READY` with a binding
   and then stays (the close releases it); one that names an operation and then stays,
-  observed to have succeeded (the binding is released), to have failed with effect
-  `none` (nothing to release) and to be still unfinished (`still_unknown`); one that
-  stays without a word, or prints no envelope, observed by the list of bindings for
-  its work; a binding H2 already held for that work, which is no evidence; a launch
-  whose run record was written before the time limit, and one that left none; a
-  request that was never started (`not_sent`); that no such request is ever sent
-  again; and the exit status of the run;
+  observed to have succeeded (the binding is released), to have succeeded in the
+  wrong exit class (the binding is released, and the request stays unknown), to have
+  failed with effect `none` (nothing to release) and to be still unfinished
+  (`still_unknown`); one that stays without a word, or prints no envelope, observed by
+  the list of bindings; a binding H2 already held for that work, which is no
+  evidence; a launch whose run record was written before the time limit, and one that
+  left none; a request that was never started (`not_sent`); that no such request is
+  ever sent again; and the exit status of the run;
+- the list of bindings, read for a request: a binding of the same work with another
+  profile, one made before the request was sent, and one with no creation time are
+  left alone; two that can be the request's are both left alone; one in the wrong
+  exit class is released, and the request stays unknown; every check of
+  `ATTRIBUTION`, and the reading of a creation time;
+- requests answered with their operation left open: `OUTCOME_UNKNOWN` with the
+  operation unfinished at the step limit, and `ACCEPTED` whose wait runs past its
+  time limit or comes back unreadable; each observed later to have made a binding
+  (released by the stop or the close) or still unfinished (`still_unknown`), and the
+  exit status of the run;
 - exit classes: the stub ends an answer in the wrong class for each kind of call,
   and the goal fails; every published code is checked against its class; the frozen
   tables are compared with `schemas/public-api` when the example sits in the

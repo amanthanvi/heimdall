@@ -14,8 +14,10 @@ ended without succeeding, says that the release did not happen. An operation is 
 by the typed state of its view (OPERATION_STATES). A request (`access ensure`, `run`)
 that was started and brought no answer is remembered in the same way: it may have made
 a binding this planner was never told of. It is never sent again. A later stop, or the
-close, observes what became of it, and releases every binding that shows. Nothing here
-reads an answer's prose.
+close, observes what became of it, and releases a binding that shows only where it can
+be the request's own. So is a request answered `OUTCOME_UNKNOWN` whose operation was
+still unfinished at the step limit, and one answered `ACCEPTED` whose operation could
+not be observed. Nothing here reads an answer's prose.
 """
 
 import argparse
@@ -77,8 +79,8 @@ LOCAL_CALL_SET = {
     # The complete list of this caller's bindings. H2 reads it for one thing only: what
     # became of a release whose answer was uncertain and named no operation.
     "bindings": {"argv": ("inspect", "bindings"), "options": {}, "answer": "bindings"},
-    # The same list, read for one other thing: the bindings it names for the work of a
-    # request that brought no answer and named no operation.
+    # The same list, read for one other thing: the binding it names that can be the
+    # request's own, for a request that brought no answer and named no operation.
     "work": {"argv": ("inspect", "bindings"), "options": {}, "answer": "work"},
 }
 # The calls that are requests: each asks Heimdall to change something, and carries a
@@ -114,10 +116,10 @@ def load_call_set(command):
 # operation that answer named: a later stop waits on it before it asks anything else;
 # `inspecting_release`, the same where the answer named no operation: the binding's
 # own state is read from the list of bindings, and no release follows from there;
-# `observing_request`, a request that brought no answer, and the operation it named
-# before that: a later stop waits on it before it asks about any binding;
-# `inspecting_request`, the same where it named no operation: the list of bindings is
-# read for the bindings of that request's work.
+# `observing_request`, a request that brought no answer, or whose operation was left
+# open, and the operation it named: a later stop waits on it before it asks about any
+# binding; `inspecting_request`, the same where it named no operation: the list of
+# bindings is read for a binding that can be that request's own.
 # Two end a goal: `unresolved`, an uncertain outcome whose operation was still
 # unfinished at the step limit (it names that operation); and `inconsistent`, an answer
 # whose process ended in another exit class than the one documented for its code.
@@ -269,23 +271,33 @@ FOUND = "(a request observed)"
 # The operation the request named has ended, and its result says that the request did
 # not happen: there is nothing to release.
 NEVER_RAN = "(a request that never ran)"
+# An observation names a binding the request made, as for FOUND, but its process ended
+# in another exit class than the one documented for it. The binding is held from here
+# on, and released like any other, still marked `inconsistent`. The request stays
+# uncertain (ruled 2026-11-23: cleanup is the safer side).
+MISFIT = "(a binding found out of its exit class)"
 # An observation does not say what became of the request: it stays uncertain, and
 # nothing is sent.
 STILL_OPEN = "(a request still unknown)"
-# Stand where the list's word on a work would: it names a binding for the work, in the
-# state `active`, that this planner does not hold; or it names no such binding.
-NEW, NONE_NEW = "new", "none"
+# Stand where the list's word on a request would: it names exactly one binding that can
+# be the request's own (`work.matching`) and that this planner was never given; none; or
+# more than one. Only the first is evidence (ruled 2026-11-23).
+NEW, NONE_NEW, SEVERAL = "one", "none", "several"
 ORIGIN = ("start", "discovered")
 REQUESTING = ORIGIN + ("pending_provider",)
 SENDING = REQUESTING + ("ready",)  # every state a request is sent from
 IN_FLIGHT = ("observing", "pending_approval")
+# The state that waits on the accepted operation of a request (`ACCEPTED`). A wait in it
+# that brings no answer leaves the request uncertain: it is remembered like a request
+# that brought none (ruled 2026-11-23).
+TRACKED = ("observing",)
 HELD = ("ready", "running")
 RELEASABLE = HELD + ("releasing",)  # every state a release is sent from
 WAITING = ("observing_release",)  # the operation of an uncertain release is waited on
 INSPECTING = ("inspecting_release",)  # the binding's own state is read from the list
 OBSERVING = WAITING + INSPECTING  # an uncertain release is observed
 ASKING_BY_WAIT = ("observing_request",)  # the operation of an unanswered request is waited on
-ASKING_BY_LIST = ("inspecting_request",)  # the list is read for the bindings of its work
+ASKING_BY_LIST = ("inspecting_request",)  # the list is read for a binding that is its own
 ASKING = ASKING_BY_WAIT + ASKING_BY_LIST  # an unanswered request is observed
 STOPPING = RELEASABLE + OBSERVING + ASKING  # every state a stop calls from
 # Every state that makes a call that is not about a release:
@@ -389,6 +401,9 @@ REQUEST_SAYS = (
     # it made, is evidence of a binding.
     Says("observe", "ACCESS_READY", "none", True,
          (("data.state", SUCCEEDED), ("data.result.binding_id", FIELD_CHECKS["binding_id"])), FOUND),
+    # The same in another exit class: the binding is held all the same.
+    Says("observe", "ACCESS_READY", "none", False,
+         (("data.state", SUCCEEDED), ("data.result.binding_id", FIELD_CHECKS["binding_id"])), MISFIT),
     # A success that names no usable binding, or that its state does not bear out; and
     # an operation unfinished when the wait ran out, or in the wrong class:
     Says("observe", "ACCESS_READY", None, None, (), STILL_OPEN),
@@ -398,23 +413,34 @@ REQUEST_SAYS = (
     Says("observe", None, "none", True,
          (("data.state", UNSUCCESSFUL), ("data.effect_status", ("none",))), NEVER_RAN),
     Says("observe", None, None, None, (), STILL_OPEN),
-    # The complete list of this caller's bindings, read for the work of the request. A
-    # binding it names for that work in the state `active`, and that this planner does
-    # not hold, is a binding to release (ruled 2026-11-22). A list that names none is
-    # no evidence that the request never ran: it may not have been applied yet.
+    # The complete list of this caller's bindings, read for the request. The one binding
+    # it names `active` that can be the request's own by every typed field the list
+    # offers (ATTRIBUTION), and that this planner was never given, is a binding to
+    # release. None, or more than one, says nothing: nothing is released (ruled
+    # 2026-11-23). A list that names none is no evidence that the request never ran: it
+    # may not have been applied yet.
     Says("work", "OK", "none", True, (("work.found", (NEW,)),), FOUND),
+    Says("work", "OK", "none", False, (("work.found", (NEW,)),), MISFIT),
     Says("work", None, None, None, (), STILL_OPEN),
 )
 # What each reading of a request is called in a record: the request's own fault, then
 # the observations. And what each observing call observes.
 REQUEST_OUTCOMES = {UNANSWERED: "unanswered", NOT_STARTED: "not_sent", FOUND: "binding_found",
-                    NEVER_RAN: "not_run", STILL_OPEN: "still_unknown"}
+                    NEVER_RAN: "not_run", STILL_OPEN: "still_unknown", MISFIT: "still_unknown"}
 REQUEST_OBSERVED_BY = {"observe": "operation", "work": "bindings"}
-# The readings after which nothing more is to be learned of a request.
+# The readings after which nothing more is to be learned of a request, and those that
+# give this planner a binding to hold.
 SETTLED = (FOUND, NEVER_RAN)
+GIVING = (FOUND, MISFIT)
+# The states a request's goal can end in with the request answered and its operation
+# still open, and the outcome the request's attempt then records: answered
+# `OUTCOME_UNKNOWN`, and unfinished at the step limit (ruled 2026-11-23). The request is
+# remembered with that operation, as one that brought no answer is.
+KEPT = {"unresolved": "outcome_unknown"}
 # The lists of a goal's record that are about requests, and the outcome each one holds
 # the attempts of. They stand beside the lists about releases (RECORDED).
-REQUEST_RECORDED = {"requests_unanswered": "unanswered", "requests_not_sent": "not_sent",
+REQUEST_RECORDED = {"requests_outcome_unknown": "outcome_unknown",
+                    "requests_unanswered": "unanswered", "requests_not_sent": "not_sent",
                     "requests_still_unknown": "still_unknown"}
 # Today's `access release` takes no request ID (ADR-0013 §2.2), so an uncertain release
 # has none to record, and there is no same-key replay to fall back on (ADR-0013 §7:
@@ -438,7 +464,7 @@ NAMED = (("code", "unreleased.code"), ("binding_id", "unreleased.binding_id"))
 UNRELEASED = NAMED + (("exit_code", "unreleased.exit_code"),)
 ITS_OPERATION = (("operation_id", "unreleased.operation_id"),)
 # The planner's own facts about a request that brought no answer (Planner.unanswered,
-# Planner.release_facts). `request.*` is that request where it is the one just sent, and
+# Planner.untracked, Planner.release_facts). `request.*` is that request where it is the one just sent, and
 # otherwise the next one a stop is to observe, with `request.operation_id` when it
 # named an operation. `unreleased.request_id` names a request where the first thing
 # this stop could not settle is one.
@@ -481,7 +507,10 @@ DEALT_WITH = (("OK", RELEASABLE, ENDING), (OBSERVED, OBSERVING, ENDING),
               # the observation of a request that brought no answer: only the wait on
               # its operation can say that it never ran
               (FOUND, ASKING, ASKING_ENDING), (NEVER_RAN, ASKING_BY_WAIT, ASKING_ENDING),
-              (STILL_OPEN, ASKING, ASKING_ONWARD))
+              (STILL_OPEN, ASKING, ASKING_ONWARD),
+              # a binding found out of its exit class is held, and the request is not
+              # settled: the stop can no longer end in `stopped`
+              (MISFIT, ASKING, ASKING_ONWARD))
 
 TRANSITIONS = (
     # discovery
@@ -515,6 +544,11 @@ TRANSITIONS = (
     Row(SENDING, UNANSWERED, "none", "failed", UNKNOWN_CODE + ITS_REQUEST + NAMED_BY_IT),
     Row(SENDING, UNANSWERED, "none", "failed", UNKNOWN_CODE + ITS_REQUEST),
     Row(SENDING, NOT_STARTED, "none", "failed", (("code", "=not_started"),) + ITS_REQUEST),
+    # a wait on the accepted operation of a request that brought no answer, or was never
+    # started, ends the goal too: the request is uncertain, and `failed` names it with
+    # that operation. A later stop observes it
+    Row(TRACKED, UNANSWERED, "none", "failed", STILL_UNKNOWN + ITS_REQUEST),
+    Row(TRACKED, NOT_STARTED, "none", "failed", STILL_UNKNOWN + ITS_REQUEST),
     # observing the same operation: unfinished, so observe it again
     Row(("observing",), "OK", "observe", STAY, ()),
     Row(("pending_approval",), "OK", "observe", STAY, ()),
@@ -859,25 +893,80 @@ def read_bindings(envelope, binding_id):
     return reading._replace(facts=dict(reading.facts, binding={"state": states[0]}))
 
 
-def read_work(envelope, work_id):
+# A creation time as the list of bindings gives it: an RFC 3339 instant in UTC, to the
+# nanosecond at most (the runtime's own wall clock).
+INSTANT = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z")
+
+
+def instant(value):
+    """An instant of the list of bindings in nanoseconds since the epoch, or None where
+    the value is not one (no leap second)."""
+    found = INSTANT.fullmatch(value) if isinstance(value, str) else None
+    if found is None:
+        return None
+    year, month, day, hour, minute, second = map(int, found.groups()[:6])
+    leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+    if not (1 <= month <= 12 and hour < 24 and minute < 60 and second < 60
+            and 1 <= day <= (31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)[month - 1]):
+        return None
+    # Days since 1970-01-01 in the proleptic Gregorian calendar, the year starting in March.
+    shifted = year - (month <= 2)
+    era, of_era = divmod(shifted, 400)
+    day_of_year = (153 * (month + (-3 if month > 2 else 9)) + 2) // 5 + day - 1
+    day_of_era = of_era * 365 + of_era // 4 - of_era // 100 + day_of_year
+    days = era * 146097 + day_of_era - 719468
+    seconds = ((days * 24 + hour) * 60 + minute) * 60 + second
+    return seconds * 10**9 + int((found.group(7) or "0").ljust(9, "0"))
+
+
+def later(value, sent):
+    """Whether an instant of the list is later than `sent`, the moment this planner sent
+    a request (nanoseconds since the epoch, on the same host's wall clock)."""
+    made = instant(value)
+    return type(sent) is int and made is not None and made > sent
+
+
+# Every typed field of an entry of the list of bindings that ties the binding to one
+# request, with the check it must pass against what was asked (ruled 2026-11-23). The
+# list carries no request ID and no field that names a caller: it is this caller's own
+# list. `grant_id` and `profile_revision` tie a binding to no request, and the entry
+# must be in the state `active` to be one to release.
+ATTRIBUTION = (
+    ("work_id", lambda value, request: value == request["work_id"]),
+    ("profile", lambda value, request: value == request["profile"]),
+    # made after the request was sent: an older binding is another request's
+    ("created_at", lambda value, request: later(value, request.get("sent_at"))),
+)
+
+
+def read_work(envelope, request):
     """The complete list of this caller's bindings, reduced to what it says of one
-    work: the facts gain `work.active`, the bindings it names for that work in the state
-    `active`, in the list's order. An answer that is not `OK` with a list of entries
-    gains nothing, and so does a list in which such an entry has no usable binding ID:
-    neither says anything of the work."""
+    request (its `work_id` and `profile`, and `sent_at`, the moment it was sent). The
+    facts gain `work.active`, the bindings it names for that work in the state `active`,
+    and `work.matching`, those of them that pass every check of ATTRIBUTION, each in the
+    list's order. An answer that is not `OK` with a list of entries gains nothing, and
+    so does a list in which such an entry has no usable binding ID, or that names one
+    binding twice with different ties: none says anything of the request."""
     reading = read_envelope(envelope)
     listed = reading.facts["data"].get("bindings")
     if (reading.code != "OK" or not isinstance(listed, list)
             or not all(isinstance(entry, dict) for entry in listed)):
         return reading
-    active = []
+    active, matching = [], []
     for entry in listed:
-        if entry.get("work_id") == work_id and entry.get("state") == "active":
-            if not FIELD_CHECKS["binding_id"](entry.get("binding_id")):
+        if entry.get("work_id") == request["work_id"] and entry.get("state") == "active":
+            binding = entry.get("binding_id")
+            if not FIELD_CHECKS["binding_id"](binding):
                 return reading
-            if entry["binding_id"] not in active:
-                active.append(entry["binding_id"])
-    return reading._replace(facts=dict(reading.facts, work={"active": active}))
+            tied = all(check(entry.get(field), request) for field, check in ATTRIBUTION)
+            if binding in active:
+                if tied != (binding in matching):
+                    return reading
+                continue
+            active.append(binding)
+            if tied:
+                matching.append(binding)
+    return reading._replace(facts=dict(reading.facts, work={"active": active, "matching": matching}))
 
 
 def read_codes(envelope):
@@ -1094,8 +1183,15 @@ class Planner:
         # Each request (`access ensure`, `run`) that was started, brought no answer and
         # named no binding, and has not been settled by an observation since: what was
         # asked (the command, the profile and the work), under its request ID, and the
-        # operation it named, when it named one. It is never sent again.
+        # operation it named, when it named one. So is one answered whose operation was
+        # left open (KEPT, TRACKED). It is never sent again.
         self.requests = {}
+        # The moment each of them was sent (nanoseconds since the epoch), under its
+        # request ID: a binding the list shows for it must have been made later.
+        self.sent_at = {}
+        # The request sent last: its call, request ID and the moment it was sent, and the
+        # code and exit status of its answer once there is one.
+        self.sent = {}
         # Every call this planner made that is about such a request, oldest first: the
         # request itself, and each observation of it. The goal that made the call is
         # its `by` (`close` for the close).
@@ -1141,6 +1237,7 @@ class Planner:
             return self.launch(name, values, goal, env, metrics)
         argv = [*self.command, *BASE_FLAGS, *self.arguments(name, values, goal)]
         metrics["calls"] += 1
+        self.sending(name)
         try:
             done = subprocess.run(argv, env=env, cwd=self.root, stdin=subprocess.DEVNULL,
                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -1163,12 +1260,30 @@ class Planner:
             elif kind == "bindings":
                 reading = read_bindings(envelope, values["binding_id"])
             elif kind == "work":
-                reading = read_work(envelope, values["work_id"])
+                reading = read_work(envelope, dict(self.requests[values["request_id"]],
+                                                   sent_at=self.sent_at.get(values["request_id"])))
             else:
                 reading = read_envelope(envelope)
         except PlannerError as error:
             raise no_answer("unreadable", str(error), done.stdout, done.returncode) from None
         return reading._replace(exit=done.returncode)
+
+    def sending(self, name):
+        """Note the moment a request is sent, just before its process starts."""
+        if name in REQUESTS:
+            self.sent = {"call": name, "request_id": self.work["request_id"],
+                         "sent_at": time.time_ns()}
+
+    def asked_for(self):
+        """What the request in progress asks: the command, the profile and the work."""
+        return {"call": REQUESTS[GOALS[self.goal]["first"]], "profile": self.work["profile"],
+                "work_id": self.work["work_id"]}
+
+    def remember(self, request_id, request):
+        """Keep a request whose outcome is unknown, with the moment it was sent."""
+        self.requests[request_id] = request
+        if self.sent.get("request_id") == request_id:
+            self.sent_at[request_id] = self.sent["sent_at"]
 
     def releasable(self):
         """The bindings the stop in progress may still ask about, oldest first: those
@@ -1310,10 +1425,46 @@ class Planner:
             for binding in bindings:
                 self.hold(binding)
         elif FAULTS[fault] == UNANSWERED:
-            self.requests[request_id] = dict(request, **named)
+            self.remember(request_id, dict(request, **named))
         self.asked.append(attempt)
         facts = dict(answer.facts, request=dict(named, request_id=request_id))
         return Reading(FAULTS[fault], "none", None, facts, answer.exit)
+
+    def untracked(self, answer):
+        """Record a wait on the accepted operation of the request in progress (TRACKED)
+        that brought no answer (`answer` is the planner's own, from `no_answer`), and
+        return the planner's reading of it for the table: its fault stands where the
+        code would.
+
+        The request was answered, and its operation may yet make a binding. It is
+        remembered with that operation, so that a later stop observes it, and it is
+        never sent again. The attempt is an observation that did not say what became of
+        the request: `still_unknown`, with the fault."""
+        request_id, operation = self.work["request_id"], self.state.fields["operation_id"]
+        request = self.asked_for()
+        attempt = dict(request, request_id=request_id, by=self.goal,
+                       outcome=REQUEST_OUTCOMES[STILL_OPEN],
+                       code=answer.code if _word(answer.code) else answer.facts.get("code"),
+                       exit_code=answer.exit, observed=REQUEST_OBSERVED_BY["observe"],
+                       fault=answer.facts["fault"], detail=answer.facts["problem"],
+                       operation_id=operation)
+        self.remember(request_id, dict(request, operation_id=operation))
+        self.asked.append(attempt)
+        facts = dict(answer.facts, request={"request_id": request_id, "operation_id": operation})
+        return Reading(FAULTS[answer.facts["fault"]], "none", None, facts, answer.exit)
+
+    def unresolved(self):
+        """The goal of a request ended in a state of KEPT: the request was answered, and
+        its operation was still open. Record it with the outcome KEPT names, the code and
+        exit status of its answer, and that operation, and remember it, so that a later
+        stop observes it. It is never sent again."""
+        request_id, operation = self.work["request_id"], self.state.fields["operation_id"]
+        request = self.asked_for()
+        answered = self.sent if self.sent.get("request_id") == request_id else {}
+        self.asked.append(dict(request, request_id=request_id, by=self.goal,
+                               outcome=KEPT[self.state.name], code=answered.get("code"),
+                               exit_code=answered.get("exit_code"), operation_id=operation))
+        self.remember(request_id, dict(request, operation_id=operation))
 
     def conclude(self, call, answer, problem, request_id):
         """Read an observation of the uncertain request `request_id` (REQUEST_SAYS),
@@ -1322,33 +1473,43 @@ class Planner:
 
         A binding the observation shows is held from here on, so that the stop in
         progress releases it like any other: the one the request's operation says it
-        made, or every binding the complete list names for the request's work in the
-        state `active` that this planner does not hold. The request is then settled,
-        and so is one whose operation says that it never ran. Any other stays
-        uncertain, and is observed again by a later stop."""
+        made, or the one binding the complete list names `active` that can be the
+        request's own (ATTRIBUTION) and that this planner was never given. Where the list
+        names more than one such binding, none is held. The request is then settled, and
+        so is one whose operation says that it never ran. A binding shown in another exit
+        class is held too, and the request stays uncertain (MISFIT). Any other stays
+        uncertain, and is observed again by a later stop. A binding this planner was ever
+        given is never held again from an observation."""
         request = self.requests[request_id]
         facts = dict(answer.facts)
         listed = lookup(facts, "work.active")
-        new = [binding for binding in listed or [] if binding not in self.held]
+        # A binding this planner was ever given is the answer's that gave it.
+        new = [binding for binding in lookup(facts, "work.matching") or []
+               if binding not in self.ever_held]
         if listed is not None:  # the planner's own word on what the list names
-            facts["work"] = {"active": listed, "found": NEW if new else NONE_NEW}
+            facts["work"] = dict(facts["work"], found=SEVERAL if len(new) > 1 else NEW if new
+                                 else NONE_NEW)
         says = request_says(call, answer._replace(facts=facts), problem is None)
         attempt = dict(request, request_id=request_id, by="close" if self.by == "close" else self.goal,
                        outcome=REQUEST_OUTCOMES[says],
                        code=answer.code if _word(answer.code) else answer.facts.get("code"),
                        exit_code=answer.exit, observed=REQUEST_OBSERVED_BY[call])
         if listed is not None:
-            attempt["listed"] = listed
+            attempt.update(listed=listed, candidates=new)
         if "fault" in answer.facts:
             attempt.update(fault=answer.facts["fault"], detail=answer.facts["problem"])
         if problem is not None:
             attempt.update(inconsistent=True, detail=f"{problem}; a probable product defect")
-        if says == FOUND:
-            attempt["bindings"] = new if call == "work" else [lookup(facts, "data.result.binding_id")]
-            for binding in attempt["bindings"]:
+        if says in GIVING:
+            named = new if call == "work" else [lookup(facts, "data.result.binding_id")]
+            given = [binding for binding in named if binding not in self.ever_held]
+            if given:
+                attempt["bindings"] = given
+            for binding in given:
                 self.hold(binding)
         if says in SETTLED:
             del self.requests[request_id]
+            self.sent_at.pop(request_id, None)
         self.asked.append(attempt)
         return Reading(says, "none", answer.effect, dict(facts, **self.release_facts(None)),
                        answer.exit)
@@ -1418,6 +1579,7 @@ class Planner:
         argv = [*self.command, *BASE_FLAGS,
                 *self.arguments(name, dict(values, meta_file=meta), goal), *goal["argv"]]
         metrics["calls"] += 1
+        self.sending(name)
         try:
             process = subprocess.Popen(argv, env=env, cwd=self.root, stdin=subprocess.PIPE,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -1530,19 +1692,22 @@ class Planner:
             before = self.state
             about_release = call == "release" or before.name in OBSERVING
             about_request = before.name in ASKING
+            tracked = before.name in TRACKED
             try:
                 answer = self.invoke(call, goal, metrics)
             except NoAnswer as silence:
-                if not (about_release or about_request or call in REQUESTS):
+                if not (about_release or about_request or call in REQUESTS or tracked):
                     raise
-                # No answer to a call about a release, or to a request: the planner's
-                # own answer stands where it would be, and is read and recorded like
-                # any other. A release or a request that may have been sent is never
-                # forgotten.
+                # No answer to a call about a release, to a request, or to the wait on
+                # the accepted operation of a request: the planner's own answer stands
+                # where it would be, and is read and recorded like any other. A release
+                # or a request that may have been sent is never forgotten.
                 answer = silence.reading
-            unanswered = call in REQUESTS and "fault" in answer.facts
+            unanswered = (call in REQUESTS or tracked) and "fault" in answer.facts
             if unanswered:
-                answer = self.unanswered(call, answer)
+                answer = self.unanswered(call, answer) if call in REQUESTS else self.untracked(answer)
+            elif call in REQUESTS:  # the answer to the request, as a later record names it
+                self.sent.update(code=answer.code, exit_code=answer.exit)
             if answer.action in INVALID_REQUEST_ACTIONS:
                 metrics["invalid_retries"] += 1
             reading, problem = check_exit(answer, self.installed_codes)
@@ -1616,6 +1781,8 @@ class Planner:
             metrics["transitions"].append(
                 {"from": before.name, "code": BOUND, "action": reading.action,
                  "to": self.state.name, "by_table": row is not None})
+            if self.state.name in KEPT:  # the request's operation may yet make a binding
+                self.unresolved()
             raise PlannerError(f"the goal was not met within the step limit: {self.state!r}")
         raise PlannerError("the goal was not met within the step limit")
 

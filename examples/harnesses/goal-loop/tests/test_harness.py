@@ -1,5 +1,6 @@
 import ast
 import contextlib
+import datetime
 import importlib.util
 import io
 import json
@@ -63,6 +64,14 @@ SAMPLES = {
 # names each binding in NAMES for that work, `active`, `released` or `odd` (a state no
 # table has); `none` (it names no binding for that work); `unknown` (the list cannot be
 # read); `wrong-exit` (as `active`, in the wrong exit class).
+# Every entry of the list names a profile and a creation time (M07 W6c). By default
+# they are the profile of the newest request the stub was sent, and the moment the list
+# is read. A name in NAMES written `NAME/other` has another profile, `NAME/before` a
+# creation time long before any request, and `NAME/undated` none.
+# For `operation wait`, `sleep:wait:` makes the first wait stay without a word, and
+# `sleep:wait-garbled:` makes it print something that is no envelope and end; later
+# waits answer as the mode says. Mode `ready-wrong-exit` answers a wait with a view that
+# succeeded and names its binding, with exit 3.
 STUB = r'''
 import json
 import os
@@ -166,6 +175,7 @@ if args == ["schema", "show", "codes"]:
 elif args[:2] == ["access", "ensure"]:
     assert args[2] == "--profile" and args[4] == "--work-id" and args[6] == "--request-id", args
     profile, options = args[3], args[8:]
+    (root / "last-profile").write_text(profile)
     if profile == "silent":
         time.sleep(60)
     if profile == "garbled":
@@ -213,8 +223,13 @@ elif args[:2] == ["access", "ensure"]:
     ready()
 elif args[:2] == ["operation", "wait"]:
     assert args[2:] == [OP, "--timeout-ms", "20000"], args
-    if sleeps == "always":
+    if sleeps == "always" or sleeps == "wait" and count("slept-wait") == 0:
         time.sleep(60)
+    if sleeps == "wait-garbled" and count("slept-wait") == 0:
+        print("this is no envelope", flush=True)
+        sys.exit(0)
+    if mode == "ready-wrong-exit":
+        view("ACCESS_READY", "succeeded", "applied", {"binding_id": BINDING}, exit_code=3)
     if uncertain:  # the operation of an uncertain release
         says = uncertain["says"]
         if says == "missing":
@@ -286,15 +301,26 @@ elif args == ["inspect", "bindings"]:
               "twice": ["active", "released"]}.get(says, [])
     if mode.startswith("work:") and says == "wrong-exit":
         states = ["active"]
-    listed = [{"binding_id": "binding_bystander", "grant_id": "grant_fixture",
-               "work_id": "work-bystander", "state": "active"}]
+    asked = (root / "last-profile").read_text() if (root / "last-profile").exists() else "covered"
+    now = time.time()
+    made = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now)) + ".%06dZ" % (int(now * 1e6) % 1000000)
+
+    def entry(name, work, state):
+        name, _, tie = name.partition("/")
+        listed = {"binding_id": name, "grant_id": "grant_fixture", "work_id": work,
+                  "profile": "someone-else" if tie == "other" else asked, "profile_revision": 1,
+                  "state": state, "created_at": "2001-02-03T04:05:06Z" if tie == "before" else made}
+        if tie == "undated":
+            del listed["created_at"]
+        return listed
+    listed = [entry("binding_bystander", "work-bystander", "active")]
     for name in names:
-        listed += [{"binding_id": name, "grant_id": "grant_fixture", "work_id": "work-1",
-                    "state": state} for state in states]
+        listed += [entry(name, "work-1", state) for state in states]
     emit("OK", 4 if says == "wrong-exit" else 0, {"bindings": listed}, state="succeeded")
 elif args[0] == "run":
     assert args[1] == "--profile" and args[3] == "--work-id" and args[5] == "--request-id", args
     assert args[7] == "--meta-file" and args[9] == "--" and Path(args[10]).is_absolute(), args
+    (root / "last-profile").write_text(args[2])
     if sleeps == "run":
         time.sleep(60)
     if args[2] == "garbled":
@@ -978,13 +1004,18 @@ class TableTests(unittest.TestCase):
         view = lambda effect, state, binding="binding_made": {"data": {
             "effect_status": effect, "state": state, "result": {"binding_id": binding}}}
         work = lambda found: {"work": {"active": [], "found": found}}
-        found, never, still = h2.FOUND, h2.NEVER_RAN, h2.STILL_OPEN
+        found, never, still, misfit = h2.FOUND, h2.NEVER_RAN, h2.STILL_OPEN, h2.MISFIT
         # (the call, the code, next.action, whether the exit class fits, typed facts, the reading)
         rows = (
             # its operation: only a terminal view of one that succeeded, and that names
             # the binding it made, is evidence of a binding
             ("observe", "ACCESS_READY", "none", True, view("applied", "succeeded"), found),
-            ("observe", "ACCESS_READY", "none", False, view("applied", "succeeded"), still),
+            # the same in another exit class: the binding is held all the same, and the
+            # request is not settled (M07 W6c, ruled 2026-11-23)
+            ("observe", "ACCESS_READY", "none", False, view("applied", "succeeded"), misfit),
+            ("observe", "ACCESS_READY", "none", False, view("applied", "running"), still),
+            ("observe", "ACCESS_READY", "none", False, view("applied", "succeeded", None), still),
+            ("observe", "ACCESS_READY", "observe", False, view("applied", "succeeded"), still),
             ("observe", "ACCESS_READY", "observe", True, view("applied", "succeeded"), still),
             ("observe", "ACCESS_READY", "none", True, view("applied", "succeeded", "../no-binding"), still),
             ("observe", "ACCESS_READY", "none", True, view("applied", "succeeded", None), still),
@@ -1023,8 +1054,12 @@ class TableTests(unittest.TestCase):
             # none is no evidence that the request never ran
             ("work", "OK", "none", True, work(h2.NEW), found),
             ("work", "OK", "none", True, work(h2.NONE_NEW), still),
+            # more than one binding can be the request's: none is (M07 W6c)
+            ("work", "OK", "none", True, work(h2.SEVERAL), still),
             ("work", "OK", "none", True, {}, still),  # the list says nothing of the work
-            ("work", "OK", "none", False, work(h2.NEW), still),
+            ("work", "OK", "none", False, work(h2.NEW), misfit),
+            ("work", "OK", "none", False, work(h2.SEVERAL), still),
+            ("work", "OK", "none", False, work(h2.NONE_NEW), still),
             ("work", "OK", "observe", True, work(h2.NEW), still),
             ("work", "SERVICE_UNAVAILABLE", "retry_after", True, work(h2.NEW), still),
         )
@@ -1050,46 +1085,104 @@ class TableTests(unittest.TestCase):
         self.assertEqual({row.call for row in h2.REQUEST_SAYS if row.reading == never}, {"observe"})
         wanted = {row.reading: dict(row.wants).get("data.state") for row in h2.REQUEST_SAYS
                   if row.call == "observe" and row.reading != still}
-        self.assertEqual(wanted, {found: ("succeeded",), never: ("failed", "cancelled")})
-        self.assertEqual(h2.SETTLED, (found, never))
+        self.assertEqual(wanted, {found: ("succeeded",), misfit: ("succeeded",),
+                                  never: ("failed", "cancelled")})
+        # A binding out of its exit class is wanted as a found one is, only in another
+        # class, and it is recorded as still unknown: it gives a binding and settles nothing.
+        for call in h2.REQUEST_OBSERVED_BY:
+            rows = {row.reading: row for row in h2.REQUEST_SAYS
+                    if row.call == call and row.reading in (found, misfit)}
+            self.assertEqual(rows[found]._replace(fits=False, reading=misfit), rows[misfit])
+        self.assertEqual(h2.REQUEST_OUTCOMES[misfit], "still_unknown")
+        self.assertEqual((h2.SETTLED, h2.GIVING), ((found, never), (found, misfit)))
         self.assertEqual(sorted(h2.REQUEST_RECORDED.values()),
-                         sorted(set(h2.REQUEST_OUTCOMES.values()) - {"binding_found", "not_run"}))
+                         sorted(set(h2.REQUEST_OUTCOMES.values()) - {"binding_found", "not_run"}
+                                | set(h2.KEPT.values())))
         # No envelope can stand in for one of the planner's own readings.
-        for own in (found, never, still):
+        for own in (found, never, still, misfit):
             with self.assertRaises(h2.PlannerError):
                 h2.read_envelope({"schema_version": "1", "code": own})
 
-    def test_the_list_of_bindings_is_reduced_to_the_active_bindings_of_one_work(self):
-        entry = lambda binding, work, state: {"binding_id": binding, "grant_id": "grant_sample",
-                                              "work_id": work, "state": state}
+    def test_the_list_of_bindings_is_reduced_to_the_bindings_that_can_be_the_requests(self):
+        # M07 W6c (ruled 2026-11-23): a binding can be the request's own only by every
+        # typed field the list offers that ties it to the request: its work, its
+        # profile, and a creation time later than the moment the request was sent.
+        sent = h2.instant("2026-11-23T10:00:00.5Z")
+        request = {"work_id": "work-sample", "profile": "covered", "sent_at": sent}
+        after, before = "2026-11-23T10:00:00.500000001Z", "2026-11-23T10:00:00.5Z"
+
+        def entry(binding, work="work-sample", state="active", profile="covered", made=after):
+            listed = {"binding_id": binding, "grant_id": "grant_sample", "work_id": work,
+                      "profile": profile, "profile_revision": 1, "state": state, "created_at": made}
+            return {key: value for key, value in listed.items() if value is not None}
         ok = lambda data: {"schema_version": "1", "code": "OK", "data": data, "next": None}
-        mine, other = "work-sample", "work-other"
-        # (the envelope, the bindings it names for `work-sample` in the state `active`:
-        #  None when it says nothing of the work)
+        # (the envelope, the request asked about; the bindings it names for that work in
+        #  the state `active`, and those of them that can be the request's: None when
+        #  it says nothing of the request)
         rows = (
-            (ok({"bindings": [entry("binding_a", mine, "active"), entry("binding_b", other, "active"),
-                              entry("binding_c", mine, "released"), entry("binding_d", mine, "active")]}),
-             ["binding_a", "binding_d"]),
-            (ok({"bindings": [entry("binding_a", mine, "active")] * 2}), ["binding_a"]),
-            (ok({"bindings": [entry("binding_b", other, "active")]}), []),
-            (ok({"bindings": []}), []),
-            (ok({"bindings": [entry("binding_a", mine, "suspended")]}), []),
-            (ok({"bindings": [entry("binding_a", mine, ["active"])]}), []),
+            (ok({"bindings": [entry("binding_a"), entry("binding_b", work="work-other"),
+                              entry("binding_c", state="released"), entry("binding_d")]}),
+             request, ["binding_a", "binding_d"], ["binding_a", "binding_d"]),
+            (ok({"bindings": [entry("binding_a")] * 2}), request, ["binding_a"], ["binding_a"]),
+            # another profile: another caller's, or another request's
+            (ok({"bindings": [entry("binding_a", profile="other"), entry("binding_b")]}), request,
+             ["binding_a", "binding_b"], ["binding_b"]),
+            (ok({"bindings": [entry("binding_a", profile=None)]}), request, ["binding_a"], []),
+            # made when the request was sent, or before: not the request's
+            (ok({"bindings": [entry("binding_a", made=before), entry("binding_b")]}), request,
+             ["binding_a", "binding_b"], ["binding_b"]),
+            (ok({"bindings": [entry("binding_a", made="2026-11-22T10:00:00Z")]}), request,
+             ["binding_a"], []),
+            # a creation time that is not one, or none: it cannot be tied to the request
+            (ok({"bindings": [entry("binding_a", made=None)]}), request, ["binding_a"], []),
+            (ok({"bindings": [entry("binding_a", made="2026-11-23T10:00:01+00:00")]}), request,
+             ["binding_a"], []),
+            (ok({"bindings": [entry("binding_a", made="2026-13-23T10:00:01Z")]}), request,
+             ["binding_a"], []),
+            (ok({"bindings": [entry("binding_a", made=1795435201)]}), request, ["binding_a"], []),
+            # a request whose sending moment is not known ties no binding to it
+            (ok({"bindings": [entry("binding_a")]}), dict(request, sent_at=None), ["binding_a"], []),
+            (ok({"bindings": [entry("binding_b", work="work-other")]}), request, [], []),
+            (ok({"bindings": []}), request, [], []),
+            (ok({"bindings": [entry("binding_a", state="suspended")]}), request, [], []),
+            (ok({"bindings": [entry("binding_a", state=["active"])]}), request, [], []),
             # an entry that names no work is not of this one
-            (ok({"bindings": [{"binding_id": "binding_a", "state": "active"}]}), []),
-            (ok({"bindings": [entry("../no-binding", mine, "active")]}), None),
-            (ok({"bindings": [entry("binding_a", mine, "active"), "binding_b"]}), None),
-            (ok({"items": [], "more": False}), None),  # a page is not the complete list
-            (ok(None), None),
+            (ok({"bindings": [{"binding_id": "binding_a", "state": "active"}]}), request, [], []),
+            (ok({"bindings": [entry("../no-binding")]}), request, None, None),
+            (ok({"bindings": [entry("binding_a"), "binding_b"]}), request, None, None),
+            # one binding listed twice, once tied and once not: it says nothing
+            (ok({"bindings": [entry("binding_a"), entry("binding_a", profile="other")]}), request,
+             None, None),
+            (ok({"items": [], "more": False}), request, None, None),  # a page is not the complete list
+            (ok(None), request, None, None),
             ({"schema_version": "1", "code": "SERVICE_UNAVAILABLE",
-              "data": {"bindings": [entry("binding_a", mine, "active")]},
-              "next": {"action": "retry_after"}}, None),
+              "data": {"bindings": [entry("binding_a")]},
+              "next": {"action": "retry_after"}}, request, None, None),
         )
-        for envelope, active in rows:
-            with self.subTest(envelope=envelope):
-                reading = h2.read_work(envelope, mine)
+        for envelope, asked, active, matching in rows:
+            with self.subTest(envelope=envelope, asked=asked):
+                reading = h2.read_work(envelope, asked)
                 self.assertEqual(h2.lookup(reading.facts, "work.active"), active)
+                self.assertEqual(h2.lookup(reading.facts, "work.matching"), matching)
                 self.assertEqual(reading.code, envelope["code"])
+        # The ties are the typed fields the list offers; none names a caller or a request.
+        self.assertEqual([field for field, _ in h2.ATTRIBUTION], ["work_id", "profile", "created_at"])
+        # An instant, to the nanosecond.
+        self.assertEqual(h2.instant("1970-01-01T00:00:01.000000002Z"), 10**9 + 2)
+        self.assertEqual(h2.instant("1970-01-01T00:00:00Z"), 0)
+        self.assertEqual(h2.instant(after) - sent, 1)
+        # The same instants as the standard library's calendar gives, a leap day and
+        # the turns of a century included.
+        for text in ("2000-02-29T23:59:59Z", "1900-03-01T00:00:00Z", "2026-11-23T10:00:00Z",
+                     "1969-12-31T23:59:59Z", "2100-12-31T12:00:00Z", "2024-01-01T00:00:00Z"):
+            moment = datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=datetime.timezone.utc)
+            self.assertEqual(h2.instant(text), int(moment.timestamp()) * 10**9, text)
+        for odd in ("2026-11-23", "2026-11-23T10:00:00.5", "2026-11-23T10:00:00.1234567890Z",
+                    "2026-02-30T10:00:00Z", "2026-11-23T24:00:00Z", "2100-02-29T00:00:00Z",
+                    "2026-11-23T10:60:00Z", "2026-11-23T10:00:60Z", "2026-00-01T00:00:00Z",
+                    "2026-11-00T00:00:00Z", None, 5):
+            self.assertIsNone(h2.instant(odd), odd)
 
     def test_a_request_with_no_answer_ends_its_goal_and_a_stop_observes_it_first(self):
         mine = {"request_id": "request-late"}
@@ -1112,8 +1205,19 @@ class TableTests(unittest.TestCase):
                                  dict(mine, state="failed", code="not_started"))
         for row in h2.TRANSITIONS:
             if row.code in h2.FAULTS.values():
-                self.assertEqual((row.states, row.to), (h2.SENDING, "failed"), row)
+                self.assertIn(row.states, (h2.SENDING, h2.TRACKED), row)
+                self.assertEqual(row.to, "failed", row)
         self.assertNotIn("failed", h2.FOLLOW)
+        # M07 W6c: a wait on the accepted operation of a request that brought no answer,
+        # or was never started, leaves the request uncertain: `failed` names it with the
+        # operation, whichever fault it was.
+        self.assertEqual(h2.TRACKED, ("observing",))
+        for own in h2.FAULTS.values():
+            reading = h2.Reading(own, "none", None, {"request": mine})
+            self.assertEqual(h2.transition(sample_state("observing"), reading)[0].record(),
+                             dict(unsettled, state="failed", operation_id=SAMPLES["operation_id"]))
+        # Only the step limit while reconciling keeps a request that was answered.
+        self.assertEqual(h2.KEPT, {"unresolved": "outcome_unknown"})
         # A stop begins at a request that brought no answer, before any binding: by its
         # operation where it named one, else by the list of bindings for its work.
         held = {"held": {"binding_id": "binding_older"}}
@@ -1136,7 +1240,8 @@ class TableTests(unittest.TestCase):
         # did not ends it in `failed`, which names the request.
         for own, states, settles in ((h2.FOUND, h2.ASKING, True),
                                      (h2.NEVER_RAN, h2.ASKING_BY_WAIT, True),
-                                     (h2.STILL_OPEN, h2.ASKING, False)):
+                                     (h2.STILL_OPEN, h2.ASKING, False),
+                                     (h2.MISFIT, h2.ASKING, False)):
             for name in states:
                 before = sample_state(name)
                 for facts, after in onward:
@@ -1170,7 +1275,7 @@ class TableTests(unittest.TestCase):
         self.assertEqual([h2.FOLLOW[name] for name in h2.ASKING], [("observe", None), ("work", None)])
         for row in h2.TRANSITIONS:
             if row.to in h2.ASKING:
-                self.assertIn(row.code, (h2.FOUND, h2.NEVER_RAN, h2.STILL_OPEN), row)
+                self.assertIn(row.code, (h2.FOUND, h2.NEVER_RAN, h2.STILL_OPEN, h2.MISFIT), row)
             if set(row.states) & set(h2.ASKING):
                 self.assertEqual(row.states, h2.ASKING_BY_WAIT if row.code == h2.NEVER_RAN else h2.ASKING)
                 self.assertIn(row.to, (*h2.ASKING, "releasing", *h2.OBSERVING, "failed", "stopped"), row)
@@ -1452,10 +1557,20 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual((record["calls"], record["held"]), (2, []))
 
     def test_an_answer_about_another_operation_is_not_used(self):
-        record = h2.run_goal(self.planner("other-operation"), self.access(timeout_ms=1))
+        # The wait's answer cannot be read as the operation's (M07 W6c): the accepted
+        # request is uncertain, remembered with its operation, and never sent again.
+        planner = self.planner("other-operation")
+        record = h2.run_goal(planner, self.access(timeout_ms=1))
         self.assertFalse(record["success"])
-        self.assertEqual(record["final_state"]["state"], "observing")
-        self.assertEqual(record["calls"], 2)
+        self.assertEqual(self.path(record), [("start", "ACCEPTED", "observe", "observing"),
+                                             ("observing", h2.UNANSWERED, "none", "failed")])
+        request_id = self.calls()[0][7]
+        self.assertEqual(record["final_state"], {"state": "failed", "code": "OUTCOME_UNKNOWN",
+                                                 "operation_id": "op_fixture", "request_id": request_id})
+        self.assertEqual(record["detail"], "the answer is about another operation")
+        self.assertEqual([(entry["fault"], entry["code"], entry["exit_code"])
+                          for entry in record["requests_still_unknown"]], [("unreadable", "OK", 0)])
+        self.assertEqual((record["calls"], list(planner.requests)), (2, [request_id]))
 
     def test_a_provider_wait_is_reported_then_requested_once_more(self):
         record = h2.run_goal(self.planner(), self.access("locked"))
@@ -1580,9 +1695,22 @@ class PlannerTests(unittest.TestCase):
                 self.assertEqual(calls[1:], [wait] * (limit - 1))
                 self.assertEqual((record["calls"], record["human_handoffs"], record["invalid_retries"],
                                   record["held"]), (limit, 0, 0, []))
-                # Nothing is held, so there is nothing to stop; a later goal is a new request.
-                self.assertFalse(h2.run_goal(planner, {"goal": "stop"})["success"])
-                self.assertEqual(len(self.calls()), seen + limit)
+                # M07 W6c: nothing is held, but the request is remembered with its
+                # operation. A stop observes it once and sends nothing else; still
+                # unfinished, it is still unknown, and the stop fails.
+                request_id = calls[0][7]
+                self.assertEqual(record["requests_outcome_unknown"], [{
+                    "call": "access ensure", "profile": "uncertain", "work_id": "work-1",
+                    "request_id": request_id, "code": "OUTCOME_UNKNOWN", "exit_code": 7,
+                    "operation_id": "op_fixture"}])
+                self.assertEqual(planner.requests, {request_id: {
+                    "call": "access ensure", "profile": "uncertain", "work_id": "work-1",
+                    "operation_id": "op_fixture"}})
+                stopped = h2.run_goal(planner, {"goal": "stop"})
+                self.assertFalse(stopped["success"])
+                self.assertEqual(self.path(stopped), [
+                    ("observing_request", h2.STILL_OPEN, "none", "failed")])
+                self.assertEqual(self.calls()[seen + limit:], [wait])
 
     def test_an_uncertain_outcome_that_names_no_operation_is_reported_without_another_call(self):
         record = h2.run_goal(self.planner(), self.access("uncertain-unnamed"))
@@ -2374,6 +2502,8 @@ class PlannerTests(unittest.TestCase):
         named = {"operation_id": "op_fixture"}
         late = dict(named, exit_code=None, fault="timed_out", detail=limit)
         seen = dict(named, observed="operation")
+        misfit = ("exit 3 does not fit ACCESS_READY: its documented exit class is 0; "
+                  "a probable product defect")
         # (what the operation then says, the goal's fields, who comes next; the code
         #  that was printed, and the bindings it named; the calls that follow, and the
         #  attempts they are; whether the request is still uncertain)
@@ -2400,6 +2530,15 @@ class PlannerTests(unittest.TestCase):
              [dict(seen, outcome="still_unknown", code="OK", exit_code=5)], True),
             ("never", {"timeout_ms": 1}, "stop", "ACCEPTED", [], [wait],
              [dict(seen, outcome="still_unknown", code="OK", exit_code=5)], True),
+            # M07 W6c (ruled 2026-11-23): observed to have succeeded and to name its
+            # binding, in the wrong exit class. The binding is held and released all the
+            # same, still marked `inconsistent`, and the request is still unknown.
+            ("ready-wrong-exit", {"timeout_ms": 1}, "close", "ACCEPTED", [], [wait, release],
+             [dict(seen, outcome="still_unknown", code="ACCESS_READY", exit_code=3, bindings=[mine],
+                   inconsistent=True, detail=misfit)], True),
+            ("ready-wrong-exit", {"timeout_ms": 1}, "stop", "ACCEPTED", [], [wait, release],
+             [dict(seen, outcome="still_unknown", code="ACCESS_READY", exit_code=3, bindings=[mine],
+                   inconsistent=True, detail=misfit)], True),
         )
         for mode, fields, by, code, bindings, calls, later, uncertain in rows:
             with self.subTest(mode=mode, fields=fields, by=by):
@@ -2431,11 +2570,13 @@ class PlannerTests(unittest.TestCase):
                                                        "held": []})
                 else:
                     stopped = h2.run_goal(planner, {"goal": "stop"})
-                    outcome = later[0]["outcome"]
+                    outcome = "held" if "bindings" in later[0] and uncertain else later[0]["outcome"]
                     path = {"binding_found": [("observing_request", h2.FOUND, "none", "releasing"),
                                               ("releasing", "OK", "none", "stopped")],
                             "not_run": [("observing_request", h2.NEVER_RAN, "none", "stopped")],
-                            "still_unknown": [("observing_request", h2.STILL_OPEN, "none", "failed")]}
+                            "still_unknown": [("observing_request", h2.STILL_OPEN, "none", "failed")],
+                            "held": [("observing_request", h2.MISFIT, "none", "releasing"),
+                                     ("releasing", "OK", "none", "failed")]}
                     self.assertEqual(self.path(stopped), path[outcome])
                     self.assertTrue(all(step["by_table"] for step in stopped["transitions"]))
                     self.assertEqual((stopped["success"], stopped["calls"], stopped["held"]),
@@ -2449,7 +2590,8 @@ class PlannerTests(unittest.TestCase):
                     if uncertain:
                         self.assertEqual(stopped["final_state"], dict(
                             named, state="failed", code="OUTCOME_UNKNOWN", request_id=request_id))
-                        self.assertEqual(stopped["detail"], "failed: OUTCOME_UNKNOWN")
+                        self.assertEqual(stopped["detail"],
+                                         later[0].get("detail", "failed: OUTCOME_UNKNOWN"))
                 # The observation comes first, and the request is never sent again.
                 self.assertEqual(self.calls()[1:], calls)
                 self.assertEqual(sum(call[:2] == ["access", "ensure"] for call in self.calls()), 1)
@@ -2461,6 +2603,108 @@ class PlannerTests(unittest.TestCase):
                     asked, uncertain=uncertain, attempts=[
                         dict(own, by="access", outcome="unanswered"),
                         *(dict(attempt, by=by) for attempt in later)])})
+                self.assertEqual(planner.by_binding(), {})
+
+    def test_a_request_answered_with_its_operation_left_open_is_remembered_and_observed_later(self):
+        # M07 W6c (ruled 2026-11-23), the two gaps beside a request that brought no
+        # answer, closed by the same means: an `access ensure` answered `OUTCOME_UNKNOWN`
+        # whose operation is still unfinished at the step limit (`unresolved`); and one
+        # answered `ACCEPTED` whose wait then runs past its time limit or comes back
+        # unreadable. Either may yet make a binding. The request is remembered with its
+        # operation, never sent again, and observed by a later stop or the close before
+        # any binding.
+        mine, steps = "binding_fixture", h2.MAX_STEPS
+        wait = ["operation", "wait", "op_fixture", "--timeout-ms", "20000"]
+        release = ["access", "release", mine]
+        asked = lambda profile: {"call": "access ensure", "profile": profile, "work_id": "work-1"}
+        named = {"operation_id": "op_fixture"}
+        unresolved = dict(named, outcome="outcome_unknown", code="OUTCOME_UNKNOWN", exit_code=7)
+        late = dict(named, outcome="still_unknown", code=None, exit_code=None, fault="timed_out",
+                    detail="a CLI call ran past its time limit", observed="operation")
+        garbled = dict(late, exit_code=0, fault="unreadable",
+                       detail="the CLI printed something that is not JSON")
+        found = dict(named, outcome="binding_found", code="ACCESS_READY", exit_code=0,
+                     observed="operation", bindings=[mine])
+        still = dict(named, outcome="still_unknown", code="OK", exit_code=5, observed="operation")
+        bound = ([("start", "OUTCOME_UNKNOWN", "reconcile", "reconciling")]
+                 + [("reconciling", "OK", "observe", "reconciling")] * (steps - 1)
+                 + [("reconciling", h2.BOUND, "none", "unresolved")])
+        accepted = [("start", "ACCEPTED", "observe", "observing"),
+                    ("observing", h2.UNANSWERED, "none", "failed")]
+        # (the stub's mode, the profile and the goal's fields; the goal's path, and the
+        #  list of its record that holds the request's own attempt; who observes next,
+        #  the observation, and the calls after the goal)
+        rows = (
+            # Unfinished at the step limit: observed later to have made a binding, which
+            # is released; or still unfinished, and still unknown.
+            (f"unfinished-{steps - 1}", "uncertain", {}, bound, "requests_outcome_unknown", unresolved,
+             "close", found, [wait, release]),
+            (f"unfinished-{steps - 1}", "uncertain", {}, bound, "requests_outcome_unknown", unresolved,
+             "stop", found, [wait, release]),
+            ("never", "uncertain", {}, bound, "requests_outcome_unknown", unresolved,
+             "close", still, [wait]),
+            ("never", "uncertain", {}, bound, "requests_outcome_unknown", unresolved,
+             "stop", still, [wait]),
+            # Accepted, and its wait ran past its time limit, or could not be read.
+            ("sleep:wait:normal", "covered", {"timeout_ms": 1}, accepted, "requests_still_unknown", late,
+             "close", found, [wait, release]),
+            ("sleep:wait:normal", "covered", {"timeout_ms": 1}, accepted, "requests_still_unknown", late,
+             "stop", found, [wait, release]),
+            ("sleep:wait:never", "covered", {"timeout_ms": 1}, accepted, "requests_still_unknown", late,
+             "close", still, [wait]),
+            ("sleep:wait:never", "covered", {"timeout_ms": 1}, accepted, "requests_still_unknown", late,
+             "stop", still, [wait]),
+            ("sleep:wait-garbled:normal", "covered", {"timeout_ms": 1}, accepted,
+             "requests_still_unknown", garbled, "close", found, [wait, release]),
+            ("sleep:wait-garbled:never", "covered", {"timeout_ms": 1}, accepted,
+             "requests_still_unknown", garbled, "close", still, [wait]),
+        )
+        seen = self.watched(2.0, limited=(["operation", "wait"],))
+        for mode, profile, fields, path, kept, own, by, observation, calls in rows:
+            with self.subTest(mode=mode, profile=profile, by=by):
+                self.fresh()
+                del seen[:]
+                planner = self.planner(mode)
+                record = h2.run_goal(planner, self.access(profile, **fields))
+                request_id, sent = seen[0][7], len(seen)
+                uncertain = observation["outcome"] == "still_unknown"
+                # The goal failed, and says so; its record names the request.
+                self.assertFalse(record["success"])
+                self.assertEqual(self.path(record), path)
+                self.assertTrue(all(step["by_table"] for step in record["transitions"]))
+                self.assertEqual(record["final_state"], dict(named, state="unresolved", code="OUTCOME_UNKNOWN")
+                                 if path is bound else dict(named, state="failed", code="OUTCOME_UNKNOWN",
+                                                            request_id=request_id))
+                self.assertEqual(record["detail"], own.get("detail", "the goal was not met within the step "
+                                                                     "limit: " + repr(planner.state)))
+                attempt = {key: value for key, value in own.items() if key != "outcome"}
+                for name in h2.REQUEST_RECORDED:
+                    self.assertEqual(record[name], [dict(asked(profile), request_id=request_id, **attempt)]
+                                     if name == kept else [], name)
+                self.assertEqual((record["held"], planner.requests),
+                                 ([], {request_id: dict(asked(profile), **named)}))
+                if by == "close":
+                    self.assertEqual(planner.close(), {"released": [mine] * (release in calls), "held": []})
+                else:
+                    stopped = h2.run_goal(planner, {"goal": "stop"})
+                    self.assertEqual(self.path(stopped), [
+                        ("observing_request", h2.STILL_OPEN, "none", "failed")] if uncertain else [
+                        ("observing_request", h2.FOUND, "none", "releasing"),
+                        ("releasing", "OK", "none", "stopped")])
+                    self.assertEqual((stopped["success"], stopped["held"], stopped["calls"]),
+                                     (not uncertain, [], len(calls)))
+                    if uncertain:
+                        self.assertEqual(stopped["final_state"], dict(
+                            named, state="failed", code="OUTCOME_UNKNOWN", request_id=request_id))
+                # The observation comes first, before any binding, and the request is
+                # never sent again.
+                self.assertEqual(seen[sent:], calls)
+                self.assertEqual(sum(command[:2] == ["access", "ensure"] for command in seen), 1)
+                self.assertEqual((planner.held, set(planner.requests)),
+                                 ([], {request_id} if uncertain else set()))
+                self.assertEqual(planner.by_request(), {request_id: dict(
+                    asked(profile), uncertain=uncertain, attempts=[
+                        dict(own, by="access"), dict(observation, by=by)])})
                 self.assertEqual(planner.by_binding(), {})
 
     def test_a_request_with_no_usable_output_is_observed_by_the_list_of_bindings_for_its_work(self):
@@ -2479,33 +2723,62 @@ class PlannerTests(unittest.TestCase):
         defect = "exit 4 does not fit OK: its documented exit class is 0; a probable product defect"
         # (the profile, what the list says of the work, who comes next; the request's
         #  own attempt; the observation; the releases that follow)
+        # What the list showed: the bindings it names for the work, `active`, and those
+        # of them that can be the request's own.
+        shown = lambda listed, candidates: dict(ok, listed=listed, candidates=candidates)
+        nothing = dict(shown([], []), outcome="still_unknown")
         rows = (
-            # The list names a binding for that work, `active`, that H2 does not hold:
-            # it is a binding to release, and it is released.
+            # The list names one binding for that work, `active`, of the request's
+            # profile, made after the request was sent, that H2 was never given: it is a
+            # binding to release, and it is released.
             ("silent", f"{found}:active", "close", late,
-             dict(ok, outcome="binding_found", listed=[found], bindings=[found]), [found]),
+             dict(shown([found], [found]), outcome="binding_found", bindings=[found]), [found]),
             ("silent", f"{found}:active", "stop", late,
-             dict(ok, outcome="binding_found", listed=[found], bindings=[found]), [found]),
+             dict(shown([found], [found]), outcome="binding_found", bindings=[found]), [found]),
+            # M07 W6c (ruled 2026-11-23): two can be the request's. Which is not known,
+            # so neither is released, and the request is still unknown.
             ("silent", f"{found},{other}:active", "close", late,
-             dict(ok, outcome="binding_found", listed=[found, other], bindings=[found, other]),
-             [other, found]),
+             dict(shown([found, other], [found, other]), outcome="still_unknown"), []),
+            ("silent", f"{found},{other}:active", "stop", late,
+             dict(shown([found, other], [found, other]), outcome="still_unknown"), []),
+            # Another caller's binding, or another request's, is left alone: the same
+            # work with another profile; made before the request was sent; with no
+            # creation time to tie it to the request.
+            ("silent", f"{found}/other:active", "close", late,
+             dict(shown([found], []), outcome="still_unknown"), []),
+            ("silent", f"{found}/other:active", "stop", late,
+             dict(shown([found], []), outcome="still_unknown"), []),
+            ("silent", f"{found}/before:active", "close", late,
+             dict(shown([found], []), outcome="still_unknown"), []),
+            ("silent", f"{found}/undated:active", "close", late,
+             dict(shown([found], []), outcome="still_unknown"), []),
+            # Beside another caller's, the one that can be the request's is released.
+            ("silent", f"{found},{other}/other:active", "close", late,
+             dict(shown([found, other], [found]), outcome="binding_found", bindings=[found]), [found]),
+            ("silent", f"{other}/before,{found}:active", "stop", late,
+             dict(shown([other, found], [found]), outcome="binding_found", bindings=[found]), [found]),
             # The answer could not be read: the same, with the exit status it had.
             ("garbled", f"{found}:active", "close", garbled,
-             dict(ok, outcome="binding_found", listed=[found], bindings=[found]), [found]),
+             dict(shown([found], [found]), outcome="binding_found", bindings=[found]), [found]),
             # The list names no binding for that work, or none that is `active`: that is
             # no evidence that the request never ran. Still unknown, and nothing is sent.
-            ("silent", f"{found}:none", "close", late, dict(ok, outcome="still_unknown", listed=[]), []),
-            ("silent", f"{found}:none", "stop", late, dict(ok, outcome="still_unknown", listed=[]), []),
-            ("silent", f"{found}:released", "close", late,
-             dict(ok, outcome="still_unknown", listed=[]), []),
-            ("silent", f"{found}:odd", "close", late, dict(ok, outcome="still_unknown", listed=[]), []),
-            # The list could not be read, or came in the wrong exit class: still unknown.
+            ("silent", f"{found}:none", "close", late, nothing, []),
+            ("silent", f"{found}:none", "stop", late, nothing, []),
+            ("silent", f"{found}:released", "close", late, nothing, []),
+            ("silent", f"{found}:odd", "close", late, nothing, []),
+            # The list could not be read: still unknown.
             ("silent", f"{found}:unknown", "close", late,
              {"outcome": "still_unknown", "code": "SERVICE_UNAVAILABLE", "exit_code": 5,
               "observed": "bindings"}, []),
+            # M07 W6c (ruled 2026-11-23): it names the request's binding in the wrong
+            # exit class. The binding is held and released all the same, still marked
+            # `inconsistent`, and the request is still unknown.
             ("silent", f"{found}:wrong-exit", "close", late,
-             dict(ok, outcome="still_unknown", exit_code=4, listed=[found], inconsistent=True,
-                  detail=defect), []),
+             dict(shown([found], [found]), outcome="still_unknown", exit_code=4, bindings=[found],
+                  inconsistent=True, detail=defect), [found]),
+            ("silent", f"{found},{other}:wrong-exit", "close", late,
+             dict(shown([found, other], [found, other]), outcome="still_unknown", exit_code=4,
+                  inconsistent=True, detail=defect), []),
         )
         seen = self.watched(0.5, limited=(["access", "ensure"],))
         for profile, says, by, own, observation, released in rows:
@@ -2567,7 +2840,7 @@ class PlannerTests(unittest.TestCase):
         entry = planner.by_request()[request_id]
         self.assertEqual((entry["uncertain"], entry["attempts"][1:]), (True, [
             {"by": "close", "outcome": "still_unknown", "code": "OK", "exit_code": 0,
-             "observed": "bindings", "listed": [mine]}]))
+             "observed": "bindings", "listed": [mine], "candidates": []}]))
         self.assertEqual(set(planner.requests), {request_id})
 
     def test_a_request_with_no_answer_is_never_sent_again(self):
@@ -2681,13 +2954,14 @@ class PlannerTests(unittest.TestCase):
             # No record and no line before the time limit: the request is observed by
             # the list of bindings for its work, and the binding it shows is released.
             (f"sleep:run:work:{found}:active", "covered", 0.5, late,
-             dict(ok, outcome="binding_found", listed=[found], bindings=[found]), [found]),
+             dict(ok, outcome="binding_found", listed=[found], candidates=[found], bindings=[found]),
+             [found]),
             (f"sleep:run:work:{found}:none", "covered", 0.5, late,
-             dict(ok, outcome="still_unknown", listed=[]), []),
+             dict(ok, outcome="still_unknown", listed=[], candidates=[]), []),
             # It ended by itself, and what it left is neither a run record nor one
             # envelope: uncertain in the same way.
             (f"work:{found}:none", "garbled", h2.LAUNCH_SECONDS, garbled,
-             dict(ok, outcome="still_unknown", listed=[]), []),
+             dict(ok, outcome="still_unknown", listed=[], candidates=[]), []),
         )
         for mode, profile, seconds, own, observation, released in rows:
             with self.subTest(mode=mode, profile=profile):
@@ -3080,9 +3354,13 @@ class PlannerTests(unittest.TestCase):
                 "fault": "timed_out", "detail": "a CLI call ran past its time limit"}
         named = {"operation_id": "op_fixture"}
         ok = {"code": "OK", "exit_code": 0, "observed": "bindings"}
-        still = dict(ok, outcome="still_unknown", listed=[])
+        still = dict(ok, outcome="still_unknown", listed=[], candidates=[])
         unfinished = dict(named, outcome="still_unknown", code="OK", exit_code=5, observed="operation")
-        seen = self.watched(2.0, limited=(["access", "ensure"],))
+        answered = dict(named, by="access", outcome="outcome_unknown", code="OUTCOME_UNKNOWN", exit_code=7)
+        accepted = dict(named, by="access", outcome="still_unknown", code=None, exit_code=None,
+                        fault="timed_out", detail="a CLI call ran past its time limit",
+                        observed="operation")
+        seen = self.watched(2.0, limited=(["access", "ensure"], ["operation", "wait"]))
         # (the stub's mode, the profile and the goal's fields; the request's own
         #  attempt; the attempts after it; whether the stop goal was met; the calls
         #  after the request; whether the request is still uncertain)
@@ -3096,11 +3374,21 @@ class PlannerTests(unittest.TestCase):
             # The list names one: the stop goal holds and releases it, and the request
             # is settled. The run still fails: a request brought no answer.
             (f"work:{found}:active", "silent", {}, late,
-             [dict(ok, by="stop", outcome="binding_found", listed=[found], bindings=[found])], True,
+             [dict(ok, by="stop", outcome="binding_found", listed=[found], candidates=[found],
+                   bindings=[found])], True,
              [["inspect", "bindings"], ["access", "release", found]], False),
             # It named an operation before it stayed, and that operation never ends.
             ("never", "late", {"timeout_ms": 1}, dict(late, code="ACCEPTED", **named),
              [dict(unfinished, by="stop"), dict(unfinished, by="close")], False, [wait] * 2, True),
+            # M07 W6c: answered `OUTCOME_UNKNOWN`, and its operation unfinished at the
+            # step limit, and after it. The goal's own waits come first.
+            ("never", "uncertain", {}, answered,
+             [dict(unfinished, by="stop"), dict(unfinished, by="close")], False,
+             [wait] * (h2.MAX_STEPS - 1 + 2), True),
+            # M07 W6c: answered `ACCEPTED`, and its wait ran past its time limit. The
+            # operation never ends.
+            ("sleep:wait:never", "covered", {"timeout_ms": 1}, accepted,
+             [dict(unfinished, by="stop"), dict(unfinished, by="close")], False, [wait] * 3, True),
         )
         for mode, profile, fields, own, later, stopped, calls, uncertain in rows:
             with self.subTest(mode=mode, profile=profile):
@@ -3124,8 +3412,9 @@ class PlannerTests(unittest.TestCase):
                 self.assertEqual(summary["request_attempts"], {request_id: {
                     "call": "access ensure", "profile": profile, "work_id": "work-1",
                     "uncertain": uncertain, "attempts": [own, *later]}})
-                self.assertEqual([entry["request_id"]
-                                  for entry in summary["tasks"][0]["requests_unanswered"]], [request_id])
+                kept = {"outcome_unknown": "requests_outcome_unknown",
+                        "still_unknown": "requests_still_unknown"}.get(own["outcome"], "requests_unanswered")
+                self.assertEqual([entry["request_id"] for entry in summary["tasks"][0][kept]], [request_id])
                 self.assertEqual([entry["request_id"]
                                   for entry in summary["tasks"][1]["requests_still_unknown"]],
                                  [request_id] * uncertain)
