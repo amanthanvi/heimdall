@@ -37,10 +37,11 @@ correction in U3, with its emitters, every in-tree reader and its goldens.
 |---|---|---|
 | **H13, the epoch on requests** | The hello reports `restore_epoch`. Every mutating request carries the epoch its request ID was minted under, bound at mint time and reused on retry. A non-current epoch is refused `REQUEST_STALE` (`restored_before_completion`, `restore_epoch_stale`). | **Wrapper:** it keeps a request ID for replay in its journey driver; keep it as a pair with the session's epoch, sent on the request. **H1 and H2:** they speak the CLI, so the CLI must accept and print the epoch for a kept request ID (a flag or a paired token; see U0-Q5). **TUI and CLI:** any retry path. `REQUEST_STALE` is a new code: exit class, `next.action`, and both harnesses' tables. |
 | **H9, the epoch in server-minted references** | Operation, decision and idempotency records carry the epoch. | Readers ignore unknown fields today; the typed views (D1) must name the field. |
-| **H7, build provenance** | New fields in the version output and `inspect capabilities`: commit, target, profile, feature set. | Additive. The wrapper and both harnesses read `inspect capabilities` and ignore unknown fields; the typed view (D1) and the adapter page's build check can use them. See U0-Q4. |
+| **H7, build provenance** | New fields in the version output and `inspect capabilities`: commit, target, profile, feature set. | Additive. The wrapper and H1 read `inspect capabilities` and ignore unknown fields (H2 does not call it: its discovery reads only `schema show codes`, so it is a prospective consumer); the typed view (D1) and the adapter page's build check can use them. See U0-Q4. |
 | **H8, the version string** | Carried in the hello. | The wrapper's skew test compares against the build under test, not a literal. |
 | **H4, H10 reasons; `REQUEST_STALE`** | New reasons under existing codes and one new code. | D8's reason tables; the skill's "any code you do not recognize is a failure" rule already covers an older consumer. |
 | **H1, H2, H3 commands** | `support bundle`, `service stop --preview`, `state status|restore|reset`. | D3's command-tree golden and D7's primitive index: none is an agent primitive; the skill lint's allow-list must keep refusing them. |
+| **H14, a typed reason for "advertised but unreachable"** (on `m08/w0`; lands with M08 W0) | `service status` gains a three-state read: nothing advertised (`runtime_not_running`), verified, and advertised but not connectable (`runtime_unreachable`, a new reason). Today both the first and the third answer "no runtime is running". | **U3**, with D12's verified-hello status. D8's reason table gains `runtime_unreachable`. The wrapper's discovery and M08's installers read it; follow-up M07-F1 (a runtime found only under the spelling of its home) shows up today as the same undifferentiated answer. |
 | H5, H6, H11, H12 | Doctor finding, residue kinds, a cargo feature, the storage layout. | No M07 consumer reads them. H12 changes the layout under `HEIMDALL_HOME`. The wrapper journey and the wrapper's smoke test name the control socket inside it (`run/control.sock`) until D12's discovery replaces that; check at H12 whether that path moves. |
 
 ## 3. Questions for U0
@@ -117,9 +118,18 @@ Each has what today's build does (observed, with where), and a recommendation.
     then also carries the H13 restore epoch;
   - **(b)** the contract states that a repeated release of the same binding is safe and answers
     `already_released`, with no other effect.
+- **Also in scope (added 2026-11-23): observing a request by its request ID.** No CLI form
+  observes an `access ensure` or `run` by the request ID it was sent with. So a request that got no
+  answer and named no operation can only be looked for in the binding list, by its work and
+  profile; when nothing new is listed it never settles, and harness H2 reports `still_unknown`
+  and exits 1. A typed way to ask "what became of request R" (its operation, or its recorded
+  outcome) would settle it. Recommended: answer it with the same decision as the release question,
+  since both rest on the idempotency record.
 - **Consequence either way:** harness H2 changes once U0 rules. Today it never sends a release
-  again while its outcome is unknown, and without a named operation it reports `still_unknown`,
-  keeps the binding held and exits 1.
+  again while its outcome is unknown. Where the uncertain answer named no operation it reads the
+  binding list: a binding listed `active`, or a list it cannot read, is `still_unknown` (held, exit
+  1); a binding listed `released` is taken as released; a binding missing from the list is
+  `not_listed` (not held, never called released).
 
 ## 4. Rulings already made that U0 or U4b must carry
 
