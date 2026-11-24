@@ -23,6 +23,11 @@ Short, and meant to be read once.
 - **A sleeping or powered-off machine does no work.** Locking the screen does not stop
   approved background work; sleep, logout and reboot each behave as the status view says.
 - **Uninstalling does not remove lines on remote hosts.** Remove enrollments first.
+- **An `issuer init` still at its `written` prompt when its decision expires (15 minutes
+  after the registration is shown) leaves an orphan CA key.** The key is in the store, but no
+  registration names it. `heimdall issuer status` shows its fingerprint. Recover with
+  `heimdall issuer init --replace-orphan <fingerprint>` or
+  `heimdall issuer restore --backup <file> --not-stolen`.
 - **Only the combinations in the compatibility matrix were tested.** Others may work.
 - **What was not run before this release:** see the release notes. Rows that needed
   machines or accounts that were not available are listed there as not run, not as passed.

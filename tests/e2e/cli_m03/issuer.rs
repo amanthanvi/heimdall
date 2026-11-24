@@ -1759,6 +1759,20 @@ fn replace_orphan_cli_warns_and_cross_checks_bundle() {
     let t = pty.transcript();
     assert!(t.contains("heimdall issuer restore"), "{t}");
     assert!(t.contains("--replace-orphan"), "{t}");
+    // ⟨M08-W3-F1⟩ `--json` carries the remedy too. The message names the orphan and both
+    // ways out, and the single orphan is the resource.
+    let message = out.message();
+    assert!(
+        message.contains("heimdall issuer restore --backup <file> --not-stolen"),
+        "{out:?}"
+    );
+    assert!(
+        message.contains(&format!("--replace-orphan {fp}")),
+        "{out:?}"
+    );
+    let error = &out.json()["data"]["error"];
+    assert_eq!(error["resource"]["kind"], "issuer", "{out:?}");
+    assert_eq!(error["resource"]["id"], fp.as_str(), "{out:?}");
 
     // A bundle listing a live enrollment under the orphan's CA.
     let bundle = |name: &str, live: bool, list_ca: bool| -> PathBuf {
