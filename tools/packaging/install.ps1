@@ -78,8 +78,11 @@ $curH = Join-Path $Prefix $helperName
 $prevH = Join-Path $Prefix "$helperName.previous"
 $newH = Join-Path $Prefix ".$helperName.new"
 $swapH = Join-Path $Prefix ".$helperName.swap"
-# Written just before rename 3a and removed after 4b (review M08-W2-R01): the only evidence
-# that an update stopped between its renames. It holds the staged executable's digest.
+# Written just before rename 3a, only when rename 3b follows, and removed after 4b (review
+# M08-W2-R01, RC01): the only evidence that an update stopped between its renames. Only its
+# presence is read; the digest it holds is for a person looking at it. A leftover one is
+# removed by a rerun that finds the installed pair complete and matching its manifest, and
+# -Rollback refuses while one is present.
 $mark = Join-Path $Prefix ".heimdall.updating"
 
 # 'absent', 'file', 'dir' or 'link' (any reparse point: junction, symbolic link, mount point;
@@ -322,6 +325,12 @@ if ((Kind $Prefix) -eq 'absent') { [void][System.IO.Directory]::CreateDirectory(
 
 if ($Rollback) {
     Settle-InterruptedRollback
+    # W2-RC01-ROLLBACK-BEGIN
+    # A marker means an update may have stopped part-way (review M08-W2-RC01): the pair under
+    # .previous may not be the one it replaced. Its own archive's install.ps1 settles it, and
+    # removes the marker once the installed pair is complete.
+    if ((Kind $mark) -eq 'file') { Die "an update marker (.heimdall.updating) is present: an update may have stopped part-way. Run the install.ps1 of the archive you were updating to again first; it finishes that update, or removes the marker once the installed pair is complete. Nothing was changed." }
+    # W2-RC01-ROLLBACK-END
     if ((Kind $prev) -ne 'file') { Die "there is no previous executable at $prev" }
     # W1-F1-ROLLBACK-BEGIN
     # M08-W1-F1: a rollback puts back only a complete pair. When the current install has a
@@ -415,7 +424,14 @@ function Helper-Ok {
 $exeOk = Exe-Ok
 $helperOk = Helper-Ok
 # W01-R02-END
-if ($exeOk -and $helperOk) { Say "this version is already installed at $cur"; exit 0 }
+if ($exeOk -and $helperOk) {
+    # W2-RC01-BEGIN
+    # The installed pair is complete and matches this archive's manifest, so no update of it is
+    # in progress: a leftover marker (a run stopped after 4b) is removed (review M08-W2-RC01).
+    if ((Kind $mark) -eq 'file') { [System.IO.File]::Delete($mark); Say "removed a leftover update marker: the installed pair is complete and matches this archive" }
+    # W2-RC01-END
+    Say "this version is already installed at $cur"; exit 0
+}
 
 # An update kept the current pair under the .previous names as one unit; a process stopped
 # after the executable's rename and before the helper's leaves the old helper at the current
@@ -490,7 +506,11 @@ try {
         # the revert proof can take the pair rule out by its marker block alone.)
         if ($replaceHelper) { Remove-OwnedHelper $prevH }
         if ((Kind $prev) -eq 'file') { [System.IO.File]::Delete($prev) }
-        [System.IO.File]::WriteAllText($mark, "$wantExe`n")
+        # The marker only when rename 3b follows: with no current helper there is no step
+        # between the renames for a rerun to finish (review M08-W2-RC01).
+        # W2-RC01-WRITE-BEGIN
+        if ($replaceHelper -and (Kind $curH) -ne 'absent') { [System.IO.File]::WriteAllText($mark, "$wantExe`n") }
+        # W2-RC01-WRITE-END
         Move-Recorded $cur $prev "3a"
         if ($replaceHelper -and (Kind $curH) -ne 'absent') { Move-Recorded $curH $prevH "3b" }
     } elseif ($replaceHelper) {

@@ -1,5 +1,5 @@
 # Revert proofs for install.ps1's merge-relevant fixes (review M08-W01-R01 and R02; PC job 40's
-# finding M08-W1-F1; the W1 review's R04 and R07).
+# finding M08-W1-F1; the W1 review's R04 and R07; the W2 review's R01 and the re-check's RC01).
 #
 # STATUS: rehearsed under PowerShell 7 on macOS only; the evidence is its run on the PC.
 #
@@ -96,6 +96,19 @@ $interruptedUpdate = ((Kind $cur) -eq 'absent') -and ((Kind $new) -eq 'file') -a
     Write-Host "W2-R04 reverted: exit $($e.Code); failing cases:"; $e.Fails | ForEach-Object { Write-Host "   $_" }
     $want = @($e.Fails | Where-Object { $_ -match "W2.1-R01: a rerun after a stop at staging is not finished" })
     if ($e.Code -eq 0 -or $want.Count -ne 1) { Write-Host "REVERT PROOF FAILED for W2-R04/W2.1-R01: the stop-at-staging case did not fail without the marker"; $failed = 1 }
+
+    # W2-RC01 reverted to W2.1: the marker written for every update, never removed by the
+    # already-installed rerun, and not refused by -Rollback (the re-check's case C).
+    $rc = Between $text "# W2-RC01-WRITE-BEGIN" "# W2-RC01-WRITE-END" @'
+        [System.IO.File]::WriteAllText($mark, "$wantExe`n")
+'@
+    $rc = Between $rc "# W2-RC01-BEGIN" "# W2-RC01-END" ""
+    $rc = Between $rc "# W2-RC01-ROLLBACK-BEGIN" "# W2-RC01-ROLLBACK-END" ""
+    $f7 = Join-Path $T "install-rc01-reverted.ps1"; [System.IO.File]::WriteAllText($f7, $rc)
+    $h = Run $f7
+    Write-Host "W2-RC01 reverted: exit $($h.Code); failing cases:"; $h.Fails | ForEach-Object { Write-Host "   $_" }
+    $want = @($h.Fails | Where-Object { $_ -match "W2.2-RC01: case C: the rollback after it refuses" })
+    if ($h.Code -eq 0 -or $want.Count -ne 1) { Write-Host "REVERT PROOF FAILED for W2-RC01: case C did not fail without the fix"; $failed = 1 }
 
     # W2-R07 reverted: the staged helper is not re-checked.
     $r07 = Between $text "# W2-R07-BEGIN" "# W2-R07-END" ""

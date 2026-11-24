@@ -11,9 +11,10 @@ binary is kept here.
 | `artifacts-count.txt` | Files in each target's artifact (crash) directory: 0 for all 17 |
 | `<target>.closing-extract.txt` | From the target's log of its closing run (1800 s): the `INITED` line (coverage when the corpus was loaded), the last three coverage lines, and libFuzzer's final statistics |
 
-`control_frame` and `project_manifest` have no extract here: their logs were being
-rewritten by the make-up run when this copy was taken. Their extracts are added with the
-records of that run.
+`control_frame` and `project_manifest` had no extract in the first copy: their logs were being
+rewritten by the make-up run when it was taken. `project_manifest.closing-extract.txt` was added
+in W2.1 from that run's log (2026-11-23, ending 14:56Z), copied read-only out of the volume on
+2026-11-24 before the defect hunt rewrote it. `control_frame`'s follows with the hunt's records.
 
 `secs` in `results.txt` is the requested `-max_total_time`, in wall-clock seconds. Two
 targets ran at a time in a container capped at 2 CPUs, so one wall-clock second of a target

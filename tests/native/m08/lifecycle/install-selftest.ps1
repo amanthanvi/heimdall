@@ -276,6 +276,37 @@ try {
     $r = Install $a2 $D7
     Check "W2.1-R01: a directory at the marker's name is refused and nothing changes" (($r.Code -eq 1) -and ($r.Out -match "left untouched") -and ((Pair $D7) -eq (V "1.0.0")))
 
+    # --- W2.2 (review M08-W2-RC01, the re-check's case C): the marker must not outlive its update.
+    # An install without a helper, an update stopped after 4b, a rerun, then a lost executable.
+    $C1 = Join-Path $T "prefix-rc01"; [void](Install $a1 $C1)
+    [System.IO.Directory]::Delete((Join-Path $C1 "linux-x86_64"), $true)
+    [System.IO.File]::WriteAllText((Join-Path $C1 "heimdall.exe"), "fake heimdall 1.0.0-nohelper")
+    [void](Install $a2 $C1 @() @{ HM_INSTALL_TEST_STOP_AFTER = "4b" })
+    Check "W2.2-RC01: an update of a helper-less install leaves no marker, even stopped after 4b" (((Pair $C1) -eq (V "2.0.0")) -and -not (Test-Path -LiteralPath (Join-Path $C1 ".heimdall.updating")))
+    [void](Install $a2 $C1)
+    [System.IO.File]::Delete((Join-Path $C1 "heimdall.exe"))
+    $r = Install $a2 $C1
+    Check "W2.2-RC01: case C: the rerun after the executable is lost is not finished as an interrupted update" (($r.Code -eq 0) -and ($r.Out -notmatch "finished an interrupted update") -and ((PrevHelper $C1) -eq "") -and ((Pair $C1) -eq (V "2.0.0")))
+    $r = Install $a2 $C1 @("-Rollback")
+    Check "W2.2-RC01: case C: the rollback after it refuses and pairs nothing" (($r.Code -eq 1) -and ((Pair $C1) -eq (V "2.0.0")) -and ((PrevExe $C1) -eq "fake heimdall 1.0.0-nohelper"))
+    # An ordinary update stopped after 4b keeps its marker; the "already installed" rerun removes it.
+    $C2 = Join-Path $T "prefix-rc01-4b"; [void](Install $a1 $C2)
+    [void](Install $a2 $C2 @() @{ HM_INSTALL_TEST_STOP_AFTER = "4b" })
+    Check "W2.2-RC01: (an update stopped after 4b leaves the complete new pair and its marker)" (((Pair $C2) -eq (V "2.0.0")) -and (Test-Path -LiteralPath (Join-Path $C2 ".heimdall.updating")))
+    $before = Snapshot $C2
+    $r = Install $a2 $C2 @("-Rollback")
+    Check "W2.2-RC01: -Rollback refuses while the marker is present, says why, and changes nothing" (($r.Code -eq 1) -and ($r.Out -match "update marker") -and ((Snapshot $C2) -eq $before))
+    $r = Install $a2 $C2
+    Check "W2.2-RC01: the already-installed rerun removes the leftover marker and says so" (($r.Code -eq 0) -and ($r.Out -match "already installed") -and ($r.Out -match "removed a leftover update marker") -and -not (Test-Path -LiteralPath (Join-Path $C2 ".heimdall.updating")))
+    $r = Install $a2 $C2 @("-Rollback")
+    Check "W2.2-RC01: then -Rollback puts the previous pair back" (($r.Code -eq 0) -and ((Pair $C2) -eq (V "1.0.0")) -and ((PrevPair $C2) -eq (V "2.0.0")))
+    # The marker is not removed when the installed pair does not match: a damaged helper.
+    $C3 = Join-Path $T "prefix-rc01-damaged"; [void](Install $a1 $C3)
+    [void](Install $a2 $C3 @() @{ HM_INSTALL_TEST_STOP_AFTER = "4b" })
+    [System.IO.File]::WriteAllText((Join-Path (Join-Path $C3 "linux-x86_64") "heimdall"), "damaged")
+    $r = Install $a2 $C3 @("-Rollback")
+    Check "W2.2-RC01: with the pair not matching, -Rollback still refuses on the marker" (($r.Code -eq 1) -and ($r.Out -match "update marker"))
+
     # --- W2 (review M08-W1-R05): a repair whose last rename fails says what it left.
     $L5 = Join-Path $T "prefix-r05"; [void](Install $a2 $L5)
     [System.IO.File]::WriteAllText((P $L5 @("linux-x86_64", "heimdall")), "damaged helper")
