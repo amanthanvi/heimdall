@@ -219,6 +219,19 @@ if ! cargo build --release --locked --no-default-features -p heimdall; then
 fi
 [ -x "${BIN}" ] || { echo "release-gate: ${BIN} missing after the build"; exit 1; }
 
+# ⟨M08 U3c⟩ How this build handles the test configuration: the test kit is compiled out (the
+# release feature set has no `test-config`), and every HEIMDALL_TEST_* variable probed below is
+# refused at run time by testcfg (exit 2). The first is checked here from cargo's graph.
+probe_count=$((probe_count + 1))
+if cargo tree -q --locked --no-default-features -p heimdall -e normal -i heimdall-testkit >/dev/null 2>&1; then
+    fail_count=$((fail_count + 1))
+    status=1
+    echo "release-gate: the test kit is in the release feature set's graph: FAIL"
+else
+    echo "release-gate: the test kit is compiled out of the release build (no heimdall-testkit in cargo tree --no-default-features -e normal): PASS"
+fi
+echo "release-gate: every HEIMDALL_TEST_* variable below is refused at run time (exit 2) by the release build's testcfg; none is honoured"
+
 new_dir
 vals="${new_dir_path}"
 mkdir "${vals}/account" "${vals}/script-pause"

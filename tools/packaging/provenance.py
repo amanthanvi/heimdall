@@ -107,6 +107,16 @@ def test_only_crates(default_names, default_pruned_names):
     return (set(default_names) - set(default_pruned_names)) | {TEST_KIT}
 
 
+TEST_CONFIG_FEATURE = "test-config"
+
+
+def refuse_test_config_request(features):
+    """A release build never asks for the debug-build test configuration (M08 U3c)."""
+    for t in feature_tokens(features):
+        if t in (TEST_CONFIG_FEATURE, "--all-features", "all-features") or t.split("/")[-1] == TEST_CONFIG_FEATURE:
+            raise Refused("release artifacts are built without the test-config feature (the debug-build test kit)")
+
+
 def refuse_test_only_crates(release_names, test_only):
     """`release_graph_holds_no_test_only_crate` (m08-plan U3c, ADR-0014 §4.5, H11)."""
     found = sorted(set(release_names) & set(test_only))
@@ -659,12 +669,18 @@ def make_record(a, compiled_names):
     # The record says the transport is not built only once the compiled set shows it.
     refuse_iroh_request(a.get("features"))
     refuse_iroh_packages(compiled_names)
+    # U3c: and that the test kit is not included only once the compiled set shows it (a
+    # forgotten --no-default-features compiles the kit, and is refused here).
+    refuse_test_config_request(a.get("features"))
+    refuse_test_only_crates(compiled_names, a.get("test_only") or {TEST_KIT})
     return {
         "schema": "heimdall-build-record/1",
         "commit": a["commit"], "commit_time": a["time"], "tree_clean": a["clean"] == "yes",
         "target": a["target"], "profile": "release", "features": feature_label(a.get("features")),
         # Ruling E2 (option c), checked above against the packages the build compiled.
         "iroh_transport": "not built (release artifacts ship without the iroh feature; the Iroh transport is a source-build preview)",
+        # U3c, checked above against the packages the build compiled.
+        "test_kit": "not included (release artifacts are built with --no-default-features, without the test-config feature)",
         "rustflags": a["flags"],
         "toolchain": toolchain,
         "cargo_lock_sha256": sha256(os.path.join(REPO, "Cargo.lock")),
@@ -968,6 +984,25 @@ def self_test():
                 check(f"U3c: release_graph_holds_no_test_only_crate refuses {leaked}", False)
             except Refused:
                 pass
+        # U3c: a forgotten --no-default-features (the kit compiled) and an explicit
+        # --features test-config are both refused, and nothing is recorded for them.
+        try:
+            make_record(dict(inputs, test_only={TEST_KIT, "proptest"}), compiled_names | {TEST_KIT, "proptest"})
+            check("U3c: a record over a build that compiled the test kit is refused", False)
+        except Refused:
+            pass
+        for spelling in ("test-config", "default,test-config", "heimdall/test-config", "a test-config"):
+            try:
+                refuse_test_config_request(spelling)
+                check(f"U3c: the request {spelling!r} is refused", False)
+            except Refused:
+                pass
+            try:
+                make_record(dict(inputs, features=spelling), compiled_names)
+                check(f"U3c: the record for {spelling!r} is refused", False)
+            except Refused:
+                pass
+        check("U3c: the record says the test kit is not included", rec["test_kit"].startswith("not included"))
         check("W2-R02: a feature list is split on commas and whitespace",
               feature_tokens(" a, b\tc,,d ") == ["a", "b", "c", "d"])
         try:
@@ -1119,6 +1154,7 @@ def main(argv):
         elif cmd == "check-features":
             need(opts, "target")
             refuse_iroh_request(opts.get("features"))
+            refuse_test_config_request(opts.get("features"))
             refuse_other_target_dir(os.environ, cargo_metadata(opts["target"], opts.get("features"), opts.get("offline"))["target_directory"])
             rows = parse_tree(tree(opts["target"], opts.get("features"), "normal,build", opts.get("offline")))
             refuse_iroh_packages(name for _, name, _, _, _ in rows)
@@ -1142,6 +1178,11 @@ def main(argv):
         elif cmd == "build-record":
             need(opts, "target", "commit", "time", "clean", "flags", "stage", "build_messages", "out")
             refuse_iroh_request(opts.get("features"))
+            refuse_test_config_request(opts.get("features"))
+            dflt = parse_tree(tree(opts["target"], opts.get("features"), "normal,build", opts.get("offline"), release=False))
+            pruned = parse_tree(tree(opts["target"], opts.get("features"), "normal,build", opts.get("offline"),
+                                     ("--prune", TEST_KIT), release=False))
+            opts["test_only"] = test_only_crates((n for _, n, _, _, _ in dflt), (n for _, n, _, _, _ in pruned))
             meta = cargo_metadata(opts["target"], opts.get("features"), opts.get("offline"))
             compiled = compiled_packages(opts["build_messages"], meta)
             text = json.dumps(make_record(opts, {name for name, _ in compiled}), indent=1, sort_keys=True) + "\n"

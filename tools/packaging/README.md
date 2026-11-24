@@ -245,3 +245,14 @@ with `--no-default-features`: `build-release.sh`, `build-release.ps1`,
   refuses and names all 14.
 - **The record:** the build record, the SBOM's `heimdall:features` and the notices header now
   name the set as `--no-default-features` (plus `--features …` if any), not `default`.
+- **A forgotten flag cannot ship the kit** (the orchestrator's condition, 2026-11-24).
+  - `check-features` and `build-record` refuse a request naming `test-config` (or
+    `--all-features`).
+  - `build-record` refuses a build whose compiled set holds any test-only crate. That is what a
+    build without `--no-default-features` produces.
+  - The record states `test_kit: not included …` only after that check, as for `iroh`.
+  - The release gate checks that its release build's graph has no `heimdall-testkit`, and says
+    that every `HEIMDALL_TEST_*` it probes is refused at run time.
+- **The release graph, observed** (`cargo tree --no-default-features -p heimdall -e normal
+  --target aarch64-apple-darwin`): 203 packages, none of them `heimdall-testkit`, `proptest` or
+  `tempfile`.
