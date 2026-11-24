@@ -23,6 +23,7 @@ here reads an answer's prose.
 
 import argparse
 from collections import namedtuple
+import ctypes
 import json
 import os
 from pathlib import Path, PureWindowsPath
@@ -280,10 +281,19 @@ MISFIT = "(a binding found out of its exit class)"
 # An observation does not say what became of the request: it stays uncertain, and
 # nothing is sent.
 STILL_OPEN = "(a request still unknown)"
+# The list names one binding that can be the request's own, as for FOUND, but another
+# request observed in the same read, still uncertain, can have made it too (M07-W7-R04).
+# It is one of this planner's own requests' bindings either way, so it is held and
+# released. No request of that read is settled by it, or by anything else that read
+# shows (ruled 2026-11-23: the strict reading).
+SHARED_FIND = "(a binding another request may have made)"
 # Stand where the list's word on a request would: it names exactly one binding that can
-# be the request's own (`work.matching`) and that this planner was never given; none; or
-# more than one. Only the first is evidence (ruled 2026-11-23).
-NEW, NONE_NEW, SEVERAL = "one", "none", "several"
+# be the request's own (`work.matching`) and that this planner was never given; that
+# one, where another request of the same read can have made it too; that one, where the
+# read is ambiguous about another binding (two requests of the read can have made one
+# binding, or the request can have made another binding, by this read or an earlier one);
+# none; or more than one. Only the first is evidence (ruled 2026-11-23).
+NEW, SHARED, WITHHELD, NONE_NEW, SEVERAL = "one", "shared", "withheld", "none", "several"
 ORIGIN = ("start", "discovered")
 REQUESTING = ORIGIN + ("pending_provider",)
 SENDING = REQUESTING + ("ready",)  # every state a request is sent from
@@ -294,6 +304,11 @@ IN_FLIGHT = ("observing", "pending_approval")
 # uncertain: the operation may yet make a binding. It is remembered like a request that
 # brought no answer (ruled 2026-11-23; M07-W6-R01).
 TRACKED = IN_FLIGHT + ("reconciling",)
+# The codes of a call refused for now (class 5, `retryable`, `next.action` `retry_after`
+# in schemas/public-api/codes.json). A wait on the operation of the request in progress
+# refused with one ends its goal, naming the request and the operation.
+FOR_NOW = ("DESTINATION_UNREACHABLE", "TIME_UNCERTAIN", "SERVICE_UNAVAILABLE",
+           "STATE_UNAVAILABLE", "BACKPRESSURE")
 # The codes after which a request's outcome is uncertain. A goal never expects one as its
 # refusal, and a request answered with one is never settled by that answer (M07-W6-R03).
 UNCERTAIN_CODES = ("OUTCOME_UNKNOWN",)
@@ -427,17 +442,24 @@ REQUEST_SAYS = (
     # may not have been applied yet.
     Says("work", "OK", "none", True, (("work.found", (NEW,)),), FOUND),
     Says("work", "OK", "none", False, (("work.found", (NEW,)),), MISFIT),
+    # That one binding can be another request's too: it is held, and settles no request.
+    Says("work", "OK", "none", None, (("work.found", (SHARED,)),), SHARED_FIND),
+    # One candidate, in a read that is ambiguous about another binding, or of a request
+    # that this read or an earlier one found can have made another: nothing is credited,
+    # so it settles nothing (ruled 2026-11-23; M07-W8-R01).
+    Says("work", "OK", "none", None, (("work.found", (WITHHELD,)),), STILL_OPEN),
     Says("work", None, None, None, (), STILL_OPEN),
 )
 # What each reading of a request is called in a record: the request's own fault, then
 # the observations. And what each observing call observes.
 REQUEST_OUTCOMES = {UNANSWERED: "unanswered", NOT_STARTED: "not_sent", FOUND: "binding_found",
-                    NEVER_RAN: "not_run", STILL_OPEN: "still_unknown", MISFIT: "still_unknown"}
+                    NEVER_RAN: "not_run", STILL_OPEN: "still_unknown", MISFIT: "still_unknown",
+                    SHARED_FIND: "still_unknown"}
 REQUEST_OBSERVED_BY = {"observe": "operation", "work": "bindings"}
 # The readings after which nothing more is to be learned of a request, and those that
 # give this planner a binding to hold.
 SETTLED = (FOUND, NEVER_RAN)
-GIVING = (FOUND, MISFIT)
+GIVING = (FOUND, MISFIT, SHARED_FIND)
 # The states a request's goal can end in with the request answered `OUTCOME_UNKNOWN` and
 # its operation still open, and the outcome the request's attempt then records: unfinished
 # at the step limit (ruled 2026-11-23). The request is remembered with that operation, as
@@ -448,6 +470,14 @@ GIVING = (FOUND, MISFIT)
 # the request (REQUEST_SAYS, `still_unknown`).
 KEPT = {"unresolved": "outcome_unknown"}
 UNCERTAIN_OUTCOME = "outcome_unknown"
+# A request answered with a code that has no row in the state it arrives in: a code no
+# table knows, a published code the table does not cover there (`UNSUPPORTED_CLIENT`), or
+# one whose typed fields no row takes, missing or present but invalid (M07-W8-R03). Its
+# goal ends there, by no row, and nothing is sent again. The answer does not say what
+# became of the request, so it is recorded with this outcome and remembered with the
+# operation it named, when it named a valid one: a later stop or the close observes it
+# like any uncertain request (ruled 2026-11-23: fail closed).
+UNLISTED_OUTCOME = REQUEST_OUTCOMES[STILL_OPEN]
 # The lists of a goal's record that are about requests, and the outcome each one holds
 # the attempts of. They stand beside the lists about releases (RECORDED).
 REQUEST_RECORDED = {"requests_outcome_unknown": "outcome_unknown",
@@ -520,8 +550,9 @@ DEALT_WITH = (("OK", RELEASABLE, ENDING), (OBSERVED, OBSERVING, ENDING),
               (FOUND, ASKING, ASKING_ENDING), (NEVER_RAN, ASKING_BY_WAIT, ASKING_ENDING),
               (STILL_OPEN, ASKING, ASKING_ONWARD),
               # a binding found out of its exit class is held, and the request is not
-              # settled: the stop can no longer end in `stopped`
-              (MISFIT, ASKING, ASKING_ONWARD))
+              # settled: the stop can no longer end in `stopped`. So is one an older
+              # request may have made (M07-W7-R04)
+              (MISFIT, ASKING, ASKING_ONWARD), (SHARED_FIND, ASKING_BY_LIST, ASKING_ONWARD))
 
 TRANSITIONS = (
     # discovery
@@ -567,6 +598,10 @@ TRANSITIONS = (
     Row(TRACKED, "ACCESS_READY", "none", "ready", (("binding_id", "data.result.binding_id"),)),
     Row(TRACKED, "CAPABILITY_UNAVAILABLE", "none", "failed", CODE),
     Row(TRACKED, "OPERATION_CANCELLED", "none", "failed", CODE),
+    # the wait itself refused for now: the operation was not read, and may yet make a
+    # binding. The report names the request, which is remembered with that operation
+    *(Row(TRACKED, code, "retry_after", "failed",
+          CODE + (("operation_id", "state.operation_id"),) + ITS_REQUEST) for code in FOR_NOW),
     # the operation's own outcome is unknown: the report names the operation and the
     # request, which is remembered
     Row(TRACKED, "OUTCOME_UNKNOWN", "none", "failed",
@@ -1121,6 +1156,8 @@ class Child:
         # The launch's run record file, removed once the process has ended: on Windows
         # Heimdall still holds it open while the child runs.
         self.meta = meta
+        # On Windows, the child Heimdall spawned, where this planner holds it (Spawned).
+        self.spawned = None
         self.lines = queue.Queue()
         self.errors = bytearray()
         self.threads = [threading.Thread(target=self._lines, daemon=True),
@@ -1150,7 +1187,12 @@ class Child:
             return None
 
     def end(self, seconds=None):
-        """Close the child's input and wait; a child that stays is stopped by this handle."""
+        """Close the child's input and wait; a child that stays is stopped by this handle.
+
+        On Windows the process is Heimdall, and the child it spawned is held by a handle
+        of its own (`spawned`): that child is ended first, by its handle, and then
+        Heimdall, which waits for it. Whatever became of Heimdall, the held child is
+        ended too, within the same bound."""
         seconds = CHILD_END_SECONDS if seconds is None else seconds
         try:
             self.process.stdin.close()
@@ -1159,12 +1201,21 @@ class Child:
         try:
             self.process.wait(timeout=seconds)
         except subprocess.TimeoutExpired:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=seconds)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
+            if self.spawned is not None:
+                self.spawned.end(seconds)
+                try:
+                    self.process.wait(timeout=seconds)
+                except subprocess.TimeoutExpired:
+                    pass
+            if self.process.poll() is None:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=seconds)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait()
+        if self.spawned is not None:
+            self.spawned.end(seconds)
         for thread in self.threads:
             thread.join(timeout=seconds)
         for stream in (self.process.stdout, self.process.stderr):
@@ -1178,6 +1229,235 @@ class Child:
             except OSError:  # gone already, or still held: it is inside the scratch root
                 pass
         return self.process.returncode
+
+
+# --------------------------------------------------------------------------------------
+# The child Heimdall spawns on Windows (M07-W7-R03): held by a handle of this planner's own
+# --------------------------------------------------------------------------------------
+
+# On Windows the process this planner starts for a `run` goal is `heimdall.exe`. It
+# spawns the child with no job object (ADR-0007 §8; crates/launch/src/windows.rs,
+# `spawn_and_wait`) and waits for it, so ending Heimdall leaves the child running. The
+# `spawned` record names the child by its PID alone. So the child is opened by that PID
+# as soon as the record is read: from then on the handle names one process, whatever
+# becomes of the PID. That process is held only when it passes each check here, in
+# order. `started` is the process this planner started, whose PID no other process can
+# have while this planner holds its handle; `programs` are the programs the goal's
+# child runs as (`child_programs`). No process is ever found or ended by its name.
+Facts = namedtuple("Facts", "parent created image")
+Started = namedtuple("Started", "pid created programs")
+SPAWNED_IDENTITY = (
+    (lambda facts, started: facts.parent == started.pid,
+     "its parent is not the process this planner started"),
+    (lambda facts, started: type(facts.created) is int and facts.created >= started.created,
+     "it was created before the process this planner started"),
+    (lambda facts, started: facts.image is not None and facts.image in started.programs,
+     "it runs another program than the goal's"),
+)
+# What became of a held child once it was ended (`Spawned.end`): it had exited on its
+# own; it was terminated by its handle and then exited within the bound; or neither
+# could be shown within the bound.
+ENDINGS = ("exited", "ended_by_handle", "not_ended")
+
+
+def spawned_identity(facts, started):
+    """The first check of SPAWNED_IDENTITY that `facts` fail, or None."""
+    return next((problem for check, problem in SPAWNED_IDENTITY if not check(facts, started)), None)
+
+
+def child_programs(program, system_root):
+    """The programs a Windows child named `program` runs as: the program itself, and for
+    a batch script the command interpreter of the system directory, which Rust's std
+    starts for one (`<system directory>\\cmd.exe /c <script>`)."""
+    programs = [program]
+    windows = PureWindowsPath(system_root or "")
+    if PureWindowsPath(program).suffix.lower() in (".bat", ".cmd") and windows.is_absolute():
+        programs.append(str(windows / "System32" / "cmd.exe"))
+    return programs
+
+
+class ProcessEntry(ctypes.Structure):
+    """PROCESSENTRY32W (tlhelp32.h), the entry a process snapshot gives for a process."""
+    _fields_ = [("size", ctypes.c_uint32), ("usage", ctypes.c_uint32), ("pid", ctypes.c_uint32),
+                ("heap", ctypes.c_size_t), ("module", ctypes.c_uint32), ("threads", ctypes.c_uint32),
+                ("parent", ctypes.c_uint32), ("priority", ctypes.c_int32), ("flags", ctypes.c_uint32),
+                ("exe", ctypes.c_wchar * 260)]
+
+
+class WindowsProcesses:
+    """The Windows calls (kernel32, through ctypes) that open a process by a handle of
+    this planner's own, read what it is, wait for it and end it. A handle is closed by
+    `close`, once, by whoever opened it."""
+
+    # PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE
+    ACCESS = 0x1000 | 0x0001 | 0x00100000
+    NO_PROCESS = 87  # ERROR_INVALID_PARAMETER from OpenProcess: no process has the PID
+    WAIT_OBJECT_0, WAIT_TIMEOUT = 0, 0x102
+    SNAPPROCESS = 0x2  # TH32CS_SNAPPROCESS
+    ENDED_CODE = 1  # the exit code of a child this planner terminates
+
+    def __init__(self):
+        handle, dword, boolean = ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        for name, arguments, result in (
+                ("OpenProcess", (dword, boolean, dword), handle),
+                ("CloseHandle", (handle,), boolean),
+                ("WaitForSingleObject", (handle, dword), dword),
+                ("TerminateProcess", (handle, ctypes.c_uint), boolean),
+                ("GetExitCodeProcess", (handle, ctypes.POINTER(dword)), boolean),
+                ("GetProcessTimes", (handle,) + (ctypes.POINTER(ctypes.c_uint64),) * 4, boolean),
+                ("QueryFullProcessImageNameW", (handle, dword, ctypes.c_wchar_p, ctypes.POINTER(dword)),
+                 boolean),
+                ("CreateToolhelp32Snapshot", (dword, dword), handle),
+                ("Process32FirstW", (handle, ctypes.POINTER(ProcessEntry)), boolean),
+                ("Process32NextW", (handle, ctypes.POINTER(ProcessEntry)), boolean)):
+            function = getattr(kernel, name)
+            function.argtypes, function.restype = arguments, result
+        self.kernel = kernel
+
+    @staticmethod
+    def failed(name):
+        return OSError(ctypes.get_last_error(), f"{name} failed")
+
+    def open(self, pid):
+        """A handle to the process with this PID, or None where no process has it."""
+        handle = self.kernel.OpenProcess(self.ACCESS, False, pid)
+        if handle is None:
+            if ctypes.get_last_error() == self.NO_PROCESS:
+                return None
+            raise self.failed("OpenProcess")
+        return handle
+
+    def close(self, handle):
+        self.kernel.CloseHandle(handle)
+
+    def wait(self, handle, seconds):
+        """Whether the process has exited, waiting at most `seconds`."""
+        result = self.kernel.WaitForSingleObject(handle, max(0, int(seconds * 1000)))
+        if result not in (self.WAIT_OBJECT_0, self.WAIT_TIMEOUT):
+            raise self.failed("WaitForSingleObject")
+        return result == self.WAIT_OBJECT_0
+
+    def terminate(self, handle):
+        # A process that is already ending refuses: the wait that follows tells.
+        self.kernel.TerminateProcess(handle, self.ENDED_CODE)
+
+    def exit_code(self, handle):
+        code = ctypes.c_uint32()
+        if not self.kernel.GetExitCodeProcess(handle, ctypes.byref(code)):
+            raise self.failed("GetExitCodeProcess")
+        return code.value
+
+    def created(self, handle):
+        """The process's creation time (FILETIME, 100 ns since 1601)."""
+        times = [ctypes.c_uint64() for _ in range(4)]
+        if not self.kernel.GetProcessTimes(handle, *map(ctypes.byref, times)):
+            raise self.failed("GetProcessTimes")
+        return times[0].value
+
+    @staticmethod
+    def program(path):
+        """A program path as compared: its real path (long names, links resolved), and
+        without regard to case."""
+        return PureWindowsPath(os.path.realpath(path))
+
+    def image(self, handle):
+        buffer, size = ctypes.create_unicode_buffer(32768), ctypes.c_uint32(32768)
+        if not self.kernel.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+            raise self.failed("QueryFullProcessImageNameW")
+        return self.program(buffer.value)
+
+    def parent(self, pid):
+        """The parent PID a process snapshot gives for `pid`, or None where it lists no
+        such process. The caller holds a handle to `pid`, so the PID names that process."""
+        snapshot = self.kernel.CreateToolhelp32Snapshot(self.SNAPPROCESS, 0)
+        if snapshot is None or snapshot == ctypes.c_void_p(-1).value:
+            raise self.failed("CreateToolhelp32Snapshot")
+        try:
+            entry = ProcessEntry()
+            entry.size = ctypes.sizeof(ProcessEntry)
+            found = self.kernel.Process32FirstW(snapshot, ctypes.byref(entry))
+            while found:
+                if entry.pid == pid:
+                    return entry.parent
+                found = self.kernel.Process32NextW(snapshot, ctypes.byref(entry))
+            return None
+        finally:
+            self.close(snapshot)
+
+    def facts(self, handle, pid):
+        return Facts(self.parent(pid), self.created(handle), self.image(handle))
+
+
+class Spawned:
+    """The child Heimdall spawned on Windows, held by this planner's own handle from the
+    moment its `spawned` record was read until it is ended."""
+
+    def __init__(self, processes, pid, handle):
+        self.processes, self.pid, self.handle = processes, pid, handle
+        self.ended = None  # what became of it (ENDINGS), once it was ended
+
+    def end(self, seconds):
+        """End the child by its handle, once, within `seconds`: one that still runs is
+        terminated, then waited on. Returns what became of it: its PID, how it ended
+        (ENDINGS) and its exit code, when it is known."""
+        if self.ended is None:
+            processes, how, code = self.processes, "not_ended", None
+            try:
+                if processes.wait(self.handle, 0):
+                    how = "exited"
+                else:
+                    processes.terminate(self.handle)
+                    if processes.wait(self.handle, seconds):
+                        how = "ended_by_handle"
+                if how != "not_ended":
+                    code = processes.exit_code(self.handle)
+            except OSError:
+                pass
+            finally:
+                processes.close(self.handle)
+            self.ended = {"pid": self.pid, "ended": how, "exit_code": code}
+        return self.ended
+
+
+def hold_spawned(processes, pid, process_pid, programs):
+    """Hold the process a Windows `spawned` record names, by a handle opened now. Returns
+    (the held child or None, a problem or None).
+
+    Nothing is held where the record names the process this planner started (its own
+    handle ends it), or where no process with that PID still runs: it has ended. A
+    process that fails a check of SPAWNED_IDENTITY, or that cannot be opened or read,
+    is not held, and the problem says why: it is not ended by this planner."""
+    if not FIELD_CHECKS["pid"](pid):
+        return None, "the spawned record names no process"
+    if pid == process_pid:
+        return None, None
+    if processes is None:
+        return None, "this platform cannot hold a process by its handle"
+    try:
+        own = processes.open(process_pid)
+        if own is None:
+            return None, "the process this planner started could not be opened"
+        try:
+            started = Started(process_pid, processes.created(own),
+                              [processes.program(program) for program in programs])
+        finally:
+            processes.close(own)
+        handle = processes.open(pid)
+    except OSError:
+        return None, "the process the spawned record names could not be opened"
+    if handle is None:
+        return None, None
+    try:
+        problem = spawned_identity(processes.facts(handle, pid), started)
+        if problem is None:
+            return Spawned(processes, pid, handle), None
+        if processes.wait(handle, 0):  # it ended while it was read: nothing to end
+            problem = None
+    except OSError:
+        problem = "the process the spawned record names could not be read"
+    processes.close(handle)
+    return None, problem
 
 
 # --------------------------------------------------------------------------------------
@@ -1200,6 +1480,8 @@ class Planner:
         self.calls = load_call_set(self.command)
         # The platform whose run records a launch is read by (LAUNCHED).
         self.platform = "nt" if os.name == "nt" else "posix"
+        # The calls that hold the child Heimdall spawns on Windows by its own handle.
+        self.processes = WindowsProcesses() if os.name == "nt" else None
         self.state = State("start")
         self.installed_codes = None
         self.work = None
@@ -1208,6 +1490,25 @@ class Planner:
         self.held = []
         # Every binding it was ever given, in the order it first held them.
         self.ever_held = []
+        # Every binding a read of the list found that a remembered request can have made
+        # (its `could` in `conclude`), under that request's ID, for as long as the request
+        # is uncertain (M07-W8-R01, ruled 2026-11-23). Each later read counts all of them
+        # as that request's, whether or not the list still names them `active`: a binding
+        # held because two requests can have made it (SHARED_FIND) stays shared by both,
+        # and a request that could have made more than one is never credited later, even
+        # where only one of them is still listed.
+        self.possible = {}
+        # Every binding a read found two or more requests can have made, with those
+        # requests: once ambiguous, never credited (ruled 2026-11-23), even after one of
+        # those requests settles. A later read counts it as shared by them.
+        self.disputed = {}
+        # The bindings a read of the list named as candidates of its requests but credited
+        # to none and never held (an ambiguous read, more than one candidate, a request
+        # that could have made another, or a candidate of a request that named an
+        # operation), each with the requests it was a candidate of: never released, since
+        # they may not be this planner's, and named in the run summary so that a person
+        # can release them. A later read that no longer lists one does not take it off.
+        self.unattributed = {}
         # Every call this planner made about the release of a binding, oldest first:
         # the binding, who called (`by`: a stop goal, or the close), the outcome, the
         # answer's code and the exit status of its process. An observation also says
@@ -1307,12 +1608,16 @@ class Planner:
             elif kind == "bindings":
                 reading = read_bindings(envelope, values["binding_id"])
             elif kind == "work":
-                # One read, for every request observed with this one (`together`).
+                # One read, for every request observed with this one (`together`), and
+                # for the requests it counts beside them (`peers`).
                 read = {request_id: read_work(envelope, self.asked_about(request_id))
                         for request_id in self.together(values["request_id"])}
+                counted = {request_id: read_work(envelope, self.asked_about(request_id))
+                           for request_id in self.peers(values["request_id"])}
                 reading = read[values["request_id"]]
                 reading = reading._replace(facts=dict(reading.facts, together={
-                    request_id: lookup(each.facts, "work") for request_id, each in read.items()}))
+                    request_id: lookup(each.facts, "work") for request_id, each in read.items()},
+                    peers={request_id: lookup(each.facts, "work") for request_id, each in counted.items()}))
             else:
                 reading = read_envelope(envelope)
         except PlannerError as error:
@@ -1369,13 +1674,26 @@ class Planner:
         `request_id`, the newest first: every one the stop in progress may still observe
         that named no operation and asked for the same work and profile (M07-W6-R02).
         A binding made after a request was sent was made after every older one was sent
-        too, so the newest request has the fewest candidates: it is credited first, and
-        each binding is credited to one request at most."""
+        too, so the newest request has the fewest candidates. Each binding is credited to
+        one request at most, and to none where two of them can have made it (`conclude`)."""
         asked = self.requests[request_id]
         same = [other for other in self.open_requests()
                 if "operation_id" not in self.requests[other]
                 and all(self.requests[other][field] == asked[field] for field in ("work_id", "profile"))]
         # A request whose sending moment is not known has no candidate: it comes last.
+        return sorted(same, key=lambda other: self.sent_at.get(other, -1), reverse=True)
+
+    def peers(self, request_id):
+        """The remembered requests one read of the list of bindings counts beside those
+        it observes (`together`), the newest first: every one still uncertain that named
+        an operation and asked for the same work and profile as `request_id` (M07-W8-R02,
+        ruled 2026-11-23). Its operation, observed first, may not have said what it
+        made, so a binding the list shows can be its own too. The read counts what it can
+        have made, and never credits it with anything: its operation decides that."""
+        asked = self.requests[request_id]
+        same = [other for other in self.requests
+                if "operation_id" in self.requests[other]
+                and all(self.requests[other][field] == asked[field] for field in ("work_id", "profile"))]
         return sorted(same, key=lambda other: self.sent_at.get(other, -1), reverse=True)
 
     def asked_about(self, request_id):
@@ -1508,16 +1826,19 @@ class Planner:
         waits on its operation (`request.*`)."""
         return {"request_id": self.work["request_id"], "operation_id": self.state.fields["operation_id"]}
 
-    def kept(self, code, exit_code, operation=None, problem=None, outcome=UNCERTAIN_OUTCOME):
+    def kept(self, code, exit_code, operation=None, problem=None, outcome=UNCERTAIN_OUTCOME,
+             detail=None):
         """Record the request in progress as answered with its outcome left uncertain:
         `code` and `exit_code` are its answer's, and `operation` the operation that
-        answer named, when it named one. Remember it, so that a later stop observes it.
-        It is never sent again."""
+        answer named, when it named one; `detail` says why, where the code does not.
+        Remember it, so that a later stop observes it. It is never sent again."""
         request_id = self.work["request_id"]
         request = self.asked_for()
         named = {"operation_id": operation} if FIELD_CHECKS["operation_id"](operation) else {}
         attempt = dict(request, request_id=request_id, by=self.goal, outcome=outcome, code=code,
                        exit_code=exit_code, **named)
+        if detail is not None:
+            attempt["detail"] = detail
         if problem is not None:
             attempt.update(inconsistent=True, detail=f"{problem}; a probable product defect")
         self.remember(request_id, dict(request, **named))
@@ -1532,15 +1853,17 @@ class Planner:
         self.kept(answered.get("code"), answered.get("exit_code"), self.state.fields["operation_id"],
                   outcome=KEPT[self.state.name])
 
-    def uncertain_answer(self, answer, problem):
+    def uncertain_answer(self, answer, problem, outcome=UNCERTAIN_OUTCOME, detail=None):
         """A request answered with a code of UNCERTAIN_CODES whose goal ends there: no
         state waits on an operation for it. Record and remember it with the operation
         the answer named (`next.operation_id`, else the envelope's own), when it named
-        one: a later stop observes it by that operation, else by the list of bindings."""
+        one: a later stop observes it by that operation, else by the list of bindings.
+        So is a request answered with a code that has no row where it arrives, with the
+        outcome UNLISTED_OUTCOME and `detail` saying so."""
         named = [operation for operation in (lookup(answer.facts, "next.operation_id"),
                                              answer.facts.get("operation_id"))
                  if FIELD_CHECKS["operation_id"](operation)]
-        self.kept(answer.code, answer.exit, (named or [None])[0], problem)
+        self.kept(answer.code, answer.exit, (named or [None])[0], problem, outcome, detail)
 
     def leave_open(self):
         """The goal in progress ends unmet. Where it was waiting on the operation of its
@@ -1583,23 +1906,82 @@ class Planner:
         `problem` says how the answer's exit class did not fit, when it did not.
 
         One read of the list of bindings observes every request `together` names with
-        this one, the newest first, and each gets its attempt: a binding it credits to
-        one is held, and so is no candidate of the next (M07-W6-R02)."""
+        this one, the newest first, and each gets its attempt. It counts the requests
+        `peers` names beside them, and records nothing for those. Each request's
+        candidates are the bindings the read names that can be its own and that this
+        planner was never given before the read. What it can have made (`could`) is those,
+        and every binding an earlier read found it can have made (`possible`), whether or
+        not this list still names it `active`. Where no two requests can have made the
+        same binding, a request that can have made one binding only, a candidate of this
+        read, is credited with it (M07-W6-R02). Where two can, the read is ambiguous and
+        credits no request (M07-W7-R04, ruled 2026-11-23: the strict reading): a request
+        whose one candidate is another's too holds it, to be released, and every request
+        stays uncertain. A request that can have made a binding other than its one
+        candidate is credited with nothing either (M07-W8-R01), and neither is a peer
+        (M07-W8-R02): no later read credits what an earlier one could not. Each attempt
+        names the requests it has a binding in common with (`shared_with`)."""
         if call == "work":
             together = answer.facts.get("together") or {request_id: lookup(answer.facts, "work")}
-            for other, work in together.items():
-                said = self.observed(call, answer, problem, other, work)
+            counted = {other: work for other, work in (answer.facts.get("peers") or {}).items()
+                       if other not in together}
+            order, listing = list(together), dict(counted, **together)
+            every = order + list(counted)
+            matching = {other: (listing[other] or {}).get("matching", []) for other in every}
+            candidates = {other: [binding for binding in matching[other] if binding not in self.ever_held]
+                          for other in every}
+            # What each request can have made, for judging the read: its candidates, and
+            # what earlier reads found it can have made.
+            could = {other: set(candidates[other]) | set(self.possible.get(other, ())) for other in every}
+            for other in every:
+                known = self.possible.setdefault(other, [])
+                known += [binding for binding in candidates[other] if binding not in known]
+            sharing = {other: [peer for peer in every if peer != other and could[peer] & could[other]]
+                       for other in every}
+            for other in every:
+                for peer in sharing[other]:
+                    for binding in could[other] & could[peer]:
+                        known = self.disputed.setdefault(binding, [])
+                        known += [r for r in (other, peer) if r not in known]
+            ambiguous = any(sharing.values())
+            for other in order:
+                theirs = set().union(*(could[peer] for peer in sharing[other]))
+                # A binding an earlier read found ambiguous stays so, whoever has settled
+                # since: it is shared by the requests that read found could have made it.
+                earlier = sorted({r for binding in set(candidates[other]) & set(self.disputed)
+                                  for r in self.disputed[binding] if r != other})
+                shared = sharing[other] if set(candidates[other]) & theirs else ()
+                said = self.observed(call, answer, problem, other, together[other], candidates[other],
+                                     shared or earlier,
+                                     ambiguous or bool(earlier) or bool(could[other] - set(candidates[other])),
+                                     list(sharing[other]) + [r for r in earlier if r not in sharing[other]])
                 if other == request_id:
                     says, facts = said
+            for other in counted:  # a peer's candidates are never credited from the list
+                for binding in candidates[other]:
+                    if binding not in self.ever_held:
+                        self.unattributed.setdefault(binding, [])
+                        if other not in self.unattributed[binding]:
+                            self.unattributed[binding].append(other)
         else:
             says, facts = self.observed(call, answer, problem, request_id)
         return Reading(says, "none", answer.effect, dict(facts, **self.release_facts(None)),
                        answer.exit)
 
-    def observed(self, call, answer, problem, request_id, work=None):
+    def observed(self, call, answer, problem, request_id, work=None, new=(), shared=(),
+                 ambiguous=False, peers=()):
         """Read one observation of the uncertain request `request_id` (REQUEST_SAYS) and
         record its attempt. `work` is what the list of bindings says of that request
-        (`read_work`), when the call read it. Returns the reading and its facts.
+        (`read_work`), when the call read it; `new` its candidates in that read; `shared`
+        the other requests observed with it that can have made one of those candidates
+        too; `ambiguous` whether any two requests of the read can have made one binding,
+        or this one can have made another binding than its one candidate (`possible`);
+        and `peers` the requests this one can share a binding with. Returns the reading
+        and its facts.
+
+        One candidate that is another request's candidate too is held and released, and
+        settles no request: either may have made it (M07-W7-R04). Where the read is
+        ambiguous, one candidate settles nothing either, and is not held (ruled
+        2026-11-23; M07-W8-R01).
 
         A binding the observation shows is held from here on, so that the stop in
         progress releases it like any other: the one the request's operation says it
@@ -1611,12 +1993,12 @@ class Planner:
         uncertain, and is observed again by a later stop. A binding this planner was ever
         given is never held again from an observation."""
         request = self.requests[request_id]
-        facts = {key: value for key, value in answer.facts.items() if key not in ("work", "together")}
+        facts = {key: value for key, value in answer.facts.items() if key not in ("work", "together", "peers")}
         listed = work["active"] if work is not None else None
-        # A binding this planner was ever given is the answer's that gave it.
-        new = [binding for binding in (work or {}).get("matching", []) if binding not in self.ever_held]
+        new = list(new)
         if listed is not None:  # the planner's own word on what the list names
-            facts["work"] = dict(work, found=SEVERAL if len(new) > 1 else NEW if new else NONE_NEW)
+            facts["work"] = dict(work, found=SEVERAL if len(new) > 1 else SHARED if new and shared
+                                 else WITHHELD if new and ambiguous else NEW if new else NONE_NEW)
         says = request_says(call, answer._replace(facts=facts), problem is None)
         attempt = dict(request, request_id=request_id, by="close" if self.by == "close" else self.goal,
                        outcome=REQUEST_OUTCOMES[says],
@@ -1624,6 +2006,8 @@ class Planner:
                        exit_code=answer.exit, observed=REQUEST_OBSERVED_BY[call])
         if listed is not None:
             attempt.update(listed=listed, candidates=new)
+        if peers:
+            attempt["shared_with"] = list(peers)
         if "fault" in answer.facts:
             attempt.update(fault=answer.facts["fault"], detail=answer.facts["problem"])
         if problem is not None:
@@ -1635,11 +2019,24 @@ class Planner:
                 attempt["bindings"] = given
             for binding in given:
                 self.hold(binding)
+        for binding in new:
+            if binding not in self.ever_held:
+                self.unattributed.setdefault(binding, [])
+                if request_id not in self.unattributed[binding]:
+                    self.unattributed[binding].append(request_id)
         if says in SETTLED:
             del self.requests[request_id]
             self.sent_at.pop(request_id, None)
+            self.possible.pop(request_id, None)
         self.asked.append(attempt)
         return says, facts
+
+    def left_active(self):
+        """The summary lines for every candidate binding no request was credited with and
+        this planner never held (ruled 2026-11-23): it was listed active and is left so,
+        since it may not be this planner's; a person can release it."""
+        return [f"unattributed binding left active: {binding} (candidates: {', '.join(requests)})"
+                for binding, requests in self.unattributed.items() if binding not in self.ever_held]
 
     def recorded(self, outcome, since=0):
         """The attempts from `since` on that had this outcome, as a record lists them."""
@@ -1744,11 +2141,22 @@ class Planner:
                 time.sleep(0.05)
                 records, unread = read()
                 types = [record["type"] for record in records]
+            refused = None
+            if self.platform == "nt" and "spawned" in types:
+                # The child Heimdall spawned is held by its own handle before anything
+                # else is read of the launch, so that ending the launch ends it too.
+                child.spawned, refused = hold_spawned(
+                    self.processes, records[types.index("spawned")].get("pid"), process.pid,
+                    child_programs(goal["argv"][0], given_value(self.given, "SystemRoot", True)))
+                metrics["spawned_child"] = {
+                    "pid": records[types.index("spawned")].get("pid"),
+                    "held": child.spawned is not None, **({"problem": refused} if refused else {})}
             for record in records:  # a binding a record names is held, whatever became of the launch
                 if FIELD_CHECKS["binding_id"](record.get("binding_id")):
                     self.hold(record["binding_id"])
             if up and types == launched:
                 require(records[0].get("pid") == process.pid, "the run record names another process")
+                require(refused is None, f"the spawned record names a process that is not the child: {refused}")
                 self.child, child.meta = child, meta  # the file goes when the child has ended
                 return Reading("launching", "none", None, {"record": records[0]})
         finally:
@@ -1756,6 +2164,8 @@ class Planner:
                 status = child.end(1)
             if self.child is not child and meta.is_file():
                 meta.unlink()
+            if self.child is not child and child.spawned is not None:  # ended with the launch
+                metrics["spawned_child"].update(child.spawned.end(1))
         # Not launched. What the records named before that is kept: a binding, an operation.
         errors, kept = bytes(child.errors), {}
         for record in records:
@@ -1889,9 +2299,11 @@ class Planner:
             elif unanswered or tracked and "fault" in answer.facts:
                 problem = answer.facts["problem"]  # the goal ends here, and says what went wrong
             first = None  # the state the answer itself leads to, its exit class aside
+            listed = True  # whether a row of the table applies to the answer itself
+            unlisted = None  # why none does, where a state refused the answer's typed fields
             try:
                 after, row = transition(before, answer)
-                first = after
+                first, listed = after, row is not None
                 # A binding the answer names is held from here on, whatever the exit
                 # class of its process: a later stop releases it.
                 if after.name in HELD:
@@ -1901,6 +2313,8 @@ class Planner:
             except PlannerError as error:  # the code's typed fields are present but invalid
                 reading = answer
                 after, row, problem = State("failed", code=answer.code), None, str(error)
+                if first is None:  # no row takes the answer itself (M07-W8-R03)
+                    listed, unlisted = False, str(error)
             metrics["transitions"].append(
                 {"from": before.name, "code": reading.code, "action": reading.action,
                  "to": after.name, "by_table": row is not None})
@@ -1915,10 +2329,20 @@ class Planner:
             elif call in REQUESTS and not unanswered and answer.code in UNCERTAIN_CODES:
                 # Answered uncertainly, and no state waits on it: it is remembered.
                 self.uncertain_answer(answer, misfit)
+            elif call in REQUESTS and not unanswered and not listed:
+                # Answered with a code no row covers here, or with a typed field present
+                # but invalid: the goal ends by no row, and the request is remembered as
+                # uncertain, never sent again (fail closed).
+                self.uncertain_answer(answer, misfit, UNLISTED_OUTCOME,
+                                      unlisted or no_row(before, answer))
             if after.name == "stopped" and self.child is not None:
                 child, self.child = self.child, None
                 status = child.end()
                 metrics["child_exit_code"] = status
+                if child.spawned is not None:
+                    metrics["spawned_child"] = child.spawned.ended
+                    require(child.spawned.ended["ended"] != "not_ended",
+                            "the child Heimdall spawned could not be shown ended")
                 require(status == 0, f"the child ended with exit {status}")
             if after.name == "failed":
                 require(row is not None, problem)
@@ -2008,14 +2432,17 @@ class Planner:
                     break
         finally:
             self.by = "stop"
+        ended = {}
         if self.child is not None:
             child, self.child = self.child, None
             child.end(1)
+            if child.spawned is not None:  # on Windows, what became of the child Heimdall spawned
+                ended["spawned_child"] = child.spawned.ended
         released = {attempt["binding_id"] for attempt in self.attempts[began:]
                     if attempt["outcome"] == "released"}
         return {"released": [binding for binding in self.ever_held
                              if binding in released and binding not in self.held],
-                "held": list(self.held)}
+                "held": list(self.held), **ended}
 
 
 # --------------------------------------------------------------------------------------
@@ -2098,11 +2525,14 @@ def parse_arguments(argv=None):
 def exit_status(tasks, closing, planner):
     """1 when the run failed, else 0. It failed when a goal was not met or a binding is
     still held; when a release was ever refused, uncertain, unanswered or not sent; when
-    a request's outcome was ever unknown, or it was never sent; and whenever a release or
-    a request is still uncertain, whatever the goals' own results (M07-W6-R03)."""
+    a request's outcome was ever unknown, or it was never sent; whenever a release or a
+    request is still uncertain, whatever the goals' own results (M07-W6-R03); and while
+    a candidate binding no request was credited with is left active."""
     return int(any(not task["success"] for task in tasks) or bool(closing["held"])
+               or closing.get("spawned_child", {}).get("ended") == "not_ended"
                or bool(planner.by_binding()) or bool(planner.by_request())
-               or bool(planner.requests) or bool(planner.uncertain))
+               or bool(planner.requests) or bool(planner.uncertain)
+               or bool(planner.left_active()))
 
 
 def run(args, command):
@@ -2123,7 +2553,7 @@ def run(args, command):
     unanswered = planner.by_request()
     print(json.dumps({"harness": "H2", "call_set": CALL_SET_SOURCE, "tasks": tasks,
                       "close": closing, "release_attempts": unreleased,
-                      "request_attempts": unanswered}))
+                      "request_attempts": unanswered, "left_active": planner.left_active()}))
     return exit_status(tasks, closing, planner)
 
 

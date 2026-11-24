@@ -83,10 +83,12 @@ const H1_SOURCE: &str = include_str!("../../examples/harnesses/cli/harness.py");
 /// H2's source, as shipped.
 const H2_SOURCE: &str = include_str!("../../examples/harnesses/goal-loop/harness.py");
 
-/// Standard-library modules a harness may import.
-const STANDARD_LIBRARY: [&str; 13] = [
+/// Standard-library modules a harness may import. ⟨M07 W8; M07-W7-R03⟩ `ctypes` is H2's means of
+/// holding the child Heimdall spawns on Windows by a handle of its own (kernel32).
+const STANDARD_LIBRARY: [&str; 14] = [
     "argparse",
     "collections",
+    "ctypes",
     "dataclasses",
     "json",
     "os",
@@ -1607,6 +1609,26 @@ mod journey {
             stop["child_exit_code"], 0,
             "the child of task 5 ended cleanly when task 6 stopped it"
         );
+        // ⟨M07 W8; M07-W7-R03⟩ On Windows H2 held the in-box client that heimdall.exe spawned by
+        // a handle of its own (it passed the identity checks), and task 6 found it exited at the
+        // end of its input.
+        #[cfg(windows)]
+        {
+            let run = &summary["tasks"][2];
+            assert_eq!(
+                run["spawned_child"]["held"], true,
+                "H2 held the child Heimdall spawned: {run}"
+            );
+            assert_eq!(
+                (
+                    &stop["spawned_child"]["pid"],
+                    &stop["spawned_child"]["ended"],
+                    &stop["spawned_child"]["exit_code"]
+                ),
+                (&run["spawned_child"]["pid"], &json!("exited"), &json!(0)),
+                "task 6 found the held child exited: {stop}"
+            );
+        }
         assert_eq!(
             (stop["calls"].as_u64(), &stop["held"]),
             (Some(held.len() as u64), &json!([])),
@@ -1743,11 +1765,12 @@ mod journey {
     }
 
     /// What the Windows run of task 5 does not prove (module documentation, "On Windows"),
-    /// and ⟨M07 W7.3; M07-W7-R03⟩ what H2 does not do there, carried to the next wave.
+    /// and ⟨M07 W8; M07-W7-R03⟩ the Windows check of H2's hold on the child that is still to
+    /// run on the PC.
     #[cfg(windows)]
     const WINDOWS_HELD: [&str; 2] = [
         "task 5 on Windows: the child is the in-box ssh.exe with the isolated options, so it makes no login through the binding's signing endpoint (M07-W3-R02 is proven on Unix)",
-        "H2 on Windows (M07-W7-R03): the process H2 starts and ends for a run goal is heimdall.exe, which spawns the child and waits for it, so ending it (a stop, the close, a sequence that is no launch) ends Heimdall, not the child; a child that ignores the end of its input outlives H2 (task 5's in-box client exits when its input ends)",
+        "H2 on Windows (M07-W7-R03): H2 holds the child the spawned record names by a handle of its own, opened when the record is read and checked by identity (its parent is the heimdall.exe H2 started, it was created after it, it runs the goal's program), and ends it by that handle; the Windows check of a child that ignores the end of its input (goal-loop PlannerTests.test_windows_the_child_heimdall_spawned_is_ended_by_its_own_handle) passed natively in PC job 52 at 44da298d",
     ];
 
     #[cfg(windows)]

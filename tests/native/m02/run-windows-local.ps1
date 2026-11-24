@@ -602,6 +602,17 @@ function Get-LibTestExecutable([string]$Output, [string]$Crate) {
     return $null
 }
 
+# ⟨M07 W8⟩ Observation lines (no pass/fail rule reads them): the `other keys offered: <n>` lines
+# the Windows A01 and A11 rows print (ADR-0007 §12.52), as `other-keys-offered-<tag>` facts, in
+# the order they appear; a tag that printed none is not listed.
+function Get-OtherKeysOffered([string]$Text) {
+    $facts = [ordered]@{}
+    foreach ($m in [regex]::Matches($Text, '(?m)^(a01|a11) console: other keys offered: (\d+)\r?$')) {
+        $facts["other-keys-offered-$($m.Groups[1].Value)"] = $m.Groups[2].Value
+    }
+    return $facts
+}
+
 # Why a feature build is blocked: cargo's real exit code and its first error line (one line,
 # bounded), as lib.sh m02_feature_build words it.
 function Get-FeatureBlockReason([string]$Feature, [string]$Package, [int]$Code, [string]$Output) {
@@ -855,6 +866,11 @@ function Invoke-SelfTest([string]$OutDir) {
     Check 'F05 a blocked reason without an error line says so, and a long line is bounded' (
         (Get-FeatureBlockReason 'iroh' 'p' 124 'timed out') -eq 'the iroh-feature build of p failed (cargo exit 124): no error line in the build log' -and
         (Get-FeatureBlockReason 'iroh' 'p' 1 ('error: ' + ('x' * 400))).Length -lt 300)
+    $ok = Get-OtherKeysOffered ("### e2e_cli_m02`na01 console: other keys offered: 0`r`n" +
+        "### e2e_run_m02`na11 console: other keys offered: 2`nnot a01 console: other keys offered: 9`n")
+    Check 'O01 the other-keys-offered observation lines become one fact per row, the count as printed' (
+        (@($ok.Keys) -join ',') -eq 'other-keys-offered-a01,other-keys-offered-a11' -and $ok['other-keys-offered-a01'] -eq '0' -and $ok['other-keys-offered-a11'] -eq '2')
+    Check 'O02 output without the lines yields no fact (the run records "not shown")' ((Get-OtherKeysOffered "### x`ntest a ... ok`n").Count -eq 0)
     Write-Host "run-windows-local selftest: $($script:stPass) passed, $($script:stFail) failed"
 }
 
@@ -1088,6 +1104,7 @@ try {
     $bins = [System.Collections.Generic.List[object]]::new()
     $cli = ''
     $hook = ''
+    $pinned = ''
     foreach ($line in ($r.Output -split "`n")) {
         if (-not $line.StartsWith('{')) { [void]$build.Append("$line`n"); continue }
         $m = $null
@@ -1098,6 +1115,7 @@ try {
             $bins.Add([pscustomobject]@{ Name = $name; Exe = $m.executable; Cwd = (Split-Path -Parent $m.manifest_path) })
         } elseif ($m.target.name -eq 'heimdall' -and $m.target.kind -contains 'bin') { $cli = $m.executable }
         elseif ($m.target.name -eq 'hm-fixture-hook' -and $m.target.kind -contains 'bin') { $hook = $m.executable }
+        elseif ($m.target.name -eq 'hm-pinned-ssh' -and $m.target.kind -contains 'bin') { $pinned = $m.executable }
     }
     if ($r.Code -ne 0 -or $bins.Count -eq 0 -or -not $cli -or -not $hook) { throw 'the build failed or produced no test binaries' }
     # ⟨M06 W5⟩ 3b. The targets that require -Feature. Cargo writes heimdall.exe of both builds
@@ -1185,6 +1203,12 @@ try {
     foreach ($b in $bins) { [void]$build.Append("$($b.Name).exe sha256: $(Get-Sha256Hex ([System.IO.File]::ReadAllBytes($b.Exe)))`n") }
     [void]$build.Append("heimdall.exe (CLI for the e2e suites, HEIMDALL_E2E_BIN) sha256: $(Get-Sha256Hex ([System.IO.File]::ReadAllBytes($cli)))`n")
     [void]$build.Append("hm-fixture-hook.exe (HM_FIXTURE_HOOK) sha256: $(Get-Sha256Hex ([System.IO.File]::ReadAllBytes($hook)))`n")
+    # ⟨M07 W8⟩ An observation line only: the pinned-client wrapper the Windows connect rows start.
+    if ($pinned) {
+        [void]$build.Append("hm-pinned-ssh.exe (the debug pinned-client wrapper) sha256: $(Get-Sha256Hex ([System.IO.File]::ReadAllBytes($pinned)))`n")
+    } else {
+        [void]$build.Append("hm-pinned-ssh.exe (the debug pinned-client wrapper): not built`n")
+    }
 
     # The run plan: case-index.json build_host_paths (a test that truly needs the build host).
     $index = Get-Content -LiteralPath (Join-Path $src 'tests\native\m02\case-index.json') -Raw | ConvertFrom-Json -AsHashtable
@@ -1362,6 +1386,10 @@ try {
     if ($after.Count -gt 0) { $overall = 1 }
     Add-Command $arc 'every test binary natively, each under its timeout (overall exit = last failing binary''s exit, 0 if all passed)'
     if ($arc -ne 0) { $overall = 1 }
+    # ⟨M07 W8⟩ Observation lines only (no pass/fail rule reads them).
+    $offered = Get-OtherKeysOffered $tests.ToString()
+    if ($offered.Count -eq 0) { Add-Fact 'other-keys-offered' 'not shown (the A01 and A11 rows printed no count)' }
+    foreach ($k in $offered.Keys) { Add-Fact $k $offered[$k] }
     Add-Fact 'test-pipes-after' (& $pipes)
     Add-Fact 'localappdata-heimdall-after' $(if (Test-Path (Join-Path $env:LOCALAPPDATA 'heimdall')) { 'present' } else { 'absent' })
     $ownerAfter = & $ownerDigest

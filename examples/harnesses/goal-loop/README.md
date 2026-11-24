@@ -100,8 +100,9 @@ Any goal may carry a `task` label for its record.
 - **`stop`** begins wherever H2 holds a binding, whatever became of the goals before
   it. It releases each binding H2 holds, one call for each, the newest first. If a
   child is running, H2 then closes the child's input and waits for it. A child that
-  stays is stopped through its own handle and the goal fails. On Windows that handle is
-  Heimdall's, not the child's: see "A launch" below.
+  stays is stopped through its own handle and the goal fails. On Windows the process H2
+  started is Heimdall, and the child Heimdall spawned is held by a handle of its own:
+  see "A launch" below.
   - From `ready`, `running` or `releasing` it goes on with that state's binding.
   - From any other state, such as `failed` after a later goal, it begins in
     `releasing` with the newest binding on the list.
@@ -198,7 +199,9 @@ the new state is built from. The first row whose fields the answer carries wins.
 field written `=VALUE` is that fixed value.
 
 - **No row** means failure. A code the table does not know is reported as an unknown
-  code. Nothing is retried.
+  code. Nothing is retried. Where the answer was to a request (`access ensure`, `run`),
+  that request is left uncertain and remembered: see "Requests answered with a code no
+  row covers".
 - **An observation** (`operation wait`) is read by the typed `state` of the
   operation's view, `data.state`. `OPERATION_STATES` in `harness.py` is the one table
   of the published states (`OperationState` in
@@ -223,12 +226,29 @@ field written `=VALUE` is that fixed value.
   waits for it. There `launching`'s `pid` is Heimdall's own, the process H2 started,
   and H2 reads the file again for up to `SPAWNED_SECONDS` (5 s) when the child's line
   comes before `spawned`. Any other sequence is no launch, and the child is ended.
-  **A limit on Windows (M07-W7-R03, carried to the next wave):** there the process H2
-  started, and so the one it ends, is `heimdall.exe`, which spawned the child and waits
-  for it. Ending it (a stop, the close, a sequence that is no launch, a time limit) ends
-  Heimdall, not the child, and H2 does not use the PID the `spawned` record names. A
-  child that ignores the end of its input outlives H2. The in-box client of the fixture
-  driver's task 5 exits when its input ends.
+  **The child on Windows (M07-W7-R03).** Heimdall spawns the child with no job object
+  and waits for it, so ending `heimdall.exe` alone would leave the child running. H2
+  opens the PID the `spawned` record names as a handle of its own as soon as it reads
+  the record (`hold_spawned`, `WindowsProcesses` in `harness.py`, kernel32 through
+  `ctypes`). From then on the handle names one process, whatever becomes of the PID. H2
+  holds that process only if it passes each check of `SPAWNED_IDENTITY`, in order. Its
+  parent is the `heimdall.exe` H2 started, whose PID no other process can have while H2
+  holds that process's handle. It was created no earlier than that process. It runs the
+  goal's program (by real path, without regard to case), or for a batch script the
+  system directory's `cmd.exe`. Nothing is found or ended by its name. A `spawned` record
+  that names a running process failing a check is no launch: the goal fails, H2 ends
+  Heimdall, and the process the record names is left alone. Where the record names no
+  running process, the child has ended already, and nothing is held. Whenever H2 ends
+  the launch (a stop, the close, a sequence that is no launch, a time limit), it closes
+  the input and waits. If Heimdall is still there, H2 ends the held child first, by its
+  handle (terminated with exit 1, then waited on within the same bound), and then
+  Heimdall, which waits for it. Whatever became of Heimdall, a held child still running
+  is ended the same way. The goal's record says what was held (`spawned_child`),
+  and the stop's or the close's what became of it. The Windows check of a child that
+  ignores the end of its input is the goal-loop test
+  `test_windows_the_child_heimdall_spawned_is_ended_by_its_own_handle`, and it
+  passed natively in PC job 52 (`44da298d`). On other platforms the same path is run with a stand-in for the
+  Windows calls.
 - **An uncertain outcome** (`OUTCOME_UNKNOWN`) never sends the request again. H2
   observes the operation named in `next.operation_id` (`operation wait`) until it
   ends, within the goal's step limit:
@@ -532,13 +552,40 @@ later observation:
 | at the step limit while reconciling | `unresolved(OUTCOME_UNKNOWN, operation_id)` | `outcome_unknown`, with the code and exit status of the request's answer, in `requests_outcome_unknown` |
 | at the step limit while observing or pending approval: each wait found the operation unfinished (Heimdall's own timeout, exit 5) | `failed(OUTCOME_UNKNOWN, request_id, operation_id)` | `still_unknown`: the last wait, `OK`, exit 5 |
 | a wait that ran past its time limit, came back unreadable or could not be started, in any of the three states | `failed(OUTCOME_UNKNOWN, request_id, operation_id)` | `still_unknown`, with its `fault` |
-| a wait refused for now, such as `SERVICE_UNAVAILABLE` (exit 5): a code with no row there | `failed(<code>)` | `still_unknown`, with that code |
+| a wait refused for now: a code of `FOR_NOW` (class 5, retryable, `next.action` `retry_after`), such as `SERVICE_UNAVAILABLE` | `failed(<code>, request_id, operation_id)`, by a row of the table | `still_unknown`, with that code |
 | a wait in the wrong exit class | `inconsistent(code, exit_code)` | `still_unknown`, with `inconsistent: true`. A binding it named is held and released |
 | an observed operation whose own code is `OUTCOME_UNKNOWN` | `failed(OUTCOME_UNKNOWN, request_id, operation_id)` | `still_unknown`, code `OUTCOME_UNKNOWN`, exit 7 |
 | an approval handoff the person never came back from | `pending_approval` | `still_unknown`, with the code of the request's own answer (no `observed`) |
 
 The request is never sent again. A later stop, or the close, observes it like any
 remembered request.
+
+### Requests answered with a code no row covers
+
+An answer to `access ensure` or `run` whose code has no row in the state it arrives in
+fails closed (ruled 2026-11-23). That covers a code no table knows, a published code the
+table does not cover there (`UNSUPPORTED_CLIENT`, or `APPROVAL_REQUIRED` to a `run`), and
+a code whose `next.action` or typed fields no row takes. A typed field no row takes is one
+that is missing, or present but invalid (M07-W8-R03): an `ACCEPTED` whose
+`next.operation_id` is no operation ID, an `APPROVAL_REQUIRED` whose `next.decision_ref`
+is no decision reference, an `ACCESS_READY` whose `next.binding_id` is no binding ID. The
+answer does not say what became of the request, so H2:
+
+- ends the goal by no row: `failed(<code>)`, with `detail` saying why (`unknown code
+  <code>`, `no transition from <state> for <code> with next <action>`, or `state <state>
+  was given an invalid <field>`). In the wrong exit class it ends in
+  `inconsistent(code, exit_code)` instead;
+- sends nothing again: exactly one call was made for the request;
+- remembers the request, with the operation it named (`next.operation_id`, else the
+  envelope's own), when it named a valid one. Its attempt is `still_unknown`, with the answer's
+  code, exit status and `detail` (`UNLISTED_OUTCOME`), in `requests_still_unknown`;
+- has a later stop, or the close, observe it like any remembered request: by its
+  operation, else through the list of bindings. Unsettled, it is `still_unknown`;
+- exits 1, whatever that observation finds.
+
+A binding such an answer names is not held: its code gives `next` no meaning H2 knows.
+A wait on the operation of the request in progress already ends this way: it is read by
+`REQUEST_SAYS` as the goal ends (above).
 
 ### Observing a remembered request
 
@@ -584,8 +631,11 @@ gave it. `grant_id` and `profile_revision` tie a binding to no request.
 
 | The list of bindings | Outcome | H2 then |
 | --- | --- | --- |
-| names exactly one candidate | `binding_found` | holds it, and the same stop releases it |
+| names exactly one candidate, and the request can have made no other binding, by this read or an earlier one | `binding_found` | holds it, and the same stop releases it |
 | the same, in another exit class | `still_unknown`, with `inconsistent: true` | holds it all the same, and the same stop releases it. The request stays uncertain |
+| names exactly one candidate, and another remembered request of the same work and profile, observed in the same read, can have made it too | `still_unknown`, with `shared_with` naming those requests | holds it, in either exit class, and the same stop releases it: it is one of H2's own requests' bindings either way. No request of that read is settled |
+| names exactly one candidate, in a read where two requests can have made the same binding (another one) | `still_unknown`, with `shared_with` | holds nothing: the read credits no request |
+| names exactly one candidate, and an earlier read found the request can have made another binding, listed now or not (M07-W8-R01) | `still_unknown` | holds nothing: the request is never credited |
 | names more than one candidate | `still_unknown` | releases none of them: which one is the request's is not known |
 | names none: another profile, an older binding, one with no creation time, one H2 was given, or no binding for the work | `still_unknown` | keeps the request as uncertain, and sends nothing |
 | could not be read, or is not the complete list | `still_unknown` | the same |
@@ -599,21 +649,48 @@ Rules that follow from the contract owner's rulings of 2026-11-22 and 2026-11-23
   the same work for another profile, or made before the request was sent.
 - **Requests of one work and profile are observed together** (M07-W6-R02). One read of
   the list observes every remembered request a stop may still observe that named no
-  operation and asked for the same work and profile. They are read the newest first,
-  and a binding credited to one is held, so it is no candidate of the next: each
-  binding is credited to one request at most. A binding made after a request was sent
-  was made after every older request was sent too, so the newest has the fewest
-  candidates. Requests that named an operation are observed before any of these, so
-  the list never offers a binding their operation names to another request. What the
-  list cannot settle stays as it was: two bindings both made after the newest request
-  was sent are two candidates for it, and none is released.
-- **Newest first can credit the wrong request (M07-W7-R04, a stated limit carried to
-  the next wave).** Take two remembered silent requests, R1 then R2, for the same work
-  and profile, and one listed binding made after R2 was sent. H2 credits it to R2,
-  releases it and stops observing R2, but R1 may have made it, for example when its
-  operation was slow. R1 then stays `still_unknown`, and a binding R2's own operation
-  makes later is not looked at or released. No field names the request that made a
-  binding (U0-Q7). The run still exits 1, because R1 is uncertain.
+  operation and asked for the same work and profile, the newest first. Each request's
+  `candidates` are taken before anything that read shows is held. Where no binding is
+  a candidate of two of them, a request with one candidate is credited with it, and
+  each binding is credited to one request at most. Requests that named an operation are
+  observed before any of these, so the list never offers a binding their operation
+  names to another request.
+- **A request that named an operation counts in the read too** (M07-W8-R02; ruled
+  2026-11-23). Its operation, waited on first, may leave it uncertain without naming a
+  binding, for example a wait refused for now. While it is uncertain, every remembered
+  request of the same work and profile that named an operation is counted in each read
+  of the list for that work and profile: the bindings it can have made by ATTRIBUTION
+  are in its `could`, so a binding it shares with a silent request makes the read
+  ambiguous. It gets no attempt from the read and is never credited from the list: its
+  operation decides that. A candidate of its own that H2 never held is named in
+  `left_active`.
+- **An ambiguous read credits no request (M07-W7-R04; ruled 2026-11-23, the strict
+  reading).** Take two remembered silent requests, R1 then R2, for the same work and
+  profile, and one listed binding made after R2 was sent. R1 was sent before it was
+  made too, so R1 may have made it, for example when its operation was slow. Where any
+  binding is a candidate of two requests of the read:
+  - a request whose one candidate is such a binding holds it, and the same stop
+    releases it: it is one of H2's own requests' bindings either way;
+  - no request of the read is credited with anything, and nothing else is held. Each
+    stays `still_unknown`, its attempt naming in `shared_with` the requests it can share
+    a binding with;
+  - what a read found each request can have made stays that request's in every later
+    read, listed `active` or not (`possible`; M07-W8-R01). So a binding held that way
+    stays shared by those requests after it is released, and a later stop or the close
+    never credits what this read could not;
+  - the run exits 1.
+
+  A15 is the case where R1 also has a binding made after R1 was sent and before R2 was.
+  R1 then has two candidates, and R2 one, which is R1's too. Only R2's is released. R1's
+  other candidate is not held: with no request credited, nothing ties it to H2. The
+  `made-1` control (one binding, made between the two sendings) is ambiguous for no
+  one: it is credited to R1 and released, and R2 stays uncertain.
+- **What the list cannot settle stays as it was.** Two bindings both made after the
+  newest request was sent are two candidates for it, and none is released. That holds
+  in later reads too, after one of them has gone from the list (it expired, or someone
+  else released it): the request can still have made the one that has gone, so the one
+  left is not credited (M07-W8-R01). No field names the request that made a binding
+  (U0-Q7).
 - **A list that names none is no evidence that the request never ran.** It may not
   have been applied yet. The request stays `still_unknown`.
 - **Still unknown is an end, not a retry.** The stop goes on with the bindings it
@@ -707,7 +784,8 @@ Four answers are not checked:
 
 - a launch that started, because its process is the child and still runs;
 - a code that neither code table has, because no class is documented for it. It has
-  no row either, so it fails the goal anyway;
+  no row either, so it fails the goal anyway, and a request it answered is left
+  uncertain;
 - output that is not one envelope, which has no code to check. It fails the goal, and
   a request or a release is then remembered as uncertain;
 - a call H2 ended at its time limit, because its process has no exit status of its
@@ -744,6 +822,7 @@ lists is the same attempt with the fields named there.
 | `tasks` | one record for each goal, in order | the summary |
 | `close` | what the close did: `released` and `held` | the summary |
 | `release_attempts` | each binding with an attempt that did not release it, keyed by binding ID | the summary |
+| `left_active` | one line per candidate binding a read of the list credited to no request and H2 never held: `unattributed binding left active: <binding_id> (candidates: <request ids>)`. That is every candidate of a request with more than one; the one candidate of a request in an ambiguous read, or of one an earlier read found can have made another binding; and a candidate of a request that named an operation (counted in the read, never credited from it). A binding H2 held is never named: one credited to a request, or one held as a candidate shared by two of its requests (it is H2's either way, and released like any other; one H2 could not release is in `release_attempts`). It is left active because it may not be H2's, so a person can release it, and it is named even where a later read no longer lists it; any entry fails the run | the summary |
 | `request_attempts` | each request whose outcome was ever unknown or that was never sent, keyed by request ID | the summary |
 | `released` | the bindings the close released, by an answer or by an observed release, in the order H2 first held them | `close` |
 | `held` | the bindings H2 still holds | `close`; a task, after its goal; an entry of `release_attempts` (`true` or `false`) |
@@ -761,6 +840,7 @@ lists is the same attempt with the fields named there.
 | `transitions` | the path the goal took: one step for each call, and one for the step limit | a task |
 | `from`, `to`, `code`, `action`, `by_table` | a step: the states before and after, the answer's code (or a step code of H2's own), its `next.action`, and whether a row of the table chose it | each step of `transitions` |
 | `child_exit_code` | the exit status of the child a stop ended | a task of a stop that ended a child |
+| `spawned_child` | on Windows, the child the `spawned` record names: `pid` and `held` (whether H2 holds it by its own handle; `problem` where a check refused it); once ended, `ended` (`exited`, `ended_by_handle` or `not_ended`) and `exit_code` | a `run` task on Windows; a stop that ended a held child; `close`, where the close ended one |
 | `refused_releases` | the releases Heimdall refused during the goal | a task |
 | `outcome_unknown` | the releases answered `OUTCOME_UNKNOWN` during the goal | a task |
 | `unanswered` | the releases of the goal that were started and brought no answer | a task |
@@ -770,7 +850,7 @@ lists is the same attempt with the fields named there.
 | `requests_outcome_unknown` | the requests of the goal answered `OUTCOME_UNKNOWN` that were left uncertain: their operation was unfinished at the step limit, or the answer ended the goal | a task |
 | `requests_unanswered` | the requests of the goal that were started and brought no answer | a task |
 | `requests_not_sent` | the requests of the goal that were never sent | a task |
-| `requests_still_unknown` | the answers of the goal that did not say what became of a request whose operation it left open (see "Requests answered with their operation left open"), and each later observation that settled nothing | a task |
+| `requests_still_unknown` | the answers of the goal that did not say what became of a request whose operation it left open (see "Requests answered with their operation left open"), a request answered with a code no row covers, and each later observation that settled nothing | a task |
 | `attempts` | every attempt about the binding or the request, in order: the stop goals', then the close's | an entry of `release_attempts` or `request_attempts` |
 | `call` | `access ensure` or `run` | an entry of `request_attempts`; an entry of a task's `requests_*` list |
 | `profile`, `work_id` | what the request asked for | the same |
@@ -784,11 +864,12 @@ lists is the same attempt with the fields named there.
 | `observed` | an observation: `operation` or `bindings` | an attempt that is an observation |
 | `state` | the binding's state in the list, or `(not listed)` | a release attempt that read the list of bindings |
 | `listed` | the bindings the list names for the request's work in the state `active` | a request attempt that read the list |
-| `candidates` | those of `listed` that pass every check of `ATTRIBUTION` and that H2 was never given | a request attempt that read the list |
+| `candidates` | those of `listed` that pass every check of `ATTRIBUTION` and that H2 was never given before that read | a request attempt that read the list |
+| `shared_with` | the other requests observed in the same read that can have made one binding with this one: that read credits no request (M07-W7-R04, the strict reading) | a request attempt that read the list |
 | `bindings` | the bindings this attempt gave H2 to hold: the one the request named before it stopped, or the one an observation showed | a request attempt that gave H2 a binding |
 | `inconsistent` | `true`: the exit class does not fit the answer | an attempt in the wrong exit class |
 | `fault` | why the call brought no answer: `timed_out`, `unreadable` or `not_started` | an attempt after a call with no answer |
-| `detail` | with `inconsistent`, the mismatch named as a probable product defect; with `fault`, what went wrong | an attempt with either |
+| `detail` | with `inconsistent`, the mismatch named as a probable product defect; with `fault`, what went wrong; for a request answered with a code no row covers, why no row applied | an attempt with any of these |
 
 A binding in one of a task's first five release lists is still held. A binding in
 `not_listed` is not.
@@ -882,8 +963,9 @@ uncertain.
   changes when it is served. Held for U4b.
 - **Native Windows.** The launch environment was verified natively (W4.1). The `run`
   goal reads the Windows `spawned` record and accepts the in-box OpenSSH client as its
-  child (W7). That path is covered by the stub here and by A32's task 5 in
-  `tests/e2e/harness_m07.rs`, which runs on Windows only on the native runner.
+  child (W7), and holds that child by a handle of its own (W8, M07-W7-R03). That path is
+  covered by the stub here and by A32's task 5 in `tests/e2e/harness_m07.rs`, which
+  runs on Windows only on the native runner.
 - **Provider waits, `APPROVAL_REQUIRED` and `OUTCOME_UNKNOWN`.** These rows are
   covered by the stub tests only: no fixture of the real-binary run produces them.
 - **Every answer about a release other than `OK`.** A refused release, one in the
@@ -903,8 +985,13 @@ uncertain.
   the contract gains such a call, H2 uses it there.
 - **Two requests the list cannot tell apart.** Two remembered requests of one work
   and profile whose bindings were both made after the newer one was sent: the list
-  names two candidates for the newer, and H2 releases neither. Only a field that names
-  the request (U0-Q7) can settle that.
+  names two candidates for the newer, and H2 releases neither. One binding made after
+  the newer one was sent is released, and that read credits no request (M07-W7-R04,
+  the strict reading). Only a field that names the request (U0-Q7) can settle that.
+- **The child on Windows (M07-W7-R03).** H2 holds and ends the child Heimdall spawns by
+  a handle of its own. The Windows check of that path passed natively in PC job 52 (`44da298d`). The image
+  check compares real paths: a 32-bit Python on 64-bit Windows would see the system
+  directory through the file system redirector, so H2 expects a 64-bit Python there.
 - **The request ID of a release.** Today's `access release` takes none. If it takes
   one later, H2 records it in `request_id`. Whether H2 may then send the release
   again under the same ID is the contract owner's to say.
@@ -978,6 +1065,33 @@ The tests use a stub `heimdall` in a temporary directory. They cover:
 - W7: two requests of one work and profile observed through the list in one read,
   each binding credited to one request at most (both made one; only the newer made
   one), and requests that named an operation observed first;
+- W8c (the strict reading of M07-W7-R04): A15 credits neither request and releases
+  only the shared binding, through a stop and then the close too; the reviewer's
+  `made-2` case releases its one binding and credits neither; the `made-1` control is
+  credited to the older request;
+- W8c: a request answered with a code no row covers (`SOMETHING_NEW` to `access ensure`
+  and to `run`, `UNSUPPORTED_CLIENT` to `access ensure`): the goal fails by no row, one
+  call is made for it, it is in `requests_still_unknown` and remembered, the close
+  observes it (through the list, or by the operation it named), and the run exits 1;
+- W8: a wait refused for now (each code of `FOR_NOW`, in each state that waits on the
+  operation of its request) ends the goal in `failed(code, request_id, operation_id)`;
+- W8e (M07-W8-R01 to R04): with a list that shows a binding H2 released as `released`,
+  A15 through a stop and then the close credits neither request in either read and
+  never releases the older request's other candidate, and a request with two candidates
+  is not credited once one has gone from the list; a request that named an operation,
+  whose wait was refused for now, makes the read ambiguous for a silent request of the
+  same work and profile; an `ACCEPTED`, `APPROVAL_REQUIRED` and `ACCESS_READY` answer
+  with a typed field present but invalid fails closed (remembered, observed by the
+  close, exit 1); the run exits 1 when the close could not show the held child ended; a
+  `spawned` record naming a running process that fails a check is no launch (the goal
+  fails, Heimdall is ended, the process is not terminated by H2); and a launch that is
+  not up ends the child it held by its handle;
+- W8 (M07-W7-R03): the child Heimdall spawns on Windows, as data on every platform:
+  each identity check and its refusal, holding by a handle opened when the record is
+  read, ending by that handle once and within the bound, and the order (the child
+  first, then Heimdall). The whole stop with a child that ignores its input, through a
+  POSIX stand-in for the Windows calls, and on Windows through kernel32
+  (`test_windows_the_child_heimdall_spawned_is_ended_by_its_own_handle`, Windows only);
 - W7: the Windows launch sequence (`launching`, `spawned`) and the Unix one, each
   refused on the other platform, and the in-box OpenSSH client as the only child
   outside the scratch root;

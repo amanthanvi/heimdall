@@ -4948,6 +4948,8 @@ The evidence-generator and importer fixes (items 1–3) change no `*.rs` file. E
 
    They become `platform_required` on Windows. They close those rows once they pass natively. The "ordinary ssh without `-F`" rows of A01 and A35 on a real `%USERPROFILE%\.ssh\config` stay blocked on B2.
 
+   **Closed (2026-11-23).** All five passed natively in PC jobs 49 (`e3f6858b`) and 50 (`eb393d9b`), and the wrapper's selftests in job 51 (`975780eb`). The five `deferred_with_decision` rows are removed from `tests/native/m02/case-index.json` and from `tests/native/m02/test_m02_evidence.py`'s expected deferred rows; the Windows tests above now decide those rows. `m02-exit-claims.json` stays as the M02 exit recorded it.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
