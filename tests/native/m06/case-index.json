@@ -91,6 +91,13 @@
         "linux"
       ],
       "rationale": "#![cfg(unix)] (tests/e2e/exit_m06_iroh.rs): each journey starts runner runtimes and unprivileged fixture sshds on the same host, and the runner is Unix-only in V1 (m06-plan §5); the Windows inventory scan does not build this iroh-feature target, so the exclusion is recorded here from the source"
+    },
+    "heimdall_runtime-unit::runner::launch::tests::a_real_child_gets_exactly_the_pass_list_and_never_the_parents_agent": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (crates/runtime/src/runner_launch.rs:678): the runner's clean launch reads the account database (HOME, USER, LOGNAME, SHELL against id -un and this uid's entry) and execs a real child on Unix; the runner is Unix-only in V1 (m06-plan §5: a managed Windows remote runner is later). Found by the M06 exit generator dry run (the Windows A24 row read in_progress on its absence)"
     }
   },
   "macro_tests": {},
