@@ -179,6 +179,11 @@ fn conflict(what: String) -> StoreError {
     StoreError::GenerationConflict(what)
 }
 
+/// ⟨rev7, review U0-R01⟩ How every [`StoreError::GenerationConflict`] that
+/// [`Txn::upsert_destination`] raises for a taken alias begins, so a caller can answer it as
+/// an alias collision rather than as an unavailable store.
+pub const DESTINATION_ALIAS_TAKEN: &str = "the destination alias is taken";
+
 fn parse_grant_id(s: &str) -> Result<GrantId> {
     GrantId::parse(s).map_err(|_| codec::doc_error("stored grant id is malformed"))
 }
@@ -1771,9 +1776,9 @@ impl Txn<'_> {
                 .iter()
                 .any(|other| other.id != destination.id)
         {
-            return Err(conflict(
-                "the destination alias is taken (aliases compare without case)".to_owned(),
-            ));
+            return Err(conflict(format!(
+                "{DESTINATION_ALIAS_TAKEN} (aliases compare without case)"
+            )));
         }
         self.tx
             .execute(
@@ -1789,7 +1794,7 @@ impl Txn<'_> {
             )
             .map_err(|e| {
                 if unique_violation(&e) {
-                    conflict("the destination alias is taken".to_owned())
+                    conflict(DESTINATION_ALIAS_TAKEN.to_owned())
                 } else {
                     StoreError::Sqlite(e)
                 }

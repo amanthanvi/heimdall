@@ -57,7 +57,10 @@ pub mod ext_runner;
 pub mod ext_effects;
 pub mod migrations;
 
-pub use ext::{DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent, StoredEventPage};
+pub use ext::{
+    DESTINATION_ALIAS_TAKEN, DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent,
+    StoredEventPage,
+};
 pub use ext_m03::{
     IssuerRecord, LostInstances, ManagedSlot, OpenEnrollmentOperation, OutstandingObligations,
 };

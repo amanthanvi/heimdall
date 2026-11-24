@@ -514,112 +514,169 @@ pub(crate) async fn drive(ops: &Operations, id: &OperationId) -> Result<(), OpEr
     let now = ops.local_narrowing_now().await;
     let own = ops.environment().clone();
     let id = id.clone();
-    ops.local_write(move |tx, emit| {
-        let Some(mut op) = tx.operation(&id)? else {
-            return Ok(());
-        };
-        if op.state == OperationState::AwaitingApproval {
-            // ADR-0007 §12.22 item 9: waiting past its decision's deadline expires it;
-            // with a live decision it keeps waiting for the owner. ⟨M02⟩ §12.24 item 8:
-            // a declaration whose decision left `pending` without its deadline passing
-            // (stale after a generation move) gets a fresh one below, as the setup
-            // driver does, bound to the identity's current fingerprint and endpoint.
-            if local_expire_awaiting(tx, emit, &mut op, now, retention)?
-                || pending_declaration(tx, &op.id, now)?.is_some()
-            {
+    // ⟨rev7, review U0-R01⟩ A store conflict inside the action rolls its transaction back
+    // whole; it is remembered here and settled below as a terminal `CONFIG_CONFLICT`, never
+    // passed up as an unavailable store with the operation left queued.
+    let conflict: std::sync::Arc<std::sync::Mutex<Option<String>>> = std::sync::Arc::default();
+    let seen = conflict.clone();
+    let settle_id = id.clone();
+    let result = ops
+        .local_write(move |tx, emit| {
+            let Some(mut op) = tx.operation(&id)? else {
+                return Ok(());
+            };
+            if op.state == OperationState::AwaitingApproval {
+                // ADR-0007 §12.22 item 9: waiting past its decision's deadline expires it;
+                // with a live decision it keeps waiting for the owner. ⟨M02⟩ §12.24 item 8:
+                // a declaration whose decision left `pending` without its deadline passing
+                // (stale after a generation move) gets a fresh one below, as the setup
+                // driver does, bound to the identity's current fingerprint and endpoint.
+                if local_expire_awaiting(tx, emit, &mut op, now, retention)?
+                    || pending_declaration(tx, &op.id, now)?.is_some()
+                {
+                    return Ok(());
+                }
+                let reissuable = matches!(
+                    tx.recovery_intent(&id)?.and_then(|r| r.local),
+                    Some(LocalIntent::Catalog(CatalogIntent {
+                        action: CatalogAction::DeclareInteraction { .. },
+                        approval: None,
+                    }))
+                );
+                if !reissuable {
+                    return Ok(());
+                }
+            }
+            if op.state.is_settled() {
                 return Ok(());
             }
-            let reissuable = matches!(
-                tx.recovery_intent(&id)?.and_then(|r| r.local),
-                Some(LocalIntent::Catalog(CatalogIntent {
-                    action: CatalogAction::DeclareInteraction { .. },
-                    approval: None,
-                }))
-            );
-            if !reissuable {
-                return Ok(());
-            }
-        }
-        if op.state.is_settled() {
-            return Ok(());
-        }
-        let Some(mut recovery) = tx.recovery_intent(&id)? else {
-            return refuse(
-                tx,
-                emit,
-                &mut op,
-                internal("the catalog operation has no intent"),
-                now,
-                retention,
-            );
-        };
-        let intent = match recovery.local.clone() {
-            Some(LocalIntent::Catalog(i)) => i,
-            Some(_) => {
+            let Some(mut recovery) = tx.recovery_intent(&id)? else {
                 return refuse(
                     tx,
                     emit,
                     &mut op,
-                    internal("the operation's intent is not a catalog intent"),
+                    internal("the catalog operation has no intent"),
                     now,
                     retention,
                 );
-            }
-            None => {
-                let action = serde_json::from_value::<CatalogRequest>(recovery.request.clone())
-                    .ok()
-                    .and_then(|r| CatalogAction::from_request(&r));
-                let Some(action) = action else {
+            };
+            let intent = match recovery.local.clone() {
+                Some(LocalIntent::Catalog(i)) => i,
+                Some(_) => {
                     return refuse(
                         tx,
                         emit,
                         &mut op,
-                        internal("the catalog request cannot be read"),
+                        internal("the operation's intent is not a catalog intent"),
                         now,
                         retention,
                     );
-                };
-                let intent = CatalogIntent {
-                    action,
-                    approval: None,
-                };
-                recovery.local = Some(LocalIntent::Catalog(intent.clone()));
-                tx.set_recovery_intent(&id, &recovery)?;
-                intent
-            }
-        };
-        if intent.validate().is_err() {
-            return refuse(
-                tx,
-                emit,
-                &mut op,
-                internal("the catalog intent is invalid"),
-                now,
-                retention,
-            );
-        }
-        let ctx = ActionCtx {
-            now,
-            decision: &decision,
-            lifetime,
-            validity,
-            fresh,
-            own: &own,
-        };
-        match apply_action(tx, emit, &op, &intent, &ctx)? {
-            Step::Done(data) => {
-                local_settle_succeeded(tx, emit, &mut op, Code::Ok, data, now, retention)
-            }
-            Step::Refused(e) => refuse(tx, emit, &mut op, *e, now, retention),
-            Step::Waiting => {
-                if op.state == OperationState::Queued {
-                    local_op_to(&mut op, OperationEvent::ApprovalNeeded, now)?;
-                    tx.update_operation(&op)?;
-                    emit.op(tx, &op)?;
                 }
-                Ok(())
+                None => {
+                    let action = serde_json::from_value::<CatalogRequest>(recovery.request.clone())
+                        .ok()
+                        .and_then(|r| CatalogAction::from_request(&r));
+                    let Some(action) = action else {
+                        return refuse(
+                            tx,
+                            emit,
+                            &mut op,
+                            internal("the catalog request cannot be read"),
+                            now,
+                            retention,
+                        );
+                    };
+                    let intent = CatalogIntent {
+                        action,
+                        approval: None,
+                    };
+                    recovery.local = Some(LocalIntent::Catalog(intent.clone()));
+                    tx.set_recovery_intent(&id, &recovery)?;
+                    intent
+                }
+            };
+            if intent.validate().is_err() {
+                return refuse(
+                    tx,
+                    emit,
+                    &mut op,
+                    internal("the catalog intent is invalid"),
+                    now,
+                    retention,
+                );
             }
+            let ctx = ActionCtx {
+                now,
+                decision: &decision,
+                lifetime,
+                validity,
+                fresh,
+                own: &own,
+            };
+            let step = match apply_action(tx, emit, &op, &intent, &ctx) {
+                Err(heimdall_store::StoreError::GenerationConflict(what)) => {
+                    if let Ok(mut slot) = seen.lock() {
+                        *slot = Some(what.clone());
+                    }
+                    return Err(heimdall_store::StoreError::GenerationConflict(what));
+                }
+                other => other?,
+            };
+            match step {
+                Step::Done(data) => {
+                    local_settle_succeeded(tx, emit, &mut op, Code::Ok, data, now, retention)
+                }
+                Step::Refused(e) => refuse(tx, emit, &mut op, *e, now, retention),
+                Step::Waiting => {
+                    if op.state == OperationState::Queued {
+                        local_op_to(&mut op, OperationEvent::ApprovalNeeded, now)?;
+                        tx.update_operation(&op)?;
+                        emit.op(tx, &op)?;
+                    }
+                    Ok(())
+                }
+            }
+        })
+        .await;
+    let what = conflict.lock().ok().and_then(|mut slot| slot.take());
+    match (result, what) {
+        (Err(_), Some(what)) => settle_store_conflict(ops, &settle_id, &what).await,
+        (result, _) => result,
+    }
+}
+
+/// ⟨rev7, review U0-R01⟩ Settle catalog operation `id` as a terminal `CONFIG_CONFLICT` after
+/// its action's transaction met a store conflict (and rolled back whole): `alias_collision`
+/// for a taken alias, otherwise no reason. Nothing of the action was written, and nothing is
+/// left queued to be driven again.
+async fn settle_store_conflict(
+    ops: &Operations,
+    id: &OperationId,
+    what: &str,
+) -> Result<(), OpError> {
+    let retention = ops.local_retention();
+    let now = ops.local_narrowing_now().await;
+    let id = id.clone();
+    let alias = what.starts_with(heimdall_store::DESTINATION_ALIAS_TAKEN);
+    ops.local_write(move |tx, emit| {
+        let Some(mut op) = tx.operation(&id)? else {
+            return Ok(());
+        };
+        if op.state.is_settled() {
+            return Ok(());
         }
+        let refusal = if alias {
+            conflict_with(
+                ConflictKind::AliasCollision,
+                "another destination already uses this alias (aliases compare without case)",
+            )
+        } else {
+            OpError::new(
+                Code::ConfigConflict,
+                "the catalog changed under this request; nothing was written".to_owned(),
+            )
+        };
+        refuse(tx, emit, &mut op, refusal, now, retention)
     })
     .await
 }
