@@ -1,0 +1,606 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WithPreview",
+  "description": "⟨rev7⟩ A subject's view typed elsewhere, with `inspect --preview`'s `preview` key beside\nits own keys (the ruling of 2026-11-24 on D1 question 5): the view's keys are flattened, so\nthe document is one flat object, and `preview` is omitted without a preview.",
+  "type": "object",
+  "properties": {
+    "bundle_stale": {
+      "description": "The last recovery bundle predates an enrollment change.",
+      "type": "boolean"
+    },
+    "cas": {
+      "description": "Registered CAs.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CaStatus"
+      }
+    },
+    "issuer_isolation": {
+      "description": "The issuer boundary.",
+      "$ref": "#/$defs/IssuerIsolation"
+    },
+    "orphan_store_items": {
+      "description": "Orphan store items.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/OrphanStoreItem"
+      }
+    },
+    "preview": {
+      "description": "`inspect --preview`'s result. Omitted without a preview.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreviewView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reason": {
+      "description": "With `store_unavailable`: why.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "state": {
+      "description": "Issuer state.",
+      "$ref": "#/$defs/IssuerState"
+    }
+  },
+  "required": [
+    "state",
+    "cas",
+    "orphan_store_items",
+    "issuer_isolation",
+    "bundle_stale"
+  ],
+  "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "CaFingerprint": {
+      "description": "⟨M03⟩ A CA public key's fingerprint: `SHA256:` followed by exactly 43 characters\nof unpadded standard base64 (`A-Za-z0-9+/`), as `ssh-keygen -l` prints it\n(m03-plan §5 item 1). Validated on parse and on decode; compared exactly.",
+      "type": "string"
+    },
+    "CaState": {
+      "description": "A CA's state (ADR-0008 D4 item 3). Transitions:\n`heimdall_domain::issuance::ca_transition`.",
+      "oneOf": [
+        {
+          "description": "Rotation's new CA before its first verified enrollment; signs only\nverification certificates for its own enrollments.",
+          "type": "string",
+          "const": "pending"
+        },
+        {
+          "description": "Issues for pairs it has a verified enrollment for.",
+          "type": "string",
+          "const": "active"
+        },
+        {
+          "description": "Issuance disabled; the key is being unloaded.",
+          "type": "string",
+          "const": "retiring"
+        },
+        {
+          "description": "No process holds the key.",
+          "type": "string",
+          "const": "unloaded"
+        },
+        {
+          "description": "The store item is gone.",
+          "type": "string",
+          "const": "deleted"
+        },
+        {
+          "description": "Final.",
+          "type": "string",
+          "const": "retired"
+        }
+      ]
+    },
+    "CaStatus": {
+      "description": "One registered CA in the issuer status.",
+      "type": "object",
+      "properties": {
+        "backup_created_at": {
+          "description": "Backup time.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "backup_sha256": {
+          "description": "Backup digest (hex).",
+          "type": "string"
+        },
+        "enrollments": {
+          "description": "Enrollment counts.",
+          "$ref": "#/$defs/EnrollmentCounts"
+        },
+        "fingerprint": {
+          "description": "Fingerprint.",
+          "$ref": "#/$defs/CaFingerprint"
+        },
+        "restored_without_log": {
+          "description": "A key-only restore.",
+          "type": "boolean"
+        },
+        "state": {
+          "description": "State.",
+          "$ref": "#/$defs/CaState"
+        },
+        "store": {
+          "description": "Store kind.",
+          "$ref": "#/$defs/StoreKind"
+        },
+        "store_locator": {
+          "description": "⟨ADR-0008 §17.22 item 12⟩ The CA's K_ca store item as this installation\nrecorded it (the locator the ceremony reported). While `state` is `unloaded`\nthe retirement waits for the owner-present CLI to delete exactly this item and\nconfirm it (`issuer.retire` with `deleted_locator`). Absent when none was\nrecorded: that retirement stops at `unloaded`, `issuer_store_locator_unrecorded`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "fingerprint",
+        "state",
+        "store",
+        "backup_sha256",
+        "backup_created_at",
+        "restored_without_log",
+        "enrollments"
+      ]
+    },
+    "Capability": {
+      "description": "Credential capabilities a caller may request (spec §7.2).",
+      "oneOf": [
+        {
+          "description": "SSH user authentication.",
+          "type": "string",
+          "const": "ssh-authentication"
+        },
+        {
+          "description": "Git commit/tag signing (never implied by authentication; spec §7.2).",
+          "type": "string",
+          "const": "git-signing"
+        },
+        {
+          "description": "Agent forwarding (explicit, disabled by default; spec §8.5).",
+          "type": "string",
+          "const": "agent-forwarding"
+        }
+      ]
+    },
+    "Code": {
+      "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "OK"
+        },
+        {
+          "type": "string",
+          "const": "ACCESS_READY"
+        },
+        {
+          "type": "string",
+          "const": "ACCEPTED"
+        },
+        {
+          "type": "string",
+          "const": "APPROVAL_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "INTERACTION_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "PROVIDER_LOCKED"
+        },
+        {
+          "type": "string",
+          "const": "CAPABILITY_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_PAUSED"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_CUTOFF"
+        },
+        {
+          "type": "string",
+          "const": "CREDENTIAL_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "HOST_TRUST_CHANGED"
+        },
+        {
+          "type": "string",
+          "const": "DELEGATION_EXCEEDS_PARENT"
+        },
+        {
+          "type": "string",
+          "const": "OPERATION_CANCELLED"
+        },
+        {
+          "type": "string",
+          "const": "DESTINATION_UNREACHABLE"
+        },
+        {
+          "type": "string",
+          "const": "TIME_UNCERTAIN"
+        },
+        {
+          "type": "string",
+          "const": "UNSUPPORTED_CLIENT"
+        },
+        {
+          "type": "string",
+          "const": "SERVICE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "STATE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "BACKPRESSURE"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "CONFIG_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "RESYNC_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "DECISION_STALE"
+        },
+        {
+          "type": "string",
+          "const": "OUTCOME_UNKNOWN"
+        },
+        {
+          "type": "string",
+          "const": "USAGE_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "SCHEMA_UNSUPPORTED"
+        },
+        {
+          "type": "string",
+          "const": "NOT_FOUND"
+        },
+        {
+          "type": "string",
+          "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
+        }
+      ]
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
+    "EnrollmentCounts": {
+      "description": "Per-CA enrollment counts.",
+      "type": "object",
+      "properties": {
+        "pending": {
+          "description": "Enrollments not yet final, verified or abandoned.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "verified": {
+          "description": "`verified` enrollments.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "verified",
+        "pending"
+      ]
+    },
+    "IssuerIsolation": {
+      "description": "`enforcement.issuer_isolation` and `IssuerStatus.issuer_isolation`.",
+      "oneOf": [
+        {
+          "description": "The issuer is a same-user child process.",
+          "type": "string",
+          "const": "same_user_process"
+        },
+        {
+          "description": "No issuer is involved.",
+          "type": "string",
+          "const": "not_applicable"
+        },
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "IssuerState": {
+      "description": "The issuer's state (§5 item 2).",
+      "oneOf": [
+        {
+          "description": "No CA registered.",
+          "type": "string",
+          "const": "not_initialized"
+        },
+        {
+          "description": "The child is starting.",
+          "type": "string",
+          "const": "starting"
+        },
+        {
+          "description": "The child is loading keys.",
+          "type": "string",
+          "const": "loading"
+        },
+        {
+          "description": "Ready.",
+          "type": "string",
+          "const": "ready"
+        },
+        {
+          "description": "The store is unavailable (with `reason`).",
+          "type": "string",
+          "const": "store_unavailable"
+        },
+        {
+          "description": "The child crashed.",
+          "type": "string",
+          "const": "crashed"
+        },
+        {
+          "description": "Unavailable.",
+          "type": "string",
+          "const": "unavailable"
+        },
+        {
+          "description": "Stopping.",
+          "type": "string",
+          "const": "stopping"
+        }
+      ]
+    },
+    "OrphanStoreItem": {
+      "description": "A store item no registration names (ADR-0008 D4 item 1 crash points), or\n⟨§17.22 item 12⟩ one a restore displaced: listed until the owner-present CLI\ndeletes it and confirms (`issuer.retire` with `deleted_locator`).",
+      "type": "object",
+      "properties": {
+        "fingerprint": {
+          "description": "Its key's fingerprint, when readable without unlocking.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CaFingerprint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "locator": {
+          "description": "⟨§17.22 item 12⟩ Its exact locator, when known (a displaced item: the locator\nrecorded before the restore's compare-and-swap).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "store": {
+          "description": "Store kind.",
+          "$ref": "#/$defs/StoreKind"
+        }
+      },
+      "required": [
+        "store"
+      ]
+    },
+    "PreviewSnapshot": {
+      "description": "What a preview would resolve.",
+      "type": "object",
+      "properties": {
+        "deadline": {
+          "description": "The deadline that would be enforced.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "mechanism": {
+          "description": "The mechanism that would serve it. Omitted when no adapter is resolved (today:\n`null`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile": {
+          "description": "The profile.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "profile_revision": {
+          "description": "Its current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "requested": {
+          "description": "The requested scope.",
+          "$ref": "#/$defs/ScopeView"
+        }
+      },
+      "required": [
+        "profile",
+        "profile_revision",
+        "requested",
+        "deadline"
+      ]
+    },
+    "PreviewView": {
+      "description": "`inspect --preview`'s `preview` key: resolution without effects, added to the data of\nany subject but `export` when the request carries `preview`. Tagged by `outcome`.",
+      "oneOf": [
+        {
+          "description": "Existing authority covers the request.",
+          "type": "object",
+          "properties": {
+            "effective": {
+              "description": "The effective authority (the domain `EffectiveAuthority`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "allowed"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "effective"
+          ]
+        },
+        {
+          "description": "Only the delta needs an owner decision.",
+          "type": "object",
+          "properties": {
+            "covered": {
+              "description": "What existing authority already covers (the domain `EffectiveAuthority`,\nverbatim). Omitted when nothing is covered (today: `null`)."
+            },
+            "delta": {
+              "description": "What needs a decision (the domain `AuthorityDelta`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "approval_required"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "delta"
+          ]
+        },
+        {
+          "description": "Refused.",
+          "type": "object",
+          "properties": {
+            "code": {
+              "description": "The refusal's code.",
+              "$ref": "#/$defs/Code"
+            },
+            "message": {
+              "description": "The refusal's message.",
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "denied"
+            }
+          },
+          "required": [
+            "outcome",
+            "code",
+            "message"
+          ]
+        }
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "ScopeView": {
+      "description": "A set of destination/account pairs and the capabilities permitted on them, as views\nshow a scope (the domain `Scope`'s wire form: two arrays, each sorted and unique).",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "description": "Capabilities permitted on every pair.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        },
+        "pairs": {
+          "description": "Destination/account pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        }
+      },
+      "required": [
+        "pairs",
+        "capabilities"
+      ]
+    },
+    "StoreKind": {
+      "description": "The platform store holding K_ca (ADR-0008 D1). **No test variant**: the\ntest-only store kind lives in `heimdall-testkit`, outside the public schema\n(F23).",
+      "oneOf": [
+        {
+          "description": "The macOS login keychain.",
+          "type": "string",
+          "const": "macos_login_keychain"
+        },
+        {
+          "description": "The macOS data-protection keychain.",
+          "type": "string",
+          "const": "macos_data_protection_keychain"
+        },
+        {
+          "description": "Windows DPAPI (current user).",
+          "type": "string",
+          "const": "windows_dpapi"
+        },
+        {
+          "description": "The Linux Secret Service.",
+          "type": "string",
+          "const": "linux_secret_service"
+        }
+      ]
+    }
+  }
+}

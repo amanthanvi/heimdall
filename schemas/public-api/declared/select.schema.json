@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Select",
+  "description": "`select: {ids?, aliases?}`: 1 to [`SELECT_MAX`] entries in all, subject-scoped.",
+  "type": "object",
+  "properties": {
+    "aliases": {
+      "description": "Aliases, for the subjects that have them (destinations).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ids": {
+      "description": "Item IDs.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

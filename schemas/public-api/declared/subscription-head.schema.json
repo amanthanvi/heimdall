@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SubscriptionHeadView",
+  "description": "The head line's `data`: the subscription the server established.",
+  "type": "object",
+  "properties": {
+    "backlog": {
+      "description": "**Revision 7, not emitted yet** (D6): how many backlog event lines follow the head\nbefore live events, exactly. Omitted until emitted, and with a snapshot.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
+    },
+    "cursor": {
+      "description": "The server's head boundary: the snapshot's boundary with a snapshot; without one,\nthe boundary after the backlog that follows (not the client's cursor).",
+      "$ref": "#/$defs/Cursor"
+    },
+    "resync_reason": {
+      "description": "**Revision 7, not emitted yet** (D6): why the subscription started from a whole\nsnapshot although the client sent a cursor. Omitted until emitted, and without\nsuch a restart.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResyncReason"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "snapshot": {
+      "description": "The whole snapshot the subscription starts from: present when the client sent no\ncursor or the server resnapshotted it. Omitted when resuming from the client's\ncursor (today: `null`). Its `data` is today's untyped snapshot document; PC1 types\nit (`crate::event::EventSnapshot`).",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Snapshot"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "subscription": {
+      "description": "The subscription handle.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "subscription",
+    "cursor"
+  ],
+  "$defs": {
+    "Cursor": {
+      "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
+      "type": "string"
+    },
+    "ResyncReason": {
+      "description": "⟨rev7⟩ Why a subscription started from a whole snapshot, or why a stream or a page ended\n(ADR-0013 §5.3, §5.4). Every gap ends the stream.",
+      "oneOf": [
+        {
+          "description": "The live buffer (256 events) overran.",
+          "type": "string",
+          "const": "subscriber_lagged"
+        },
+        {
+          "description": "Retention removed events the reader had not received.",
+          "type": "string",
+          "const": "history_trimmed"
+        },
+        {
+          "description": "An event does not fit one frame.",
+          "type": "string",
+          "const": "event_too_large"
+        },
+        {
+          "description": "The missed backlog is longer than [`BACKLOG_MAX`] visible events.",
+          "type": "string",
+          "const": "backlog_too_long"
+        },
+        {
+          "description": "The cursor is beyond the head, malformed, of an unknown version, or another reader's\nor environment's.",
+          "type": "string",
+          "const": "cursor_invalid"
+        }
+      ]
+    },
+    "Snapshot": {
+      "description": "A snapshot with the cursor boundary it is consistent with (spec §11.5).",
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "description": "Events after this cursor are not reflected in `data`.",
+          "$ref": "#/$defs/Cursor"
+        },
+        "data": {
+          "description": "Snapshot contents."
+        },
+        "taken_at": {
+          "description": "Runtime time of the snapshot.",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "data",
+        "cursor",
+        "taken_at"
+      ]
+    }
+  }
+}

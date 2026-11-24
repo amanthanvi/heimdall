@@ -298,12 +298,15 @@ pub(crate) fn plan(bundle: &PortableBundle, local: &Local) -> Plan {
     let mut out = Plan::default();
     let by_id: BTreeMap<&DestinationId, &DestinationRecord> =
         local.destinations.iter().map(|d| (&d.id, d)).collect();
-    let by_alias: BTreeMap<&str, &DestinationId> = local
+    // ⟨rev7, U0-Q9; review U0-R01⟩ Aliases compare without ASCII case, as the store's write
+    // check does, so a case-variant of a local alias, or of another alias in the bundle, is an
+    // `alias_collision` here and the transaction never meets the store's refusal.
+    let by_alias: BTreeMap<String, &DestinationId> = local
         .destinations
         .iter()
-        .map(|d| (d.alias.as_str(), &d.id))
+        .map(|d| (d.alias.to_ascii_lowercase(), &d.id))
         .collect();
-    let mut claimed_aliases: BTreeSet<&str> = BTreeSet::new();
+    let mut claimed_aliases: BTreeSet<String> = BTreeSet::new();
     // ⟨M05; review M05-W4F-R03⟩ First every destination is reconciled on its own (its ID, its
     // alias, its content); then each jump is resolved **against that result**, never against
     // the raw bundle: a hop the bundle names must itself be added or unchanged, named once,
@@ -332,12 +335,12 @@ pub(crate) fn plan(bundle: &PortableBundle, local: &Local) -> Plan {
             } else {
                 (Status::Conflict, Some("differs_locally"))
             }
-        } else if by_alias.contains_key(d.alias.as_str())
-            || claimed_aliases.contains(d.alias.as_str())
+        } else if by_alias.contains_key(&d.alias.to_ascii_lowercase())
+            || claimed_aliases.contains(&d.alias.to_ascii_lowercase())
         {
             (Status::Conflict, Some("alias_collision"))
         } else {
-            claimed_aliases.insert(d.alias.as_str());
+            claimed_aliases.insert(d.alias.to_ascii_lowercase());
             (Status::Add, None)
         });
     }
@@ -595,6 +598,36 @@ mod tests {
         second.id = DestinationId::parse("lab-db-2").unwrap();
         b.destinations.push(second);
         let p = plan(&b, &Local::default());
+        assert_eq!(p.entries[1].status, Status::Conflict);
+        assert_eq!(p.entries[1].reason, Some("alias_collision"));
+        assert_eq!(p.add_destinations.len(), 1);
+    }
+
+    /// ⟨rev7, review U0-R01⟩ Aliases compare without ASCII case, as the store's write check
+    /// does: a case-variant of a local alias, and two case-variants in one bundle, are each an
+    /// `alias_collision`, so the import transaction never meets the store's refusal.
+    #[test]
+    fn a_case_variant_alias_is_claimed_once() {
+        let b = bundle();
+        let mut local = Local::default();
+        local.destinations.push(DestinationRecord {
+            id: DestinationId::parse("local-work").unwrap(),
+            alias: b.destinations[0].alias.to_ascii_uppercase(),
+            revision: 1,
+            definition: DestinationDefinition::Observed,
+            label: None,
+            updated_at: jiff::Timestamp::UNIX_EPOCH,
+        });
+        let p = plan(&b, &local);
+        assert_eq!(p.entries[0].status, Status::Conflict);
+        assert_eq!(p.entries[0].reason, Some("alias_collision"));
+        assert!(p.add_destinations.is_empty());
+        let mut twice = bundle();
+        let mut second = twice.destinations[0].clone();
+        second.id = DestinationId::parse("lab-db-2").unwrap();
+        second.alias = second.alias.to_ascii_uppercase();
+        twice.destinations.push(second);
+        let p = plan(&twice, &Local::default());
         assert_eq!(p.entries[1].status, Status::Conflict);
         assert_eq!(p.entries[1].reason, Some("alias_collision"));
         assert_eq!(p.add_destinations.len(), 1);

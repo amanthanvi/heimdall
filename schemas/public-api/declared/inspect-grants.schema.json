@@ -1,0 +1,550 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GrantListView",
+  "description": "`inspect grants` data: the grants the caller may see (every grant for the owner role;\notherwise those with a binding the caller may act on), including an ended grant while a\nremote revocation or a cleanup intent still covers it.",
+  "type": "object",
+  "properties": {
+    "grants": {
+      "description": "The grants.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/GrantView"
+      }
+    },
+    "preview": {
+      "description": "`inspect --preview`'s result. Omitted without a preview.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreviewView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "grants"
+  ],
+  "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "Capability": {
+      "description": "Credential capabilities a caller may request (spec §7.2).",
+      "oneOf": [
+        {
+          "description": "SSH user authentication.",
+          "type": "string",
+          "const": "ssh-authentication"
+        },
+        {
+          "description": "Git commit/tag signing (never implied by authentication; spec §7.2).",
+          "type": "string",
+          "const": "git-signing"
+        },
+        {
+          "description": "Agent forwarding (explicit, disabled by default; spec §8.5).",
+          "type": "string",
+          "const": "agent-forwarding"
+        }
+      ]
+    },
+    "Code": {
+      "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "OK"
+        },
+        {
+          "type": "string",
+          "const": "ACCESS_READY"
+        },
+        {
+          "type": "string",
+          "const": "ACCEPTED"
+        },
+        {
+          "type": "string",
+          "const": "APPROVAL_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "INTERACTION_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "PROVIDER_LOCKED"
+        },
+        {
+          "type": "string",
+          "const": "CAPABILITY_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_PAUSED"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_CUTOFF"
+        },
+        {
+          "type": "string",
+          "const": "CREDENTIAL_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "HOST_TRUST_CHANGED"
+        },
+        {
+          "type": "string",
+          "const": "DELEGATION_EXCEEDS_PARENT"
+        },
+        {
+          "type": "string",
+          "const": "OPERATION_CANCELLED"
+        },
+        {
+          "type": "string",
+          "const": "DESTINATION_UNREACHABLE"
+        },
+        {
+          "type": "string",
+          "const": "TIME_UNCERTAIN"
+        },
+        {
+          "type": "string",
+          "const": "UNSUPPORTED_CLIENT"
+        },
+        {
+          "type": "string",
+          "const": "SERVICE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "STATE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "BACKPRESSURE"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "CONFIG_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "RESYNC_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "DECISION_STALE"
+        },
+        {
+          "type": "string",
+          "const": "OUTCOME_UNKNOWN"
+        },
+        {
+          "type": "string",
+          "const": "USAGE_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "SCHEMA_UNSUPPORTED"
+        },
+        {
+          "type": "string",
+          "const": "NOT_FOUND"
+        },
+        {
+          "type": "string",
+          "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
+        }
+      ]
+    },
+    "DegradedReasonView": {
+      "description": "⟨r2.7⟩ Why a `degraded` grant is degraded.",
+      "oneOf": [
+        {
+          "description": "The grant's credential mechanism is not configured in this runtime.",
+          "type": "string",
+          "const": "mechanism_unavailable"
+        },
+        {
+          "description": "⟨M03⟩ The grant's key was lost and a re-issue is pending.",
+          "type": "string",
+          "const": "credential_reissue_pending"
+        },
+        {
+          "description": "⟨M03⟩ The issuer is unavailable.",
+          "type": "string",
+          "const": "issuer_unavailable"
+        },
+        {
+          "description": "⟨M03⟩ A pair lost its verified enrollment under the grant's CA.",
+          "type": "string",
+          "const": "pair_unenrolled"
+        }
+      ]
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
+    "GrantId": {
+      "description": "Grant ID (spec §4.1 \"Grant\").",
+      "type": "string"
+    },
+    "GrantState": {
+      "description": "Grant states (spec §6.3 table). Terminal states never reactivate the same grant.",
+      "oneOf": [
+        {
+          "description": "Intent recorded; no usable access promised.",
+          "type": "string",
+          "const": "requested"
+        },
+        {
+          "description": "Additional owner/provider action required.",
+          "type": "string",
+          "const": "awaiting_approval"
+        },
+        {
+          "description": "Authorized resources are being reconciled.",
+          "type": "string",
+          "const": "preparing"
+        },
+        {
+          "description": "Specified capability verified within recorded evidence freshness.",
+          "type": "string",
+          "const": "active"
+        },
+        {
+          "description": "Some capability unavailable; authorized repair may proceed.",
+          "type": "string",
+          "const": "degraded"
+        },
+        {
+          "description": "Local denial applied; remote effects may be pending.",
+          "type": "string",
+          "const": "revoking"
+        },
+        {
+          "description": "Terminal.",
+          "type": "string",
+          "const": "revoked"
+        },
+        {
+          "description": "Terminal.",
+          "type": "string",
+          "const": "expired"
+        },
+        {
+          "description": "Terminal.",
+          "type": "string",
+          "const": "released"
+        },
+        {
+          "description": "Terminal.",
+          "type": "string",
+          "const": "denied"
+        },
+        {
+          "description": "Terminal.",
+          "type": "string",
+          "const": "cancelled"
+        },
+        {
+          "description": "Terminal: required preparation could not complete.",
+          "type": "string",
+          "const": "failed"
+        }
+      ]
+    },
+    "GrantView": {
+      "description": "One grant.",
+      "type": "object",
+      "properties": {
+        "cleanup_pending": {
+          "description": "⟨r2.17⟩ An applied effect of it still waits on a cleanup intent. Omitted when false.",
+          "type": "boolean"
+        },
+        "degraded_reason": {
+          "description": "⟨r2.7⟩ Why it is degraded. Present only while `state` is `degraded` and a reason is\nrecorded.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DegradedReasonView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expires_at": {
+          "description": "Its immutable effective deadline.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "grant_id": {
+          "description": "The grant.",
+          "$ref": "#/$defs/GrantId"
+        },
+        "parent": {
+          "description": "The parent grant of a delegated grant. Omitted for a root grant (today: `null`).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GrantId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "remote_pending": {
+          "description": "⟨r2.7⟩ A remote revocation still covers it. Omitted when false.",
+          "type": "boolean"
+        },
+        "remote_pending_reasons": {
+          "description": "⟨r2.12; D17⟩ Why its remote obligations are still pending: every reason present,\neach once. Omitted when none (always an array otherwise). Distinct from revision\n6's environment-level `remote_pending` entries.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemotePendingReasonView"
+          }
+        },
+        "remote_retries": {
+          "description": "⟨r2.10⟩ Its remote retries. Present exactly when `remote_pending` is.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RemoteRetriesView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scope": {
+          "description": "Its effective scope at authorization.",
+          "$ref": "#/$defs/ScopeView"
+        },
+        "state": {
+          "description": "Its state.",
+          "$ref": "#/$defs/GrantState"
+        }
+      },
+      "required": [
+        "grant_id",
+        "state",
+        "expires_at",
+        "scope"
+      ]
+    },
+    "PreviewSnapshot": {
+      "description": "What a preview would resolve.",
+      "type": "object",
+      "properties": {
+        "deadline": {
+          "description": "The deadline that would be enforced.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "mechanism": {
+          "description": "The mechanism that would serve it. Omitted when no adapter is resolved (today:\n`null`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile": {
+          "description": "The profile.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "profile_revision": {
+          "description": "Its current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "requested": {
+          "description": "The requested scope.",
+          "$ref": "#/$defs/ScopeView"
+        }
+      },
+      "required": [
+        "profile",
+        "profile_revision",
+        "requested",
+        "deadline"
+      ]
+    },
+    "PreviewView": {
+      "description": "`inspect --preview`'s `preview` key: resolution without effects, added to the data of\nany subject but `export` when the request carries `preview`. Tagged by `outcome`.",
+      "oneOf": [
+        {
+          "description": "Existing authority covers the request.",
+          "type": "object",
+          "properties": {
+            "effective": {
+              "description": "The effective authority (the domain `EffectiveAuthority`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "allowed"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "effective"
+          ]
+        },
+        {
+          "description": "Only the delta needs an owner decision.",
+          "type": "object",
+          "properties": {
+            "covered": {
+              "description": "What existing authority already covers (the domain `EffectiveAuthority`,\nverbatim). Omitted when nothing is covered (today: `null`)."
+            },
+            "delta": {
+              "description": "What needs a decision (the domain `AuthorityDelta`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "approval_required"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "delta"
+          ]
+        },
+        {
+          "description": "Refused.",
+          "type": "object",
+          "properties": {
+            "code": {
+              "description": "The refusal's code.",
+              "$ref": "#/$defs/Code"
+            },
+            "message": {
+              "description": "The refusal's message.",
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "denied"
+            }
+          },
+          "required": [
+            "outcome",
+            "code",
+            "message"
+          ]
+        }
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "RemotePendingReasonView": {
+      "description": "⟨r2.9⟩ Why a remote obligation is still pending.",
+      "oneOf": [
+        {
+          "description": "The responsible adapter is not configured in this runtime.",
+          "type": "string",
+          "const": "adapter_unavailable"
+        }
+      ]
+    },
+    "RemoteRetriesView": {
+      "description": "⟨r2.10⟩ A grant's remote retries: its own obligations' highest attempt count, the last\nround, and whether its retries stopped.",
+      "type": "object",
+      "properties": {
+        "attempts": {
+          "description": "The highest attempt count of its obligations.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "last_attempt_at": {
+          "description": "The last round.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "stopped": {
+          "description": "Whether its retries stopped.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "attempts",
+        "last_attempt_at",
+        "stopped"
+      ]
+    },
+    "ScopeView": {
+      "description": "A set of destination/account pairs and the capabilities permitted on them, as views\nshow a scope (the domain `Scope`'s wire form: two arrays, each sorted and unique).",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "description": "Capabilities permitted on every pair.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        },
+        "pairs": {
+          "description": "Destination/account pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        }
+      },
+      "required": [
+        "pairs",
+        "capabilities"
+      ]
+    }
+  }
+}

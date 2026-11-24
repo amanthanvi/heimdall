@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateRestoredPayload",
+  "description": "⟨H4, H10⟩ The payload of a `state_restored` event: what the restore ended\n(ADR-0014 §3.6's table). Counts and opaque IDs only.",
+  "type": "object",
+  "properties": {
+    "clients_quarantined": {
+      "description": "Management clients quarantined until reauthorized\n(`client_quarantined_after_restore`).",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ClientId"
+      }
+    },
+    "decisions_closed": {
+      "description": "Pending decisions closed as stale.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/DecisionId"
+      }
+    },
+    "exposure_disabled": {
+      "description": "Exposure and admission state disabled (`exposure_disabled_after_restore`), by kind.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "grants_ended": {
+      "description": "Grants (with their bindings, slots and owned connections) ended, each with a\ntombstone.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/GrantId"
+      }
+    },
+    "invitations_voided": {
+      "description": "Invitations voided (`invitation_void_after_restore`), by opaque ID.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "operations_closed": {
+      "description": "Operations closed as stale (`restored_before_completion`).",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/OperationId"
+      }
+    },
+    "policies_paused": {
+      "description": "Standing policies paused, with a cutoff at the restore time.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PolicyId"
+      }
+    },
+    "restore_epoch": {
+      "description": "The restore epoch after the restore.",
+      "$ref": "#/$defs/RestoreEpoch"
+    }
+  },
+  "required": [
+    "restore_epoch"
+  ],
+  "$defs": {
+    "ClientId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §3.6, §3.7): a paired management client, minted by the\nrunner at invitation (`cl_<32 hex>`). It names the enrollment line\n(`heimdall-mgmt:<cid>`) and the bridge's argv; it is never a credential and never a\nrequest field that sets a caller (ADR-0006 §18).",
+      "type": "string"
+    },
+    "DecisionId": {
+      "description": "Server-issued decision record ID (ADR-0006 §3.1 attended confirmation).",
+      "type": "string"
+    },
+    "GrantId": {
+      "description": "Grant ID (spec §4.1 \"Grant\").",
+      "type": "string"
+    },
+    "OperationId": {
+      "description": "Durable operation ID (spec §4.1 \"Operation\").",
+      "type": "string"
+    },
+    "PolicyId": {
+      "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
+      "type": "string"
+    },
+    "RestoreEpoch": {
+      "description": "A restore epoch (ADR-0014 §3.6 \"The restore epoch and the replay fence\"). Every restore\nraises it, durably, before its pointer moves; a store with no restore is at epoch 0, and\nevery reference minted before revision 7's migration belongs to epoch 0.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    }
+  }
+}

@@ -1,0 +1,773 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DecisionListView",
+  "description": "`inspect decisions` data: the pending owner decisions (owner role only), and a local\nwidening record that lapsed at this read, shown once more as expired.",
+  "type": "object",
+  "properties": {
+    "decisions": {
+      "description": "The decisions.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DecisionView"
+      }
+    },
+    "preview": {
+      "description": "`inspect --preview`'s result. Omitted without a preview.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreviewView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "decisions"
+  ],
+  "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "Capability": {
+      "description": "Credential capabilities a caller may request (spec §7.2).",
+      "oneOf": [
+        {
+          "description": "SSH user authentication.",
+          "type": "string",
+          "const": "ssh-authentication"
+        },
+        {
+          "description": "Git commit/tag signing (never implied by authentication; spec §7.2).",
+          "type": "string",
+          "const": "git-signing"
+        },
+        {
+          "description": "Agent forwarding (explicit, disabled by default; spec §8.5).",
+          "type": "string",
+          "const": "agent-forwarding"
+        }
+      ]
+    },
+    "ClientId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §3.6, §3.7): a paired management client, minted by the\nrunner at invitation (`cl_<32 hex>`). It names the enrollment line\n(`heimdall-mgmt:<cid>`) and the bridge's argv; it is never a credential and never a\nrequest field that sets a caller (ADR-0006 §18).",
+      "type": "string"
+    },
+    "Code": {
+      "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "OK"
+        },
+        {
+          "type": "string",
+          "const": "ACCESS_READY"
+        },
+        {
+          "type": "string",
+          "const": "ACCEPTED"
+        },
+        {
+          "type": "string",
+          "const": "APPROVAL_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "INTERACTION_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "PROVIDER_LOCKED"
+        },
+        {
+          "type": "string",
+          "const": "CAPABILITY_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_PAUSED"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_CUTOFF"
+        },
+        {
+          "type": "string",
+          "const": "CREDENTIAL_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "HOST_TRUST_CHANGED"
+        },
+        {
+          "type": "string",
+          "const": "DELEGATION_EXCEEDS_PARENT"
+        },
+        {
+          "type": "string",
+          "const": "OPERATION_CANCELLED"
+        },
+        {
+          "type": "string",
+          "const": "DESTINATION_UNREACHABLE"
+        },
+        {
+          "type": "string",
+          "const": "TIME_UNCERTAIN"
+        },
+        {
+          "type": "string",
+          "const": "UNSUPPORTED_CLIENT"
+        },
+        {
+          "type": "string",
+          "const": "SERVICE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "STATE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "BACKPRESSURE"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "CONFIG_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "RESYNC_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "DECISION_STALE"
+        },
+        {
+          "type": "string",
+          "const": "OUTCOME_UNKNOWN"
+        },
+        {
+          "type": "string",
+          "const": "USAGE_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "SCHEMA_UNSUPPORTED"
+        },
+        {
+          "type": "string",
+          "const": "NOT_FOUND"
+        },
+        {
+          "type": "string",
+          "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
+        }
+      ]
+    },
+    "DecisionId": {
+      "description": "Server-issued decision record ID (ADR-0006 §3.1 attended confirmation).",
+      "type": "string"
+    },
+    "DecisionKindName": {
+      "description": "A decision's kind, as views and events name it.",
+      "oneOf": [
+        {
+          "description": "Approve the authority delta of an operation.",
+          "type": "string",
+          "const": "approve_authority"
+        },
+        {
+          "description": "Widen a standing policy.",
+          "type": "string",
+          "const": "widen_policy"
+        },
+        {
+          "description": "Confirm the wall time.",
+          "type": "string",
+          "const": "confirm_time"
+        },
+        {
+          "description": "⟨M02⟩ Apply a projection plan.",
+          "type": "string",
+          "const": "apply_projection"
+        },
+        {
+          "description": "⟨M02⟩ Declare an identity's interaction.",
+          "type": "string",
+          "const": "declare_interaction"
+        },
+        {
+          "description": "⟨M03⟩ Register an issuer.",
+          "type": "string",
+          "const": "register_issuer"
+        },
+        {
+          "description": "⟨M04⟩ Add a managed environment.",
+          "type": "string",
+          "const": "add_environment"
+        },
+        {
+          "description": "⟨M03⟩ Retire an issuer.",
+          "type": "string",
+          "const": "retire_issuer"
+        },
+        {
+          "description": "⟨M03⟩ Enroll an account.",
+          "type": "string",
+          "const": "enroll_account"
+        },
+        {
+          "description": "⟨M03⟩ Enroll through the system form.",
+          "type": "string",
+          "const": "enroll_system_form"
+        },
+        {
+          "description": "⟨M05⟩ Trust a workspace.",
+          "type": "string",
+          "const": "trust_workspace"
+        },
+        {
+          "description": "⟨M05⟩ Reconcile a workspace.",
+          "type": "string",
+          "const": "reconcile_workspace"
+        },
+        {
+          "description": "⟨M03⟩ Remove an enrollment.",
+          "type": "string",
+          "const": "remove_enrollment"
+        },
+        {
+          "description": "⟨M03⟩ Approve an enrollment target change.",
+          "type": "string",
+          "const": "approve_target_change"
+        },
+        {
+          "description": "⟨M06⟩ A paired client's widening request, decided runner-locally.",
+          "type": "string",
+          "const": "remote_widening"
+        }
+      ]
+    },
+    "DecisionScope": {
+      "description": "⟨M05⟩ Revision 5.2 (§17.10 item 22; review M05-W3-R01): the scope a pending\n`WidenPolicy{create}` record's approval gives the new policy, read from its decision\nbasis, fixed at creation (ADR-0011 I5): the profile revision the record pinned, that\nrevision's snapshot (its pairs and capabilities), the environments the record names and\nthe lock behaviour the new policy takes. A consent surface shows exactly this, never its\nown read of the catalog, which can be newer or older than the pinned revision. In the\n`inspect decisions` view as `scope`, only for such a record; every list is always\nwritten, so an empty one means none.",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "description": "That revision's capabilities.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "uniqueItems": true
+        },
+        "environments": {
+          "description": "The environments the policy covers.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnvironmentId"
+          },
+          "uniqueItems": true
+        },
+        "lock_behavior": {
+          "description": "The new policy's lock behaviour.",
+          "$ref": "#/$defs/LockBehavior"
+        },
+        "pairs": {
+          "description": "That revision's pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          },
+          "uniqueItems": true
+        },
+        "profile_id": {
+          "description": "Profile.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "profile_revision": {
+          "description": "The profile revision the record pinned at creation.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "profile_id",
+        "profile_revision",
+        "pairs",
+        "environments",
+        "capabilities",
+        "lock_behavior"
+      ]
+    },
+    "DecisionStateView": {
+      "description": "A decision record's lifecycle state.",
+      "oneOf": [
+        {
+          "description": "Awaiting an attended verdict.",
+          "type": "string",
+          "const": "pending"
+        },
+        {
+          "description": "Approved and applied.",
+          "type": "string",
+          "const": "approved"
+        },
+        {
+          "description": "Denied.",
+          "type": "string",
+          "const": "denied"
+        },
+        {
+          "description": "Aged out without a verdict.",
+          "type": "string",
+          "const": "expired"
+        },
+        {
+          "description": "Invalidated by an authority-generation change.",
+          "type": "string",
+          "const": "stale"
+        },
+        {
+          "description": "⟨r2.4⟩ Withdrawn by the runtime without a verdict.",
+          "type": "string",
+          "const": "withdrawn"
+        }
+      ]
+    },
+    "DecisionView": {
+      "description": "One decision record with its exact recorded request.",
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "description": "When it was created.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "decision_id": {
+          "description": "The decision (the nonsecret `decision_ref`).",
+          "$ref": "#/$defs/DecisionId"
+        },
+        "expired": {
+          "description": "Whether the runtime's clock is at or past `expires_at`.",
+          "type": "boolean"
+        },
+        "expires_at": {
+          "description": "After this instant it cannot be completed.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "kind": {
+          "description": "What is decided.",
+          "$ref": "#/$defs/DecisionKindName"
+        },
+        "lifted_effects": {
+          "description": "⟨rev6.5⟩ For a targeted `resume` or `clear_cutoff`, the delivered effects it lifts.\nOmitted when it lifts none.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LiftedEffect"
+          }
+        },
+        "policies": {
+          "description": "⟨rev5.1⟩ For a targeted widening, the policies its approval changes, fixed at\ncreation. Present (possibly empty) exactly for a targeted `widen_policy` record.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/PolicyRevisionRef"
+          }
+        },
+        "reason": {
+          "description": "⟨M06 W5⟩ Why a lapsed local widening is shown expired (`approval_lapsed`). Omitted\notherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "request": {
+          "description": "What the owner decides, by `kind`. `approve_authority`: `{operation_id, delta}`;\n`widen_policy`: `{action}`; `confirm_time`: `{observed_wall}`; `apply_projection`:\n`{operation_id, plan_digest, intent, added_aliases, changed_aliases,\nremoved_aliases, files, git, restore, diff_text}`; `declare_interaction`:\n`{operation_id, identity_id, fingerprint, endpoint, interaction, valid_until}`;\n`add_environment`: `{environment_id, environment_kind, realization, disclosures}`;\nevery other kind: the recorded decision kind, verbatim. Persisted content, so it\nkeeps its recorded form (D9)."
+        },
+        "scope": {
+          "description": "⟨rev5.2⟩ For a `widen_policy` `create`, the scope its approval applies. Omitted\notherwise, and when its basis or snapshot is gone.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecisionScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "description": "Its state (`pending`; `expired` for a lapsed local widening).",
+          "$ref": "#/$defs/DecisionStateView"
+        }
+      },
+      "required": [
+        "decision_id",
+        "kind",
+        "state",
+        "created_at",
+        "expires_at",
+        "expired",
+        "request"
+      ]
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
+    "EffectId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §7.2): a narrowing effect, minted by its producing\ncontroller. Keyed with the authenticated producer, the typed target and its\ngeneration.",
+      "type": "string"
+    },
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
+    "LiftedEffect": {
+      "description": "⟨rev6.5; ADR-0006 §18.9⟩ One delivered pause or cutoff that approving a targeted\n`resume` or `clear_cutoff` record lifts on this runner, as the decision view shows it\n(`lifted_effects`, omitted when the record lifts none).",
+      "type": "object",
+      "properties": {
+        "controller": {
+          "description": "The controller (its paired client) that delivered the effect.",
+          "$ref": "#/$defs/ClientId"
+        },
+        "delivered_at": {
+          "description": "When the runner received it (the runner's clock).",
+          "type": "string",
+          "format": "date-time"
+        },
+        "effect": {
+          "description": "The effect that delivered it.",
+          "$ref": "#/$defs/EffectId"
+        },
+        "kind": {
+          "description": "`pause` or `cutoff`.",
+          "type": "string"
+        },
+        "revision": {
+          "description": "That controller's revision number for the scope.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "scope": {
+          "description": "The target the record's action names; `null` when the action names none.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PolicyTarget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "scope_key": {
+          "description": "The scope's canonical key (`all`, `profile:<id>`, `workspace:<id>`, `policy:<id>`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope_key",
+        "kind",
+        "controller",
+        "revision",
+        "effect",
+        "delivered_at"
+      ]
+    },
+    "LockBehavior": {
+      "description": "What a desktop/session lock does to a grant (ADR-0008 D9; spec §6.4). The default\nis `continue`; `revoke_on_lock` is narrowing, `continue` is widening (§5 item 6).",
+      "oneOf": [
+        {
+          "description": "A lock does not end managed grants (the default, spec §6.4).",
+          "type": "string",
+          "const": "continue"
+        },
+        {
+          "description": "A lock revokes the grant (cause `session_locked`).",
+          "type": "string",
+          "const": "revoke_on_lock"
+        }
+      ]
+    },
+    "PolicyId": {
+      "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
+      "type": "string"
+    },
+    "PolicyRevisionRef": {
+      "description": "⟨M05⟩ Revision 5.1 (§17.9 C1): one policy a targeted widening lists, fixed at the\ndecision's creation (ADR-0011 I5): approval applies exactly these, each at this\nrevision.",
+      "type": "object",
+      "properties": {
+        "policy_id": {
+          "description": "Policy.",
+          "$ref": "#/$defs/PolicyId"
+        },
+        "revision": {
+          "description": "The revision at creation.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "policy_id",
+        "revision"
+      ]
+    },
+    "PolicyTarget": {
+      "description": "What a narrowing or block action applies to (ADR-0011 §7.3 \"Targets\"; m05-plan §4\nitem 2), tagged by `kind`.",
+      "oneOf": [
+        {
+          "description": "One policy.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "policy"
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "kind",
+            "policy_id"
+          ]
+        },
+        {
+          "description": "Every policy for a profile.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "profile"
+            },
+            "profile": {
+              "description": "Profile.",
+              "$ref": "#/$defs/ProfileId"
+            }
+          },
+          "required": [
+            "kind",
+            "profile"
+          ]
+        },
+        {
+          "description": "Every policy of a workspace.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "workspace"
+            },
+            "workspace": {
+              "description": "Workspace.",
+              "$ref": "#/$defs/WorkspaceId"
+            }
+          },
+          "required": [
+            "kind",
+            "workspace"
+          ]
+        },
+        {
+          "description": "Every policy.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "all"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "PreviewSnapshot": {
+      "description": "What a preview would resolve.",
+      "type": "object",
+      "properties": {
+        "deadline": {
+          "description": "The deadline that would be enforced.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "mechanism": {
+          "description": "The mechanism that would serve it. Omitted when no adapter is resolved (today:\n`null`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile": {
+          "description": "The profile.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "profile_revision": {
+          "description": "Its current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "requested": {
+          "description": "The requested scope.",
+          "$ref": "#/$defs/ScopeView"
+        }
+      },
+      "required": [
+        "profile",
+        "profile_revision",
+        "requested",
+        "deadline"
+      ]
+    },
+    "PreviewView": {
+      "description": "`inspect --preview`'s `preview` key: resolution without effects, added to the data of\nany subject but `export` when the request carries `preview`. Tagged by `outcome`.",
+      "oneOf": [
+        {
+          "description": "Existing authority covers the request.",
+          "type": "object",
+          "properties": {
+            "effective": {
+              "description": "The effective authority (the domain `EffectiveAuthority`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "allowed"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "effective"
+          ]
+        },
+        {
+          "description": "Only the delta needs an owner decision.",
+          "type": "object",
+          "properties": {
+            "covered": {
+              "description": "What existing authority already covers (the domain `EffectiveAuthority`,\nverbatim). Omitted when nothing is covered (today: `null`)."
+            },
+            "delta": {
+              "description": "What needs a decision (the domain `AuthorityDelta`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "approval_required"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "delta"
+          ]
+        },
+        {
+          "description": "Refused.",
+          "type": "object",
+          "properties": {
+            "code": {
+              "description": "The refusal's code.",
+              "$ref": "#/$defs/Code"
+            },
+            "message": {
+              "description": "The refusal's message.",
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "denied"
+            }
+          },
+          "required": [
+            "outcome",
+            "code",
+            "message"
+          ]
+        }
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "ScopeView": {
+      "description": "A set of destination/account pairs and the capabilities permitted on them, as views\nshow a scope (the domain `Scope`'s wire form: two arrays, each sorted and unique).",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "description": "Capabilities permitted on every pair.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        },
+        "pairs": {
+          "description": "Destination/account pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        }
+      },
+      "required": [
+        "pairs",
+        "capabilities"
+      ]
+    },
+    "WorkspaceId": {
+      "description": "Workspace (adopted checkout) ID (spec §4.1 \"Workspace\").",
+      "type": "string"
+    }
+  }
+}

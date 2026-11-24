@@ -1,0 +1,182 @@
+[
+  {
+    "file": "crates/app/src/catalog.rs",
+    "form": "persisted",
+    "function": "declare",
+    "type": "resource_changed"
+  },
+  {
+    "file": "crates/app/src/events.rs",
+    "form": "wire",
+    "function": "force_resync",
+    "type": "resync_required"
+  },
+  {
+    "file": "crates/app/src/operations.rs",
+    "form": "persisted",
+    "function": "complete_withdrawal",
+    "type": "credential_lifecycle"
+  },
+  {
+    "file": "crates/app/src/operations.rs",
+    "form": "persisted",
+    "function": "decision",
+    "type": "decision"
+  },
+  {
+    "file": "crates/app/src/operations.rs",
+    "form": "persisted",
+    "function": "end_in",
+    "type": "credential_lifecycle"
+  },
+  {
+    "file": "crates/app/src/operations.rs",
+    "form": "persisted",
+    "function": "expire_grant",
+    "type": "credential_lifecycle"
+  },
+  {
+    "file": "crates/app/src/operations.rs",
+    "form": "persisted",
+    "function": "grant",
+    "type": "grant_state_changed"
+  },
+  {
+    "file": "crates/app/src/operations.rs",
+    "form": "persisted",
+    "function": "grant_degraded",
+    "type": "grant_state_changed"
+  },
+  {
+    "file": "crates/app/src/operations.rs",
+    "form": "persisted",
+    "function": "issuance_event",
+    "type": "credential_lifecycle"
+  },
+  {
+    "file": "crates/app/src/operations.rs",
+    "form": "persisted",
+    "function": "local_driver_unavailable",
+    "type": "runtime_lifecycle"
+  },
+  {
+    "file": "crates/app/src/operations.rs",
+    "form": "persisted",
+    "function": "op",
+    "type": "operation_state_changed"
+  },
+  {
+    "file": "crates/app/src/operations.rs",
+    "form": "persisted",
+    "function": "policy",
+    "type": "policy_changed"
+  },
+  {
+    "file": "crates/app/src/operations.rs",
+    "form": "persisted",
+    "function": "recover_after_restart",
+    "type": "runtime_lifecycle"
+  },
+  {
+    "file": "crates/app/src/operations.rs",
+    "form": "persisted",
+    "function": "revoke_locally_in",
+    "type": "credential_lifecycle"
+  },
+  {
+    "file": "crates/app/src/operations/default_activation_m05.rs",
+    "form": "persisted",
+    "function": "record_activation_event",
+    "type": "activation"
+  },
+  {
+    "file": "crates/app/src/operations/enrollment_m03.rs",
+    "form": "persisted",
+    "function": "emit_record",
+    "type": "enrollment"
+  },
+  {
+    "file": "crates/app/src/operations/lock.rs",
+    "form": "persisted",
+    "function": "on_session_lock",
+    "type": "session_lock"
+  },
+  {
+    "file": "crates/app/src/operations/managed_driver_m03.rs",
+    "form": "persisted",
+    "function": "lifecycle_event",
+    "type": "credential_lifecycle"
+  },
+  {
+    "file": "crates/app/src/operations/restart_m03.rs",
+    "form": "persisted",
+    "function": "lifecycle_event",
+    "type": "credential_lifecycle"
+  },
+  {
+    "file": "crates/app/src/operations/restart_m03.rs",
+    "form": "persisted",
+    "function": "owner_reconcile_unresolved",
+    "type": "runtime_lifecycle"
+  },
+  {
+    "file": "crates/app/src/setup.rs",
+    "form": "persisted",
+    "function": "keep",
+    "type": "resource_changed"
+  },
+  {
+    "file": "crates/app/src/setup.rs",
+    "form": "persisted",
+    "function": "settle",
+    "type": "resource_changed"
+  },
+  {
+    "file": "crates/app/src/setup.rs",
+    "form": "persisted",
+    "function": "unresolved",
+    "type": "runtime_lifecycle"
+  },
+  {
+    "file": "crates/ipc/src/session.rs",
+    "form": "wire",
+    "function": "resync_event_with",
+    "type": "resync_required"
+  },
+  {
+    "file": "crates/runtime/src/dispatch.rs",
+    "form": "wire",
+    "function": "filler_event",
+    "type": "resync_required"
+  },
+  {
+    "file": "crates/runtime/src/dispatch.rs",
+    "form": "persisted",
+    "function": "route",
+    "type": "route"
+  },
+  {
+    "file": "crates/runtime/src/paired.rs",
+    "form": "persisted",
+    "function": "revoke_client",
+    "type": "client"
+  },
+  {
+    "file": "crates/runtime/src/paired.rs",
+    "form": "wire",
+    "function": "revoked_event",
+    "type": "client"
+  },
+  {
+    "file": "crates/runtime/src/supervisor.rs",
+    "form": "persisted",
+    "function": "emit",
+    "type": "connection"
+  },
+  {
+    "file": "crates/runtime/src/supervisor.rs",
+    "form": "persisted",
+    "function": "resource_event",
+    "type": "resource_changed"
+  }
+]

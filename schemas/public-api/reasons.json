@@ -1,0 +1,1031 @@
+{
+  "declared_codes": [
+    "REQUEST_STALE"
+  ],
+  "pending_reasons": [
+    {
+      "field": "iroh_admission.reason",
+      "reason": "iroh_admission_closing"
+    },
+    {
+      "field": "remote_pending_reasons",
+      "reason": "adapter_unavailable"
+    }
+  ],
+  "reasons": [
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "abandon_not_allowed"
+    },
+    {
+      "code": "USAGE_ERROR",
+      "next_action": "fix_request",
+      "reason": "account_override_refused"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "alias_collision"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "already_enrolled"
+    },
+    {
+      "code": "DECISION_STALE",
+      "next_action": "fix_request",
+      "reason": "approval_lapsed"
+    },
+    {
+      "code": "REQUEST_CONFLICT",
+      "next_action": "new_request_id",
+      "reason": "binding_in_use"
+    },
+    {
+      "code": "CREDENTIAL_EXPIRED",
+      "next_action": "new_work",
+      "reason": "binding_released"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "bundle_host_mismatch"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "bundle_redacted"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "bundle_required"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "ca_not_held"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "ca_retiring"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "owner_decision",
+      "reason": "client_quarantined_after_restore"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "client_revoked"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "concurrent_writer"
+    },
+    {
+      "code": "LAUNCH_FAILED",
+      "next_action": "fix_request",
+      "reason": "connection_registration_failed"
+    },
+    {
+      "code": "LAUNCH_FAILED",
+      "next_action": "fix_request",
+      "reason": "connection_registration_refused"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "controller_dependency"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "credential_reissue_pending"
+    },
+    {
+      "code": "LAUNCH_FAILED",
+      "next_action": "fix_request",
+      "reason": "current_directory"
+    },
+    {
+      "code": "RESYNC_REQUIRED",
+      "next_action": "resync",
+      "reason": "cursor_invalid"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "decision_binding_mismatch"
+    },
+    {
+      "code": "APPROVAL_REQUIRED",
+      "next_action": "observe",
+      "reason": "decision_cooldown"
+    },
+    {
+      "code": "INTERACTION_REQUIRED",
+      "next_action": "interact",
+      "reason": "decision_cooldown"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "none",
+      "reason": "decision_denied"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "dependency_provenance_unknown"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "descriptor_mismatch"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "destination_clock_skew"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "destination_has_live_access"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "driver_unavailable"
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "endpoint_absent"
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "endpoint_untrusted"
+    },
+    {
+      "code": "HOST_TRUST_CHANGED",
+      "next_action": "review_host_trust",
+      "reason": "enrollment_host_key_mismatch"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "enrollment_state"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "enrollment_unverified"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "environment_busy"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "environment_identity_mismatch"
+    },
+    {
+      "code": "NOT_FOUND",
+      "next_action": "fix_request",
+      "reason": "environment_removed"
+    },
+    {
+      "code": "RESYNC_REQUIRED",
+      "next_action": "resync",
+      "reason": "event_too_large"
+    },
+    {
+      "code": "LAUNCH_FAILED",
+      "next_action": "fix_request",
+      "reason": "exec_error"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "existing_access_changed"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "existing_access_endpoint_is_heimdall"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "existing_access_endpoint_unrecorded"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "existing_access_kind_unsupported"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "owner_decision",
+      "reason": "exposure_disabled_after_restore"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "exposure_unconsented"
+    },
+    {
+      "code": "INTERACTION_REQUIRED",
+      "next_action": "interact",
+      "reason": "fallback_identity_interaction"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "foreign_removal_open"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "git_client_cannot_reach_pipe"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "git_config_locked"
+    },
+    {
+      "code": "CREDENTIAL_EXPIRED",
+      "next_action": "new_work",
+      "reason": "grant_ended_session_locked"
+    },
+    {
+      "code": "RESYNC_REQUIRED",
+      "next_action": "resync",
+      "reason": "history_trimmed"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "host_pin_defeated"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "host_trust_undetermined"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "host_trust_unpinnable"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "include_conditional"
+    },
+    {
+      "code": "INTERACTION_REQUIRED",
+      "next_action": "interact",
+      "reason": "interaction_required"
+    },
+    {
+      "code": "INTERACTION_REQUIRED",
+      "next_action": "interact",
+      "reason": "interaction_unknown"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "invitation_consumed"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "invitation_expired"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "invitation_pending"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "owner_decision",
+      "reason": "invitation_void_after_restore"
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "issuer_executable_changed"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "issuer_not_initialized"
+    },
+    {
+      "code": "BACKPRESSURE",
+      "next_action": "retry_after",
+      "reason": "issuer_rate_limited"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "issuer_refused"
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "issuer_restarting"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "issuer_store_access_denied"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "issuer_store_locator_unrecorded"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "issuer_store_locked"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "issuer_store_unavailable"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "issuer_unavailable"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "issuer_untrusted"
+    },
+    {
+      "code": "USAGE_ERROR",
+      "next_action": "fix_request",
+      "reason": "item_too_large"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "key_already_authorized"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "late_write_present"
+    },
+    {
+      "code": "STATE_UNAVAILABLE",
+      "next_action": "owner_decision",
+      "reason": "ledger_damaged"
+    },
+    {
+      "code": "INTERACTION_REQUIRED",
+      "next_action": "interact",
+      "reason": "local_owner_required"
+    },
+    {
+      "code": "INTERACTION_REQUIRED",
+      "next_action": "interact",
+      "reason": "local_widening_needs_attended_owner"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "lock_continuity_unverified"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "lock_holder_unresolved"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "lock_revokes_chosen"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "lock_signal_unavailable"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "login_entry_conflict"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "managed_file_edited"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "release_binding",
+      "reason": "managed_slot_held"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "management_sshd_unsupported"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "management_sshd_unverified"
+    },
+    {
+      "code": "USAGE_ERROR",
+      "next_action": "fix_request",
+      "reason": "manifest_authority_key"
+    },
+    {
+      "code": "USAGE_ERROR",
+      "next_action": "fix_request",
+      "reason": "manifest_invalid"
+    },
+    {
+      "code": "NOT_FOUND",
+      "next_action": "fix_request",
+      "reason": "manifest_profile_unknown"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "marker_duplicated"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "marker_edited"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "mechanism_minimum_unmet"
+    },
+    {
+      "code": "LAUNCH_FAILED",
+      "next_action": "fix_request",
+      "reason": "meta_unavailable"
+    },
+    {
+      "code": "STATE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "mgmt_agent_address_in_use"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "mgmt_agent_path_too_long"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "mgmt_agent_permission_denied"
+    },
+    {
+      "code": "STATE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "mgmt_agent_unavailable"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "mgmt_key_store_locked"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "mgmt_key_store_unavailable"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "mixed_mechanisms"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "multiplexing_unsupported"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "mux_path_too_long"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "no_process_group"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "no_profile_covers_destination"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "not_after_passed"
+    },
+    {
+      "code": "INTERACTION_REQUIRED",
+      "next_action": "interact",
+      "reason": "not_covered"
+    },
+    {
+      "code": "LAUNCH_FAILED",
+      "next_action": "fix_request",
+      "reason": "not_executable"
+    },
+    {
+      "code": "LAUNCH_FAILED",
+      "next_action": "fix_request",
+      "reason": "not_found"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "nothing_to_reconcile"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "observed_alias_unmanaged"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "owned_connection_option_conflict"
+    },
+    {
+      "code": "USAGE_ERROR",
+      "next_action": "fix_request",
+      "reason": "page_token_invalid"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "pair_not_adopted"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "pair_not_enrolled"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "plan_too_large"
+    },
+    {
+      "code": "NOT_FOUND",
+      "next_action": "fix_request",
+      "reason": "policy_target_empty"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "principal_charset"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "principals_not_enforced"
+    },
+    {
+      "code": "DESTINATION_UNREACHABLE",
+      "next_action": "retry_after",
+      "reason": "probe_inconclusive"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "probes_unavailable"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "projection_held"
+    },
+    {
+      "code": "OUTCOME_UNKNOWN",
+      "next_action": "reconcile",
+      "reason": "projection_held"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "setup_apply",
+      "reason": "projection_pending"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "projection_too_large"
+    },
+    {
+      "code": "INTERACTION_REQUIRED",
+      "next_action": "interact",
+      "reason": "provider_interaction"
+    },
+    {
+      "code": "PROVIDER_LOCKED",
+      "next_action": "interact",
+      "reason": "provider_locked"
+    },
+    {
+      "code": "LAUNCH_FAILED",
+      "next_action": "fix_request",
+      "reason": "refused_argument"
+    },
+    {
+      "code": "LAUNCH_FAILED",
+      "next_action": "fix_request",
+      "reason": "refused_batch_path"
+    },
+    {
+      "code": "LAUNCH_FAILED",
+      "next_action": "fix_request",
+      "reason": "refused_path"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "registry_busy"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "registry_changed"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "registry_line_damaged"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "registry_not_rewritable"
+    },
+    {
+      "code": "OUTCOME_UNKNOWN",
+      "next_action": "reconcile",
+      "reason": "registry_outcome_unknown"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "registry_parent_absent"
+    },
+    {
+      "code": "USAGE_ERROR",
+      "next_action": "fix_request",
+      "reason": "registry_path_invalid"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "registry_too_large"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "registry_unsupported"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "relay_unapproved"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "reconcile",
+      "reason": "remote_step_in_progress"
+    },
+    {
+      "code": "OUTCOME_UNKNOWN",
+      "next_action": "reconcile",
+      "reason": "remove_outcome_unknown"
+    },
+    {
+      "code": "USAGE_ERROR",
+      "next_action": "narrow_request",
+      "reason": "response_too_large"
+    },
+    {
+      "code": "DECISION_STALE",
+      "next_action": "fix_request",
+      "reason": "restore_epoch_stale"
+    },
+    {
+      "code": "REQUEST_STALE",
+      "next_action": "new_request_id",
+      "reason": "restore_epoch_stale"
+    },
+    {
+      "code": "REQUEST_STALE",
+      "next_action": "new_request_id",
+      "reason": "restored_before_completion"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "resync_pending"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "role_insufficient"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "route_binding_ambiguous"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "route_chain_unsupported"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "route_changed"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "route_dependency_out_of_scope"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "route_unapproved"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "route_undetermined"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "route_unsupported"
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "runtime_not_running"
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "runtime_unreachable"
+    },
+    {
+      "code": "USAGE_ERROR",
+      "next_action": "fix_request",
+      "reason": "selector_invalid"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "setup_in_progress"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "ssh_client_config_rejected"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "ssh_client_not_started"
+    },
+    {
+      "code": "DESTINATION_UNREACHABLE",
+      "next_action": "retry_after",
+      "reason": "ssh_connection_refused"
+    },
+    {
+      "code": "DESTINATION_UNREACHABLE",
+      "next_action": "retry_after",
+      "reason": "ssh_connection_timed_out"
+    },
+    {
+      "code": "DESTINATION_UNREACHABLE",
+      "next_action": "retry_after",
+      "reason": "ssh_name_not_resolved"
+    },
+    {
+      "code": "DESTINATION_UNREACHABLE",
+      "next_action": "retry_after",
+      "reason": "ssh_unreachable_other"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "start_identity_unavailable"
+    },
+    {
+      "code": "STATE_UNAVAILABLE",
+      "next_action": "owner_decision",
+      "reason": "state_corrupt"
+    },
+    {
+      "code": "STATE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "state_dir_unsafe"
+    },
+    {
+      "code": "STATE_UNAVAILABLE",
+      "next_action": "change_client",
+      "reason": "state_newer_than_build"
+    },
+    {
+      "code": "CREDENTIAL_EXPIRED",
+      "next_action": "new_work",
+      "reason": "state_restored_authority_ended"
+    },
+    {
+      "code": "REQUEST_CONFLICT",
+      "next_action": "new_request_id",
+      "reason": "step_outstanding"
+    },
+    {
+      "code": "REQUEST_CONFLICT",
+      "next_action": "new_request_id",
+      "reason": "step_token_mismatch"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "too_many_identities"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "transport_authority_lost"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "transport_key_store_unavailable"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "transport_refused"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "transport_unavailable"
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "uninstall_fence_release_stuck"
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "uninstall_in_progress"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "uninstall_inventory_changed"
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "uninstall_quarantine_present"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "uninstall_remote_step_unresolved"
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "uninstall_shutdown_unconfirmed"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "unmanageable_file"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "next_action": "review_config",
+      "reason": "user_config_changed"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "verification_failed"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "verification_inconclusive"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "verified_client_unavailable"
+    },
+    {
+      "code": "CREDENTIAL_EXPIRED",
+      "next_action": "new_work",
+      "reason": "work_stopped"
+    },
+    {
+      "code": "APPROVAL_REQUIRED",
+      "next_action": "observe",
+      "reason": "workspace_ambiguous"
+    },
+    {
+      "code": "INTERACTION_REQUIRED",
+      "next_action": "interact",
+      "reason": "workspace_ambiguous"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "workspace_identity_unavailable"
+    },
+    {
+      "code": "APPROVAL_REQUIRED",
+      "next_action": "observe",
+      "reason": "workspace_untrusted"
+    },
+    {
+      "code": "INTERACTION_REQUIRED",
+      "next_action": "interact",
+      "reason": "workspace_untrusted"
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "next_action": "retry_after",
+      "reason": "wsl_distribution_not_running"
+    },
+    {
+      "code": "NOT_FOUND",
+      "next_action": "fix_request",
+      "reason": "wsl_distribution_unknown"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "wsl_helper_unavailable"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "wsl_interop_disabled"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "next_action": "narrow_request",
+      "reason": "wsl_unavailable"
+    }
+  ],
+  "resync_reasons": [
+    "backlog_too_long",
+    "cursor_invalid",
+    "event_too_large",
+    "history_trimmed",
+    "subscriber_lagged"
+  ],
+  "schema_version": "1",
+  "warning_reasons": [
+    {
+      "reason": "time_confirmation_after_reboot",
+      "warning": "TIME_UNCERTAIN"
+    }
+  ]
+}

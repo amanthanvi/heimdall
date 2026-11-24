@@ -6,8 +6,8 @@ Options:
       --destination <DESTINATION>  The catalog destination whose verified access reaches the runner account
       --json                       Machine output: one JSON envelope on stdout (NDJSON for event streams)
       --account <ACCOUNT>          The runner account
-      --non-interactive            Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
-      --home <DIR>                 Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+      --non-interactive            Never open a browser, dialog, or terminal prompt. Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --home <DIR>                 Use this Heimdall home directory instead of the default [env: HEIMDALL_HOME=]
       --runner-program <PATH>      The runner's Heimdall executable (an absolute path on the runner)
       --runner-home <PATH>         The runner's Heimdall home (an absolute path on the runner; the management line's forced command names it)
       --runner-sha256 <HEX>        The expected SHA-256 of the runner's Heimdall executable (64 lowercase hex), checked on the runner before anything is written

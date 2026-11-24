@@ -1,0 +1,1302 @@
+### model_authority
+
+running 22 tests
+test a05_pause_blocks_new_activation_even_when_fully_covered ... ok
+test a05_distinct_new_work_obeys_standing_policy ... ok
+test a05_fresh_work_after_cutoff_is_denied ... ok
+test a05_expired_binding_is_not_extended ... ok
+test approval_delta_names_only_the_added_authority ... ok
+test capability_minimum_table ... ok
+test delegation_table ... ok
+test allowed_meets_required_minimums ... ok
+test approval_delta_is_requested_minus_covered ... ok
+test environment_and_policy_gaps_require_a_decision ... ok
+test delegation_never_exceeds_or_outlives_parent ... ok
+test effective_deadline_is_narrowest_bound ... ok
+test effective_scope_within_every_bound ... ok
+test narrowing_an_allowed_request_stays_allowed ... ok
+test precedence_table ... ok
+test limited_consumer_never_escalates ... ok
+test scope_algebra_laws ... ok
+test pause_and_cutoff_always_block ... ok
+test unbounded_policy_window_never_narrows ... ok
+test two_policy_trace_resolution_is_by_context_never_by_id ... ok
+test resolution_is_pure_under_shuffles ... ok
+test generator_reaches_every_outcome_class ... ok
+
+successes:
+
+---- allowed_meets_required_minimums stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/authority.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- approval_delta_is_requested_minus_covered stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/authority.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- delegation_never_exceeds_or_outlives_parent stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/authority.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- effective_deadline_is_narrowest_bound stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/authority.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- effective_scope_within_every_bound stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/authority.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- narrowing_an_allowed_request_stays_allowed stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/authority.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- limited_consumer_never_escalates stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/authority.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- scope_algebra_laws stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/authority.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- pause_and_cutoff_always_block stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/authority.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- two_policy_trace_resolution_is_by_context_never_by_id stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/authority.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- resolution_is_pure_under_shuffles stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/authority.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+
+successes:
+    a05_distinct_new_work_obeys_standing_policy
+    a05_expired_binding_is_not_extended
+    a05_fresh_work_after_cutoff_is_denied
+    a05_pause_blocks_new_activation_even_when_fully_covered
+    allowed_meets_required_minimums
+    approval_delta_is_requested_minus_covered
+    approval_delta_names_only_the_added_authority
+    capability_minimum_table
+    delegation_never_exceeds_or_outlives_parent
+    delegation_table
+    effective_deadline_is_narrowest_bound
+    effective_scope_within_every_bound
+    environment_and_policy_gaps_require_a_decision
+    generator_reaches_every_outcome_class
+    limited_consumer_never_escalates
+    narrowing_an_allowed_request_stays_allowed
+    pause_and_cutoff_always_block
+    precedence_table
+    resolution_is_pure_under_shuffles
+    scope_algebra_laws
+    two_policy_trace_resolution_is_by_context_never_by_id
+    unbounded_policy_window_never_narrows
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s
+
+### model_authority exit=0
+### model_decision_budget
+
+running 2 tests
+test p10_trust_cooldown_no_record_until_owner_asks ... ok
+test p10_one_record_per_delta_none_during_a_cooldown ... ok
+
+successes:
+
+---- p10_trust_cooldown_no_record_until_owner_asks stdout ----
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- p10_one_record_per_delta_none_during_a_cooldown stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/decision_budget.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    p10_one_record_per_delta_none_during_a_cooldown
+    p10_trust_cooldown_no_record_until_owner_asks
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.12s
+
+### model_decision_budget exit=0
+### model_events
+
+running 19 tests
+test cursors_round_trip_and_are_reader_scoped ... ok
+test duplicate_delivery_is_deduplicated_by_event_id ... ok
+test a_mutation_during_the_snapshot_is_not_lost_and_not_duplicated ... ok
+test a_publish_during_replay_to_live_is_delivered_exactly_once ... ok
+test failed_catch_up_read_never_advances_the_live_stream_past_a_gap ... ok
+test held_back_events_are_delivered_in_order_once_the_store_is_readable ... ok
+test live_events_are_delivered_in_sequence_order_when_announced_in_reverse ... ok
+test foreign_malformed_and_expired_cursors_require_a_resync ... ok
+test lag_past_the_256_event_buffer_yields_one_resync_required ... ok
+test observe_pages_events_after_a_cursor_in_order_without_gaps ... ok
+test operations_publish_ordered_redacted_events_per_environment ... ok
+test r03_age_retention_before_an_announcement_requires_a_resync ... ok
+test r03_retention_between_a_failed_catch_up_and_its_retry_requires_a_resync ... ok
+test r03_retention_gap_reaches_session_receivers_through_the_relay_as_a_lag ... ok
+test retention_of_delivered_history_needs_no_resync ... ok
+test subscribe_from_a_cursor_replays_the_backlog_personalized_for_the_reader ... ok
+test subscribe_without_a_cursor_starts_from_a_consistent_snapshot ... ok
+test subscribed_cursor_is_the_head_boundary_not_the_clients_cursor ... ok
+test props_announce::live_stream_never_passes_a_gap_under_catch_up_faults_and_retention ... ok
+
+successes:
+
+---- props_announce::live_stream_never_passes_a_gap_under_catch_up_faults_and_retention stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/events.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    a_mutation_during_the_snapshot_is_not_lost_and_not_duplicated
+    a_publish_during_replay_to_live_is_delivered_exactly_once
+    cursors_round_trip_and_are_reader_scoped
+    duplicate_delivery_is_deduplicated_by_event_id
+    failed_catch_up_read_never_advances_the_live_stream_past_a_gap
+    foreign_malformed_and_expired_cursors_require_a_resync
+    held_back_events_are_delivered_in_order_once_the_store_is_readable
+    lag_past_the_256_event_buffer_yields_one_resync_required
+    live_events_are_delivered_in_sequence_order_when_announced_in_reverse
+    observe_pages_events_after_a_cursor_in_order_without_gaps
+    operations_publish_ordered_redacted_events_per_environment
+    props_announce::live_stream_never_passes_a_gap_under_catch_up_faults_and_retention
+    r03_age_retention_before_an_announcement_requires_a_resync
+    r03_retention_between_a_failed_catch_up_and_its_retry_requires_a_resync
+    r03_retention_gap_reaches_session_receivers_through_the_relay_as_a_lag
+    retention_of_delivered_history_needs_no_resync
+    subscribe_from_a_cursor_replays_the_backlog_personalized_for_the_reader
+    subscribe_without_a_cursor_starts_from_a_consistent_snapshot
+    subscribed_cursor_is_the_head_boundary_not_the_clients_cursor
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.83s
+
+### model_events exit=0
+### model_idempotency
+
+running 4 tests
+test context_retries_converge_and_conflict_on_another_workspace_or_digest ... ok
+test decisions_are_consumed_once_under_concurrent_decide ... ok
+test caller_timeouts_never_cancel_and_uncertain_effects_are_never_reported_as_none ... ok
+test retries_converge_conflict_and_expire_under_interleavings_and_purges ... ok
+
+successes:
+
+---- context_retries_converge_and_conflict_on_another_workspace_or_digest stdout ----
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- decisions_are_consumed_once_under_concurrent_decide stdout ----
+proptest: Failed to find absolute path of source file '"crates/app/../../tests/model/idempotency.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- caller_timeouts_never_cancel_and_uncertain_effects_are_never_reported_as_none stdout ----
+proptest: Failed to find absolute path of source file '"crates/app/../../tests/model/idempotency.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- retries_converge_conflict_and_expire_under_interleavings_and_purges stdout ----
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    caller_timeouts_never_cancel_and_uncertain_effects_are_never_reported_as_none
+    context_retries_converge_and_conflict_on_another_workspace_or_digest
+    decisions_are_consumed_once_under_concurrent_decide
+    retries_converge_conflict_and_expire_under_interleavings_and_purges
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.81s
+
+### model_idempotency exit=0
+### model_issuer_linearization
+
+running 6 tests
+test model_overlapping_narrowings_countermodel_within_derived_bound ... ok
+test model_delegation_during_cascade_and_two_cascades_in_lock_order ... ok
+test model_precheck_before_mark_then_gate_after_mark_refused ... ok
+test model_multi_root_countermodel_within_derived_bound ... ok
+test model_signer_steps_against_each_narrowing ... ok
+test model_issuance_interleavings_activation_and_reissue ... ok
+
+successes:
+
+successes:
+    model_delegation_during_cascade_and_two_cascades_in_lock_order
+    model_issuance_interleavings_activation_and_reissue
+    model_multi_root_countermodel_within_derived_bound
+    model_overlapping_narrowings_countermodel_within_derived_bound
+    model_precheck_before_mark_then_gate_after_mark_refused
+    model_signer_steps_against_each_narrowing
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 43.08s
+
+### model_issuer_linearization exit=0
+### model_lifecycle
+
+running 12 tests
+test only_active_and_degraded_permit_use ... ok
+test outcome_unknown_is_quiescent_not_settled_until_reconciled ... ok
+test grant_table_matches_adr_0006_exactly ... ok
+test operation_table_matches_adr_0006_exactly ... ok
+test props::expired_and_revoked_are_absorbing ... ok
+test props::grant_traces_never_reactivate ... ok
+test props::stale_generations_fail_closed ... ok
+test rejected_transition_names_state_and_event ... ok
+test revoking_stays_pending_at_deadline_until_complete ... ok
+test props::delegation_is_narrower ... ok
+test props::operation_traces_are_absorbing ... ok
+test props::delegation_chains_stay_within_the_root ... ok
+
+successes:
+
+---- props::expired_and_revoked_are_absorbing stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/lifecycle.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- props::grant_traces_never_reactivate stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/lifecycle.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- props::stale_generations_fail_closed stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/lifecycle.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- props::delegation_is_narrower stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/lifecycle.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- props::operation_traces_are_absorbing stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/lifecycle.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- props::delegation_chains_stay_within_the_root stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/lifecycle.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    grant_table_matches_adr_0006_exactly
+    only_active_and_degraded_permit_use
+    operation_table_matches_adr_0006_exactly
+    outcome_unknown_is_quiescent_not_settled_until_reconciled
+    props::delegation_chains_stay_within_the_root
+    props::delegation_is_narrower
+    props::expired_and_revoked_are_absorbing
+    props::grant_traces_never_reactivate
+    props::operation_traces_are_absorbing
+    props::stale_generations_fail_closed
+    rejected_transition_names_state_and_event
+    revoking_stays_pending_at_deadline_until_complete
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+### model_lifecycle exit=0
+### model_lock_behavior
+
+running 16 tests
+test disclosure_is_conditional_and_states_saved_limits ... ok
+test disclosure_shown_once_then_recorded ... ok
+test epoch_acknowledged_only_after_revocations_commit ... ok
+test continue_grants_unaffected_by_lock ... ok
+test grant_created_under_revoke_floor_stays_revoke_on_lock_after_config_change_and_restart ... ok
+test lock_event_revokes_revoke_on_lock_grants_with_cause_session_locked ... ok
+test lock_event_storm_coalesced_bounded ... ok
+test lock_revocation_between_reserve_and_publish_voids ... ok
+test linux_revoke_on_lock_labelled_signal_unverified ... ok
+test lock_then_unlock_while_consumer_paused_still_revokes ... ok
+test revoke_on_lock_refused_where_signal_unavailable ... ok
+test restart_never_reissues_revoke_on_lock_grant ... ok
+test r3_floor_merged_fail_closed ... ok
+test unknown_state_treated_as_locked ... ok
+test unlock_restores_nothing ... ok
+test widening_to_continue_needs_attended_decision ... ok
+
+successes:
+
+successes:
+    continue_grants_unaffected_by_lock
+    disclosure_is_conditional_and_states_saved_limits
+    disclosure_shown_once_then_recorded
+    epoch_acknowledged_only_after_revocations_commit
+    grant_created_under_revoke_floor_stays_revoke_on_lock_after_config_change_and_restart
+    linux_revoke_on_lock_labelled_signal_unverified
+    lock_event_revokes_revoke_on_lock_grants_with_cause_session_locked
+    lock_event_storm_coalesced_bounded
+    lock_revocation_between_reserve_and_publish_voids
+    lock_then_unlock_while_consumer_paused_still_revokes
+    r3_floor_merged_fail_closed
+    restart_never_reissues_revoke_on_lock_grant
+    revoke_on_lock_refused_where_signal_unavailable
+    unknown_state_treated_as_locked
+    unlock_restores_nothing
+    widening_to_continue_needs_attended_decision
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+
+### model_lock_behavior exit=0
+### model_managed_domain
+
+running 21 tests
+test ca_state_transition_golden ... ok
+test enrollment_cancel_allowed ... ok
+test degraded_reason_sign_rule_table ... ok
+test decision_kind_wire_forms ... ok
+test extension_profile_matches_adr_0005_3_4_table ... ok
+test issuance_m01_inputs_unchanged ... ok
+test issuance_refuses_ca_not_verified_for_pair ... ok
+test issuance_refuses_ca_retiring ... ok
+test issuance_refuses_pending_ca_for_grant_certificates ... ok
+test issuance_refuses_unknown_ca ... ok
+test operation_kinds_all_15_with_effect_classes ... ok
+test procstat_comm_with_spaces_parentheses_and_newline ... ok
+test procstat_parse_golden ... ok
+test remote_obligation_status_golden ... ok
+test remote_obligation_without_kind_decodes_needs_remote_action ... ok
+test slot_transition_table_golden ... ok
+test target_change_outcomes_golden ... ok
+test verification_check_refuses_each_predicate ... ok
+test enrollment_recovery_paths_each_tested ... ok
+test foreign_removal_paths_golden ... ok
+test enrollment_transition_table_golden ... ok
+
+successes:
+
+successes:
+    ca_state_transition_golden
+    decision_kind_wire_forms
+    degraded_reason_sign_rule_table
+    enrollment_cancel_allowed
+    enrollment_recovery_paths_each_tested
+    enrollment_transition_table_golden
+    extension_profile_matches_adr_0005_3_4_table
+    foreign_removal_paths_golden
+    issuance_m01_inputs_unchanged
+    issuance_refuses_ca_not_verified_for_pair
+    issuance_refuses_ca_retiring
+    issuance_refuses_pending_ca_for_grant_certificates
+    issuance_refuses_unknown_ca
+    operation_kinds_all_15_with_effect_classes
+    procstat_comm_with_spaces_parentheses_and_newline
+    procstat_parse_golden
+    remote_obligation_status_golden
+    remote_obligation_without_kind_decodes_needs_remote_action
+    slot_transition_table_golden
+    target_change_outcomes_golden
+    verification_check_refuses_each_predicate
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+### model_managed_domain exit=0
+### model_narrowing_m03
+
+running 57 tests
+test admit_refuses_when_gate_not_obtained_in_time ... ok
+test admit_checks_pending_first_after_awaited_acquisition ... ok
+test admit_reads_fresh_after_taking_gate ... ok
+test authorization_time_defaults_to_read_only_assessment ... ok
+test admit_refuses_when_ancestor_marked ... ok
+test authorize_linearizes_with_revoke_commit ... ok
+test ancestor_pending_covers_descendant_created_after_mark ... ok
+test authorization_latency_never_extends_continuous_budget ... ok
+test authorize_revalidates_after_unrelated_generation_move ... ok
+test committed_at_unaffected_by_cleanup_retries ... ok
+test cutoff_earlier_takes_gate ... ok
+test authorize_refuses_each_predicate ... ok
+test deferral_releases_held_gates_and_restarts_in_global_order ... ok
+test delegation_during_revocation_child_never_signs_after_ack ... ok
+test delegation_holds_ancestor_chain_in_global_order ... ok
+test delegation_overrun_aborts_fail_closed_entries_counted ... ok
+test environment_permission_removal_narrows_before_commit ... ok
+test delegation_rechecks_pending_after_each_awaited_acquisition_and_before_install ... ok
+test epoch_acknowledged_only_after_revocations_commit ... ok
+test gate_released_after_keys_destroyed ... ok
+test gated_member_of_cascade_takes_full_protocol ... ok
+test gate_set_growth_hl_interleaving_releases_and_reacquires_no_deadlock ... ok
+test later_narrowing_defers_to_earlier_mark_no_deadlock ... ok
+test m02_adapters_unchanged_timed_out_immediate_counts_as_made ... ok
+test injected_set_growth_runs_another_round_and_commits ... ok
+test mixed_gated_and_ungated_set_takes_full_protocol_for_whole_set ... ok
+test narrowing_commit_within_derived_bound_and_reported ... ok
+test narrowing_never_aborts_for_time_reports_over_target ... ok
+test narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait ... ok
+test multi_root_countermodel_within_derived_bound ... ok
+test overlapping_narrowings_countermodel_within_derived_bound ... ok
+test on_session_lock_revokes_then_acknowledges ... ok
+test pause_leaves_active_grant_permit_releasable_and_refuses_new_activation ... ok
+test permit_expires_at_matches_expiry ... ok
+test pending_mark_refuses_new_signers_and_delegations ... ok
+test permit_expiry_is_earliest_of_every_bound ... ok
+test precheck_refuses_pending_narrowing ... ok
+test post_mark_flood_and_round_one_descendants_commit_within_bound ... ok
+test register_ordered_with_revocation_by_gate ... ok
+test register_refused_for_ended_or_tombstoned_grant ... ok
+test reacquisition_round_never_grows_set ... ok
+test registration_refused_for_a_binding_no_launcher_holds ... ok
+test narrowing_commit_target_20s_at_budgets ... ok
+test registration_refused_while_pending ... ok
+test revalidation_withdrawal_takes_gate ... ok
+test revoke_committed_at_read_inside_tombstone_transaction ... ok
+test revoke_closes_processes_only_after_gates_released ... ok
+test revoke_requested_at_captured_at_admission_before_gate_wait ... ok
+test revoke_replay_returns_original_timestamps ... ok
+test revoke_takes_gate_before_commit ... ok
+test round_one_marks_new_descendants_before_releasing_gates ... ok
+test slot_files_removed_only_after_gates_released ... ok
+test set_lock_behavior_revoke_on_lock_narrows_before_commit ... ok
+test timed_out_immediate_revoke_with_remote_effect_keeps_intent_and_retries ... ok
+test strict_connection_policy_does_not_narrow_signing_authority ... ok
+test two_concurrent_cascades_no_deadlock_no_late_signature ... ok
+test two_real_policy_cutoffs_overlapping_commit_within_bound ... ok
+
+successes:
+
+successes:
+    admit_checks_pending_first_after_awaited_acquisition
+    admit_reads_fresh_after_taking_gate
+    admit_refuses_when_ancestor_marked
+    admit_refuses_when_gate_not_obtained_in_time
+    ancestor_pending_covers_descendant_created_after_mark
+    authorization_latency_never_extends_continuous_budget
+    authorization_time_defaults_to_read_only_assessment
+    authorize_linearizes_with_revoke_commit
+    authorize_refuses_each_predicate
+    authorize_revalidates_after_unrelated_generation_move
+    committed_at_unaffected_by_cleanup_retries
+    cutoff_earlier_takes_gate
+    deferral_releases_held_gates_and_restarts_in_global_order
+    delegation_during_revocation_child_never_signs_after_ack
+    delegation_holds_ancestor_chain_in_global_order
+    delegation_overrun_aborts_fail_closed_entries_counted
+    delegation_rechecks_pending_after_each_awaited_acquisition_and_before_install
+    environment_permission_removal_narrows_before_commit
+    epoch_acknowledged_only_after_revocations_commit
+    gate_released_after_keys_destroyed
+    gate_set_growth_hl_interleaving_releases_and_reacquires_no_deadlock
+    gated_member_of_cascade_takes_full_protocol
+    injected_set_growth_runs_another_round_and_commits
+    later_narrowing_defers_to_earlier_mark_no_deadlock
+    m02_adapters_unchanged_timed_out_immediate_counts_as_made
+    mixed_gated_and_ungated_set_takes_full_protocol_for_whole_set
+    multi_root_countermodel_within_derived_bound
+    narrowing_commit_target_20s_at_budgets
+    narrowing_commit_within_derived_bound_and_reported
+    narrowing_never_aborts_for_time_reports_over_target
+    narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait
+    on_session_lock_revokes_then_acknowledges
+    overlapping_narrowings_countermodel_within_derived_bound
+    pause_leaves_active_grant_permit_releasable_and_refuses_new_activation
+    pending_mark_refuses_new_signers_and_delegations
+    permit_expires_at_matches_expiry
+    permit_expiry_is_earliest_of_every_bound
+    post_mark_flood_and_round_one_descendants_commit_within_bound
+    precheck_refuses_pending_narrowing
+    reacquisition_round_never_grows_set
+    register_ordered_with_revocation_by_gate
+    register_refused_for_ended_or_tombstoned_grant
+    registration_refused_for_a_binding_no_launcher_holds
+    registration_refused_while_pending
+    revalidation_withdrawal_takes_gate
+    revoke_closes_processes_only_after_gates_released
+    revoke_committed_at_read_inside_tombstone_transaction
+    revoke_replay_returns_original_timestamps
+    revoke_requested_at_captured_at_admission_before_gate_wait
+    revoke_takes_gate_before_commit
+    round_one_marks_new_descendants_before_releasing_gates
+    set_lock_behavior_revoke_on_lock_narrows_before_commit
+    slot_files_removed_only_after_gates_released
+    strict_connection_policy_does_not_narrow_signing_authority
+    timed_out_immediate_revoke_with_remote_effect_keeps_intent_and_retries
+    two_concurrent_cascades_no_deadlock_no_late_signature
+    two_real_policy_cutoffs_overlapping_commit_within_bound
+
+test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.66s
+
+### model_narrowing_m03 exit=0
+### model_operations
+
+running 196 tests
+test a06_a_dropped_caller_and_a_retry_converge_on_one_result ... ok
+test a06_crash_after_the_effect_before_its_receipt_reconciles_on_restart ... ok
+test a06_crash_before_the_effect_then_restart_completes_with_one_effect ... ok
+test a06_crash_after_the_receipt_completes_on_restart_with_one_effect ... ok
+test a06_lost_reply_then_restart_reconciles_without_a_second_effect ... ok
+test a06_duplicate_concurrent_requests_make_one_operation_and_one_effect ... ok
+test a06_purged_key_is_request_expired_inside_the_marker_window ... ok
+test a06_lost_reply_then_restart_with_a_new_adapter_over_the_same_ledger_settles_once ... ok
+test a06_restart_never_resets_a_resolved_deadline ... ok
+test a19_added_authority_unattended_is_interaction_required_with_a_decision_ref ... ok
+test a06_same_key_with_altered_parameters_conflicts ... ok
+test a19_added_authority_attended_waits_for_decide_then_applies_exactly_the_delta ... ok
+test a19_denied_decision_fails_the_operation_and_its_grant ... ok
+test a19_decision_issued_under_an_older_generation_is_stale ... ok
+test a19_expired_decision_is_stale_operation_keeps_waiting_and_retry_gets_a_fresh_ref ... ok
+test a19_caller_timeout_is_not_cancellation ... ok
+test a19_explicit_cancel_reports_possible_external_effect ... ok
+test a19_inspect_reports_capabilities_decisions_and_previews_without_effects ... ok
+test a19_pending_approval_whose_grant_deadline_passes_fails_with_credential_expired ... ok
+test a19_outcome_unknown_from_the_adapter_is_never_reported_as_no_effect ... ok
+test a19_running_limit_gives_backpressure_and_persists_nothing ... ok
+test a19_uncertain_time_stops_activation_but_passive_reads_continue_with_a_warning ... ok
+test a19_success_is_access_ready_with_binding_and_bounded_facts ... ok
+test a19_time_confirmation_needs_attendance_and_never_moves_a_deadline ... ok
+test a29_only_an_interactive_session_may_attend ... ok
+test a29_metadata_is_ignored_and_attendance_is_never_a_request_field ... ok
+test a29_another_principals_binding_is_not_found_or_not_owner ... ok
+test a19_widening_policy_actions_always_create_a_decision_record ... ok
+test bind_materializes_an_existing_binding_without_a_new_effect ... ok
+test a29_the_same_request_id_from_another_owner_is_a_distinct_key ... ok
+test a29_request_fields_never_widen_the_resolved_scope ... ok
+test delegate_creates_a_narrower_child_and_refuses_a_wider_or_longer_one ... ok
+test fault_commit_failing_after_commit_is_replayed_by_the_retry ... ok
+test fault_commit_failing_before_commit_leaves_no_binding_and_no_event ... ok
+test g02_a_revoked_child_frees_its_parent_without_revoking_it ... ok
+test g03_cleanup_executor_deletes_generation_n_once ... ok
+test g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary ... ok
+test g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant ... ok
+test g10_widening_under_uncertain_time_creates_no_decision ... ok
+test m02_integration::u0b_admit_keeps_backpressure_order ... ok
+test m02_integration::u0b_bind_launch_validates_executable_and_excludes_holder_from_hash ... ok
+test m02_integration::u0b_confirm_with_prepared_facts_keeps_cleanup_ownership ... ok
+test m02_integration::u0b_existing_access_prepare_errors_name_the_provider ... ok
+test g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff ... ok
+test m02_integration::u0b_inspect_grants_keeps_cleanup_pending ... ok
+test m02_integration::u0b_inspect_identities_reports_fresh_eligibility_and_live_declaration ... ok
+test m02_integration::u0b_mixed_mechanisms_refused_capability_unavailable ... ok
+test m02_integration::u0b_integration_provider_and_pairs_survive_ensure_attach_bind_replay_restart ... ok
+test m02_integration::u0b_prepared_facts_have_no_interaction_field ... ok
+test m02_integration::u0b_prepared_facts_keep_the_full_identity_selection_report ... ok
+test m02_integration::u0b_recovery_intent_local_is_add_only ... ok
+test m02_integration::u0b_eligibility_is_recomputed_per_result_never_taken_from_prepared_facts ... ok
+test m02_integration::u0b_reconcile_after_restart_answers_from_prepared_facts ... ok
+test m02_integration::u0b_unattended_minimum_unknown_is_capability_unavailable ... ok
+test m02_integration::u0b_restart_dispatches_every_operation_kind ... ok
+test m02_integration::u0b_restart_keeps_withdrawal_and_cleanup_intent_recovery ... ok
+test fault_points_before_and_after_every_stage_recover_with_one_effect ... ok
+test personal_resolution_ignores_a_workspace_policy_that_sorts_first ... ok
+test r1230_1_decided_operations_resume_with_their_own_interaction_mode ... ok
+test r1310_2_a_deadline_passing_while_degraded_expires_the_grant ... ok
+test r1310_2_a_restart_while_degraded_keeps_the_grant_degraded_and_refused ... ok
+test r1310_2_a_use_repairs_a_degraded_grant_once_its_mechanism_is_configured_again ... ok
+test r1310_2_a_use_with_the_mechanism_gone_is_refused_and_degrades_the_grant ... ok
+test r1310_2_a_degraded_grant_returns_only_when_revalidation_passes ... ok
+test r1310_2_the_scheduler_pass_degrades_a_grant_whose_mechanism_is_gone ... ok
+test r1310_2_the_scheduler_pass_repairs_a_degraded_grant_once_its_mechanism_is_back ... ok
+test r1310_3_a_pending_remote_effect_completes_when_the_adapter_later_reports_done ... ok
+test r1310_3_a_settled_explicit_revoke_left_pending_is_retried_only_when_due ... ok
+test r1310_3_a_pending_remote_effect_is_retried_on_the_jittered_schedule_up_to_the_cap ... ok
+test r1310_3_the_revocation_backoff_is_injectable_and_caps_the_rounds ... ok
+test r1312_1_a_crash_between_the_adapter_call_and_its_completion_counts_the_round ... ok
+test r1312_1_an_interrupted_explicit_revoke_is_not_called_again_by_recovery ... ok
+test r1312_1_failed_completion_commits_never_allow_more_adapter_calls_than_the_cap ... ok
+test r1312_2_a_record_written_before_obligations_keeps_its_responsible_adapter ... ok
+test r1312_2_a_withdrawal_while_the_responsible_adapter_is_missing_waits_for_it ... ok
+test r1312_2_an_empty_adapter_list_never_completes_a_pending_revocation ... ok
+test r1312_2_removing_the_original_adapter_never_completes_its_pending_revocation ... ok
+test r1313_1_the_preparing_adapter_stays_responsible_after_operation_retention ... ok
+test r1313_2_a_grant_revoked_while_preparing_is_tracked_until_its_adapter_confirms ... ok
+test r1313_3_a_record_count_from_before_per_obligation_counts_still_caps_its_obligations ... ok
+test r1313_4_a_retry_round_interrupted_before_its_call_is_due_at_once_after_restart ... ok
+test r1313_3_one_adapters_rounds_never_exhaust_another_adapters_obligation ... ok
+test r1313_4_a_round_claimed_after_the_restart_follows_the_back_off_again ... ok
+test r1313_4_a_round_in_flight_in_this_process_is_not_called_again_at_once ... ok
+test r1313_4_an_explicit_revoke_interrupted_before_its_call_is_due_at_once_after_restart ... ok
+test r1314_2_a_revoked_preparing_grant_with_an_effect_and_no_adapter_waits_for_it ... ok
+test r1314_2_a_revoked_preparing_grant_without_an_effect_receipt_owes_nothing ... ok
+test r1315_1_an_attempted_grant_failed_by_recovery_without_its_adapter_stays_pending_after_revoke ... ok
+test r1315_2_inspect_combines_every_pending_record_that_covers_a_grant ... ok
+test r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record ... ok
+test r1315_3_recovery_cleanup_still_calls_for_a_grant_without_a_record ... ok
+test r1315_3_recovery_cleanup_never_calls_for_a_grant_with_a_pending_record ... ok
+test r1317_1_a_restart_keeps_the_rearmed_obligation_and_schedules_it ... ok
+test r1317_1_a_late_effect_on_a_capped_record_rearms_it_for_the_next_round ... ok
+test r1317_2_a_late_effect_with_no_obligation_for_its_adapter_adds_one ... ok
+test r1317_2_a_restart_keeps_the_added_obligation_and_schedules_it ... ok
+test r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extra_call ... ok
+test r1317_3_a_restart_keeps_the_live_obligation_and_schedules_it ... ok
+test r1317_4_an_obligation_at_its_cap_but_not_yet_stopped_is_rearmed ... ok
+test r1317_5_a_cancel_then_a_late_confirmation_each_rearm_once ... ok
+test r1318_2_a_restart_after_the_racing_round_keeps_the_obligation_for_the_next_round ... ok
+test r1318_2_a_round_claimed_after_the_late_effect_clears_it ... ok
+test r1318_2_a_round_in_flight_when_a_late_effect_lands_does_not_clear_it ... ok
+test r1318_2_a_round_superseded_by_an_explicit_revoke_does_not_clear_a_late_effect ... ok
+test r1318_2_an_explicit_revoke_after_a_recorded_effect_clears_it_with_its_own_round ... ok
+test r1318_2_an_explicit_revokes_first_round_in_flight_does_not_clear_a_late_effect ... ok
+test r1318_3_a_record_at_its_own_cap_after_a_failed_completion_is_stopped_without_a_call ... ok
+test r1318_3_a_withdrawals_record_keeps_the_cap_it_was_created_with ... ok
+test r1318_3_restart_recovery_judges_a_record_by_the_lower_cap_it_was_created_with ... ok
+test r1318_3_the_supervisor_judges_a_record_by_the_lower_cap_it_was_created_with ... ok
+test r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call ... ok
+test r1319_1_a_claim_that_outlives_its_records_removal_never_erases_a_new_records_obligation ... ok
+test r1319_1_a_superseded_confirmation_never_erases_a_newer_pending_obligation_without_an_effect ... ok
+test r1319_1_a_superseded_first_round_confirmation_never_erases_a_newer_pending_obligation ... ok
+test r1319_2_a_late_confirmation_that_fails_to_commit_still_gets_a_call_after_the_effect ... ok
+test r1319_2_a_late_uncertain_receipt_after_a_cancellation_gets_a_call_after_the_effect ... ok
+test r1319_2_a_restart_after_a_cancellation_commit_keeps_the_capped_records_cleanup ... ok
+test r1319_2_a_restart_after_a_cancelled_preparation_applied_its_effect_makes_the_owed_call ... ok
+test r1319_2_a_restart_after_a_commit_refusal_commit_makes_the_owed_immediate_call ... ok
+test r1319_2_a_restart_after_a_recheck_refusal_commit_keeps_the_capped_records_cleanup ... ok
+test r1319_2_a_restart_after_the_late_confirmation_commit_keeps_the_capped_records_cleanup ... ok
+test r1319_2_the_supervisor_makes_the_immediate_call_a_failed_refusal_commit_owes ... ok
+test r1320_1_a_pending_cleanup_intent_is_visible_until_its_call_is_made ... ok
+test r136_1_a_waiting_request_under_a_pause_answers_policy_paused_and_keeps_waiting ... ok
+test r136_1_cutoff_bounds_existing_work_and_refuses_new_work_after_it ... ok
+test r136_1_pause_lets_an_existing_binding_bind_and_issue_until_its_deadline ... ok
+test r136_1_pause_refuses_new_grants_and_bindings_and_replays_recorded_results ... ok
+test r136_3_a_child_entering_revoking_releases_its_parent_reference ... ok
+test r136_3_an_expired_child_releases_its_parent_reference ... ok
+test r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publish_voids_the_publish ... ok
+test r136_5_pause_on_a_second_policy_between_reserve_and_publish_voids_the_publish ... ok
+test r136_6_cutoff_direction_and_narrowing_under_uncertain_time ... ok
+test r138_4_a_narrowing_outside_the_approval_ends_the_grant_at_use ... ok
+test r138_4_a_passed_deadline_or_cutoff_expires_the_grant_at_use ... ok
+test r138_4_a_pause_or_uncertain_time_never_ends_a_grant ... ok
+test r138_4_a_removed_environment_permission_ends_the_grant_at_use ... ok
+test r138_4_a_revoke_on_the_chain_ends_the_grant_at_use ... ok
+test r138_4_an_undetermined_revalidation_ends_nothing ... ok
+test r138_4_the_scheduler_pass_ends_grants_whose_authority_was_withdrawn ... ok
+test r138_4_the_scheduler_pass_expires_grants_past_their_deadline_or_cutoff ... ok
+test r139_1_a_continuous_budget_running_out_under_uncertainty_expires_the_grant ... ok
+test r139_1_a_forward_wall_jump_under_uncertainty_leaves_the_grant_non_terminal ... ok
+test r139_1_an_unassessed_wall_reading_after_the_gate_accepted_time_ends_nothing ... ok
+test r139_1_an_unassessed_wall_reading_never_turns_a_withdrawal_into_an_expiry ... ok
+test r139_2_a_parent_kept_alive_by_its_child_revalidates_after_an_unrelated_generation_move ... ok
+test r139_3_a_crash_between_the_withdrawal_tombstone_and_its_completion_completes_on_restart ... ok
+test r139_3_a_pending_remote_effect_completes_in_a_later_pass_without_a_second_report ... ok
+test r139_3_the_scheduler_pass_completes_an_interrupted_withdrawal_once ... ok
+test r139_props::r139_1_under_uncertain_time_only_the_continuous_budget_ends_a_grant ... ok
+test recheck3_released_holder_must_not_continue_retry_under_new_fence ... ok
+test release_is_idempotent_and_the_last_reference_releases_without_revoking ... ok
+test restart_never_changes_environment_identity_or_revives_a_pause ... ok
+test retry_allowance_is_the_rounds_own_commit_not_a_reread ... ok
+test s01_fresh_eligibility_at_commit::s01_declaration_withdrawn_after_the_snapshot_refuses_noninteractive_activation ... ok
+test s01_fresh_eligibility_at_commit::s01_fallback_clearance_that_no_longer_holds_refuses_noninteractive_activation ... ok
+test tick_reanchors_after_a_synchronized_reboot_and_expires_at_the_persisted_bound ... ok
+test r1310_props::r1310_3_rounds_follow_the_jittered_capped_schedule ... ok
+test u02_sources_before_the_bound::u02_slow_source_and_store_contention_stay_outside_the_bound ... ok
+test u0b_adapter_bound::u02_adapters_prepare_from_reads_no_store_or_live_source ... ok
+test u0b_adapter_bound::u0b_adapter_bound_covers_only_the_adapter_call ... ok
+test u0b_adapter_bound::u0b_bounded_adapter_call_drops_the_call_at_the_bound ... ok
+test u0b_adapter_bound::u0b_bounded_adapter_call_refuses_an_answer_after_the_bound ... ok
+test u0b_adapter_bound::u0b_continued_preparation_after_restart_answers_from_prepared_facts ... ok
+test u0b_adapter_bound::u0b_dropped_adapter_future_does_no_later_work ... ok
+test u0b_adapter_bound::u0b_every_adapter_call_is_bounded ... ok
+test u02_sources_before_the_bound::u02_store_contention_delays_the_snapshot_never_the_bounded_call ... ok
+test u0b_adapter_bound::u0b_prepare_timeout_after_effect_settles_uncertain_and_releases_marker ... ok
+test u0b_adapter_bound::u0b_prepare_timeout_while_running_is_outcome_unknown ... ok
+test u0b_adapter_bound::u0b_reconcile_timeout_matches_each_call_sites_error_arm ... ok
+test u0b_adapter_bound::u0b_revoke_timeout_counts_as_unconfirmed_in_rounds_and_bounded_cleanup ... ok
+test u0b_phase2::u01_held_repair_proceeds_only_while_runnable ... ok
+test u0b_phase2::u0b_apply_projection_decision_resumes_exact_waiting_operation ... ok
+test u0b_phase2::u0b_decision_kind_must_match_its_waiting_intent ... ok
+test u0b_phase2::u0b_declare_interaction_decision_requires_attended_decide ... ok
+test u0b_adapter_bound::u0b_timed_out_preparation_cleanup_processed_by_supervisor_without_restart ... ok
+test u0b_phase2::u0b_restart_dispatches_every_operation_kind ... ok
+test u0b_phase2::u0b_setup_admission_goes_through_insert_setup_operation ... ok
+test u0b_phase2::u0b_setup_1_offered_after_activation ... ok
+test u0b_phase2::u0b_setup_without_projection_writer_is_capability_unavailable ... ok
+test u0b_phase2::u0b_setup_cancel_only_before_the_first_commit_point ... ok
+test u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends ... ok
+test u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does ... ok
+test u10_a17_cleanup_of_generation_n_never_deletes_its_replacement_n_plus_1 ... ok
+test u10_crash_child_entry ... ok
+test u10_a17_repeated_unavailable_errors_get_a_stable_code_and_no_retry_storm ... ok
+test uninstall_fence_retry_is_one_ordinary_round ... ok
+test w0_r01_workspace_lock_behavior_never_reaches_a_personal_grant ... ok
+test u10_process_crash_never_resets_a_deadline_revives_a_pause_or_changes_identity ... ok
+test w0_r02_lock_disclosure_reads_only_personal_policies ... ok
+test w0_r03a_delegate_in_a_removed_environment_writes_nothing ... ok
+test w0_r03b_equal_delegations_in_a_managed_environment_coalesce ... ok
+test w5_m03_policy_results_carry_lock_behavior_and_connection_m01_unchanged ... ok
+test w5_time_uncertain_warning_reason_only_without_a_time_reference_for_this_boot ... ok
+test wave0_fail_closed::w0_setup_and_catalog_on_a_session_are_never_dispatched ... ok
+test r1312_props::r1312_calls_stay_within_the_cap_and_only_the_adapter_clears_its_obligation ... ok
+test r1319_props::r1319_every_applied_effect_ends_owned_or_called_and_no_pending_obligation_is_lost has been running for over 60 seconds
+test r1319_props::r1319_every_applied_effect_ends_owned_or_called_and_no_pending_obligation_is_lost ... ok
+
+successes:
+
+---- r139_props::r139_1_under_uncertain_time_only_the_continuous_budget_ends_a_grant stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/operations.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- r1310_props::r1310_3_rounds_follow_the_jittered_capped_schedule stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/operations.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- r1312_props::r1312_calls_stay_within_the_cap_and_only_the_adapter_clears_its_obligation stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/operations.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- r1319_props::r1319_every_applied_effect_ends_owned_or_called_and_no_pending_obligation_is_lost stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/operations.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    a06_a_dropped_caller_and_a_retry_converge_on_one_result
+    a06_crash_after_the_effect_before_its_receipt_reconciles_on_restart
+    a06_crash_after_the_receipt_completes_on_restart_with_one_effect
+    a06_crash_before_the_effect_then_restart_completes_with_one_effect
+    a06_duplicate_concurrent_requests_make_one_operation_and_one_effect
+    a06_lost_reply_then_restart_reconciles_without_a_second_effect
+    a06_lost_reply_then_restart_with_a_new_adapter_over_the_same_ledger_settles_once
+    a06_purged_key_is_request_expired_inside_the_marker_window
+    a06_restart_never_resets_a_resolved_deadline
+    a06_same_key_with_altered_parameters_conflicts
+    a19_added_authority_attended_waits_for_decide_then_applies_exactly_the_delta
+    a19_added_authority_unattended_is_interaction_required_with_a_decision_ref
+    a19_caller_timeout_is_not_cancellation
+    a19_decision_issued_under_an_older_generation_is_stale
+    a19_denied_decision_fails_the_operation_and_its_grant
+    a19_expired_decision_is_stale_operation_keeps_waiting_and_retry_gets_a_fresh_ref
+    a19_explicit_cancel_reports_possible_external_effect
+    a19_inspect_reports_capabilities_decisions_and_previews_without_effects
+    a19_outcome_unknown_from_the_adapter_is_never_reported_as_no_effect
+    a19_pending_approval_whose_grant_deadline_passes_fails_with_credential_expired
+    a19_running_limit_gives_backpressure_and_persists_nothing
+    a19_success_is_access_ready_with_binding_and_bounded_facts
+    a19_time_confirmation_needs_attendance_and_never_moves_a_deadline
+    a19_uncertain_time_stops_activation_but_passive_reads_continue_with_a_warning
+    a19_widening_policy_actions_always_create_a_decision_record
+    a29_another_principals_binding_is_not_found_or_not_owner
+    a29_metadata_is_ignored_and_attendance_is_never_a_request_field
+    a29_only_an_interactive_session_may_attend
+    a29_request_fields_never_widen_the_resolved_scope
+    a29_the_same_request_id_from_another_owner_is_a_distinct_key
+    bind_materializes_an_existing_binding_without_a_new_effect
+    delegate_creates_a_narrower_child_and_refuses_a_wider_or_longer_one
+    fault_commit_failing_after_commit_is_replayed_by_the_retry
+    fault_commit_failing_before_commit_leaves_no_binding_and_no_event
+    fault_points_before_and_after_every_stage_recover_with_one_effect
+    g02_a_revoked_child_frees_its_parent_without_revoking_it
+    g03_cleanup_executor_deletes_generation_n_once
+    g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary
+    g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff
+    g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant
+    g10_widening_under_uncertain_time_creates_no_decision
+    m02_integration::u0b_admit_keeps_backpressure_order
+    m02_integration::u0b_bind_launch_validates_executable_and_excludes_holder_from_hash
+    m02_integration::u0b_confirm_with_prepared_facts_keeps_cleanup_ownership
+    m02_integration::u0b_eligibility_is_recomputed_per_result_never_taken_from_prepared_facts
+    m02_integration::u0b_existing_access_prepare_errors_name_the_provider
+    m02_integration::u0b_inspect_grants_keeps_cleanup_pending
+    m02_integration::u0b_inspect_identities_reports_fresh_eligibility_and_live_declaration
+    m02_integration::u0b_integration_provider_and_pairs_survive_ensure_attach_bind_replay_restart
+    m02_integration::u0b_mixed_mechanisms_refused_capability_unavailable
+    m02_integration::u0b_prepared_facts_have_no_interaction_field
+    m02_integration::u0b_prepared_facts_keep_the_full_identity_selection_report
+    m02_integration::u0b_reconcile_after_restart_answers_from_prepared_facts
+    m02_integration::u0b_recovery_intent_local_is_add_only
+    m02_integration::u0b_restart_dispatches_every_operation_kind
+    m02_integration::u0b_restart_keeps_withdrawal_and_cleanup_intent_recovery
+    m02_integration::u0b_unattended_minimum_unknown_is_capability_unavailable
+    personal_resolution_ignores_a_workspace_policy_that_sorts_first
+    r1230_1_decided_operations_resume_with_their_own_interaction_mode
+    r1310_2_a_deadline_passing_while_degraded_expires_the_grant
+    r1310_2_a_degraded_grant_returns_only_when_revalidation_passes
+    r1310_2_a_restart_while_degraded_keeps_the_grant_degraded_and_refused
+    r1310_2_a_use_repairs_a_degraded_grant_once_its_mechanism_is_configured_again
+    r1310_2_a_use_with_the_mechanism_gone_is_refused_and_degrades_the_grant
+    r1310_2_the_scheduler_pass_degrades_a_grant_whose_mechanism_is_gone
+    r1310_2_the_scheduler_pass_repairs_a_degraded_grant_once_its_mechanism_is_back
+    r1310_3_a_pending_remote_effect_completes_when_the_adapter_later_reports_done
+    r1310_3_a_pending_remote_effect_is_retried_on_the_jittered_schedule_up_to_the_cap
+    r1310_3_a_settled_explicit_revoke_left_pending_is_retried_only_when_due
+    r1310_3_the_revocation_backoff_is_injectable_and_caps_the_rounds
+    r1310_props::r1310_3_rounds_follow_the_jittered_capped_schedule
+    r1312_1_a_crash_between_the_adapter_call_and_its_completion_counts_the_round
+    r1312_1_an_interrupted_explicit_revoke_is_not_called_again_by_recovery
+    r1312_1_failed_completion_commits_never_allow_more_adapter_calls_than_the_cap
+    r1312_2_a_record_written_before_obligations_keeps_its_responsible_adapter
+    r1312_2_a_withdrawal_while_the_responsible_adapter_is_missing_waits_for_it
+    r1312_2_an_empty_adapter_list_never_completes_a_pending_revocation
+    r1312_2_removing_the_original_adapter_never_completes_its_pending_revocation
+    r1312_props::r1312_calls_stay_within_the_cap_and_only_the_adapter_clears_its_obligation
+    r1313_1_the_preparing_adapter_stays_responsible_after_operation_retention
+    r1313_2_a_grant_revoked_while_preparing_is_tracked_until_its_adapter_confirms
+    r1313_3_a_record_count_from_before_per_obligation_counts_still_caps_its_obligations
+    r1313_3_one_adapters_rounds_never_exhaust_another_adapters_obligation
+    r1313_4_a_retry_round_interrupted_before_its_call_is_due_at_once_after_restart
+    r1313_4_a_round_claimed_after_the_restart_follows_the_back_off_again
+    r1313_4_a_round_in_flight_in_this_process_is_not_called_again_at_once
+    r1313_4_an_explicit_revoke_interrupted_before_its_call_is_due_at_once_after_restart
+    r1314_2_a_revoked_preparing_grant_with_an_effect_and_no_adapter_waits_for_it
+    r1314_2_a_revoked_preparing_grant_without_an_effect_receipt_owes_nothing
+    r1315_1_an_attempted_grant_failed_by_recovery_without_its_adapter_stays_pending_after_revoke
+    r1315_2_inspect_combines_every_pending_record_that_covers_a_grant
+    r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record
+    r1315_3_recovery_cleanup_never_calls_for_a_grant_with_a_pending_record
+    r1315_3_recovery_cleanup_still_calls_for_a_grant_without_a_record
+    r1317_1_a_late_effect_on_a_capped_record_rearms_it_for_the_next_round
+    r1317_1_a_restart_keeps_the_rearmed_obligation_and_schedules_it
+    r1317_2_a_late_effect_with_no_obligation_for_its_adapter_adds_one
+    r1317_2_a_restart_keeps_the_added_obligation_and_schedules_it
+    r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extra_call
+    r1317_3_a_restart_keeps_the_live_obligation_and_schedules_it
+    r1317_4_an_obligation_at_its_cap_but_not_yet_stopped_is_rearmed
+    r1317_5_a_cancel_then_a_late_confirmation_each_rearm_once
+    r1318_2_a_restart_after_the_racing_round_keeps_the_obligation_for_the_next_round
+    r1318_2_a_round_claimed_after_the_late_effect_clears_it
+    r1318_2_a_round_in_flight_when_a_late_effect_lands_does_not_clear_it
+    r1318_2_a_round_superseded_by_an_explicit_revoke_does_not_clear_a_late_effect
+    r1318_2_an_explicit_revoke_after_a_recorded_effect_clears_it_with_its_own_round
+    r1318_2_an_explicit_revokes_first_round_in_flight_does_not_clear_a_late_effect
+    r1318_3_a_record_at_its_own_cap_after_a_failed_completion_is_stopped_without_a_call
+    r1318_3_a_withdrawals_record_keeps_the_cap_it_was_created_with
+    r1318_3_restart_recovery_judges_a_record_by_the_lower_cap_it_was_created_with
+    r1318_3_the_supervisor_judges_a_record_by_the_lower_cap_it_was_created_with
+    r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call
+    r1319_1_a_claim_that_outlives_its_records_removal_never_erases_a_new_records_obligation
+    r1319_1_a_superseded_confirmation_never_erases_a_newer_pending_obligation_without_an_effect
+    r1319_1_a_superseded_first_round_confirmation_never_erases_a_newer_pending_obligation
+    r1319_2_a_late_confirmation_that_fails_to_commit_still_gets_a_call_after_the_effect
+    r1319_2_a_late_uncertain_receipt_after_a_cancellation_gets_a_call_after_the_effect
+    r1319_2_a_restart_after_a_cancellation_commit_keeps_the_capped_records_cleanup
+    r1319_2_a_restart_after_a_cancelled_preparation_applied_its_effect_makes_the_owed_call
+    r1319_2_a_restart_after_a_commit_refusal_commit_makes_the_owed_immediate_call
+    r1319_2_a_restart_after_a_recheck_refusal_commit_keeps_the_capped_records_cleanup
+    r1319_2_a_restart_after_the_late_confirmation_commit_keeps_the_capped_records_cleanup
+    r1319_2_the_supervisor_makes_the_immediate_call_a_failed_refusal_commit_owes
+    r1319_props::r1319_every_applied_effect_ends_owned_or_called_and_no_pending_obligation_is_lost
+    r1320_1_a_pending_cleanup_intent_is_visible_until_its_call_is_made
+    r136_1_a_waiting_request_under_a_pause_answers_policy_paused_and_keeps_waiting
+    r136_1_cutoff_bounds_existing_work_and_refuses_new_work_after_it
+    r136_1_pause_lets_an_existing_binding_bind_and_issue_until_its_deadline
+    r136_1_pause_refuses_new_grants_and_bindings_and_replays_recorded_results
+    r136_3_a_child_entering_revoking_releases_its_parent_reference
+    r136_3_an_expired_child_releases_its_parent_reference
+    r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publish_voids_the_publish
+    r136_5_pause_on_a_second_policy_between_reserve_and_publish_voids_the_publish
+    r136_6_cutoff_direction_and_narrowing_under_uncertain_time
+    r138_4_a_narrowing_outside_the_approval_ends_the_grant_at_use
+    r138_4_a_passed_deadline_or_cutoff_expires_the_grant_at_use
+    r138_4_a_pause_or_uncertain_time_never_ends_a_grant
+    r138_4_a_removed_environment_permission_ends_the_grant_at_use
+    r138_4_a_revoke_on_the_chain_ends_the_grant_at_use
+    r138_4_an_undetermined_revalidation_ends_nothing
+    r138_4_the_scheduler_pass_ends_grants_whose_authority_was_withdrawn
+    r138_4_the_scheduler_pass_expires_grants_past_their_deadline_or_cutoff
+    r139_1_a_continuous_budget_running_out_under_uncertainty_expires_the_grant
+    r139_1_a_forward_wall_jump_under_uncertainty_leaves_the_grant_non_terminal
+    r139_1_an_unassessed_wall_reading_after_the_gate_accepted_time_ends_nothing
+    r139_1_an_unassessed_wall_reading_never_turns_a_withdrawal_into_an_expiry
+    r139_2_a_parent_kept_alive_by_its_child_revalidates_after_an_unrelated_generation_move
+    r139_3_a_crash_between_the_withdrawal_tombstone_and_its_completion_completes_on_restart
+    r139_3_a_pending_remote_effect_completes_in_a_later_pass_without_a_second_report
+    r139_3_the_scheduler_pass_completes_an_interrupted_withdrawal_once
+    r139_props::r139_1_under_uncertain_time_only_the_continuous_budget_ends_a_grant
+    recheck3_released_holder_must_not_continue_retry_under_new_fence
+    release_is_idempotent_and_the_last_reference_releases_without_revoking
+    restart_never_changes_environment_identity_or_revives_a_pause
+    retry_allowance_is_the_rounds_own_commit_not_a_reread
+    s01_fresh_eligibility_at_commit::s01_declaration_withdrawn_after_the_snapshot_refuses_noninteractive_activation
+    s01_fresh_eligibility_at_commit::s01_fallback_clearance_that_no_longer_holds_refuses_noninteractive_activation
+    tick_reanchors_after_a_synchronized_reboot_and_expires_at_the_persisted_bound
+    u02_sources_before_the_bound::u02_slow_source_and_store_contention_stay_outside_the_bound
+    u02_sources_before_the_bound::u02_store_contention_delays_the_snapshot_never_the_bounded_call
+    u0b_adapter_bound::u02_adapters_prepare_from_reads_no_store_or_live_source
+    u0b_adapter_bound::u0b_adapter_bound_covers_only_the_adapter_call
+    u0b_adapter_bound::u0b_bounded_adapter_call_drops_the_call_at_the_bound
+    u0b_adapter_bound::u0b_bounded_adapter_call_refuses_an_answer_after_the_bound
+    u0b_adapter_bound::u0b_continued_preparation_after_restart_answers_from_prepared_facts
+    u0b_adapter_bound::u0b_dropped_adapter_future_does_no_later_work
+    u0b_adapter_bound::u0b_every_adapter_call_is_bounded
+    u0b_adapter_bound::u0b_prepare_timeout_after_effect_settles_uncertain_and_releases_marker
+    u0b_adapter_bound::u0b_prepare_timeout_while_running_is_outcome_unknown
+    u0b_adapter_bound::u0b_reconcile_timeout_matches_each_call_sites_error_arm
+    u0b_adapter_bound::u0b_revoke_timeout_counts_as_unconfirmed_in_rounds_and_bounded_cleanup
+    u0b_adapter_bound::u0b_timed_out_preparation_cleanup_processed_by_supervisor_without_restart
+    u0b_phase2::u01_held_repair_proceeds_only_while_runnable
+    u0b_phase2::u0b_apply_projection_decision_resumes_exact_waiting_operation
+    u0b_phase2::u0b_decision_kind_must_match_its_waiting_intent
+    u0b_phase2::u0b_declare_interaction_decision_requires_attended_decide
+    u0b_phase2::u0b_restart_dispatches_every_operation_kind
+    u0b_phase2::u0b_setup_1_offered_after_activation
+    u0b_phase2::u0b_setup_admission_goes_through_insert_setup_operation
+    u0b_phase2::u0b_setup_cancel_only_before_the_first_commit_point
+    u0b_phase2::u0b_setup_without_projection_writer_is_capability_unavailable
+    u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends
+    u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does
+    u10_a17_cleanup_of_generation_n_never_deletes_its_replacement_n_plus_1
+    u10_a17_repeated_unavailable_errors_get_a_stable_code_and_no_retry_storm
+    u10_crash_child_entry
+    u10_process_crash_never_resets_a_deadline_revives_a_pause_or_changes_identity
+    uninstall_fence_retry_is_one_ordinary_round
+    w0_r01_workspace_lock_behavior_never_reaches_a_personal_grant
+    w0_r02_lock_disclosure_reads_only_personal_policies
+    w0_r03a_delegate_in_a_removed_environment_writes_nothing
+    w0_r03b_equal_delegations_in_a_managed_environment_coalesce
+    w5_m03_policy_results_carry_lock_behavior_and_connection_m01_unchanged
+    w5_time_uncertain_warning_reason_only_without_a_time_reference_for_this_boot
+    wave0_fail_closed::w0_setup_and_catalog_on_a_session_are_never_dispatched
+
+test result: ok. 196 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 127.19s
+
+### model_operations exit=0
+### model_operations_m03
+
+running 44 tests
+test connection_policy_widening_classification ... ok
+test connection_absent_hash_unchanged_from_m02 ... ok
+test cancelled_verification_reservation_keeps_admission_until_store_write_finishes ... ok
+test existing_access_prepare_contract_unchanged ... ok
+test enrollment_cancel_before_attempt_cancels ... ok
+test enrollment_cancel_refused_writes_nothing ... ok
+test extension_profile_matches_adr_0005_3_4_table ... ok
+test degraded_reason_sign_rule_table ... ok
+test fence_acquisition_waits_for_verification_reservation_past_its_check ... ok
+test fence_acquisition_waits_for_grant_reservation_past_its_check ... ok
+test issuance_refuses_ca_not_verified_for_pair ... ok
+test holder_registers_dedicated_only_for_verified_ssh ... ok
+test issuance_refuses_unknown_ca ... ok
+test issuance_refuses_ca_retiring ... ok
+test issuing_ca_set_updated_by_e5_and_removal ... ok
+test lock_behavior_narrowing_immediate_widening_needs_decision ... ok
+test merged_policy_fail_closed_for_lock_and_connection ... ok
+test origin_lock_and_connection_add_only ... ok
+test mechanism_per_pair_resolution_table ... ok
+test pending_projection_ensure_resolves_existing_with_warning ... ok
+test pending_projection_refused_only_for_managed_only_minimums ... ok
+test publish_voids_when_ca_retired_between ... ok
+test publish_voids_when_enrollment_removed_between_reserve_and_publish ... ok
+test recheck2_cancelled_reservation_keeps_admission_until_store_write_finishes ... ok
+test recheck2_publication_must_not_rereserve_under_held_fence ... ok
+test reserve_selects_newest_verified_ca_for_pair ... ok
+test reservation_joined_during_acquisition_cannot_publish_after ... ok
+test reserved_verification_never_published_after_restart ... ok
+test reva_probe_pre_fence_reservation_publishes_under_held_fence ... ok
+test set_preference_refused_without_verified_enrollment ... ok
+test unattended_requires_claim_and_continue ... ok
+test strict_request_hash_differs ... ok
+test unix_connection_row_written_at_bind_with_expected_image ... ok
+test verification_reserve_refuses_ca_mismatch ... ok
+test verification_reserve_refuses_extensions_present ... ok
+test verification_entries_counted_in_pair_residual ... ok
+test verification_reserve_refuses_operation_not_verifying ... ok
+test verification_reserve_refuses_pair_mismatch ... ok
+test verification_reserve_refuses_time_uncertain ... ok
+test verification_reserve_refuses_too_many_entries ... ok
+test windows_holder_never_registers_connection_itself ... ok
+test verification_reserve_refuses_unknown_subject_key ... ok
+test verification_reserve_refuses_validity_too_long ... ok
+test verification_reserve_refuses_wrong_principal ... ok
+
+successes:
+
+successes:
+    cancelled_verification_reservation_keeps_admission_until_store_write_finishes
+    connection_absent_hash_unchanged_from_m02
+    connection_policy_widening_classification
+    degraded_reason_sign_rule_table
+    enrollment_cancel_before_attempt_cancels
+    enrollment_cancel_refused_writes_nothing
+    existing_access_prepare_contract_unchanged
+    extension_profile_matches_adr_0005_3_4_table
+    fence_acquisition_waits_for_grant_reservation_past_its_check
+    fence_acquisition_waits_for_verification_reservation_past_its_check
+    holder_registers_dedicated_only_for_verified_ssh
+    issuance_refuses_ca_not_verified_for_pair
+    issuance_refuses_ca_retiring
+    issuance_refuses_unknown_ca
+    issuing_ca_set_updated_by_e5_and_removal
+    lock_behavior_narrowing_immediate_widening_needs_decision
+    mechanism_per_pair_resolution_table
+    merged_policy_fail_closed_for_lock_and_connection
+    origin_lock_and_connection_add_only
+    pending_projection_ensure_resolves_existing_with_warning
+    pending_projection_refused_only_for_managed_only_minimums
+    publish_voids_when_ca_retired_between
+    publish_voids_when_enrollment_removed_between_reserve_and_publish
+    recheck2_cancelled_reservation_keeps_admission_until_store_write_finishes
+    recheck2_publication_must_not_rereserve_under_held_fence
+    reservation_joined_during_acquisition_cannot_publish_after
+    reserve_selects_newest_verified_ca_for_pair
+    reserved_verification_never_published_after_restart
+    reva_probe_pre_fence_reservation_publishes_under_held_fence
+    set_preference_refused_without_verified_enrollment
+    strict_request_hash_differs
+    unattended_requires_claim_and_continue
+    unix_connection_row_written_at_bind_with_expected_image
+    verification_entries_counted_in_pair_residual
+    verification_reserve_refuses_ca_mismatch
+    verification_reserve_refuses_extensions_present
+    verification_reserve_refuses_operation_not_verifying
+    verification_reserve_refuses_pair_mismatch
+    verification_reserve_refuses_time_uncertain
+    verification_reserve_refuses_too_many_entries
+    verification_reserve_refuses_unknown_subject_key
+    verification_reserve_refuses_validity_too_long
+    verification_reserve_refuses_wrong_principal
+    windows_holder_never_registers_connection_itself
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.43s
+
+### model_operations_m03 exit=0
+### model_precedence_m05
+
+running 1 test
+test blocks_outrank_standing_permission_and_nothing_revives_them ... ok
+
+successes:
+
+---- blocks_outrank_standing_permission_and_nothing_revives_them stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/precedence_m05.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    blocks_outrank_standing_permission_and_nothing_revives_them
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 37.17s
+
+### model_precedence_m05 exit=0
+### model_project_pure
+
+running 41 tests
+test a_duplicate_key_refuses_the_raw_bundle ... ok
+test a_manifest_value_cannot_be_a_path_command_url_or_executable ... ok
+test a_copied_worktree_whose_gitdir_still_names_the_original_is_untrusted ... ok
+test a_nonregular_manifest_is_manifest_invalid_and_an_oversized_one_is_a_parse_refusal ... ok
+test a_moved_worktree_is_not_verified_until_git_repairs_the_back_link ... ok
+test a_nul_escape_in_a_string_is_not_a_raw_nul_but_the_label_still_displays_clean ... ok
+test a_symlinked_manifest_is_still_the_root_marker_and_is_never_followed ... ok
+test a_filesystem_without_identities_is_never_matched ... ok
+test a_verified_linked_worktree_is_a_member ... ok
+test a_submodule_and_a_nested_repository_are_their_own_workspaces ... ok
+test authority_outranks_the_depth_bound ... ok
+test authority_keys_are_rejected_at_any_depth_case_and_quoting ... ok
+test background_work_is_allowed_only_as_a_boolean_at_preferences ... ok
+test a_worktree_is_a_member_only_through_a_verified_back_link ... ok
+test bundle_fixed_cases ... ok
+test depth_rule_root_is_zero_and_each_container_adds_one ... ok
+test discovery_rejects_a_bad_working_directory ... ok
+test duplicate_keys_and_redefined_tables_are_rejected ... ok
+test errors_never_echo_repository_text ... ok
+test bytes_are_bounded_before_parsing ... ok
+test every_row_of_the_adr_0011_table ... ok
+test label_is_bounded_and_displays_without_control_characters ... ok
+test hostile_values_are_never_accepted ... ok
+test malformed_pointers_are_unverified_never_errors ... ok
+test metadata_may_hold_any_non_authority_shape_including_datetimes ... ok
+test nesting_bombs_are_rejected_without_overflowing_the_stack ... ok
+test only_active_records_of_the_same_environment_count_and_precedence_holds ... ok
+test schema_version_must_be_one ... ok
+test the_back_link_must_match_by_identity_as_well_as_by_path ... ok
+test matching_requires_path_and_identity_or_a_verified_back_link ... ok
+test the_bundle_parser_is_total ... ok
+test a_bundle_round_trips ... ok
+test the_digest_separates_fields_and_is_domain_separated ... ok
+test the_documented_example_parses_and_maps_to_its_fields ... ok
+test the_list_covers_the_adr_names_and_the_config_forbidden_keys ... ok
+test the_manifest_is_read_once_and_the_bytes_hashed_are_the_bytes_parsed ... ok
+test authority_sections_are_refused_at_any_depth ... ok
+test too_many_entries_are_rejected_and_the_bound_is_inclusive ... ok
+test the_digest_ignores_everything_but_the_policy_fields ... ok
+test the_digest_is_sensitive_to_each_policy_field ... ok
+test the_parser_is_total_on_arbitrary_bytes ... ok
+
+successes:
+
+---- authority_keys_are_rejected_at_any_depth_case_and_quoting stdout ----
+proptest: Failed to find absolute path of source file '"crates/project/../../tests/model/project_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- a_worktree_is_a_member_only_through_a_verified_back_link stdout ----
+proptest: Failed to find absolute path of source file '"crates/project/../../tests/model/project_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- matching_requires_path_and_identity_or_a_verified_back_link stdout ----
+proptest: Failed to find absolute path of source file '"crates/project/../../tests/model/project_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- the_bundle_parser_is_total stdout ----
+proptest: Failed to find absolute path of source file '"crates/project/../../tests/model/project_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- a_bundle_round_trips stdout ----
+proptest: Failed to find absolute path of source file '"crates/project/../../tests/model/project_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- authority_sections_are_refused_at_any_depth stdout ----
+proptest: Failed to find absolute path of source file '"crates/project/../../tests/model/project_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- the_digest_ignores_everything_but_the_policy_fields stdout ----
+proptest: Failed to find absolute path of source file '"crates/project/../../tests/model/project_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- the_digest_is_sensitive_to_each_policy_field stdout ----
+proptest: Failed to find absolute path of source file '"crates/project/../../tests/model/project_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- the_parser_is_total_on_arbitrary_bytes stdout ----
+proptest: Failed to find absolute path of source file '"crates/project/../../tests/model/project_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    a_bundle_round_trips
+    a_copied_worktree_whose_gitdir_still_names_the_original_is_untrusted
+    a_duplicate_key_refuses_the_raw_bundle
+    a_filesystem_without_identities_is_never_matched
+    a_manifest_value_cannot_be_a_path_command_url_or_executable
+    a_moved_worktree_is_not_verified_until_git_repairs_the_back_link
+    a_nonregular_manifest_is_manifest_invalid_and_an_oversized_one_is_a_parse_refusal
+    a_nul_escape_in_a_string_is_not_a_raw_nul_but_the_label_still_displays_clean
+    a_submodule_and_a_nested_repository_are_their_own_workspaces
+    a_symlinked_manifest_is_still_the_root_marker_and_is_never_followed
+    a_verified_linked_worktree_is_a_member
+    a_worktree_is_a_member_only_through_a_verified_back_link
+    authority_keys_are_rejected_at_any_depth_case_and_quoting
+    authority_outranks_the_depth_bound
+    authority_sections_are_refused_at_any_depth
+    background_work_is_allowed_only_as_a_boolean_at_preferences
+    bundle_fixed_cases
+    bytes_are_bounded_before_parsing
+    depth_rule_root_is_zero_and_each_container_adds_one
+    discovery_rejects_a_bad_working_directory
+    duplicate_keys_and_redefined_tables_are_rejected
+    errors_never_echo_repository_text
+    every_row_of_the_adr_0011_table
+    hostile_values_are_never_accepted
+    label_is_bounded_and_displays_without_control_characters
+    malformed_pointers_are_unverified_never_errors
+    matching_requires_path_and_identity_or_a_verified_back_link
+    metadata_may_hold_any_non_authority_shape_including_datetimes
+    nesting_bombs_are_rejected_without_overflowing_the_stack
+    only_active_records_of_the_same_environment_count_and_precedence_holds
+    schema_version_must_be_one
+    the_back_link_must_match_by_identity_as_well_as_by_path
+    the_bundle_parser_is_total
+    the_digest_ignores_everything_but_the_policy_fields
+    the_digest_is_sensitive_to_each_policy_field
+    the_digest_separates_fields_and_is_domain_separated
+    the_documented_example_parses_and_maps_to_its_fields
+    the_list_covers_the_adr_names_and_the_config_forbidden_keys
+    the_manifest_is_read_once_and_the_bytes_hashed_are_the_bytes_parsed
+    the_parser_is_total_on_arbitrary_bytes
+    too_many_entries_are_rejected_and_the_bound_is_inclusive
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.59s
+
+### model_project_pure exit=0
+### model_projection_recovery
+
+running 9 tests
+test decide_item_vectors_t0_t1_t1h_t2_t3_t4_th ... ok
+test observation_normalization_precedence_and_impossible_combinations ... ok
+test recovery_decide_keeps_the_properties_over_arbitrary_states ... ok
+test recovery_state_build_ignores_held_in_arbitrary_histories ... ok
+test recovery_state_refuses_contradictory_histories ... ok
+test recovery_table_rows_each_decide_as_their_row ... ok
+test recovery_state_ignores_held_and_keeps_restore_context ... ok
+test recovery_decide_is_total_over_the_generated_domain ... ok
+test recovery_properties_catch_seeded_faults ... ok
+
+successes:
+
+---- recovery_decide_keeps_the_properties_over_arbitrary_states stdout ----
+proptest: Failed to find absolute path of source file '"crates/localenv/../../tests/model/projection_recovery.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- recovery_state_build_ignores_held_in_arbitrary_histories stdout ----
+proptest: Failed to find absolute path of source file '"crates/localenv/../../tests/model/projection_recovery.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- recovery_decide_is_total_over_the_generated_domain stdout ----
+generated histories: 88352, contradictory: 85990, distinct states: 145, cells: 70038
+rejected cells by reason: {"DisplacedWithoutMismatch": 129480, "LockStateOnOtherShape": 16260, "QuarantineOutsideSettlement": 128040, "RecordedAtTwoNames": 351560, "SlotWithoutSettlement": 25470, "ValidatedWithoutBase": 51132}
+cells by decision: {"Abort(NothingToSettle)": 50, "Abort(SettleStaged)": 33, "Forward(ClaimLock)": 1, "Forward(KeepLock)": 16, "Forward(NothingDisplaced)": 12, "Forward(PostValidate)": 24, "Forward(RecordExchanged)": 32, "Forward(RecordStaged)": 20, "Forward(Revalidate)": 10, "Forward(Stage)": 18, "Forward(TransactionCheck)": 6, "Hold(ActiveEntryModified)": 36, "Hold(ActiveEntryReplaced)": 196, "Hold(AmbiguousExchange)": 20, "Hold(DisplacedMissing)": 26, "Hold(DisplacedReplaced)": 4, "Hold(ThirdWriter)": 634, "Hold(Unmatched)": 17144, "Hold(Unobservable)": 34410, "Restore(CreateRollback)": 12, "Restore(Exchange)": 20, "Restore(RecognizeRestored)": 794, "Restore(RecordMismatch)": 48, "Settle(Begin)": 136, "Settle(Done)": 10812, "Settle(Move)": 494, "Settle(PutBackForeign)": 1466, "Settle(RecordConflict)": 2168, "Settle(RecordSettled)": 408, "Settle(Remove)": 988}
+holds by reason: {"ActiveEntryModified": 36, "ActiveEntryReplaced": 196, "AmbiguousExchange": 20, "ContradictoryReceipts": 85990, "DisplacedMissing": 26, "DisplacedReplaced": 4, "ThirdWriter": 634, "Unmatched": 17144, "Unobservable": 34410}
+
+---- recovery_properties_catch_seeded_faults stdout ----
+a restore exchange over S′: 20 differing cells, caught by {RestoreOnlyOverUnchangedS: 20}
+a remove_from_slot of Q′: 1256 differing cells, caught by {UnobservableHolds: 568, RemoveOnlyOwnedUnchanged: 1256}
+a remove_from_slot of V′: 12 differing cells, caught by {UnobservableHolds: 2, RemoveOnlyOwnedUnchanged: 12}
+the cleaner removing L′: 1353 differing cells, caught by {UnobservableHolds: 669, RemoveOnlyOwnedUnchanged: 1353}
+a foreign entry moved anywhere but back: 504 differing cells, caught by {UnobservableHolds: 80, MoveOnlyRecorded: 448, ForeignOnlyPutBack: 424, PathOnlyByPlan: 232}
+a forward exchange after item.rolling_back: 6320 differing cells, caught by {UnobservableHolds: 2704, ForeignOnlyPutBack: 2031, RecognitionMovesNothing: 16, PathOnlyByPlan: 6279}
+a create rollback of S′: 16 differing cells, caught by {PathOnlyByPlan: 16}
+a second restore exchange where F5b recognizes one: 474 differing cells, caught by {ForeignOnlyPutBack: 202, RestoreOnlyOverUnchangedS: 458, RecognitionMovesNothing: 26}
+K released while B_git is not final: 16 differing cells, caught by {PathOnlyByPlan: 16}
+an unobservable name decided as absent: 12349 differing cells, caught by {UnobservableHolds: 12349}
+
+
+successes:
+    decide_item_vectors_t0_t1_t1h_t2_t3_t4_th
+    observation_normalization_precedence_and_impossible_combinations
+    recovery_decide_is_total_over_the_generated_domain
+    recovery_decide_keeps_the_properties_over_arbitrary_states
+    recovery_properties_catch_seeded_faults
+    recovery_state_build_ignores_held_in_arbitrary_histories
+    recovery_state_ignores_held_and_keeps_restore_context
+    recovery_state_refuses_contradictory_histories
+    recovery_table_rows_each_decide_as_their_row
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.00s
+
+### model_projection_recovery exit=0
+### model_registry_pure
+
+running 17 tests
+test classify_documented_exit_codes_per_stage ... ok
+test account_override_refused ... ok
+test classify_exit_255_and_ready_rules_every_stage ... ok
+test hard_deadline_after_reboot_passes_on_safe_wall_time ... ok
+test check_effective_requires_every_trust_pin_and_the_q23_default ... ok
+test hm1_parse_bounds_ready_and_version_lines ... ok
+test late_write_residual_cleared_only_by_inspect_after_not_after ... ok
+test plan_digest_covers_every_field ... ok
+test not_after_computation_bounds_hard_deadline ... ok
+test plan_refusals_each_precondition ... ok
+test post_image_refuses_marker_lines_it_did_not_write ... ok
+test reconcile_classification_table_every_row ... ok
+test remote_step_pins_are_exactly_the_documented_set ... ok
+test trust_pins_match_documented_table ... ok
+test reconcile_never_redispatches_without_proven_termination ... ok
+test post_image_preserves_every_other_byte ... ok
+test check_post_append_accepts_admin_append_after_ours_rejects_damage ... ok
+
+successes:
+
+---- not_after_computation_bounds_hard_deadline stdout ----
+proptest: Failed to find absolute path of source file '"crates/registry/../../tests/model/registry_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- reconcile_never_redispatches_without_proven_termination stdout ----
+proptest: Failed to find absolute path of source file '"crates/registry/../../tests/model/registry_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- post_image_preserves_every_other_byte stdout ----
+proptest: Failed to find absolute path of source file '"crates/registry/../../tests/model/registry_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- check_post_append_accepts_admin_append_after_ours_rejects_damage stdout ----
+proptest: Failed to find absolute path of source file '"crates/registry/../../tests/model/registry_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    account_override_refused
+    check_effective_requires_every_trust_pin_and_the_q23_default
+    check_post_append_accepts_admin_append_after_ours_rejects_damage
+    classify_documented_exit_codes_per_stage
+    classify_exit_255_and_ready_rules_every_stage
+    hard_deadline_after_reboot_passes_on_safe_wall_time
+    hm1_parse_bounds_ready_and_version_lines
+    late_write_residual_cleared_only_by_inspect_after_not_after
+    not_after_computation_bounds_hard_deadline
+    plan_digest_covers_every_field
+    plan_refusals_each_precondition
+    post_image_preserves_every_other_byte
+    post_image_refuses_marker_lines_it_did_not_write
+    reconcile_classification_table_every_row
+    reconcile_never_redispatches_without_proven_termination
+    remote_step_pins_are_exactly_the_documented_set
+    trust_pins_match_documented_table
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+### model_registry_pure exit=0
+all-tests-exit=0

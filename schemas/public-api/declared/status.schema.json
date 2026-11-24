@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StatusView",
+  "description": "`heimdall status --json` data (a running runtime; with none, the answer is a\n`SERVICE_UNAVAILABLE` error envelope).",
+  "type": "object",
+  "properties": {
+    "chores": {
+      "description": "⟨M03⟩ The pending chores. Omitted when none is pending.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ChoreView"
+      }
+    },
+    "environment_id": {
+      "description": "The runtime's environment (from its hello).",
+      "$ref": "#/$defs/EnvironmentId"
+    },
+    "open_operations": {
+      "description": "How many open and unresolved operations the caller may see.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "operation_counts": {
+      "description": "`inspect operations`' `counts`: every stored operation counted by state.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/OperationCountView"
+      }
+    },
+    "pending_decisions": {
+      "description": "How many decision records `inspect decisions` lists, expired ones included.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "running": {
+      "description": "Always true in a success.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "running",
+    "environment_id",
+    "operation_counts",
+    "open_operations",
+    "pending_decisions"
+  ],
+  "$defs": {
+    "ChoreView": {
+      "description": "⟨M03⟩ A pending chore the status answer names.",
+      "type": "object",
+      "properties": {
+        "chore": {
+          "description": "The chore (`time_confirmation_after_reboot`).",
+          "type": "string"
+        },
+        "command": {
+          "description": "The command that does it (`heimdall time confirm`).",
+          "type": "string"
+        },
+        "message": {
+          "description": "What it is for.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chore",
+        "command",
+        "message"
+      ]
+    },
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
+    "OperationCountView": {
+      "description": "The number of stored operations in one state.",
+      "type": "object",
+      "properties": {
+        "count": {
+          "description": "How many operations are in it.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "state": {
+          "description": "The state.",
+          "$ref": "#/$defs/OperationState"
+        }
+      },
+      "required": [
+        "state",
+        "count"
+      ]
+    },
+    "OperationState": {
+      "description": "Operation states (spec §11.4). A caller timeout is not a state change.",
+      "oneOf": [
+        {
+          "description": "Accepted and journaled; not yet running.",
+          "type": "string",
+          "const": "queued"
+        },
+        {
+          "description": "In progress.",
+          "type": "string",
+          "const": "running"
+        },
+        {
+          "description": "Waiting for an owner or provider decision on an owner channel.",
+          "type": "string",
+          "const": "awaiting_approval"
+        },
+        {
+          "description": "Settled: completed with a result.",
+          "type": "string",
+          "const": "succeeded"
+        },
+        {
+          "description": "Settled: failed with a classified error.",
+          "type": "string",
+          "const": "failed"
+        },
+        {
+          "description": "Settled: explicitly cancelled; the result says whether an irreversible or\nuncertain step may have occurred.",
+          "type": "string",
+          "const": "cancelled"
+        },
+        {
+          "description": "Unresolved: an external effect may or may not have applied. Quiescent until\nreconciliation settles it to `succeeded` or `failed`; never purged while\nunresolved; never retried blindly.",
+          "type": "string",
+          "const": "outcome_unknown"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GrantResidual",
+  "description": "⟨M06; ADR-0012 §7.3⟩ The residual of one grant this controller asked a runner to\nrevoke, from this controller's counted issuance history (A07's report).",
+  "type": "object",
+  "properties": {
+    "acknowledged": {
+      "description": "Whether the runner acknowledged the revoke (`false`: still `remote_pending`).",
+      "type": "boolean"
+    },
+    "grant": {
+      "description": "The grant.",
+      "$ref": "#/$defs/GrantId"
+    },
+    "new_authentication": {
+      "description": "New authentication. Omitted when nothing counted is outstanding.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuthenticationResidual"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "statement": {
+      "description": "The same in words, never a bare deadline. Wording unchanged from revision 6.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "grant",
+    "acknowledged",
+    "statement"
+  ],
+  "$defs": {
+    "AuthenticationResidual": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §7.3, §9 item 10): the new-authentication residual of a\nrevocation. Its bound comes from the counted issuance history (reserved and published\ncertificates count until their `valid_before`) plus the destination clock's error;\nwhere that error is unmeasured the residual reads \"until `valid_before` plus an\nunmeasured destination-clock error\", never a bare deadline.",
+      "type": "object",
+      "properties": {
+        "destination_clock_error": {
+          "description": "The destination clock's error: `{\"measured\": {…}}` (its bound is\n`behind_upper_ms`) or `\"unmeasured\"`.",
+          "$ref": "#/$defs/DestinationClock"
+        },
+        "latest_possible_credential_expiry": {
+          "description": "The latest instant a counted certificate stays valid; absent: `unknown` (no counted\nhistory for the grant).",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "destination_clock_error"
+      ]
+    },
+    "ClockMeasurement": {
+      "description": "A destination clock measurement (ADR-0008 D5 §6.5 item 4): the destination's\nclock lags local time by at most `behind_upper_ms`.",
+      "type": "object",
+      "properties": {
+        "behind_upper_ms": {
+          "description": "Upper bound of the destination clock's lag, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "measured_at": {
+          "description": "When measured (local wall time).",
+          "type": "string",
+          "format": "date-time"
+        },
+        "rtt_ms": {
+          "description": "Round trip of the measurement, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "behind_upper_ms",
+        "rtt_ms",
+        "measured_at"
+      ]
+    },
+    "DestinationClock": {
+      "description": "A pair's destination clock (ADR-0008 D7 item 3). Wire forms:\n`{\"measured\":{…}}` or `\"unmeasured\"`. Per pair the weakest is shown.",
+      "oneOf": [
+        {
+          "description": "A fresh measurement exists.",
+          "type": "object",
+          "properties": {
+            "measured": {
+              "$ref": "#/$defs/ClockMeasurement"
+            }
+          },
+          "required": [
+            "measured"
+          ]
+        },
+        {
+          "description": "No (fresh) measurement.",
+          "type": "string",
+          "const": "unmeasured"
+        }
+      ]
+    },
+    "GrantId": {
+      "description": "Grant ID (spec §4.1 \"Grant\").",
+      "type": "string"
+    }
+  }
+}

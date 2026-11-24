@@ -2657,3 +2657,282 @@ Additive; schema major stays `"1"`. Accepted by the orchestrator as contract own
 | 1 | `RouteFailureClass` gains `driver_unavailable`: an attempt on a leg whose driver is not in this build (an Iroh leg in a build without the `iroh` feature). The leg is never dialed and is failed over, so the route's direct and jump legs are still tried. A route whose legs are all of that kind refuses `CAPABILITY_UNAVAILABLE` with the existing reason `driver_unavailable`, after its attempts are recorded, and its message names the Iroh transport preview and how to build it (ADR-0015). A build with `iroh` but no verified key store is unchanged (`refused`) | `contract::route`, `app::routes`, `app::routes_failover`; `schemas/public-api/` regenerated | ADR-0015; the orchestrator's ruling Q-B, 2026-11-23 |
 
 **Revision 6.x is closed with this revision** (the M06 exit). Revision 7 (ADR-0013 §11) is re-based from 6.1 onto 6.6 by the contract owner at U0.
+
+## 19. ⟨rev7⟩ Revision 7, provisional (the preparatory part: M07 U0 and M08 U0)
+
+Revision 7 is ADR-0013 §11 (D1–D21) and ADR-0014 §7 (H1–H15), **layered on revision 6.6**
+(§18.10), under the contract owner's rulings of 2026-11-24 on U0-Q1 to Q14 and on the U0 plan
+(`docs/architecture/u0-plan.md`). It is **provisional** until G08 is ratified (ADR-0013 §1.2): the
+native A19 and A32 rows of M07 U9. Schema major stays `"1"`.
+
+### 19.1 What lands now, and what does not
+
+**The bound (ADR-0013 §1.3).** This part lands only what no live path emits: types, schemas
+and reason constants as unused additions; the command-tree golden, the help lint, the
+primitive index and the reason table; the replay corpus; store migration 0014 (H9); the
+case-insensitive alias check at write (U0-Q9); and the skeletons of the new commands. Every
+live wire-shape change is a later change (U3, U2b), one per correction, with its emitters,
+every in-tree reader and its goldens.
+
+**Standalone types (the ruling on S0).** No field is attached to an existing wire struct here:
+each extension is a standalone type with its own schema under `schemas/public-api/declared/`
+(`schema::declared_schemas`; answered by `schema show <name>`, not listed by `inspect
+capabilities`). The change that attaches it, with its emitters and readers, moves its schema to
+`schemas/public-api/`. **Every published schema of a live document is byte-identical** to
+revision 6.6's, and so is every live answer except the additions below.
+
+**What a client can observe change now:**
+- `schema show primitives` (D7) and `schema show reasons` (D8), also exported as
+  `schemas/public-api/primitives.json` and `reasons.json`;
+- `schema show <declared name>`;
+- the new commands `support bundle`, `state status|restore|reset|repair`, `service stop
+  --preview` and `inspect request <REQUEST_ID>`: each answers `USAGE_ERROR` (exit 2, effect
+  `none`, next `fix_request`), "this command is not available in this build", whatever flags it
+  is given (the ruling on ASK-H3), before any runtime contact, home creation or file read. "Whatever
+  flags" means any valid invocation: a malformed one (a missing required argument, an unknown
+  flag) is clap's usage refusal, also exit 2 (review U0-R07, ruled);
+- `inspect <subject> <ID>` for a subject other than `request` is `USAGE_ERROR`;
+- help text names no milestone, ADR, section or test-only wording (D14), and `activate --hook`
+  is hidden from help (an integration endpoint, §2.3 of ADR-0013);
+- a catalog write that creates a destination, or renames one, into a case-variant of another
+  destination's alias is refused `CONFIG_CONFLICT` / `alias_collision` (U0-Q9);
+- the store migrates to schema version 14 (an older build then refuses it, as for every
+  migration).
+
+**Not in this part:** the version string (`1.0.0-rc.1` is set once at the M08 candidate commit
+with U8's claims update; the ruling on ASK-VERSION: every claim entry pins its signer build, so
+the bump makes every claimed field read `unknown` until then); `REQUEST_STALE` in the code table
+(the ruling on ASK-CODE: declared in the reason table only, it joins `Code` with its emitter and
+both harnesses' tables); any flag that would refuse (ASK-FLAGS: `--request-epoch` and `access
+release --request-id` arrive with their checks); H11 (M08 U3c), H12 and H15 (U2b).
+
+### 19.2 ADR-0013's deltas
+
+| # | This part | Where | Later |
+|---|---|---|---|
+| D1 | Typed views for every untyped read: `inspect` subjects, `status`, `service-status`, `operation`, the subscription head, the stream line, `environment status` and `GrantResidual` (Q14); keys kept, subject metadata kept | `contract::views`; `tests/contracts/rev7_views.rs` | U3 builders (PC2) |
+| D2 | `pages/1` declared, not offered; `PageRequest`, `Select`, `Page`, `Selection`, `PageToken`; the limits | `contract::page`, `ipc::capability::PAGES_V1` | U3 |
+| D3 | The command-tree golden; M06's names are in. **E8 (ruled 2026-11-24):** revision 7 gives the hidden endpoints no declarative flags; `route connect`, `transport serve` and `remote serve` stay hidden, frozen integration endpoints that take trailing arguments as today. Human help text is not frozen: the golden pins paths and flags, the help lint the text rules | `heimdall::cli_tree_tests`, `golden/command-tree.golden.txt` | — |
+| D4 | `EventSnapshot` and its caps | `contract::event` | U3 (PC1) |
+| D5 | `EventPayload`, every key as emitted; the emission-site registry | `contract::event_payload`; `tests/contracts/rev7_events.rs`, `golden/event-emission-sites.json` | — |
+| D6 | `ResyncReason`; the resync reasons | `contract::event`, `envelope::reason` | U3 (PC5, PC6, PC9, PC10) |
+| D7 | The primitive index (six groups) | `contract::primitives` | — |
+| D8 | The reason table: every error reason with every code it is emitted under; pending, resync and warning reasons apart; `declared_codes` | `contract::reasons` | — |
+| D9 | The per-field inventory | `golden/views-null-inventory.md` | U3 (PC3) |
+| D10 | — (the views carry no new field yet) | — | U3 |
+| D11 | Ruled (Q12): M06's `route_health` and `host_pin_defeated` on each `inspect destinations` item are D11, omitted when there is no report; typed in the destinations view. `route_health` is the latest report per destination, ignoring `account`, held in memory since the runtime started, and omitted when there is no report (D9). ADR-0010 §10's per-pair dependency status is `deferred_with_decision` past 1.0 (the consumer has `route_dependency_out_of_scope` and `route_undetermined`) | `contract::views::catalog` | U3 (a test of the emitted `route` event) |
+| D12 | The `service-status` view; `runtime_not_running`, `runtime_unreachable` (H14), `endpoint_untrusted` | `contract::views::status`, `envelope::reason::REV7` | U3 |
+| D13 | `destination_has_live_access`; `LiveAccessRefusal` | `contract::envelope` | U3 with U8b |
+| D14 | The help lint, with no exemption left; `cli.rs` help rewritten, and `m06_cmd.rs`'s `remote` help strings once M06's exit was on this branch (review R08(f)) | `heimdall::cli_tree_tests` | — |
+| D15 | The spec text below (§19.7), for the contract owner to apply | — | the orchestrator |
+| D16–D18 | §19.6 | — | ratification |
+| D19 | `response_too_large`; `ResponseTooLarge` | `contract::envelope` | U3 (PC4) |
+| D20 | The bounds (§19.5) and `item_too_large` | `contract::bounds` | U3 (PC11) |
+| D21 | `page_token_invalid`, `selector_invalid`; `route_undetermined` exists | `envelope::reason` | U3 |
+
+### 19.3 ADR-0014's deltas
+
+| # | This part | Where | Later |
+|---|---|---|---|
+| H1 | `support bundle` skeleton; `SupportBundleManifest` | `heimdall::rev7_cmd`, `contract::lifecycle` | U6b |
+| H2 | `service stop --preview` skeleton; `StopPreview` | same | U2b |
+| H3, Q8 | `state status|restore|reset|repair` skeletons; `StateStatus`, `RestoreReport`, `ResetReport`, `RepairReport`; §19.4's authority rule | same | U2b |
+| H4, H10 | `state_corrupt`, `state_newer_than_build`, `state_restored_authority_ended`, `client_quarantined_after_restore`, `invitation_void_after_restore`, `exposure_disabled_after_restore`; one event type `state_restored` (declared by name; `EventType` gains it with its emitter) with `StateRestoredPayload` | `envelope::reason::REV7`, `contract::lifecycle` | U2b |
+| H5 | `executable_moved` (a name) | `contract::lifecycle` | U2b |
+| H6 | `migration_backup`, `earlier_store_generation`, `previous_binary`, `git_block_moved` (names; `RemainingArtifactKind` gains them with their emitters) | `contract::lifecycle::residue_kind` | U2b |
+| H7 | `BuildProvenance` | `contract::lifecycle` | U3 |
+| H8 | — (§19.1) | — | M08 candidate |
+| H9 | Migration 0014 | `crates/store/migrations/0014_restore_epoch.sql` | U2b writers |
+| H13 | `request-epoch/1` declared, not offered; `RestoreEpoch`; the frame field's name; `REQUEST_STALE` declared with `restore_epoch_stale` and `restored_before_completion` | `contract::lifecycle`, `ipc::capability::REQUEST_EPOCH_V1` | one change: U2b with U3's readers |
+| H11, H12, H14, H15 | — (H14's reason is in D12) | — | U3c, U2b, U3, U2b |
+
+**H13, as ruled.** One optional `request_epoch` per request frame (`ClientMessage::Request`),
+outside every canonical request hash; the hello reports `restore_epoch`. A mutating request
+whose epoch is not current is refused `REQUEST_STALE` / `restore_epoch_stale` before any store
+write or effect, attended or not; one with no epoch is bound to the current epoch at receipt,
+and a fence for its key answers `REQUEST_STALE` / `restored_before_completion`. A client holding
+a kept epoch refuses (`SCHEMA_UNSUPPORTED`) instead of sending to a runtime that does not offer
+`request-epoch/1`; a fresh request with no kept epoch is sent without one. `REQUEST_STALE` is
+exit class 6, not retryable, effect `none`, next `new_request_id` (U0-Q6). The residual: a
+caller that re-stamps an old request ID with a new epoch is outside the contract. The server
+check, the envelope's `request_epoch`, the CLI's `--request-epoch` and every consumer (the CLI
+retry path, the TUI, the wrapper, H1, H2) land as one change.
+
+### 19.4 The restore rule is an authority rule of this contract (H3)
+
+ADR-0014 §3.6 is adopted as written, as part of this contract: a restore recovers identity and
+configuration and **no authority**; what it keeps, ends, quarantines and voids (its table); the
+carry-forward of the more restrictive state and of later terminal records; the restore epoch and
+the replay fence (steps 1–7); identity binding and the refusals of the restore protocol; reset's
+inventory-unavailable disclosure; "never, by any path". Recovery from `state_corrupt` in 1.0 is
+`state restore --backup <file>` or `state reset`, both attended, with no automatic generation
+picking; a damaged request ledger is repaired only by the attended `state repair` (U0-Q8: carry
+every decodable record after the damage into the store as fence records, raise the restore
+epoch, truncate at the first damaged record; the stated residual is that a request among the
+dropped records retried without its epoch could run again).
+
+### 19.5 Rulings applied (U0-Q1 to Q14)
+
+- **Q1:** `APPROVAL_REQUIRED` for a session that can attend, `INTERACTION_REQUIRED` with the same
+  `next.decision_ref` for one that cannot; every reader takes `decision_ref` under either code.
+- **Q2:** no binding reference on `run`; a request ID names exactly one request; adoption of the
+  `ensure` binding through a shared request ID is removed in U3 (a changing request under a used
+  request ID is `REQUEST_CONFLICT`, next `new_request_id`).
+- **Q3:** reasons under `CAPABILITY_UNAVAILABLE`: `mechanism_minimum_unmet`, `decision_denied`,
+  `route_undetermined` (exists), and `probes_unavailable` (the refused confirming probe, named from
+  its emission site `heimdall_app::remote_env::probes_unavailable`). Emitters are U3.
+- **Q4:** `LaunchProvenance` with M06's four values (`runner_managed`, `independently_managed`,
+  `controller_dependency`, `unknown`); the unattended refusal already carries its reasons
+  (`controller_dependency`, `dependency_provenance_unknown`). Attachment to the run record is U3.
+- **Q5, Q6:** §19.3.
+- **Q7:** `inspect request <REQUEST_ID>` (`RequestView`: `state` `in_progress` | `completed` |
+  `not_found`, `operation_id?`, `code?`, `request_epoch`), scoped to the caller's own namespace;
+  `access release --request-id` and the repeated-release statement (`already_released`, no other
+  effect); `inspect bindings`' `request_id` for its own caller only. U3.
+- **Q8:** §19.4. **Q9:** catalog alias uniqueness is case-insensitive at write
+  (`CONFIG_CONFLICT` / `alias_collision`); a write that keeps a destination's own stored alias
+  byte for byte is allowed; existing pairs are reported by `doctor` (U1b, reading
+  `Txn::destination_alias_case_collisions`), never rewritten. **Q10:** U1b.
+- **Q11:** §19.6. **Q12:** D11 above. **Q13:** M07 U3 builds RC06 for both `inspect environments`
+  (its remote row) and `environment status`: a capped `remote_pending` (at most 16 entries) with
+  `remote_pending_count`, from a bounded store read; one change moves the CLI renderer, the four
+  test files and the TUI reader. **Q14:** `GrantResidual` is A07's report, typed with a public
+  schema and its statement unchanged; `EnsureData.residuals`, `attach_runner_readiness` and the
+  hard-coded `runner_residuals` are removed in U3 as a pre-release correction; a per-component
+  report is out of 1.0, stated as a limitation.
+- **D20's numbers (ruled 2026-11-24; the 64 KiB item bound stays):** 200 profile pairs, 64
+  identity declarations, 8 routes per destination, 8 relays per route and 16 per destination
+  (relay URLs stay at 2,048 bytes), 4 consents and 3 direct addresses per route, 8 host-key pins
+  per destination of at most 1,536 bytes each (an RSA-8192 pin is about 1.4 KB), 16 listed
+  `remote_pending` entries. Each maximal-record test fills every field of its item at its bound
+  at once, at its worst-case escaping (a label of `"`), and leaves 4 KiB (at most 61,440 bytes):
+  a maximal profile is 58,381 bytes; a maximal destination with its routes (each with
+  `external_roost`), its pair preference (`graceful`) and connection policy, the route-health view
+  of the largest report `record_health` accepts and the longest host-pin setting is 58,569 bytes
+  (view 6,208, routes 52,361; review U0-RC01; addresses with their zones). **`route_health` lists
+  at most the 32 most recent attempts of its report, newest first, with `attempts_dropped`** (how
+  many older attempts are not listed, omitted when none, the form of `resync_required`'s
+  `dropped`; `ROUTE_HEALTH_VIEW_ATTEMPTS_MAX`, `RouteHealthView::from_report`): the diagnostic
+  report is cut, not a user capacity. Before the cut the true worst case was 61,517 bytes, 77 over
+  the line. **Address strings (ruled 2026-11-24):** each `direct_addresses` entry and each
+  `BindScope::Interface.address` is at most `MAX_ADDRESS_BYTES` = 64 bytes (IPv6 with a zone ID).
+  At write time (U3, PC11) each is parsed as an IP address with an optional zone and stored in its
+  canonical text form; an unparseable entry or one over the bound is refused with `USAGE_ERROR`
+  (`item_too_large` over the bound, next `fix_request` for an unparseable entry); a stored value
+  that does not parse or exceeds the bound is reported, never rewritten. The maximal test fills
+  each with the canonical IPv6 maximum and a 15-byte zone. Each bound, of bytes or of entries,
+  refuses at write with `USAGE_ERROR` / `item_too_large` (`ItemTooLarge` names the field and the
+  bound); a store that already exceeds one is reported, never truncated.
+- **Next actions in the reason table (ruled 2026-11-24):** every row is one (reason, code)
+  answer with the `next.action` it carries, so a well-behaved agent stops instead of looping:
+  `state_corrupt` and `ledger_damaged` carry `owner_decision` (the attended repair or restore),
+  `state_newer_than_build` carries `change_client`, and three M03 answers carry what their
+  emission sites send today (`projection_pending`: `setup_apply`; `remote_step_in_progress`:
+  `reconcile`; `managed_slot_held`: `release_binding`). The review's overrides (U0-R04):
+  `response_too_large` under `USAGE_ERROR` carries `narrow_request` (a read refused before
+  anything is sent), with one exception: a reply that does not fit after dispatch keeps its
+  operation's true effect and reference and carries `observe`; `decision_denied` under
+  `CAPABILITY_UNAVAILABLE` carries `none` (the person said no: stop, do not ask again); and
+  `client_quarantined_after_restore`, `invitation_void_after_restore` and
+  `exposure_disabled_after_restore` under `CAPABILITY_UNAVAILABLE` carry `owner_decision`
+  (only the owner's reauthorization or a new local decision reopens). `retryable` is always
+  the code's.
+  `restore_epoch_stale` is an answer under both `REQUEST_STALE` (a request) and
+  `DECISION_STALE` (`fix_request`; a decision reference minted under an older epoch).
+- **The D1 views (ruled 2026-11-24):** a terminal operation with no `result` reads as
+  withheld (PC3; `state` says it is terminal); `inspect projections`' `record` is omitted when
+  nothing is committed; explicit `null`s inside verbatim persisted content are kept; one public
+  schema per subject: U3 swaps each `<name>.full` declared view in for its public `<name>` by a
+  rename (`inspect-environments.full`, `inspect-workspace.full`, `inspect-policies.full`); a
+  subject whose view is typed elsewhere carries `preview` through `WithPreview<T>` (the view
+  flattened, one flat object, `preview` omitted without a preview).
+- **Q3's sites (ruled):** `--require-unattended` keeps `lock_continuity_unverified`;
+  `mechanism_minimum_unmet` goes to the reason-less minimum refusals,
+  `heimdall_app::error`'s `Denial::CapabilityUnavailable` and `operations::unmet_minimum`;
+  `decision_denied` to the denial settlements (`operations.rs` `ApproveAuthority`,
+  `ApplyProjection`, `DeclareInteraction`; `context_m05`'s cooldown; the enrollment and foreign
+  removal denials; `remote::widening`'s runner-local denial); `probes_unavailable` to
+  `remote_env::probes_unavailable` (`remote_env.rs:1413`, `:1568`), and the new
+  `probe_inconclusive` (`DESTINATION_UNREACHABLE`) to the inconclusive probe (`:1435`, `:1571`).
+  Carrying the managed adapter's reasons through the port is a
+  live change, listed for U3.
+- **M06's handoff (`docs/architecture/m06-u0-handoff.md`; ruled 2026-11-24):**
+  - **M06-F7:** `route add` with an Iroh leg in a build without the driver is refused
+    `CAPABILITY_UNAVAILABLE` / `driver_unavailable`, with the preview message, before any
+    decision is recorded. The command tree is unchanged; rows a source build wrote keep the
+    failover (6.6). U3 implements it.
+  - **§18.9 item 10's reason:** an unattended local widening's `INTERACTION_REQUIRED` carries
+    `local_widening_needs_attended_owner` (`reason::REV7`, next `interact`). Declared, not
+    emitted; U3 adds the emitter.
+
+### 19.6 Provisional ratifications (D16–D18) and decision-backed replay
+
+- Revision 3's §15.2 items 1–7, revision 4's §16.2 items 1–18, revision 6 as ruled in §18.5 and the
+  M06 W2–W3 readings; ADR-0006 §7.4's retention unchanged, with no ceiling.
+- **Decision-backed replay (ADR-0013 §7) has two keyspaces (the ruling on Q11, option A):**
+  - **paired:** `(client, kind, request_id)` bound to the canonical hash, with §7's five answers;
+  - **local** (`origin = local`, ADR-0006 §18.9 item 8): keyed by the digest of the request without
+    its ID and the exact delta; one pending record per digest; a terminal, claimed or expired
+    record is never replayed, and a repeat is evaluated afresh against the current state (a still
+    widening request gets a new decision; otherwise it runs, e.g. `already_present`).
+  - The `runner_local.*` forms (§18.7's `trust_issuer`, `enroll_owner`) are **not**
+    decision-backed replay (ruled 2026-11-24): `request_id` is advisory and a repeat converges by
+    result.
+  - `route add`, `transport enable` and `transport adopt-roost` are owner commands with no
+    `--request-id`: each run is a new request, idempotent in effect. ADR-0013 §7's "agents always
+    pass `--request-id`" covers the agent primitives only. Their frames carry the frame-level epoch,
+    bound at send. After a restore a re-run needs a fresh local decision, because the restore
+    closes pending decisions.
+  - D16's precondition: M06's restart-replay coverage (`tests/integration/remote_runtime_m06.rs`,
+    `decision_backed_replay_after_a_store_restart_answers_each_record_state`) covers the paired
+    pending, claimed, terminal and expired records and the local pending one. U3 adds one test: a
+    local widening retried after a restart from a terminal record is evaluated afresh.
+- `remote_pending_reasons` (grants) stays distinct from revision 6's environment
+  `remote_pending[].reason` (D17); coexistence, selection and removal as ADR-0013 §3.3 (D18).
+
+### 19.7 Proposed text for spec §11.6 (D15; the contract owner applies it)
+
+> Stable codes are `OK`, `ACCESS_READY`, `ACCEPTED`, `APPROVAL_REQUIRED`, `INTERACTION_REQUIRED`,
+> `PROVIDER_LOCKED`, `CAPABILITY_UNAVAILABLE`, `POLICY_PAUSED`, `POLICY_CUTOFF`,
+> `CREDENTIAL_EXPIRED`, `HOST_TRUST_CHANGED`, `DELEGATION_EXCEEDS_PARENT`, `OPERATION_CANCELLED`,
+> `DESTINATION_UNREACHABLE`, `TIME_UNCERTAIN`, `UNSUPPORTED_CLIENT`, `SERVICE_UNAVAILABLE`,
+> `STATE_UNAVAILABLE`, `BACKPRESSURE`, `REQUEST_CONFLICT`, `CONFIG_CONFLICT`, `REQUEST_EXPIRED`,
+> `RESYNC_REQUIRED`, `DECISION_STALE`, `OUTCOME_UNKNOWN`, `USAGE_ERROR`, `SCHEMA_UNSUPPORTED`,
+> `NOT_FOUND`, `INTERNAL_ERROR` and `LAUNCH_FAILED`.
+>
+> For non-child CLI commands the exit codes are 0 success (`OK`, `ACCESS_READY`; `ACCEPTED` with
+> `--async` only), 1 internal failure or an unknown code, 2 usage or schema error, 3 required
+> interaction, 4 denied, paused or cut off, 5 unavailable or transient (including `ACCEPTED`
+> without `--async`), 6 conflict, 7 uncertain external outcome, and 126 or 127 when `run` or
+> `connect` could not launch its program. After a launch, `run` and `connect` exit with the
+> child's status. `operation wait` exits 5 while the operation is active, 7 for an uncertain
+> outcome and otherwise its recorded code's class.
+>
+> `operation events --follow` writes NDJSON. When the subscription succeeds, its first line is the
+> head envelope (`subscription`, `cursor`, and either the backlog count or a whole snapshot with
+> its `resync_reason`); each later line is an event, or one terminal error envelope after which the
+> stream ends. When the subscription is refused, the only line is the error envelope. It exits 0 at
+> `--max-events` or on interrupt, 6 after a terminal event (a `resync_required` event, which every
+> gap is, or a paired client's revocation), and otherwise with its terminal error's class; a
+> disconnect after the head is a terminal `SERVICE_UNAVAILABLE` envelope (exit 5).
+
+### 19.8 Proofs
+
+- `cargo test -p heimdall-contract`: `contracts::rev7::{primitive_index_names_six_groups_with_known_schemas_codes_and_capabilities, reason_table_lists_every_answer_with_its_code_and_next_action, revision_7_capabilities_are_declared_not_offered}`; `contracts::rev7_events::{event_payload_schema_covers_every_emission_site, emission_scan_self_check}`; `contracts::rev7_views` (every view reads today's documents; re-serialization drops only PC3 fields); `contracts::schema_export::{checked_in_public_api_matches_the_model_exactly, declared_schemas_are_disjoint_from_the_public_ones}` and the keyword and tolerance checks over the declared schemas; unit tests in `page`, `primitives`, `event_payload`, `lifecycle`, `request_state`, and `views::catalog::tests::route_health_lists_the_most_recent_attempts_newest_first` (U0-RC01).
+- `cargo test -p heimdall --bin heimdall`: `cli::tree_tests::{command_tree_matches_its_golden, help_text_names_no_milestone_adr_or_section, help_lint_self_check}`; `rev7_cmd::tests::{every_declared_command_answers_not_available_and_touches_nothing, only_inspect_request_takes_an_id}`.
+- `cargo test -p heimdall-store`: `migrations::tests::restore_epoch_step_keeps_the_seeded_rows_at_epoch_zero_and_rolls_back_whole`; `tests::{catalog_aliases_are_unique_without_case_at_write, a_lost_restore_epoch_is_damage_never_epoch_zero, the_restore_epoch_is_canonical_decimal_only}` (the stored epoch is canonical decimal only: no sign, no leading zero but `0`, no whitespace; anything else is `state_corrupt`, U0-RC04).
+- `cargo test -p heimdall-app --lib`: `catalog::tests::a_store_alias_conflict_in_the_driver_settles_terminal_and_leaves_nothing_open` (the driver's own defence, U0-RC03; a test-build seam makes the store refuse the write after the catalog's check passed).
+- `cargo test -p heimdall-store --test contracts_replay`: `stored_samples_replay_through_revision_7_readers` (§19.9); the driver's self-test `tests/contracts/test_replay_journey.py` (the `check.sh` step `replay-driver-selftest`).
+
+### 19.9 The replay corpus
+
+Real prior-version rows (ADR-0013 §1.3): scratch stores written by the M02 (`e4f43f84`), M03
+(`2b79aac1`), M04/M05 (`50dbc86b`) and M06 (`9399e768`) exit builds running one short fixed
+journey, kept as SQL text dumps under `tests/contracts/golden/replay/`, migrated forward by the
+production migrations and read back, every row of every table of the migrated schema, through its
+reader (the store's public readers, revision 7's typed payloads for events and controller pins;
+rows read must equal rows stored, U0-RC02), plus hand-authored rows (`hand/`) for the historical
+shapes no journey produces. The tables and `meta` keys with no reader are listed in the corpus
+README ("Stored, not read"). Each build's genuineness (its `heimdall` build graph equals the
+crates cargo compiled; every binary's SHA-256 differs) is recorded in
+`tests/contracts/golden/replay/README.md`. The recipe is `docs/architecture/u0-plan.md` §5.

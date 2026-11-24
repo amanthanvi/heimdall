@@ -2529,13 +2529,24 @@ fn migration_0005_to_0006_keeps_m01_m02_rows_byte_identical() {
 
     let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
     assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 13); // M06 wave 5: 0013 rebuilds `remote_widening` (a table 0010 created) with its origin, rows kept; M06 wave 4: 0012 adds one table; M04/M05 wave 0: 0007 and 0008 add tables and a column; M06 wave 0: 0009 adds tables; M06 wave 2: 0010 adds one table; M06 wave 3: 0011 adds one table and a defaulted column
+    assert_eq!(SCHEMA_VERSION, 14); // rev7: 0014 adds four defaulted columns, one table and two indexes; M06 wave 5: 0013 rebuilds `remote_widening` (a table 0010 created) with its origin, rows kept; M06 wave 4: 0012 adds one table; M04/M05 wave 0: 0007 and 0008 add tables and a column; M06 wave 0: 0009 adds tables; M06 wave 2: 0010 adds one table; M06 wave 3: 0011 adds one table and a defaulted column
     let mut backup = db.as_os_str().to_owned();
     backup.push(".v5.backup");
     assert!(PathBuf::from(backup).exists(), "v5 file backed up first");
 
     let after = raw(&s);
-    assert_eq!(after, before, "every M01/M02 document is byte-identical");
+    // ⟨rev7; review U0-R06⟩ Every pre-existing document byte-identical; the meta family keeps
+    // every pre-existing row (0014 adds `restore_epoch`).
+    for (i, (a, b)) in after.iter().zip(&before).enumerate() {
+        if RAW.get(i) == Some(&RawDocuments::Meta) {
+            for row in b {
+                assert!(a.contains(row), "meta row {} is byte-identical", row.0);
+            }
+        } else {
+            assert_eq!(a, b, "every M01/M02 document is byte-identical");
+        }
+    }
+    assert_eq!(after.len(), before.len());
     assert_eq!(typed(&s), typed_before, "and decodes unchanged");
     // Each document decodes with today's types and re-encodes byte-identically.
     reencodes!(StageReceipt, &after[0]);

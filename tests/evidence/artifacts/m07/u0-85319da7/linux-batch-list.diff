@@ -1,0 +1,8 @@
+--- tests/contracts/native/u0-linux-batches.txt
++++ linux-batch-list.txt
+@@ -16,4 +16,4 @@
+ b10 e2e_cli_m01 e2e_cli_m02 e2e_cli_m03 e2e_cli_m04_m05 e2e_cli_m05 e2e_cli_m07 e2e_consumer_m03 e2e_context_m05 e2e_deadline_m03
+ b11 e2e_delegation_m05 e2e_dev_home_guard e2e_enroll_m03 e2e_environment_cli_m06 e2e_environment_runner_m06 e2e_exit_m03 e2e_exit_m05 e2e_exit_m06 e2e_exit_m06_iroh
+ b12 e2e_harness_m07 e2e_hook_m05 e2e_issuer_ceremony e2e_m07_powershell_hook e2e_managed_m03 e2e_platform_m04 e2e_portable_m05 e2e_route_m04 e2e_run_m02
+-b13 e2e_setup_dispatch e2e_stop_m05 e2e_tui_m02 e2e_tui_m03 e2e_tui_m07 e2e_windows_controller_m06 e2e_wrapper_m07
++b13 e2e_setup_dispatch e2e_stop_m05 e2e_tui_m02 e2e_tui_m03 e2e_tui_m07 e2e_windows_controller_m06 e2e_wrapper_m07 adversarial_sshconf_block_scan

@@ -197,6 +197,29 @@ impl FaultHook for FailNthCommit {
     }
 }
 
+/// A runtime over `store` (a fresh start runs restart recovery: every open operation is driven
+/// again).
+async fn start_ops(store: Arc<Store>) -> Operations {
+    let clock = VirtualClock::at(t0());
+    let sync = ScriptedTimeSync::new(SyncStatus::Synchronized);
+    let fake = FakeCredentialAdapter::new(descriptor(), vec![FakeStep::Prepare(outcome())]);
+    let hook: Arc<dyn StageHook> = Arc::new(NoStageHook);
+    Operations::start(OperationsConfig {
+        store,
+        clock,
+        time_sync: sync,
+        time_policy: TimePolicy::default(),
+        environment: env_id(),
+        adapters: vec![fake as Arc<dyn CredentialAdapter>],
+        stage_hook: hook,
+        limits: Limits::default(),
+        default_window: 12 * HOUR,
+        projection: None,
+    })
+    .await
+    .unwrap()
+}
+
 /// One installation: a store, a runtime over it, and a scratch home holding a fixture
 /// `known_hosts`.
 struct Inst {
@@ -229,24 +252,7 @@ impl Inst {
                 })
             })
             .unwrap();
-        let clock = VirtualClock::at(t0());
-        let sync = ScriptedTimeSync::new(SyncStatus::Synchronized);
-        let fake = FakeCredentialAdapter::new(descriptor(), vec![FakeStep::Prepare(outcome())]);
-        let hook: Arc<dyn StageHook> = Arc::new(NoStageHook);
-        let ops = Operations::start(OperationsConfig {
-            store: store.clone(),
-            clock,
-            time_sync: sync,
-            time_policy: TimePolicy::default(),
-            environment: env_id(),
-            adapters: vec![fake as Arc<dyn CredentialAdapter>],
-            stage_hook: hook,
-            limits: Limits::default(),
-            default_window: 12 * HOUR,
-            projection: None,
-        })
-        .await
-        .unwrap();
+        let ops = start_ops(store.clone()).await;
         let home = tempfile::tempdir().unwrap();
         std::fs::create_dir(home.path().join(".ssh")).unwrap();
         std::fs::write(home.path().join(".ssh/known_hosts"), KNOWN_HOSTS).unwrap();
@@ -1229,6 +1235,69 @@ async fn import_reimport_is_a_noop_and_conflicts_are_reported_not_applied() {
     assert_eq!(reasons["dev"], "differs_locally");
     assert_eq!(res.data["applied"]["added"], 0);
     assert_eq!(b.catalog_docs(), docs, "no conflict was applied");
+}
+
+/// ⟨rev7, review U0-R01⟩ A bundle alias that is a case-variant of a local alias (`Work` against
+/// a local `work`) is an `alias_collision` in the dry run and in the import, exactly as an
+/// identical alias is: the entry is a conflict and is not applied, the import's operation
+/// settles, and nothing stays open. A retry adds nothing, and a restart drives nothing.
+/// (Before the fix the plan promised `add`, the store refused the write, and the import
+/// answered `STATE_UNAVAILABLE` with a catalog operation left queued for good.)
+#[tokio::test]
+async fn import_of_a_case_variant_alias_is_a_collision_and_leaves_nothing_open() {
+    let b = Inst::new(false).await;
+    b.catalog(serde_json::json!({
+        "action": "upsert_destination", "request_id": "c-w",
+        "destination": {"id": "work", "alias": "work", "definition": {"kind": "observed"}}
+    }))
+    .await
+    .unwrap();
+    let a = Inst::new(true).await;
+    seed_catalog(&a).await;
+    let mut bundle = bundle_of(&a.export(false).await);
+    bundle.destinations.push({
+        let mut d = bundle.destinations[0].clone();
+        d.id = DestinationId::parse("work2").unwrap();
+        d.alias = "Work".into();
+        d.hostname = None;
+        d.account = None;
+        d.jump = None;
+        d
+    });
+    let open = |s: &Arc<Store>| s.transaction(|tx| tx.open_operations()).unwrap().len();
+    let reason_of = |data: &serde_json::Value| -> Option<String> {
+        data["plan"].as_array()?.iter().find_map(|e| {
+            (e["id"] == "work2").then(|| e["reason"].as_str().unwrap_or_default().to_owned())
+        })
+    };
+    let before = open(&b.store);
+    let docs = b.catalog_docs();
+    let dry = b.dry_run(&bundle, "d-1").await.unwrap();
+    assert_eq!(
+        reason_of(&dry.data).as_deref(),
+        Some("alias_collision"),
+        "{}",
+        dry.data
+    );
+    let done = b.import(&bundle, "i-1").await.unwrap();
+    assert_eq!(done.code, Code::Ok);
+    assert_eq!(reason_of(&done.data).as_deref(), Some("alias_collision"));
+    assert!(
+        b.store
+            .transaction(|tx| tx.destination(&DestinationId::parse("work2").unwrap()))
+            .unwrap()
+            .is_none(),
+        "the case-variant was not written"
+    );
+    assert_eq!(open(&b.store), before, "nothing is left open");
+    let after_first = b.catalog_docs();
+    let again = b.import(&bundle, "i-2").await.unwrap();
+    assert_eq!(again.data["applied"]["added"], 0);
+    assert_eq!(b.catalog_docs(), after_first, "a retry adds nothing");
+    assert_eq!(open(&b.store), before);
+    drop(start_ops(b.store.clone()).await);
+    assert_eq!(open(&b.store), before, "a restart drives nothing");
+    assert_ne!(after_first, docs, "the bundle's other entries were added");
 }
 
 /// A bundle that carries an authority section, an unknown key or a nested authority key

@@ -1,0 +1,521 @@
+{
+  "about": "Hand-authored events for the historical shapes no journey writes (ADR-0013 \u00a71.3; docs/architecture/u0-plan.md \u00a75). Each is a whole stored Event; the replay test inserts each into a migrated store and reads it back through the store and EventPayload. Fixture IDs only.",
+  "events": [
+    {
+      "shape": "credential_lifecycle authority_withdrawn, no residual",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000001",
+        "type": "credential_lifecycle",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "grant_id": "grant_00000000000000000000000000000001",
+          "event": "authority_withdrawn",
+          "cause": "revoked",
+          "cascade": [],
+          "local_applied": true,
+          "remote_pending": [],
+          "latest_possible_credential_expiry": null
+        },
+        "resource": {
+          "kind": "grant",
+          "id": "grant_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "credential_lifecycle authority_withdrawn, a residual",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000002",
+        "type": "credential_lifecycle",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "grant_id": "grant_00000000000000000000000000000001",
+          "event": "authority_withdrawn",
+          "cause": "revoked",
+          "cascade": [
+            "grant_00000000000000000000000000000002"
+          ],
+          "local_applied": false,
+          "remote_pending": [
+            "grant_00000000000000000000000000000001"
+          ],
+          "latest_possible_credential_expiry": "2026-11-24T01:00:00Z"
+        },
+        "resource": {
+          "kind": "grant",
+          "id": "grant_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "credential_lifecycle issuance reserved",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000003",
+        "type": "credential_lifecycle",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "grant_id": "grant_00000000000000000000000000000001",
+          "issuance_id": "iss_00000000000000000000000000000001",
+          "event": "reserved"
+        },
+        "resource": {
+          "kind": "grant",
+          "id": "grant_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "credential_lifecycle issuance published",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000004",
+        "type": "credential_lifecycle",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "grant_id": "grant_00000000000000000000000000000001",
+          "issuance_id": "iss_00000000000000000000000000000001",
+          "event": "published"
+        },
+        "resource": {
+          "kind": "grant",
+          "id": "grant_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "credential_lifecycle issuance voided",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000005",
+        "type": "credential_lifecycle",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "grant_id": "grant_00000000000000000000000000000001",
+          "issuance_id": "iss_00000000000000000000000000000001",
+          "event": "voided"
+        },
+        "resource": {
+          "kind": "grant",
+          "id": "grant_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "credential_lifecycle instance installed",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000006",
+        "type": "credential_lifecycle",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "grant_id": "grant_00000000000000000000000000000001",
+          "credential_instance_id": "cred_00000000000000000000000000000001",
+          "event": "installed"
+        },
+        "resource": {
+          "kind": "grant",
+          "id": "grant_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "credential_lifecycle instance lost",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000007",
+        "type": "credential_lifecycle",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "grant_id": "grant_00000000000000000000000000000001",
+          "credential_instance_id": "cred_00000000000000000000000000000001",
+          "event": "lost"
+        },
+        "resource": {
+          "kind": "grant",
+          "id": "grant_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "credential_lifecycle revoked_locally, session locked",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000008",
+        "type": "credential_lifecycle",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "grant_id": "grant_00000000000000000000000000000001",
+          "event": "revoked_locally",
+          "cause": "session_locked"
+        },
+        "resource": {
+          "kind": "grant",
+          "id": "grant_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "grant_state_changed degraded",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000009",
+        "type": "grant_state_changed",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "grant_id": "grant_00000000000000000000000000000001",
+          "state": "degraded",
+          "reason": "credential_reissue_pending"
+        },
+        "resource": {
+          "kind": "grant",
+          "id": "grant_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "runtime_lifecycle unresolved",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_0000000000000000000000000000000a",
+        "type": "runtime_lifecycle",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "phase": "unresolved",
+          "operation_id": "op_00000000000000000000000000000001",
+          "kind": "setup.apply",
+          "state": "outcome_unknown",
+          "reason": "driver_unavailable"
+        },
+        "operation_id": "op_00000000000000000000000000000001",
+        "resource": {
+          "kind": "operation",
+          "id": "op_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "resource_changed identity declaration",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_0000000000000000000000000000000b",
+        "type": "resource_changed",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "declaration_revision": 2,
+          "change": "declared"
+        },
+        "operation_id": "op_00000000000000000000000000000001",
+        "resource": {
+          "kind": "identity",
+          "id": "idn_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "resource_changed projection item",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_0000000000000000000000000000000c",
+        "type": "resource_changed",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "item": "ssh_include",
+          "generation": 3,
+          "change": "applied"
+        },
+        "operation_id": "op_00000000000000000000000000000001",
+        "resource": {
+          "kind": "projection"
+        }
+      }
+    },
+    {
+      "shape": "resource_changed supervised resource",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_0000000000000000000000000000000d",
+        "type": "resource_changed",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "resource_id": "res_00000000000000000000000000000001",
+          "kind": "materialized_file",
+          "generation": 4,
+          "outcome": "cleanup_failed",
+          "code": "STATE_UNAVAILABLE",
+          "attempts": 3
+        }
+      }
+    },
+    {
+      "shape": "resource_changed supervised resource, no code",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_0000000000000000000000000000000e",
+        "type": "resource_changed",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "resource_id": "res_00000000000000000000000000000001",
+          "kind": "connection",
+          "generation": 5,
+          "outcome": "deleted",
+          "code": null,
+          "attempts": 1
+        }
+      }
+    },
+    {
+      "shape": "enrollment",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_0000000000000000000000000000000f",
+        "type": "enrollment",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "enrollment_id": "enr_00000000000000000000000000000001",
+          "state": "verifying",
+          "operation_id": "op_00000000000000000000000000000001"
+        },
+        "resource": {
+          "kind": "enrollment",
+          "id": "enr_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "connection started",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000010",
+        "type": "connection",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "connection_id": "conn_00000000000000000000000000000001",
+          "kind": "master",
+          "event": "started"
+        }
+      }
+    },
+    {
+      "shape": "connection closed, a reason",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000011",
+        "type": "connection",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "connection_id": "conn_00000000000000000000000000000001",
+          "kind": "master",
+          "event": "closed",
+          "reason": "cutoff"
+        }
+      }
+    },
+    {
+      "shape": "connection closed, no reason",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000012",
+        "type": "connection",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "connection_id": "conn_00000000000000000000000000000002",
+          "kind": "dedicated",
+          "event": "closed"
+        }
+      }
+    },
+    {
+      "shape": "session_lock",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000013",
+        "type": "session_lock",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "state": "locked",
+          "revoked": [
+            "grant_00000000000000000000000000000001"
+          ]
+        }
+      }
+    },
+    {
+      "shape": "activation blocked",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000014",
+        "type": "activation",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "kind": "blocked",
+          "environment_id": "env_00000000000000000000000000000001",
+          "policy_id": "pol",
+          "reason": "workspace_untrusted"
+        },
+        "resource": {
+          "kind": "policy",
+          "id": "pol"
+        }
+      }
+    },
+    {
+      "shape": "activation activated",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000015",
+        "type": "activation",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "kind": "activated",
+          "environment_id": "env_00000000000000000000000000000001",
+          "policy_id": "pol"
+        },
+        "resource": {
+          "kind": "policy",
+          "id": "pol"
+        }
+      }
+    },
+    {
+      "shape": "route failed over",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000016",
+        "type": "route",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "kind": "failed_over",
+          "destination": "lab",
+          "account": "deploy",
+          "attempts": [
+            {
+              "route": "route_00000000000000000000000000000001",
+              "failure": "timeout",
+              "duration_ms": 3000
+            },
+            {
+              "route": "route_00000000000000000000000000000002",
+              "failure": "driver_unavailable"
+            },
+            {
+              "route": "route_00000000000000000000000000000003",
+              "duration_ms": 120
+            }
+          ],
+          "final_route": "route_00000000000000000000000000000003"
+        }
+      }
+    },
+    {
+      "shape": "client revoked",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000017",
+        "type": "client",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "kind": "revoked",
+          "environment": "env_00000000000000000000000000000001",
+          "client": "cl_00000000000000000000000000000001",
+          "role": "requester"
+        },
+        "resource": {
+          "kind": "client",
+          "id": "cl_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "decision of a remote widening, expired",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000018",
+        "type": "decision",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "decision_id": "dec_00000000000000000000000000000001",
+          "kind": "remote_widening",
+          "state": "expired",
+          "expires_at": "2026-11-24T00:00:00Z"
+        },
+        "resource": {
+          "kind": "decision",
+          "id": "dec_00000000000000000000000000000001"
+        }
+      }
+    },
+    {
+      "shape": "operation of an enrollment kind",
+      "event": {
+        "schema_version": "1",
+        "event_id": "evt_00000000000000000000000000000019",
+        "type": "operation_state_changed",
+        "environment_id": "env_00000000000000000000000000000001",
+        "timestamp": "2026-11-24T00:00:00Z",
+        "cursor": "",
+        "payload": {
+          "kind": "enrollment.verify",
+          "state": "succeeded",
+          "code": "OK",
+          "effect_status": "applied"
+        },
+        "operation_id": "op_00000000000000000000000000000001",
+        "resource": {
+          "kind": "operation",
+          "id": "op_00000000000000000000000000000001"
+        }
+      }
+    }
+  ]
+}

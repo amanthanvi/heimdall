@@ -105,6 +105,19 @@ pub mod capability {
     /// (`heimdall_ipc::session` and `inspect capabilities` list none of them).
     pub const REVISION_6_DECLARED: [&str; 4] =
         [REMOTE_CONTROL_V1, RUNNER_V1, ROUTES_V1, TRANSPORT_IROH_V1];
+    /// ⟨rev7⟩ ADR-0013 §6.1, D2: the `select` and `page` forms of `inspect`
+    /// ([`crate::page`]). **Declared, not offered:** no runtime offers it and no role set
+    /// ([`for_role`]) holds it until the server serves the forms (U3), so no session can
+    /// send them.
+    pub const PAGES_V1: &str = "pages/1";
+    /// ⟨rev7⟩ ADR-0014 H13 (ruling on ASK-H13b): the request frame's `request_epoch`
+    /// ([`crate::lifecycle::REQUEST_EPOCH_FIELD`]) and the hello's `restore_epoch`.
+    /// **Declared, not offered:** a client holding a kept epoch refuses
+    /// (`SCHEMA_UNSUPPORTED`) instead of sending it to a runtime that does not offer this; a
+    /// fresh request with no kept epoch is sent without one.
+    pub const REQUEST_EPOCH_V1: &str = "request-epoch/1";
+    /// ⟨rev7⟩ The revision-7 capabilities, declared and **not offered**.
+    pub const REVISION_7_DECLARED: [&str; 2] = [PAGES_V1, REQUEST_EPOCH_V1];
 
     /// ⟨M06⟩ Every capability name this contract defines, in declaration order: the
     /// owner role's set ([`for_role`]).
