@@ -220,5 +220,6 @@ reproducible only by a PC pair at a commit with the record split: the candidate'
 - **Records:** `tests/evidence/artifacts/m08/pc-job57-7905a671/`.
 - **Finding M08-W2-F2** (step 5c): an unquoted `-Features default,iroh` failed PowerShell's
   parameter binding before the script's own refusal. It failed closed: nothing was built. It
-  was fixed in W2.3 (`2215e8a0`; `-Features` is a list), and the Windows run of
-  `build-release-features-selftest.ps1` is pending.
+  was fixed in W2.3 (`2215e8a0`; `-Features` is a list). **Closed by PC job 59 at `8ba4f28c`:**
+  `build-release-features-selftest: PASS (18 checks)` under Windows PowerShell 5.1 and
+  PowerShell 7. The unquoted `default,iroh` now reaches the refusal (exit 2) in both.
