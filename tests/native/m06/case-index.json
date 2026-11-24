@@ -83,6 +83,13 @@
         "linux"
       ],
       "rationale": "#![cfg(unix)] (tests/e2e/exit_m06.rs): each journey starts the runner runtime and unprivileged fixture sshds on the same host, and the runner is Unix-only in V1 (m06-plan §5); the Windows controller's rows are the windows-controller-journey scenario"
+    },
+    "e2e_exit_m06_iroh": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#![cfg(unix)] (tests/e2e/exit_m06_iroh.rs): each journey starts runner runtimes and unprivileged fixture sshds on the same host, and the runner is Unix-only in V1 (m06-plan §5); the Windows inventory scan does not build this iroh-feature target, so the exclusion is recorded here from the source"
     }
   },
   "macro_tests": {},
@@ -131,6 +138,7 @@
         "a07_cutoff_pending": "cutoff-pending: the owner's cutoff is a second typed pending effect; neither is applied on the runner while disconnected",
         "a07_uncertain_time": "uncertain-time: the runner restarted with an unsynchronized clock before the forward comes back; the reconnect still delivers both narrowings and they apply",
         "a07_fresh_work_refused": "fresh-work-refused: a fresh work ID after the reconciled pause and cutoff is refused; nothing is issued",
+        "a07_cutoff_refused": "cutoff-refused: the cutoff alone, after acknowledgement and with time certain: the runner's runtime restarts with a synchronized clock, the runner's own owner lifts the delivered pause (`access resume runner-pol`, approved on the runner's terminal), the policy is active but cut off, and a fresh work ID from the controller is refused `POLICY_CUTOFF` with nothing issued",
         "t06_pair": "pair: as a24_pair, the T06 journey's own runner installation and first controller home",
         "t06_first_grant": "first-grant: the first controller's grant on the runner, issued under its CA",
         "t06_second_owner": "second-owner: a second controller home on the Mac shows its key (`environment join --show-key`), is invited by the first owner (`environment invite` on a terminal), approved by the runner's local owner (`decision approve` on the runner's terminal) and joins with its own key (`environment join` on a terminal): the product CLI throughout",
@@ -193,7 +201,8 @@
       "crosshost_note": "m06-plan §3 names the runner (the devbox, a host of its own) as a platform of this row. On one host the controller and the runner are two scratch homes of one account, so the cross-machine evidence is the journey of tests/native/m06/run-crosshost.sh (platform runner-crosshost, scenario crosshost-journey): the listed steps must pass there; until that run exists and passes the row is in_progress or blocked on it, never inherited from the single-host suite",
       "tests": {
         "e2e_exit_m06": [
-          "a24_runner_without_controller"
+          "a24_runner_without_controller",
+          "connect_on_a_runner_is_a_clean_launch"
         ],
         "e2e_environment_runner_m06": "*",
         "integration_runner_runtime_m06": "*",
@@ -263,7 +272,10 @@
       "crosshost_note": "m06-plan §3 names the runner (the devbox, a host of its own) as a platform of this row. On one host the controller and the runner are two scratch homes of one account, so the cross-machine evidence is the journey of tests/native/m06/run-crosshost.sh (platform runner-crosshost, scenario crosshost-journey): the listed steps must pass there; until that run exists and passes the row is in_progress or blocked on it, never inherited from the single-host suite",
       "tests": {
         "e2e_exit_m06": [
-          "a25_roles_invitations_decisions"
+          "a25_roles_invitations_decisions",
+          "a25_pairing_invite_join_through_the_product_cli",
+          "a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally",
+          "a_delivered_pause_of_a_held_policy_is_named_by_access_resume"
         ],
         "model_remote_roles": "*",
         "integration_remote_env_mgmt_m06": "*",
@@ -314,7 +326,13 @@
       ],
       "tests": {
         "e2e_exit_m06_iroh": [
-          "a26_iroh_routes_trust"
+          "a26_iroh_routes_trust",
+          "local_widening_adopt_roost_on_a_controller",
+          "a26_iroh_through_a_projected_alias"
+        ],
+        "e2e_exit_m06": [
+          "a26_routes_and_host_trust_without_iroh",
+          "local_widening_route_add_on_a_controller"
         ],
         "integration_transport_supervise_m06": "*",
         "integration_route_m06": "*",
@@ -433,7 +451,8 @@
             "a07_pause_pending",
             "a07_cutoff_pending",
             "a07_uncertain_time",
-            "a07_fresh_work_refused"
+            "a07_fresh_work_refused",
+            "a07_cutoff_refused"
           ]
         }
       },
@@ -460,7 +479,8 @@
           "a07_pause_pending",
           "a07_cutoff_pending",
           "a07_uncertain_time",
-          "a07_fresh_work_refused"
+          "a07_fresh_work_refused",
+          "a07_cutoff_refused"
         ]
       },
       "blocked_rows": [

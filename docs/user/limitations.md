@@ -17,5 +17,7 @@ Short, and meant to be read once.
   approved background work; sleep, logout and reboot each behave as the status view says.
 - **Uninstalling does not remove lines on remote hosts.** Remove enrollments first.
 - **Only the combinations in the compatibility matrix were tested.** Others may work.
+- **The Iroh transport is not in this release.** It is a preview you can build from source
+  (`cargo build --features iroh`), with no support claim. Direct and jump routes work without it.
 - **What was not run before this release:** see the release notes. Rows that needed
   machines or accounts that were not available are listed there as not run, not as passed.

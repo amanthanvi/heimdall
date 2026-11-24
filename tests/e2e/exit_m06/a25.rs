@@ -184,6 +184,7 @@ impl World {
             &peer.dir.join("mgmt.conf"),
             &format!("hm-env-{}", self.environment),
             &disposable,
+            heimdall_localenv::sys::openssh_env::fill_openssh_environment,
         )
         .await
         .expect("the probes were conclusive");

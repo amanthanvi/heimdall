@@ -33,10 +33,23 @@ What is pinned:
     on record; without the rationale the Windows row is in_progress;
   * HM_SKIP_TARGETS drops exactly the named targets (and a platform_required map it empties), and
     --write refuses to run with it set;
-  * the committed index, runs template and inventory agree with one another.
+  * the committed index, runs template and inventory agree with one another, and every test of the
+    two exit targets is required by a case;
+  * ⟨M06 exit⟩ the Unix-only iroh exit target is never required on Windows;
+  * ⟨M06 exit⟩ the windows-controller exit code is the recorder's commands.txt: no commands log, a
+    configured exit_codes map and a recorded pass against the journey's own failing trailer are
+    refused; import-windows-controller.py scans before writing (canary, SID, home path, address),
+    refuses a forged pass, another commit, an extra or missing file and a typed command, never
+    overwrites, and fills the configuration;
+  * ⟨M06 exit⟩ a journey that printed `journey: blocked` is not a pass: its row is blocked with the
+    logged reason (a failure still outranks it), however many lines came before it;
+  * ⟨M06 exit⟩ --write refuses unfilled identity fields; fill-run-facts.py fills them from its
+    inputs (git and the toolchain stubbed) and refuses a dirty checkout, another commit, a malformed
+    or too-late start time, a platform output naming another commit and a platform with no digest.
 """
 
 import copy
+import hashlib
 import importlib.util
 import io
 import json
@@ -66,6 +79,17 @@ def load_m06():
 
 
 m06 = load_m06()
+
+
+def load_importer():
+    spec = importlib.util.spec_from_file_location("import_windows_controller", HERE / "import-windows-controller.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+IMPORTER = load_importer()
+CONTROLLER_COMMAND = IMPORTER.COMMAND
 ev = m06.ev
 INDEX = json.loads((HERE / "case-index.json").read_text(encoding="utf-8"))
 INV = json.loads((HERE / "required-inventory.json").read_text(encoding="utf-8"))
@@ -180,20 +204,24 @@ class Scratch:
             summary_out=str(d / "summary.json"),
             artifacts_root=str(d),
             build_commit="0" * 40,
-            artifact_digest="n/a",
+            artifact_digest="a" * 64,
             started_at="2026-11-22T00:00:00+00:00",
+            environment={"build_host": {"uname": "synthetic"}},
             commands=["synthetic"],
             evidence_paths=["synthetic"],
         )
         for pname in ALL_PLATFORMS:
             style = "cargo" if pname == "macos" else "harness"
             (d / f"{pname}.log").write_text(log_text(self.logs.get(pname, {}), style, (observations or {}).get(pname)))
-            (d / f"{pname}.commands").write_text("exit 0: the required command\n")
+            # ⟨M06 exit⟩ The Windows controller journey's commands log is its recorder's one
+            # line (record-windows-controller.ps1), as import-windows-controller.py imports it.
+            (d / f"{pname}.commands").write_text(
+                f"exit 0: {CONTROLLER_COMMAND}\n" if pname == JOURNEY_PLATFORM else "exit 0: the required command\n")
             lines = ["os=synthetic", "secret-thing=must not be kept", *((facts or {}).get(pname, []))]
             (d / f"{pname}.facts").write_text("\n".join(lines) + "\n")
             cfg["platforms"][pname].update(
                 logs=[f"{pname}.log"], commands_logs=[f"{pname}.commands"], facts=[f"{pname}.facts"],
-                artifact_digest="n/a",
+                artifact_digest="b" * 64,
             )
         for pname, upd in (platforms or {}).items():
             cfg["platforms"][pname].update(upd)
@@ -513,6 +541,21 @@ class PlatformOnly(unittest.TestCase):
         self.assertEqual(w["status"], "in_progress")
         self.assertTrue(w.get("excluded_without_rationale") or w.get("incomplete_run"), w)
 
+    def test_the_iroh_exit_target_is_unix_only_so_the_windows_a26_row_never_requires_it(self):
+        # ⟨M06 exit; RESEARCH §0 item 2⟩ #![cfg(unix)]: the Windows feature build holds no test.
+        self.assertEqual(INDEX["platform_only"]["e2e_exit_m06_iroh"]["platforms"], ["macos", "linux"])
+        index = reduced_index()
+        if "e2e_exit_m06_iroh" not in index["groups"]["A26"]["tests"]:
+            self.skipTest("the committed inventory lacks the iroh exit target")
+        self.assertFalse([t for t, _ in ev.required(index, INV, "groups", "A26", "windows") if t == "e2e_exit_m06_iroh"])
+        self.assertTrue([t for t, _ in ev.required(index, INV, "groups", "A26", "linux") if t == "e2e_exit_m06_iroh"])
+        s = Scratch(self, index=index)
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        w = row(summary, "A26", "windows")
+        self.assertEqual(w["status"], "verified", w)
+        self.assertGreater(w["excluded_by_rationale"]["e2e_exit_m06_iroh"], 0)
+
     def test_every_platform_only_entry_of_the_index_has_a_one_line_rationale(self):
         for key, entry in INDEX["platform_only"].items():
             self.assertTrue(entry["rationale"].strip(), key)
@@ -791,6 +834,304 @@ class CrossHostJourney(unittest.TestCase):
             self.assertNotIn("/home/x", out.stdout, "a failure reason loses its paths")
 
 
+class ControllerExitCode(unittest.TestCase):
+    """⟨M06 exit; RESEARCH §0 item 1⟩ The windows-controller platform's exit code is the
+    recorder's commands.txt (record-windows-controller.ps1), never a configured map."""
+
+    def journey_logs(self, trailer=0, recorded=0):
+        index, inv = journey_fixture()
+        s = Scratch(self, index=index, inv=inv)
+        log = s.dir / f"{JOURNEY_PLATFORM}.log"
+        log.write_text(ev.re.sub(rf"(?m)^### {JOURNEY} exit=\d+$", f"### {JOURNEY} exit={trailer}", log.read_text()))
+        (s.dir / f"{JOURNEY_PLATFORM}.commands").write_text(f"exit {recorded}: {CONTROLLER_COMMAND}\n")
+        return s
+
+    def reconfigure(self, s, **upd):
+        cfg = json.loads((s.dir / "runs.json").read_text())
+        cfg["platforms"][JOURNEY_PLATFORM].update(upd)
+        (s.dir / "runs.json").write_text(json.dumps(cfg))
+
+    def test_the_template_reads_the_recorders_commands_log_and_the_scripts_share_its_command(self):
+        self.assertEqual(RUNS["platforms"][JOURNEY_PLATFORM]["commands_logs"], [f"{JOURNEY_PLATFORM}/commands.txt"])
+        self.assertNotIn("exit_codes", RUNS["platforms"][JOURNEY_PLATFORM])
+        ps1 = (HERE / "record-windows-controller.ps1").read_text(encoding="utf-8")
+        self.assertIn(f"$Command = '{CONTROLLER_COMMAND}'", ps1)
+        self.assertIn(m06.CONTROLLER_SCRIPT, CONTROLLER_COMMAND)
+
+    def test_the_recorded_pass_verifies_the_row(self):
+        s = self.journey_logs()
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(row(summary, "A24", JOURNEY_PLATFORM)["status"], "verified")
+
+    def test_no_commands_log_is_refused_not_read_as_a_shorter_record(self):
+        s = self.journey_logs()
+        self.reconfigure(s, commands_logs=[])
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 2)
+        self.assertIn("no commands log", err)
+
+    def test_a_configured_exit_codes_map_is_refused(self):
+        s = self.journey_logs()
+        self.reconfigure(s, exit_codes={"pwsh run-windows-controller.ps1 (typed)": 0})
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 2)
+        self.assertIn("configured exit_codes map is refused", err)
+
+    def test_a_recorded_pass_against_the_journeys_own_failure_is_refused(self):
+        s = self.journey_logs(trailer=1, recorded=0)
+        rc, summary, err = s.run("--write")
+        self.assertEqual(rc, 2)
+        self.assertIn("trailer says exit=1", err)
+        self.assertEqual(s.records(), {})
+
+    def test_a_recorded_failure_keeps_the_row_in_progress(self):
+        s = self.journey_logs(trailer=0, recorded=1)
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        r = row(summary, "A24", JOURNEY_PLATFORM)
+        self.assertEqual(r["status"], "in_progress", r)
+        self.assertEqual(r["failed_commands"], [CONTROLLER_COMMAND])
+
+
+def controller_out(d, trailer=0, recorded=0, commit="0" * 40, host="os=windows-11\n", extra=None):
+    """A directory as record-windows-controller.ps1 leaves it on the PC."""
+    d.mkdir(parents=True)
+    (d / "tests.txt").write_text(
+        f"### {JOURNEY}\n\nrunning 1 tests\ntest a24_pair ... ok\n\nsuccesses:\n\n---- a24_pair stdout ----\n"
+        f"m06 observation: a24 pair: owner_enrolled=true\n\ntest result: ok. 1 passed; 0 failed; 0 ignored\n"
+        f"### {JOURNEY} exit={trailer}\n")
+    (d / "host.txt").write_text(host)
+    (d / "commands.txt").write_text(f"exit {recorded}: {CONTROLLER_COMMAND}\n")
+    (d / "build.txt").write_text(f"commit={commit}\n" + "".join(f"{n} sha256: {'c' * 64}\n" for n in IMPORTER.BUILD_NAMES))
+    for name, body in (extra or {}).items():
+        (d / name).write_text(body)
+    return d
+
+
+class ControllerImport(unittest.TestCase):
+    """⟨M06 exit; RESEARCH §0 items 1, 5⟩ import-windows-controller.py: the scan before anything
+    is written, the recorder's code checked against the journey's, and the configuration filled."""
+
+    def setUp(self):
+        t = tempfile.TemporaryDirectory(prefix="m06wc")
+        self.addCleanup(t.cleanup)
+        self.d = Path(t.name)
+        self.art = self.d / "exit-x"
+        self.art.mkdir()
+        cfg = copy.deepcopy(RUNS)
+        cfg["artifacts_root"] = str(self.art)
+        cfg["platforms"][JOURNEY_PLATFORM]["exit_codes"] = {"typed": 0}
+        cfg["platforms"][JOURNEY_PLATFORM]["unavailable"] = "not yet"
+        self.cfg = self.art / "runs.json"
+        self.cfg.write_text(json.dumps(cfg))
+
+    def refused(self, src, why):
+        with self.assertRaises(IMPORTER.Refused) as e:
+            IMPORTER.import_dir(src, self.art, "0" * 40, self.cfg)
+        self.assertIn(why, str(e.exception))
+        self.assertFalse((self.art / JOURNEY_PLATFORM).exists())
+        self.assertEqual(json.loads(self.cfg.read_text())["platforms"][JOURNEY_PLATFORM].get("unavailable"), "not yet")
+
+    def test_an_import_copies_the_files_and_points_the_configuration_at_them(self):
+        src = controller_out(self.d / "pc", extra={"ssh-stderr.txt": "Connection closed\n"})
+        dest, digest, journey, recorded = IMPORTER.import_dir(src, self.art, "0" * 40, self.cfg)
+        self.assertEqual((journey, recorded), (0, 0))
+        self.assertEqual(sorted(p.name for p in dest.iterdir()), ["build.txt", "commands.txt", "host.txt", "ssh-stderr.txt", "tests.txt"])
+        p = json.loads(self.cfg.read_text())["platforms"][JOURNEY_PLATFORM]
+        self.assertNotIn("unavailable", p)
+        self.assertNotIn("exit_codes", p)
+        self.assertEqual(p["commands_logs"], [f"{JOURNEY_PLATFORM}/commands.txt"])
+        self.assertEqual(p["artifact_digest"], digest)
+        self.assertRegex(digest, r"^[0-9a-f]{64}$")
+        self.assertEqual(ev.parse_commands(dest / "commands.txt"), {CONTROLLER_COMMAND: 0})
+
+    def test_a_canary_a_sid_a_home_path_or_an_address_is_refused_before_anything_is_written(self):
+        for n, host in enumerate(("x=HEIMDALL_CANARY_abc\n", "sid=S-1-5-21-1-2-3\n", "p=C:\\Users\\someone\\x\n",
+                                  "addr=192.168.1.7\n", "p=/Users/someone/x\n")):
+            self.refused(controller_out(self.d / f"pc{n}", host=host), "carries")
+
+    def test_a_pass_the_journey_never_reported_is_refused(self):
+        self.refused(controller_out(self.d / "pc", trailer=1, recorded=0), "trailer says exit=1")
+
+    def test_a_recorded_failure_after_the_journeys_pass_is_kept(self):
+        dest, _, journey, recorded = IMPORTER.import_dir(controller_out(self.d / "pc", trailer=0, recorded=1), self.art, "0" * 40, self.cfg)
+        self.assertEqual((journey, recorded), (0, 1))
+
+    def test_another_commit_an_extra_file_a_missing_file_or_a_typed_command_is_refused(self):
+        self.refused(controller_out(self.d / "a", commit="1" * 40), "another commit")
+        self.refused(controller_out(self.d / "b", extra={"notes.txt": "x\n"}), "unexpected files")
+        b = controller_out(self.d / "c")
+        (b / "build.txt").unlink()
+        self.refused(b, "missing files")
+        c = controller_out(self.d / "d")
+        (c / "commands.txt").write_text("exit 0: pwsh run-windows-controller.ps1 typed by hand\n")
+        self.refused(c, "recorder's")
+
+    def test_an_import_never_overwrites(self):
+        IMPORTER.import_dir(controller_out(self.d / "a"), self.art, "0" * 40, self.cfg)
+        with self.assertRaises(IMPORTER.Refused):
+            IMPORTER.import_dir(controller_out(self.d / "b"), self.art, "0" * 40, self.cfg)
+
+
+class JourneyBlocked(unittest.TestCase):
+    """⟨M06 exit; RESEARCH §0 item 3⟩ A journey that printed `journey: blocked` is not a pass."""
+
+    TARGET, TEST = "e2e_exit_m06", "a24_runner_without_controller"
+
+    def setUp(self):
+        self.index = reduced_index()
+        if (self.TARGET, self.TEST) not in ev.required(self.index, INV, "groups", "A24", "linux"):
+            self.skipTest("the committed inventory lacks the A24 journey")
+
+    def blocked_line(self, why="no fixture sshd on this host"):
+        return f"m06 observation: a24 journey: blocked ({why})"
+
+    def test_a_blocked_journey_reported_ok_blocks_its_row_with_the_logged_reason(self):
+        s = Scratch(self, observations={"linux": {(self.TARGET, self.TEST): [self.blocked_line()]}})
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        r = row(summary, "A24", "linux")
+        self.assertEqual(r["status"], "blocked", r)
+        self.assertIn("a24 journey: blocked (no fixture sshd on this host)", r["blocked_on"])
+        self.assertIn(f"{self.TARGET}::{self.TEST}", r["not_run_on_this_platform"])
+        self.assertEqual(row(summary, "A24", "macos")["status"], "verified")
+        recs = None
+        rc, _, err = s.run("--write")
+        self.assertEqual(rc, 0, err)
+        recs = s.records()
+        self.assertIn("journey: blocked", recs["A24"]["blocked_on"])
+
+    def test_a_failure_in_the_same_row_still_outranks_it(self):
+        index = reduced_index()
+        logs = passing_logs(index, INV)
+        other = next((t, n) for t, n in ev.required(index, INV, "groups", "A24", "linux") if (t, n) != (self.TARGET, self.TEST))
+        logs["linux"][other[0]][other[1]] = "FAILED"
+        s = Scratch(self, index=index, logs=logs, observations={"linux": {(self.TARGET, self.TEST): [self.blocked_line()]}})
+        rc, summary, err = s.run()
+        self.assertEqual(row(summary, "A24", "linux")["status"], "in_progress")
+
+    def test_the_line_counts_after_more_lines_than_a_row_keeps(self):
+        lines = [f"m06 observation: a24 step-{i}: ok" for i in range(ev.OBSERVATION_LINES_PER_TEST + 5)]
+        s = Scratch(self, observations={"linux": {(self.TARGET, self.TEST): [*lines, self.blocked_line("no fixture sshd for the fixed pair")]}})
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        r = row(summary, "A24", "linux")
+        self.assertEqual(r["status"], "blocked", r)
+        self.assertIn("no fixture sshd for the fixed pair", r["blocked_on"])
+
+    def test_the_scanner_attributes_the_line_to_its_test_in_cargo_and_harness_logs(self):
+        with tempfile.TemporaryDirectory(prefix="m06jb") as d:
+            p = Path(d) / "x.txt"
+            p.write_text(
+                "     Running tests/e2e/exit_m06.rs (target/debug/deps/e2e_exit_m06-0123abcd)\nrunning 2 tests\n"
+                "test a ... ok\ntest b ... ok\n\nsuccesses:\n\n---- a stdout ----\nm06 observation: a07 issued: ok\n\n"
+                "---- b stdout ----\nm06 observation: t06 journey: blocked (why)\n\ntest result: ok.\n"
+                "### e2e_exit_m06_iroh\n---- c stdout ----\nm06 observation: a26 journey: blocked ()\n")
+            self.assertEqual(m06.scan_journey_blocked(p), {
+                ("e2e_exit_m06", "b"): "t06 journey: blocked (why)",
+                ("e2e_exit_m06_iroh", "c"): "a26 journey: blocked (no reason logged)",
+            })
+
+
+class RunIdentity(unittest.TestCase):
+    """⟨M06 exit; RESEARCH §0 item 6⟩ --write refuses unfilled identity fields."""
+
+    def test_write_refuses_each_unfilled_field_and_a_dry_run_still_evaluates(self):
+        for field, value, why in (("build_commit", None, "build_commit"), ("artifact_digest", None, "artifact_digest"),
+                                  ("started_at", "2026-11-22", "started_at"), ("environment", {}, "environment")):
+            s = Scratch(self)
+            cfg = json.loads((s.dir / "runs.json").read_text())
+            cfg[field] = value
+            (s.dir / "runs.json").write_text(json.dumps(cfg))
+            rc, summary, err = s.run()
+            self.assertEqual(rc, 0, (field, err))
+            rc, summary, err = s.run("--write")
+            self.assertEqual(rc, 2, field)
+            self.assertIn(why, err)
+            self.assertEqual(s.records(), {}, field)
+
+    def test_write_refuses_a_platform_that_ran_without_a_digest_but_not_one_that_did_not_run(self):
+        s = Scratch(self, platforms={"linux": {"artifact_digest": None}})
+        rc, _, err = s.run("--write")
+        self.assertEqual(rc, 2)
+        self.assertIn("platforms.linux.artifact_digest", err)
+        s = Scratch(self, platforms={"linux": {"artifact_digest": None, "unavailable": "the devbox", "logs": [], "commands_logs": [], "facts": []}})
+        rc, _, err = s.run("--write")
+        self.assertEqual(rc, 0, err)
+
+
+def load_filler():
+    spec = importlib.util.spec_from_file_location("fill_run_facts", HERE / "fill-run-facts.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class FillRunFacts(unittest.TestCase):
+    """⟨M06 exit; RESEARCH §0 item 6⟩ fill-run-facts.py, with git and the toolchain stubbed."""
+
+    HEAD = "d" * 40
+
+    def setUp(self):
+        self.f = load_filler()
+        outputs = {("git", "status"): "", ("git", "rev-parse"): self.HEAD, ("uname",): "Synthetic 1.0 arm64",
+                   ("rustc",): "rustc 1.0.0", ("cargo",): "cargo 1.0.0", ("zig",): "0.0.0"}
+        self.f.run = lambda *cmd, cwd=None: outputs.get(cmd[:2], outputs.get(cmd[:1]))
+        t = tempfile.TemporaryDirectory(prefix="m06fill")
+        self.addCleanup(t.cleanup)
+        self.art = Path(t.name)
+        for plat, build in (("linux", f"plain_rt sha256: {'1' * 64}\n"), ("windows-controller", f"commit={self.HEAD}\nheimdall.exe sha256: {'2' * 64}\n")):
+            (self.art / plat).mkdir()
+            (self.art / plat / "tests.txt").write_text("### x\n")
+            (self.art / plat / "build.txt").write_text(build)
+        self.bin = self.art / "heimdall-mac"
+        self.bin.write_text("mac")
+        self.cfg = {"artifacts_root": str(self.art), "build_commit": None, "artifact_digest": None, "started_at": None,
+                    "environment": {}, "evidence_paths": [], "platforms": {
+                        "linux": {"label": "linux", "logs": ["linux/tests.txt"], "artifact_digest": None},
+                        "windows-controller": {"label": "wc", "logs": ["windows-controller/tests.txt"], "artifact_digest": None},
+                        "macos": {"label": "mac", "logs": [], "artifact_digest": None},
+                        "windows": {"label": "w", "unavailable": "the PC", "artifact_digest": None}}}
+
+    def fill(self, started="2000-01-01T00:00:00Z", **kw):
+        return self.f.fill(self.cfg, str(self.art / "runs.json"), started, bins={"macos": [("heimdall", str(self.bin))]}, **kw)
+
+    def test_the_fields_come_from_the_inputs_and_pass_the_generators_check(self):
+        new, digests, _ = self.fill(commit=self.HEAD)
+        self.assertEqual(new["build_commit"], self.HEAD)
+        self.assertEqual(new["started_at"], "2000-01-01T00:00:00Z")
+        self.assertEqual(new["artifact_digest"], hashlib.sha256(digests.encode()).hexdigest())
+        self.assertIn(f"linux plain_rt sha256: {'1' * 64}", digests)
+        self.assertIn(f"macos heimdall sha256: {hashlib.sha256(b'mac').hexdigest()}", digests)
+        self.assertEqual(m06.identity_problems(new), [])
+        self.assertIsNone(new["platforms"]["windows"]["artifact_digest"], "a platform that did not run gets no digest")
+        self.assertEqual(new["environment"]["build_host"]["uname"], "Synthetic 1.0 arm64")
+        self.assertIsNone(self.cfg["build_commit"], "the input configuration is not changed")
+
+    def test_an_existing_platform_digest_is_kept(self):
+        self.cfg["platforms"]["linux"]["artifact_digest"] = "e" * 64
+        new, _, _ = self.fill()
+        self.assertEqual(new["platforms"]["linux"]["artifact_digest"], "e" * 64)
+
+    def test_refusals(self):
+        with self.assertRaises(self.f.Refused):
+            self.fill(commit="f" * 40)
+        with self.assertRaises(self.f.Refused):
+            self.fill(started="2026-11-23")
+        with self.assertRaises(self.f.Refused):
+            self.fill(started="2999-01-01T00:00:00Z")
+        (self.art / "windows-controller" / "build.txt").write_text(f"commit={'9' * 40}\nheimdall.exe sha256: {'2' * 64}\n")
+        with self.assertRaises(self.f.Refused):
+            self.fill()
+        (self.art / "windows-controller" / "build.txt").write_text("nothing\n")
+        with self.assertRaises(self.f.Refused):
+            self.fill()
+        self.f.run = lambda *cmd, cwd=None: " M tracked.rs" if cmd[:2] == ("git", "status") else self.HEAD
+        with self.assertRaises(self.f.Refused):
+            self.fill()
+
+
 class SkipTargetsAndFiles(unittest.TestCase):
     def test_skip_drops_exactly_the_named_targets_and_the_platform_required_maps_it_empties(self):
         reduced = m06.m05.drop_targets(copy.deepcopy(INDEX), {"e2e_exit_m06", "e2e_exit_m06_iroh"})
@@ -853,6 +1194,14 @@ class SkipTargetsAndFiles(unittest.TestCase):
         }
         for sid, (target, name) in want.items():
             self.assertIn(name, INDEX["groups"][sid]["tests"][target], sid)
+        # ⟨M06 exit; RESEARCH §2⟩ Every test of the two exit targets is required by a case.
+        indexed = {(t, n) for sec in INDEX["groups"].values() for t, ns in sec["tests"].items()
+                   if t in ("e2e_exit_m06", "e2e_exit_m06_iroh") for n in ns}
+        for target, path in (("e2e_exit_m06", "tests/e2e/exit_m06.rs"), ("e2e_exit_m06_iroh", "tests/e2e/exit_m06_iroh.rs")):
+            names = ev.re.findall(r"#\[test\]\s*\nfn ([a-z0-9_]+)\(", (ROOT / path).read_text(encoding="utf-8"))
+            self.assertTrue(names, path)
+            for n in names:
+                self.assertIn((target, n), indexed, f"{target}::{n} is required by no case")
         self.assertEqual(INDEX["groups"]["A26"]["tests"]["integration_transport_supervise_m06"], "*")
         # The observation pass is a default-feature `cargo test --workspace --test <t>`: it cannot name
         # a target that requires a feature (the feature pass runs those with --show-output itself).

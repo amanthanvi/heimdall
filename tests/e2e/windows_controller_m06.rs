@@ -5,7 +5,8 @@
 //! The journey itself is `tests/native/m06/run-windows-controller.ps1`: a Windows controller
 //! (the real `heimdall.exe`, K_mgmt in its DPAPI store under a scratch Heimdall home, the
 //! K_mgmt session agent on its named pipe, the in-box OpenSSH) drives a fixture Linux runner
-//! in a disposable WSL distribution through the product CLI. That script prints the
+//! in scratch directories inside the PC's existing WSL distribution (none is created or
+//! removed) through the product CLI. That script prints the
 //! `m06 observation:` lines. This target holds only the three things a script cannot do, as
 //! `#[ignore]`d entries the script runs by exact name with `--ignored`:
 //!

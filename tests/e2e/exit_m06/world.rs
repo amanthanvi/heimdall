@@ -570,6 +570,7 @@ pub(crate) async fn connect_with(
     let child = heimdall_app::remote_env::ssh::spawn_management(
         &find_program("ssh").expect("an OpenSSH client"),
         &args,
+        heimdall_localenv::sys::openssh_env::fill_openssh_environment,
     )
     .map_err(|e| e.message)?;
     let heimdall_app::remote_env::ssh::ManagementChild {

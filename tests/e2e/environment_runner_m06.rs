@@ -390,6 +390,7 @@ async fn a_controller_reaches_a_real_runner_through_its_management_line() {
         &joining.join("mgmt.conf"),
         &alias,
         &disposable,
+        heimdall_localenv::sys::openssh_env::fill_openssh_environment,
     )
     .await;
     drop(disposable);
@@ -548,6 +549,7 @@ async fn a_controller_reaches_a_real_runner_through_its_management_line() {
             &dir.join("mgmt.conf"),
             &alias,
             &disposable,
+            heimdall_localenv::sys::openssh_env::fill_openssh_environment,
         )
         .await
         .unwrap_or_else(|| panic!("{tag}: a probe was inconclusive"));

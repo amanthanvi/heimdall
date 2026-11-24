@@ -4622,6 +4622,11 @@
           "description": "⟨rev6.1⟩ The jump leg failed SSH host-key verification or authentication at the jump\nhost before identification: terminal, never failed over (ADR-0012 §5.5 item 3).",
           "type": "string",
           "const": "authentication_or_trust"
+        },
+        {
+          "description": "⟨M06 exit, Q-B⟩ The leg's driver is not in this build (an Iroh leg in a build without\nthe `iroh` feature): never dialed, failed over.",
+          "type": "string",
+          "const": "driver_unavailable"
         }
       ]
     },
