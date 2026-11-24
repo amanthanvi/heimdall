@@ -1188,6 +1188,7 @@ fn no_verified_store_is_transport_key_store_unavailable_and_direct_routes_still_
                 relay_jump_stderr: false,
             },
             iroh: Some(Arc::new(IrohRouteLeg::new(Arc::new(NoKeyStore)))),
+            iroh_in_build: true,
         };
         let routes = vec![
             iroh_route(1, &IrohEndpointId::parse(&"ab".repeat(32)).unwrap(), vec![]),
@@ -1317,6 +1318,7 @@ fn the_route_helper_dials_iroh_with_identification_gating_and_fails_over() {
                 relay_jump_stderr: false,
             },
             iroh: Some(Arc::new(IrohRouteLeg::new(Arc::new(w.c2.1.clone())))),
+            iroh_in_build: true,
         };
         let routes = vec![iroh_route(1, &serving.endpoint, serving.addresses.clone())];
         let ((final_route, failures), got) =
@@ -1333,6 +1335,7 @@ fn the_route_helper_dials_iroh_with_identification_gating_and_fails_over() {
         let refused = RouteLegDialer {
             base: admitted.base.clone(),
             iroh: Some(Arc::new(IrohRouteLeg::new(Arc::new(stranger)))),
+            iroh_in_build: true,
         };
         let routes = vec![
             iroh_route(1, &serving.endpoint, serving.addresses.clone()),
@@ -1539,6 +1542,7 @@ async fn route_connect_session(
             relay_jump_stderr: false,
         },
         iroh: Some(Arc::new(IrohRouteLeg::new(Arc::new(keys)))),
+        iroh_in_build: true,
     };
     let (client_side, helper_side) = tokio::io::duplex(64 * 1024);
     let (helper_in, helper_out) = tokio::io::split(helper_side);
@@ -1601,6 +1605,7 @@ async fn route_connect_raw_client(
             relay_jump_stderr: false,
         },
         iroh: Some(Arc::new(IrohRouteLeg::new(Arc::new(keys)))),
+        iroh_in_build: true,
     };
     let (client_side, helper_side) = tokio::io::duplex(64 * 1024);
     let (helper_in, helper_out) = tokio::io::split(helper_side);

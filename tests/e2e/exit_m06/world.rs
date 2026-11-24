@@ -113,10 +113,34 @@ impl Runner {
         if let Some(config) = &self.sshd_config {
             cmd.env("HEIMDALL_TEST_RUNNER_SSHD_CONFIG", config);
         }
-        if let Some(store) = &self.iroh_store {
-            cmd.env("HEIMDALL_TEST_IROH_KEY_STORE", store);
-        }
+        self.fixture_stores(&mut cmd);
         cmd
+    }
+
+    /// ⟨M06 exit c11⟩ The fixture key stores of every `heimdall` this installation starts
+    /// (AGENTS.md), so none can reach the account's own: the scratch secret store, a K_mgmt
+    /// fixture file beside the home (`<home>-mgmt-store`, created only if a K_mgmt is ever
+    /// written, which a runner never does), and K_iroh: the installation's fixture store
+    /// when it has one ([`Self::with_iroh_fixture_store`]), otherwise a scratch path that
+    /// does not exist (`<home>-no-iroh-store`), which the debug build's store refuses for
+    /// every operation (`Unavailable(Missing)`), so no K_iroh is ever created, as before.
+    fn fixture_stores(&self, cmd: &mut Command) {
+        let beside = |suffix: &str| {
+            let mut name = self.home.file_name().unwrap().to_os_string();
+            name.push(suffix);
+            self.home.with_file_name(name)
+        };
+        cmd.env("HEIMDALL_TEST_SECRET_STORE", "scratch")
+            .env(
+                "HEIMDALL_TEST_MGMT_STORE",
+                format!("fixture-file:{}", beside("-mgmt-store").display()),
+            )
+            .env(
+                "HEIMDALL_TEST_IROH_KEY_STORE",
+                self.iroh_store
+                    .clone()
+                    .unwrap_or_else(|| beside("-no-iroh-store")),
+            );
     }
 
     /// ⟨W5⟩ Give this installation a fixture K_iroh store: a new owner-only directory
@@ -168,7 +192,9 @@ impl Runner {
         cmd.env_clear()
             .env("PATH", "/usr/bin:/bin")
             .env("HOME", &self.account)
+            .env("HEIMDALL_HOME", &self.home)
             .env("HEIMDALL_TEST_SSH_HOME", &self.account);
+        self.fixture_stores(&mut cmd);
         if cfg!(target_os = "linux") {
             let quoted: Vec<String> = argv
                 .drain(..)
@@ -259,7 +285,9 @@ impl Runner {
         cmd.env_clear()
             .env("PATH", "/usr/bin:/bin")
             .env("HOME", &self.account)
+            .env("HEIMDALL_HOME", &self.home)
             .env("HEIMDALL_TEST_SSH_HOME", &self.account);
+        self.fixture_stores(&mut cmd);
         if cfg!(target_os = "linux") {
             let quoted: Vec<String> = argv
                 .drain(..)
@@ -570,6 +598,7 @@ pub(crate) async fn connect_with(
     let child = heimdall_app::remote_env::ssh::spawn_management(
         &find_program("ssh").expect("an OpenSSH client"),
         &args,
+        heimdall_localenv::sys::openssh_env::fill_openssh_environment,
     )
     .map_err(|e| e.message)?;
     let heimdall_app::remote_env::ssh::ManagementChild {

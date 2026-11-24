@@ -1379,13 +1379,14 @@ fn a15_forwarded_endpoint_bounded_to_binding() {
     // such a host the case would write into the owner's `~/.ssh` (AGENTS.md: never). It runs
     // where the sshd keeps the socket in `/tmp` (the devbox's 9.6p1), or with an explicit
     // opt-in on a scratch account; elsewhere it reports itself blocked and does nothing.
-    if forwarded_agent_lands_in_account_ssh_dir()
-        && std::env::var_os("HM_ROUTE_FORWARDING_SCRATCH_ACCOUNT").is_none()
-    {
+    // The guard is the testkit's (`heimdall_testkit::sshd`, shared with M06's forwarding
+    // steps): it asks the sshd the fixture itself resolves, and fails closed.
+    if heimdall_testkit::sshd::agent_forwarding_through_account_sshd_blocked() {
         println!(
-            "blocked (B3, no scratch account): this host's sshd places forwarded-agent \
-             sockets under the account's ~/.ssh/agent; run on a host whose sshd uses /tmp (the \
-             devbox) or a scratch account (HM_ROUTE_FORWARDING_SCRATCH_ACCOUNT=1)"
+            "blocked (B3, no scratch account): {}; run on a host whose sshd uses /tmp (the \
+             devbox) or a scratch account ({}=1)",
+            heimdall_testkit::sshd::FORWARDED_AGENT_BLOCKED_REASON,
+            heimdall_testkit::sshd::FORWARDING_SCRATCH_ACCOUNT_ENV,
         );
         return;
     }
@@ -1787,37 +1788,4 @@ fn a15_proxyjump_through_existing_access_bastion() {
         "{}",
         r.w.redact(&text(&connected))
     );
-}
-
-/// Whether this host's `sshd` is OpenSSH 10.1 or later, which places a forwarded agent's
-/// listener under the account's `~/.ssh/agent/` (unknown version: assume it does).
-fn forwarded_agent_lands_in_account_ssh_dir() -> bool {
-    let Some(sshd) = heimdall_testkit::home::find_program("sshd") else {
-        return true;
-    };
-    let Ok(out) = std::process::Command::new(sshd)
-        .arg("-V")
-        .stdin(std::process::Stdio::null())
-        .output()
-    else {
-        return true;
-    };
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let Some(v) = text.split("OpenSSH_").nth(1) else {
-        return true;
-    };
-    let mut parts = v.split(|c: char| !c.is_ascii_digit());
-    let major: u32 = parts
-        .next()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(u32::MAX);
-    let minor: u32 = parts
-        .next()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(u32::MAX);
-    (major, minor) >= (10, 1)
 }

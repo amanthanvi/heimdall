@@ -24,5 +24,19 @@ Short, and meant to be read once.
   approved background work; sleep, logout and reboot each behave as the status view says.
 - **Uninstalling does not remove lines on remote hosts.** Remove enrollments first.
 - **Only the combinations in the compatibility matrix were tested.** Others may work.
+- **The Iroh transport is not in this release.** It is a preview you can build from source
+  (`cargo build --features iroh`), with no support claim. Direct and jump routes work without it.
+  A route can still list an Iroh leg; this release skips that leg and tries the route's others.
+- **A remote runner you cannot reach hears about a revoke, pause or cutoff when it reconnects.**
+  Until then its certificates already issued stay valid until they expire; the status view
+  shows the latest such expiry.
+- **A Windows computer can control runners only as their owner,** not as a limited (viewer or
+  requester) client. Limited roles also need a runner whose SSH server settings Heimdall can
+  verify; anywhere else the runner stays owner-only.
+- **Management and transport keys are never synced, but encrypted backups can hold them**
+  (Time Machine, account backups). To replace a device, retire it and revoke it on each runner;
+  do not restore it.
+- **On Windows, start Heimdall from a normal session.** Started without the system's
+  `ProgramData` variable, its route checks fail closed and report the route unreadable.
 - **What was not run before this release:** see the release notes. Rows that needed
   machines or accounts that were not available are listed there as not run, not as passed.

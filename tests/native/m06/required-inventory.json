@@ -8,6 +8,7 @@
         "crosshost-journey": [
           "a07_barrier",
           "a07_cutoff_pending",
+          "a07_cutoff_refused",
           "a07_disconnected",
           "a07_fresh_work_refused",
           "a07_issued",
@@ -64,7 +65,8 @@
           "the_runners_sshd_policy_reaches_the_runner_and_gates_limited_roles"
         ],
         "e2e_exit_m06": [
-          "a24_runner_without_controller"
+          "a24_runner_without_controller",
+          "connect_on_a_runner_is_a_clean_launch"
         ],
         "heimdall_runtime-unit": [
           "runner::launch::tests::a_real_child_gets_exactly_the_pass_list_and_never_the_parents_agent"
@@ -154,7 +156,10 @@
           "show_key_creates_k_mgmt_once_and_a_locked_store_refuses"
         ],
         "e2e_exit_m06": [
-          "a25_roles_invitations_decisions"
+          "a25_pairing_invite_join_through_the_product_cli",
+          "a25_roles_invitations_decisions",
+          "a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally",
+          "a_delivered_pause_of_a_held_policy_is_named_by_access_resume"
         ],
         "integration_paired_scope_m06": [
           "a_paired_caller_receives_live_events_only_within_its_scope",
@@ -170,6 +175,7 @@
         "integration_remote_runtime_m06": [
           "a_joins_probe_observation_is_checked_before_the_commit",
           "a_refused_joins_downgrade_commits_with_the_refusal_or_not_at_all",
+          "decision_backed_replay_after_a_store_restart_answers_each_record_state",
           "enroll_owner_is_attended_idempotent_and_never_replaces_an_endpoint",
           "only_a_runner_accepts_a_paired_client_and_only_a_resolved_one",
           "paired_frames_are_checked_and_revocation_ends_the_clients_sessions",
@@ -216,8 +222,14 @@
     },
     "A26": {
       "tests": {
+        "e2e_exit_m06": [
+          "a26_routes_and_host_trust_without_iroh",
+          "local_widening_route_add_on_a_controller"
+        ],
         "e2e_exit_m06_iroh": [
-          "a26_iroh_routes_trust"
+          "a26_iroh_routes_trust",
+          "a26_iroh_through_a_projected_alias",
+          "local_widening_adopt_roost_on_a_controller"
         ],
         "heimdall_transport_iroh-unit": [
           "admission::tests::channel_authority_revoke_and_eof",
@@ -347,7 +359,31 @@
       "linux",
       "macos"
     ],
+    "e2e_exit_m06::a25_pairing_invite_join_through_the_product_cli": [
+      "linux",
+      "macos"
+    ],
     "e2e_exit_m06::a25_roles_invitations_decisions": [
+      "linux",
+      "macos"
+    ],
+    "e2e_exit_m06::a26_routes_and_host_trust_without_iroh": [
+      "linux",
+      "macos"
+    ],
+    "e2e_exit_m06::a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally": [
+      "linux",
+      "macos"
+    ],
+    "e2e_exit_m06::a_delivered_pause_of_a_held_policy_is_named_by_access_resume": [
+      "linux",
+      "macos"
+    ],
+    "e2e_exit_m06::connect_on_a_runner_is_a_clean_launch": [
+      "linux",
+      "macos"
+    ],
+    "e2e_exit_m06::local_widening_route_add_on_a_controller": [
       "linux",
       "macos"
     ],
@@ -388,5 +424,5 @@
     "linux",
     "windows"
   ],
-  "sources_sha256": "a727f632891c5cdc7d7bbfc09188735688d544a18dcf643a3d57d8383079a422"
+  "sources_sha256": "099599a5ab59bca06b61064cd5813a6a973f8ff9ba517c06948e3c02b340c0ec"
 }

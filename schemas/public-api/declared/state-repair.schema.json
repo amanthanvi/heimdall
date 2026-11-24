@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RepairReport",
+  "description": "⟨Q8⟩ `heimdall state repair` (ledger scope in 1.0): attended, typed confirmation, never\nnon-interactive. In order it carries every decodable record after the damage into the\nstore as fence records, raises the restore epoch, and truncates the ledger at the first\ndamaged record. **The residual it states:** a request among the dropped records retried\nwithout its epoch could run again; a retry carrying its old epoch is refused.",
+  "type": "object",
+  "properties": {
+    "dropped_records": {
+      "description": "Undecodable records dropped.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "fenced_records": {
+      "description": "Decodable records after the damage, written into the store as fence records.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "restore_epoch": {
+      "description": "The restore epoch after the repair.",
+      "$ref": "#/$defs/RestoreEpoch"
+    }
+  },
+  "required": [
+    "fenced_records",
+    "dropped_records",
+    "restore_epoch"
+  ],
+  "$defs": {
+    "RestoreEpoch": {
+      "description": "A restore epoch (ADR-0014 §3.6 \"The restore epoch and the replay fence\"). Every restore\nraises it, durably, before its pointer moves; a store with no restore is at epoch 0, and\nevery reference minted before revision 7's migration belongs to epoch 0.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    }
+  }
+}

@@ -1,0 +1,579 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IdentityListView",
+  "description": "`inspect identities` data: the catalog's identities, each with its fresh eligibility.",
+  "type": "object",
+  "properties": {
+    "identities": {
+      "description": "Every adopted identity.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/IdentityView"
+      }
+    },
+    "preview": {
+      "description": "`inspect --preview`'s result. Omitted without a preview.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreviewView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "identities"
+  ],
+  "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "Capability": {
+      "description": "Credential capabilities a caller may request (spec §7.2).",
+      "oneOf": [
+        {
+          "description": "SSH user authentication.",
+          "type": "string",
+          "const": "ssh-authentication"
+        },
+        {
+          "description": "Git commit/tag signing (never implied by authentication; spec §7.2).",
+          "type": "string",
+          "const": "git-signing"
+        },
+        {
+          "description": "Agent forwarding (explicit, disabled by default; spec §8.5).",
+          "type": "string",
+          "const": "agent-forwarding"
+        }
+      ]
+    },
+    "Code": {
+      "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "OK"
+        },
+        {
+          "type": "string",
+          "const": "ACCESS_READY"
+        },
+        {
+          "type": "string",
+          "const": "ACCEPTED"
+        },
+        {
+          "type": "string",
+          "const": "APPROVAL_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "INTERACTION_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "PROVIDER_LOCKED"
+        },
+        {
+          "type": "string",
+          "const": "CAPABILITY_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_PAUSED"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_CUTOFF"
+        },
+        {
+          "type": "string",
+          "const": "CREDENTIAL_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "HOST_TRUST_CHANGED"
+        },
+        {
+          "type": "string",
+          "const": "DELEGATION_EXCEEDS_PARENT"
+        },
+        {
+          "type": "string",
+          "const": "OPERATION_CANCELLED"
+        },
+        {
+          "type": "string",
+          "const": "DESTINATION_UNREACHABLE"
+        },
+        {
+          "type": "string",
+          "const": "TIME_UNCERTAIN"
+        },
+        {
+          "type": "string",
+          "const": "UNSUPPORTED_CLIENT"
+        },
+        {
+          "type": "string",
+          "const": "SERVICE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "STATE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "BACKPRESSURE"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "CONFIG_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "RESYNC_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "DECISION_STALE"
+        },
+        {
+          "type": "string",
+          "const": "OUTCOME_UNKNOWN"
+        },
+        {
+          "type": "string",
+          "const": "USAGE_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "SCHEMA_UNSUPPORTED"
+        },
+        {
+          "type": "string",
+          "const": "NOT_FOUND"
+        },
+        {
+          "type": "string",
+          "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
+        }
+      ]
+    },
+    "DeclarationRef": {
+      "description": "The declaration a fresh eligibility relied on (ADR-0007 §7 \"Launch eligibility is\nchecked fresh\"). The CLI's pre-launch check requires the same revision and\nendpoint and an unexpired `expires_at`.",
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "description": "The endpoint it covers.",
+          "$ref": "#/$defs/EndpointRef"
+        },
+        "expires_at": {
+          "description": "When it lapses.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "revision": {
+          "description": "The declaration row's revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "revision",
+        "endpoint",
+        "expires_at"
+      ]
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
+    "EndpointKind": {
+      "description": "The transport of an agent endpoint.",
+      "oneOf": [
+        {
+          "description": "A Unix-domain socket path.",
+          "type": "string",
+          "const": "unix_socket"
+        },
+        {
+          "description": "A Windows named pipe name.",
+          "type": "string",
+          "const": "named_pipe"
+        }
+      ]
+    },
+    "EndpointRef": {
+      "description": "A reference to an agent endpoint. The locator is a path or pipe name, never a\nsecret; it is compared exactly (a changed locator lapses a declaration,\nADR-0007 §7).",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "Transport.",
+          "$ref": "#/$defs/EndpointKind"
+        },
+        "locator": {
+          "description": "Socket path or pipe name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "locator"
+      ]
+    },
+    "EvidenceBasis": {
+      "description": "How a reported fact was established (ADR-0007 §7). `declared` is an owner\nstatement, never an observation.",
+      "oneOf": [
+        {
+          "description": "Observed by a probe.",
+          "type": "string",
+          "const": "observed"
+        },
+        {
+          "description": "Taken from pinned vendor documentation.",
+          "type": "string",
+          "const": "documented"
+        },
+        {
+          "description": "Inferred; labelled `[I]` in reports.",
+          "type": "string",
+          "const": "inferred"
+        },
+        {
+          "description": "Declared by the owner through an attended decision.",
+          "type": "string",
+          "const": "declared"
+        }
+      ]
+    },
+    "IdentityId": {
+      "description": "Adopted existing-access identity in the catalog (ADR-0007 §7; m02-plan §5\nitem 1). Runtime-generated at adoption; never derived from key material.",
+      "type": "string"
+    },
+    "IdentityView": {
+      "description": "One adopted identity (public material only) with its fresh eligibility (ADR-0007 §7)\nand its live declaration.",
+      "type": "object",
+      "properties": {
+        "declaration": {
+          "description": "The live declaration. Omitted without one (today: `null`).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeclarationRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "declared_at": {
+          "description": "When the live declaration relied on was made. Omitted without one (today: `null`).",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "eligibility_checked_at": {
+          "description": "When the runtime computed the eligibility.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "endpoint": {
+          "description": "The recorded agent endpoint. Omitted when the source names none (today: `null`).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EndpointRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fingerprint": {
+          "description": "Its public key's fingerprint (`SHA256:…`).",
+          "type": "string"
+        },
+        "identity_id": {
+          "description": "The identity.",
+          "$ref": "#/$defs/IdentityId"
+        },
+        "interaction": {
+          "description": "The interaction, fresh.",
+          "$ref": "#/$defs/InteractionKind"
+        },
+        "interaction_basis": {
+          "description": "How it was established.",
+          "$ref": "#/$defs/EvidenceBasis"
+        },
+        "key_type": {
+          "description": "The public key's type (its first token, e.g. `ssh-ed25519`).",
+          "type": "string"
+        },
+        "label": {
+          "description": "The owner's label. Omitted when none is set (today: `null`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mechanism": {
+          "description": "The mechanism its source names (`native_agent`, `onepassword`).",
+          "type": "string"
+        },
+        "noninteractive": {
+          "description": "Whether non-interactive work may use it now.",
+          "$ref": "#/$defs/NoninteractiveEligibility"
+        },
+        "revision": {
+          "description": "Its catalog revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "identity_id",
+        "revision",
+        "fingerprint",
+        "key_type",
+        "mechanism",
+        "interaction",
+        "interaction_basis",
+        "noninteractive",
+        "eligibility_checked_at"
+      ]
+    },
+    "InteractionKind": {
+      "description": "The human step an authentication may need (ADR-0007 §7 interaction profile).",
+      "oneOf": [
+        {
+          "description": "No interaction (only ever `declared` for a native agent key).",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "The provider asks for approval (1Password).",
+          "type": "string",
+          "const": "provider_approval"
+        },
+        {
+          "description": "The provider must be unlocked.",
+          "type": "string",
+          "const": "provider_unlock"
+        },
+        {
+          "description": "A hardware presence touch (FIDO `sk-*` keys).",
+          "type": "string",
+          "const": "hardware_presence"
+        },
+        {
+          "description": "A passphrase prompt.",
+          "type": "string",
+          "const": "passphrase"
+        },
+        {
+          "description": "Not known; never satisfies a non-interactive requirement.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "NoninteractiveEligibility": {
+      "description": "Whether a pair may be used on the no-interaction path, computed fresh per result.",
+      "type": "object",
+      "properties": {
+        "eligible": {
+          "description": "Eligible for non-interactive use.",
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "Why not, when not: one of [`noninteractive_reason`]'s values.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "eligible"
+      ]
+    },
+    "PreviewSnapshot": {
+      "description": "What a preview would resolve.",
+      "type": "object",
+      "properties": {
+        "deadline": {
+          "description": "The deadline that would be enforced.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "mechanism": {
+          "description": "The mechanism that would serve it. Omitted when no adapter is resolved (today:\n`null`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile": {
+          "description": "The profile.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "profile_revision": {
+          "description": "Its current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "requested": {
+          "description": "The requested scope.",
+          "$ref": "#/$defs/ScopeView"
+        }
+      },
+      "required": [
+        "profile",
+        "profile_revision",
+        "requested",
+        "deadline"
+      ]
+    },
+    "PreviewView": {
+      "description": "`inspect --preview`'s `preview` key: resolution without effects, added to the data of\nany subject but `export` when the request carries `preview`. Tagged by `outcome`.",
+      "oneOf": [
+        {
+          "description": "Existing authority covers the request.",
+          "type": "object",
+          "properties": {
+            "effective": {
+              "description": "The effective authority (the domain `EffectiveAuthority`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "allowed"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "effective"
+          ]
+        },
+        {
+          "description": "Only the delta needs an owner decision.",
+          "type": "object",
+          "properties": {
+            "covered": {
+              "description": "What existing authority already covers (the domain `EffectiveAuthority`,\nverbatim). Omitted when nothing is covered (today: `null`)."
+            },
+            "delta": {
+              "description": "What needs a decision (the domain `AuthorityDelta`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "approval_required"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "delta"
+          ]
+        },
+        {
+          "description": "Refused.",
+          "type": "object",
+          "properties": {
+            "code": {
+              "description": "The refusal's code.",
+              "$ref": "#/$defs/Code"
+            },
+            "message": {
+              "description": "The refusal's message.",
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "denied"
+            }
+          },
+          "required": [
+            "outcome",
+            "code",
+            "message"
+          ]
+        }
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "ScopeView": {
+      "description": "A set of destination/account pairs and the capabilities permitted on them, as views\nshow a scope (the domain `Scope`'s wire form: two arrays, each sorted and unique).",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "description": "Capabilities permitted on every pair.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        },
+        "pairs": {
+          "description": "Destination/account pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        }
+      },
+      "required": [
+        "pairs",
+        "capabilities"
+      ]
+    }
+  }
+}

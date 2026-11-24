@@ -1,4 +1,4 @@
-Import portable intent from an exported bundle; it grants no access (M05; ADR-0011 §2.4)
+Import portable intent from an exported bundle; it grants no access
 
 Usage: heimdall import [OPTIONS] <BUNDLE>
 
@@ -8,7 +8,7 @@ Arguments:
 Options:
       --json                     Machine output: one JSON envelope on stdout (NDJSON for event streams)
       --yes                      Apply the previewed plan without asking (needed without a terminal)
-      --non-interactive          Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --non-interactive          Never open a browser, dialog, or terminal prompt. Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
       --request-id <REQUEST_ID>  Idempotency request ID (a fresh one is minted and reported when absent)
-      --home <DIR>               Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+      --home <DIR>               Use this Heimdall home directory instead of the default [env: HEIMDALL_HOME=]
   -h, --help                     Print help

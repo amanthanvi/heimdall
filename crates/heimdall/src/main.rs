@@ -35,6 +35,8 @@ mod portable_cmd;
 mod prompt;
 // ⟨ADR-0008 §17.33 items 4-5⟩ The purge's anchored deletion.
 mod purge_sweep;
+// ⟨rev7⟩ The skeletons of revision 7's declared commands (ADR-0013 §1.3; ADR-0014 H1–H3).
+mod rev7_cmd;
 mod run_cmd;
 // ⟨M05⟩ U9a: `run` without `--profile` (ADR-0011 §3.2, §5.3).
 mod run_m05;

@@ -1,0 +1,402 @@
+### e2e_harness_m07
+
+running 4 tests
+test journey::every_windows_goal_starting_the_in_box_client_carries_the_isolation ... ok
+test journey::an_unsafe_home_or_store_fails_before_any_launch ... ok
+test harnesses_are_independent_and_use_only_the_standard_library ... ok
+test journey::both_harnesses_complete_the_deterministic_tasks ... ok
+
+successes:
+
+---- journey::both_harnesses_complete_the_deterministic_tasks stdout ----
+a32 note: H2 held 2 binding(s) for one piece of work when task 6 began
+a32 record: {"calls":2,"detail":"","discovery_bytes":9821,"harness":"H1","human_handoffs":0,"invalid_retries":0,"name":"discover","round_trips":2,"success":true,"task":1,"wall_time_ms":40.443,"world":"existing-access"}
+a32 record: {"calls":1,"detail":"","discovery_bytes":0,"harness":"H1","human_handoffs":0,"invalid_retries":0,"name":"covered","round_trips":1,"success":true,"task":2,"wall_time_ms":85.004,"world":"existing-access"}
+a32 record: {"calls":4,"detail":"","discovery_bytes":0,"harness":"H1","human_handoffs":1,"invalid_retries":0,"name":"approval","round_trips":4,"success":true,"task":3,"wall_time_ms":72.58,"world":"fixture-adapter"}
+a32 record: {"calls":2,"detail":"","discovery_bytes":0,"harness":"H1","human_handoffs":0,"invalid_retries":0,"name":"timeout","round_trips":2,"success":true,"task":4,"wall_time_ms":883.996,"world":"fixture-adapter"}
+a32 record: {"calls":1,"detail":"","discovery_bytes":0,"harness":"H1","human_handoffs":0,"invalid_retries":0,"name":"bind-run","round_trips":1,"success":true,"task":5,"wall_time_ms":696.011,"world":"existing-access"}
+a32 record: {"calls":1,"detail":"","discovery_bytes":0,"harness":"H1","human_handoffs":0,"invalid_retries":0,"name":"release","round_trips":1,"success":true,"task":6,"wall_time_ms":21.189,"world":"existing-access"}
+a32 record: {"calls":1,"detail":"CAPABILITY_UNAVAILABLE (effect none)","discovery_bytes":0,"harness":"H1","human_handoffs":0,"invalid_retries":0,"name":"capability-refusal","round_trips":1,"success":true,"task":7,"wall_time_ms":34.584,"world":"existing-access"}
+a32 record: {"calls":1,"detail":"discovered","discovery_bytes":4381,"harness":"H2","human_handoffs":0,"invalid_retries":0,"name":"discover","round_trips":1,"success":true,"task":1,"wall_time_ms":7.442,"world":"existing-access"}
+a32 record: {"calls":1,"detail":"ready","discovery_bytes":0,"harness":"H2","human_handoffs":0,"invalid_retries":0,"name":"covered","round_trips":1,"success":true,"task":2,"wall_time_ms":86.377,"world":"existing-access"}
+a32 record: {"calls":2,"detail":"ready","discovery_bytes":0,"harness":"H2","human_handoffs":1,"invalid_retries":0,"name":"approval","round_trips":2,"success":true,"task":3,"wall_time_ms":55.661,"world":"fixture-adapter"}
+a32 record: {"calls":2,"detail":"ready","discovery_bytes":0,"harness":"H2","human_handoffs":0,"invalid_retries":0,"name":"timeout","round_trips":2,"success":true,"task":4,"wall_time_ms":891.923,"world":"fixture-adapter"}
+a32 record: {"calls":1,"detail":"running","discovery_bytes":0,"harness":"H2","human_handoffs":0,"invalid_retries":0,"name":"bind-run","round_trips":1,"success":true,"task":5,"wall_time_ms":671.245,"world":"existing-access"}
+a32 record: {"calls":2,"detail":"stopped","discovery_bytes":0,"harness":"H2","human_handoffs":0,"invalid_retries":0,"name":"stop","round_trips":2,"success":true,"task":6,"wall_time_ms":37.892,"world":"existing-access"}
+a32 record: {"calls":1,"detail":"CAPABILITY_UNAVAILABLE (effect none)","discovery_bytes":0,"harness":"H2","human_handoffs":0,"invalid_retries":0,"name":"capability-refusal","round_trips":1,"success":true,"task":7,"wall_time_ms":39.359,"world":"existing-access"}
+
+
+successes:
+    harnesses_are_independent_and_use_only_the_standard_library
+    journey::an_unsafe_home_or_store_fails_before_any_launch
+    journey::both_harnesses_complete_the_deterministic_tasks
+    journey::every_windows_goal_starting_the_in_box_client_carries_the_isolation
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.55s
+
+### e2e_harness_m07 exit=0
+### e2e_hook_m05
+
+running 3 tests
+test hook_without_a_runtime_prints_nothing_and_starts_none ... ok
+test hook_warm_up_creates_no_decision_when_the_default_does_not_cover ... ok
+test hook_warms_the_default_so_the_first_ordinary_ssh_logs_in ... ok
+
+successes:
+
+---- hook_warms_the_default_so_the_first_ordinary_ssh_logs_in stdout ----
+m05 observation: hook linux warm-up: the hook took 525 ms; the slot was held when it returned: true; held 12 ms later
+
+
+successes:
+    hook_warm_up_creates_no_decision_when_the_default_does_not_cover
+    hook_warms_the_default_so_the_first_ordinary_ssh_logs_in
+    hook_without_a_runtime_prints_nothing_and_starts_none
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.22s
+
+### e2e_hook_m05 exit=0
+### e2e_issuer_ceremony
+
+running 10 tests
+test ceremony_ctrl_c_at_written_cancels_at_once ... ok
+test ceremony_eof_at_written_cancels_at_once ... ok
+test ceremony_registration_prompt_times_out_and_sends_nothing ... ok
+test init_refuses_non_tty_and_non_interactive ... ok
+test ceremony_written_prompt_times_out_clears_and_stores_nothing ... ok
+test pty_ceremony_child ... ignored, child-mode entry of the pty ceremony tests, started by them
+test pty_exec_child ... ignored, child-mode entry of d5_backup_restores_with_stock_ssh_keygen, started by it
+test init_ceremony_registers_ca_and_environment_permissions ... ok
+test d5_backup_restores_with_stock_ssh_keygen ... ok
+test passphrase_only_on_tty_transcript ... ok
+
+successes:
+
+successes:
+    ceremony_ctrl_c_at_written_cancels_at_once
+    ceremony_eof_at_written_cancels_at_once
+    ceremony_registration_prompt_times_out_and_sends_nothing
+    ceremony_written_prompt_times_out_clears_and_stores_nothing
+    d5_backup_restores_with_stock_ssh_keygen
+    init_ceremony_registers_ca_and_environment_permissions
+    init_refuses_non_tty_and_non_interactive
+    passphrase_only_on_tty_transcript
+
+test result: ok. 8 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 5.02s
+
+### e2e_issuer_ceremony exit=0
+### e2e_m07_powershell_hook
+
+running 8 tests
+test powershell_hook_activates_and_warms_the_default ... ok
+test powershell_hook_bounds_child_exit_and_inherited_stdout ... ok
+test powershell_hook_ignores_start_failures_and_failed_answers ... ok
+test diagnostic_redacts_mixed_case_windows_identifiers ... ok
+test powershell_hook_missing_executable_leaves_the_error_history_alone ... ok
+test powershell_hook_recovers_from_hostile_state ... ok
+test powershell_hook_writes_nothing_to_stdout ... ok
+test powershell_hook_startup_with_an_unreachable_runtime ... ok
+
+successes:
+
+---- powershell_hook_activates_and_warms_the_default stdout ----
+powershell_hook_activates_and_warms_the_default: Windows PowerShell 5.1: absent
+powershell_hook_activates_and_warms_the_default: PowerShell 7: absent
+
+---- powershell_hook_bounds_child_exit_and_inherited_stdout stdout ----
+powershell_hook_bounds_child_exit_and_inherited_stdout: Windows PowerShell 5.1: absent
+powershell_hook_bounds_child_exit_and_inherited_stdout: PowerShell 7: absent
+
+---- powershell_hook_ignores_start_failures_and_failed_answers stdout ----
+powershell_hook_ignores_start_failures_and_failed_answers: Windows PowerShell 5.1: absent
+powershell_hook_ignores_start_failures_and_failed_answers: PowerShell 7: absent
+
+---- powershell_hook_missing_executable_leaves_the_error_history_alone stdout ----
+powershell_hook_missing_executable_leaves_the_error_history_alone: Windows PowerShell 5.1: absent
+powershell_hook_missing_executable_leaves_the_error_history_alone: PowerShell 7: absent
+
+---- powershell_hook_recovers_from_hostile_state stdout ----
+powershell_hook_recovers_from_hostile_state: Windows PowerShell 5.1: absent
+powershell_hook_recovers_from_hostile_state: PowerShell 7: absent
+
+---- powershell_hook_writes_nothing_to_stdout stdout ----
+powershell_hook_writes_nothing_to_stdout: Windows PowerShell 5.1: absent
+powershell_hook_writes_nothing_to_stdout: PowerShell 7: absent
+
+---- powershell_hook_startup_with_an_unreachable_runtime stdout ----
+powershell_hook_startup_with_an_unreachable_runtime: Windows PowerShell 5.1: absent
+powershell_hook_startup_with_an_unreachable_runtime: PowerShell 7: absent
+
+
+successes:
+    diagnostic_redacts_mixed_case_windows_identifiers
+    powershell_hook_activates_and_warms_the_default
+    powershell_hook_bounds_child_exit_and_inherited_stdout
+    powershell_hook_ignores_start_failures_and_failed_answers
+    powershell_hook_missing_executable_leaves_the_error_history_alone
+    powershell_hook_recovers_from_hostile_state
+    powershell_hook_startup_with_an_unreachable_runtime
+    powershell_hook_writes_nothing_to_stdout
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### e2e_m07_powershell_hook exit=0
+### e2e_managed_m03
+
+running 18 tests
+test driver_never_runs_store_work_inside_adapter_bound ... ok
+test client_replaced_while_the_driver_waits_claims_nothing ... ok
+test credential_instance_persisted_installed_then_destroyed_with_gate ... ok
+test credential_instances_found_by_grant_query_not_fingerprint ... ok
+test existing_access_prepare_contract_unchanged ... ok
+test fresh_bind_after_reissue_never_carries_the_stored_claim_values ... ok
+test existing_access_ensure_intent_and_result_byte_identical_to_m02 ... ok
+test managed_binding_minted_at_resolve_materialized_then_committed_under_it ... ok
+test install_view_refuses_tombstoned_stale_or_expired_grant ... ok
+test managed_effect_steps_run_outside_store_transactions ... ok
+test managed_failure_before_commit_cleans_binding_key_and_instance ... ok
+test managed_prepare_unwired_fails_closed_before_any_effect ... ok
+test managed_preference_refused_unwired_activates_when_wired ... ok
+test managed_replay_of_request_returns_same_binding ... ok
+test reissue_after_reboot_waits_for_time_confirm ... ok
+test revoke_destroys_k_env_under_the_gates ... ok
+test reissue_after_runtime_process_restart_same_boot ... ok
+test revoke_result_reports_requested_and_committed_at ... ok
+
+successes:
+
+successes:
+    client_replaced_while_the_driver_waits_claims_nothing
+    credential_instance_persisted_installed_then_destroyed_with_gate
+    credential_instances_found_by_grant_query_not_fingerprint
+    driver_never_runs_store_work_inside_adapter_bound
+    existing_access_ensure_intent_and_result_byte_identical_to_m02
+    existing_access_prepare_contract_unchanged
+    fresh_bind_after_reissue_never_carries_the_stored_claim_values
+    install_view_refuses_tombstoned_stale_or_expired_grant
+    managed_binding_minted_at_resolve_materialized_then_committed_under_it
+    managed_effect_steps_run_outside_store_transactions
+    managed_failure_before_commit_cleans_binding_key_and_instance
+    managed_preference_refused_unwired_activates_when_wired
+    managed_prepare_unwired_fails_closed_before_any_effect
+    managed_replay_of_request_returns_same_binding
+    reissue_after_reboot_waits_for_time_confirm
+    reissue_after_runtime_process_restart_same_boot
+    revoke_destroys_k_env_under_the_gates
+    revoke_result_reports_requested_and_committed_at
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.44s
+
+### e2e_managed_m03 exit=0
+### e2e_platform_m04
+
+running 10 tests
+test container::a15_container_mounted_flow ... ok
+test service_login::login_mode_yields_to_running_instance ... ok
+test runtime_guard_never_kills_a_recorded_process_that_is_not_heimdall ... ok
+test service_login::uninstall_removes_only_the_owned_login_entry ... ok
+test wsl_cli::wsl_commands_refuse_without_wsl_before_any_runtime_or_home ... ok
+test wsl_mode_b::git_ssh_command_carries_a_config_path_with_spaces_as_one_argument ... ok
+test runtime_guard_kills_a_recorded_runtime_service_stop_cannot_reach ... ok
+test service_login::service_autostart_commands_report_refuse_and_touch_only_their_own_entry ... ok
+test container::a31_uninstall_with_a_live_container_binding ... ok
+test wsl_mode_b::mode_b_end_to_end_through_the_real_bridge_and_helper ... ok
+
+successes:
+
+---- container::a15_container_mounted_flow stdout ----
+SKIPPED a15_container_mounted_flow: HEIMDALL_M04_CONTAINER_ENGINE is not set (the engine rows are blocked, not passed)
+
+---- runtime_guard_never_kills_a_recorded_process_that_is_not_heimdall stdout ----
+runtime guard: a recorded runtime its image is not this suite's heimdall (named "sleep", expected "heimdall"): left alone
+
+
+successes:
+    container::a15_container_mounted_flow
+    container::a31_uninstall_with_a_live_container_binding
+    runtime_guard_kills_a_recorded_runtime_service_stop_cannot_reach
+    runtime_guard_never_kills_a_recorded_process_that_is_not_heimdall
+    service_login::login_mode_yields_to_running_instance
+    service_login::service_autostart_commands_report_refuse_and_touch_only_their_own_entry
+    service_login::uninstall_removes_only_the_owned_login_entry
+    wsl_cli::wsl_commands_refuse_without_wsl_before_any_runtime_or_home
+    wsl_mode_b::git_ssh_command_carries_a_config_path_with_spaces_as_one_argument
+    wsl_mode_b::mode_b_end_to_end_through_the_real_bridge_and_helper
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.05s
+
+### e2e_platform_m04 exit=0
+### e2e_portable_m05
+
+running 1 test
+test export_import_journey_never_creates_authority ... ok
+
+successes:
+
+successes:
+    export_import_journey_never_creates_authority
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+### e2e_portable_m05 exit=0
+### e2e_route_m04
+
+running 9 tests
+test a15_binary_roundtrip_through_jump ... ok
+test a15_proxyjump_substituted_host_keys_fail_before_authentication ... ok
+test a15_proxyjump_through_existing_access_bastion ... ok
+test a15_routed_enrollment_never_verified_around_the_jump_and_held_on_a_changed_final_key ... ok
+test a15_proxyjump_through_managed_bastion ... ok
+test route_rules_through_the_real_binary ... ok
+test a15_user_dash_a_refused_without_capability ... ok
+test a15_non_jump_pair_cannot_open_forwarding ... ok
+test a15_forwarded_endpoint_bounded_to_binding has been running for over 60 seconds
+test a15_forwarded_endpoint_bounded_to_binding ... ok
+
+successes:
+
+successes:
+    a15_binary_roundtrip_through_jump
+    a15_forwarded_endpoint_bounded_to_binding
+    a15_non_jump_pair_cannot_open_forwarding
+    a15_proxyjump_substituted_host_keys_fail_before_authentication
+    a15_proxyjump_through_existing_access_bastion
+    a15_proxyjump_through_managed_bastion
+    a15_routed_enrollment_never_verified_around_the_jump_and_held_on_a_changed_final_key
+    a15_user_dash_a_refused_without_capability
+    route_rules_through_the_real_binary
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 72.86s
+
+### e2e_route_m04 exit=0
+### e2e_run_m02
+
+running 55 tests
+test a11::a11_declaration_withdrawn_after_bind_refused_before_launch ... ok
+test a11::a11_declared_none_allows_noninteractive_launch_and_result_says_declared ... ok
+test a11::a11_confirm_constrained_native_key_refused_before_agent_contact ... ok
+test a11::a11_declaration_expiring_between_bind_and_launch_refused ... ok
+test a11::a11_file_backed_fallback_is_never_cleared ... ok
+test a11::a11_identityfile_added_after_ensure_is_seen_by_prelaunch_check ... ok
+test a11::a11_fallback_cleared_when_alternative_adopted_and_declared_launches ... ok
+test a11::a11_interactive_connect_succeeds_after_provider_approval ... ok
+test a11::a11_inherited_confirm_constrained_fallback_refused_noninteractive_before_agent_contact ... ok
+test a11::a11_multi_pair_binding_refused_when_any_pair_needs_interaction ... ok
+test a11::a11_noninteractive_run_refuses_interactive_identity_before_launch ... ok
+test a11::a11_lapse_recorded_by_failed_listing_between_ensure_and_bind_refuses_launch ... ok
+test a11::a11_redeclaration_after_bind_changes_revision_and_refuses_launch ... ok
+test a11::a27_binary_stdin_stdout_roundtrip_through_ssh ... ok
+test a11::a11_withdrawal_and_redeclaration_after_a_restart_between_ensure_and_bind_refuse ... ok
+test a11::connect_accepts_an_observed_alias_the_catalog_lists_under_the_same_check ... ok
+test a11::a27_git_clone_and_push_over_ssh_with_binary_blob ... ok
+test a11::a27_scp_and_sftp_binary_with_unicode_and_spaced_paths ... ok
+test a11::connect_launches_the_verified_client_and_checks_the_alias_identity ... ok
+test a11::connect_reaches_the_fixture_sshd_through_the_verified_client ... ok
+test a11::runtime_ensure_refusal_names_the_refused_identityfile_line ... ok
+test a11::t01_connect_observed_alias_refuses_exec_only_and_subsystem_only_entries ... ok
+test a11::a11_replayed_bind_result_still_gets_prelaunch_check ... ok
+test a11::ensure_refuses_exec_only_and_subsystem_only_fallbacks ... ok
+test a27_cf_text_encoding_form_is_exact ... ok
+test a27_child_exit_127_vs_exec_failure_distinguished_by_prelaunch_record ... ok
+test a27_argv_canary_absent_from_ipc_store_events_logs_errors_batch_refusals_replay_and_meta ... ok
+test a11::t02_localuser_fallback_is_refused_with_user_unset_or_naming_another_account ... ok
+test a27_cwd_and_env_preserved_plus_only_documented_additions ... ok
+test a11::t01_exec_only_and_subsystem_only_entries_are_refused_before_launch ... ok
+test a27_exec_failure_with_failed_meta_write_is_indeterminate ... ok
+test a27_meta_file_existing_or_fd_invalid_is_usage_error_before_ensure ... ok
+test a27_missing_executable_exits_127_with_prelaunch_record ... ok
+test a27_kill_between_launching_and_exec_is_indeterminate_never_launched ... ok
+test a27_meta_unavailable_aborts_launch_no_child ... ok
+test a27_not_executable_exits_126 ... ok
+test a27_no_stdout_contamination_in_run_and_connect ... ok
+test a27_shell_metacharacters_in_argv_reach_child_verbatim ... ok
+test a27_sigpipe_ignored_by_caller_is_reset_limitation_recorded ... ok
+test a27_signal_death_preserved ... ok
+test git_run_injection_yields_to_dash_c_and_env ... ok
+test git_run_never_records_child_arguments_or_config_values ... ok
+test git_run_malformed_caller_git_config_count_injects_nothing ... ok
+test pause_fifo_open_is_bounded_when_the_process_exits_first ... ok
+test git_run_resolution_in_child_cwd_reports_local_override_and_injects_nothing ... ok
+test run_retry_with_same_request_id_never_relaunches_automatically ... ok
+test run_replay_of_a_binding_the_holder_pass_released_is_refused_and_never_launched ... ok
+test terminal::a27_ctrl_c_reaches_child_once ... ok
+test terminal::a27_ctrl_c_reaches_child_once_when_the_runner_ignores_sigint ... ok
+test terminal::a27_resize_reaches_child ... ok
+test terminal::pty_child ... ignored, child-mode entry of the pty tests, started by them
+test terminal::pty_child_runs_the_named_binary_at_the_pty_size ... ok
+test holder_pass_releases_the_binding_once_the_run_exits ... ok
+test t04_overlapping_runs_of_one_binding_refuse_the_second_and_keep_the_first_holder ... ok
+test a27_child_exit_codes_0_to_255_preserved ... ok
+
+successes:
+
+---- a27_sigpipe_ignored_by_caller_is_reset_limitation_recorded stdout ----
+limitation recorded: a SIGPIPE disposition ignored by the caller is reset in the child
+
+---- pause_fifo_open_is_bounded_when_the_process_exits_first stdout ----
+
+thread 'pause_fifo_open_is_bounded_when_the_process_exits_first' (1706445) panicked at crates/heimdall/../../tests/e2e/run_m02.rs:300:13:
+the process under test exited (exit status: 3) before it opened the pause FIFO
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+successes:
+    a11::a11_confirm_constrained_native_key_refused_before_agent_contact
+    a11::a11_declaration_expiring_between_bind_and_launch_refused
+    a11::a11_declaration_withdrawn_after_bind_refused_before_launch
+    a11::a11_declared_none_allows_noninteractive_launch_and_result_says_declared
+    a11::a11_fallback_cleared_when_alternative_adopted_and_declared_launches
+    a11::a11_file_backed_fallback_is_never_cleared
+    a11::a11_identityfile_added_after_ensure_is_seen_by_prelaunch_check
+    a11::a11_inherited_confirm_constrained_fallback_refused_noninteractive_before_agent_contact
+    a11::a11_interactive_connect_succeeds_after_provider_approval
+    a11::a11_lapse_recorded_by_failed_listing_between_ensure_and_bind_refuses_launch
+    a11::a11_multi_pair_binding_refused_when_any_pair_needs_interaction
+    a11::a11_noninteractive_run_refuses_interactive_identity_before_launch
+    a11::a11_redeclaration_after_bind_changes_revision_and_refuses_launch
+    a11::a11_replayed_bind_result_still_gets_prelaunch_check
+    a11::a11_withdrawal_and_redeclaration_after_a_restart_between_ensure_and_bind_refuse
+    a11::a27_binary_stdin_stdout_roundtrip_through_ssh
+    a11::a27_git_clone_and_push_over_ssh_with_binary_blob
+    a11::a27_scp_and_sftp_binary_with_unicode_and_spaced_paths
+    a11::connect_accepts_an_observed_alias_the_catalog_lists_under_the_same_check
+    a11::connect_launches_the_verified_client_and_checks_the_alias_identity
+    a11::connect_reaches_the_fixture_sshd_through_the_verified_client
+    a11::ensure_refuses_exec_only_and_subsystem_only_fallbacks
+    a11::runtime_ensure_refusal_names_the_refused_identityfile_line
+    a11::t01_connect_observed_alias_refuses_exec_only_and_subsystem_only_entries
+    a11::t01_exec_only_and_subsystem_only_entries_are_refused_before_launch
+    a11::t02_localuser_fallback_is_refused_with_user_unset_or_naming_another_account
+    a27_argv_canary_absent_from_ipc_store_events_logs_errors_batch_refusals_replay_and_meta
+    a27_cf_text_encoding_form_is_exact
+    a27_child_exit_127_vs_exec_failure_distinguished_by_prelaunch_record
+    a27_child_exit_codes_0_to_255_preserved
+    a27_cwd_and_env_preserved_plus_only_documented_additions
+    a27_exec_failure_with_failed_meta_write_is_indeterminate
+    a27_kill_between_launching_and_exec_is_indeterminate_never_launched
+    a27_meta_file_existing_or_fd_invalid_is_usage_error_before_ensure
+    a27_meta_unavailable_aborts_launch_no_child
+    a27_missing_executable_exits_127_with_prelaunch_record
+    a27_no_stdout_contamination_in_run_and_connect
+    a27_not_executable_exits_126
+    a27_shell_metacharacters_in_argv_reach_child_verbatim
+    a27_signal_death_preserved
+    a27_sigpipe_ignored_by_caller_is_reset_limitation_recorded
+    git_run_injection_yields_to_dash_c_and_env
+    git_run_malformed_caller_git_config_count_injects_nothing
+    git_run_never_records_child_arguments_or_config_values
+    git_run_resolution_in_child_cwd_reports_local_override_and_injects_nothing
+    holder_pass_releases_the_binding_once_the_run_exits
+    pause_fifo_open_is_bounded_when_the_process_exits_first
+    run_replay_of_a_binding_the_holder_pass_released_is_refused_and_never_launched
+    run_retry_with_same_request_id_never_relaunches_automatically
+    t04_overlapping_runs_of_one_binding_refuse_the_second_and_keep_the_first_holder
+    terminal::a27_ctrl_c_reaches_child_once
+    terminal::a27_ctrl_c_reaches_child_once_when_the_runner_ignores_sigint
+    terminal::a27_resize_reaches_child
+    terminal::pty_child_runs_the_named_binary_at_the_pty_size
+
+test result: ok. 54 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 46.99s
+
+### e2e_run_m02 exit=0
+all-tests-exit=0

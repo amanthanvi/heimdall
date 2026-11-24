@@ -1,0 +1,512 @@
+### e2e_cli_m03
+
+running 60 tests
+test access::destination_prefer_resolves_alias_and_journals_the_preference ... ok
+test access::internal_session_lock_state_reads_the_source_read_only ... ok
+test access::access_lock_behavior_refused_where_unavailable ... ok
+test access::connections_list_and_owner_close ... ok
+test access::m03_help_and_discovery_goldens ... ok
+test access::lock_behavior_results_labelled_signal_unverified_on_linux_only ... ok
+test enroll::enroll_commands_print_one_json_envelope ... ok
+test access::access_ensure_strict_reports_strict_disconnect ... ok
+test enroll::enroll_ctrl_c_between_step_and_result_prints_uncertain_message ... ok
+test enroll::enroll_consent_shows_the_runtimes_lock_text_with_saved_limits ... ok
+test enroll::enroll_preview_shows_disclosures_and_exact_line ... ok
+test enroll::enroll_reconcile_after_manual_recovery_never_redispatches ... ok
+test enroll::enroll_status_shows_slot_free_late_write_and_held_next_step ... ok
+test enroll::enroll_system_form_cli_shows_lines_and_never_claims_removed ... ok
+test access::revoke_output_lists_owned_connections_and_ordinary_note ... ok
+test enroll::enroll_step_pauses_at_the_runtime_inserted_pause_point ... ok
+test enroll::enroll_verify_absence_clears_late_write_only_after_not_after ... ok
+test enroll::foreign_remove_cli_refuses_redacted_bundle ... ok
+test enroll::enroll_verify_absence_line_present_names_enroll_remove ... ok
+test enroll::enroll_verify_approve_target_change_shows_key_diff_and_needs_decision ... ok
+test enroll::json_decision_approve_of_an_enrollment_shows_its_disclosures_before_the_prompt ... ok
+test enroll::terminal::pty_child ... ignored, child-mode entry of the enroll pty tests, started by them
+test internal_issuer_refuses_a_test_configuration_without_an_explicit_home ... ok
+test enroll::json_enroll_on_a_terminal_shows_disclosure_prose_before_the_prompt ... ok
+test issuer::issuer_cli_pty_child ... ignored, child-mode entry of the issuer pty cases, started by them
+test issuer::issuer_commands_json_envelopes_without_a_runtime_or_terminal ... ok
+test enroll::json_remove_on_a_terminal_shows_the_removal_consent_before_the_prompt ... ok
+test issuer::issuer_ceremonies_refuse_redirected_stdin_with_a_terminal_attached ... ok
+test enroll::enroll_decision_kinds_need_typed_yes ... ok
+test issuer::issuer_init_prints_passphrase_only_to_tty ... ok
+test issuer::issuer_status_bundle_unlock_json_envelopes ... ok
+test issuer::issuer_retire_typed_yes_and_r2b_deletion_on_scratch_store ... ok
+test issuer::recheck3_real_issuer_cancelled_load_cannot_cross_fence ... ok
+test issuer::replace_orphan_cli_warns_and_cross_checks_bundle ... ok
+test issuer::recheck3_real_issuer_late_sign_cannot_cross_fence ... ok
+test m03_cli_commands_answer_without_a_runtime_and_never_panic ... ok
+test m03_test_gates_are_validated_before_anything_else ... ok
+test no_m03_source_contains_the_wave_0_text ... ok
+test uninstall_doctor::doctor_reports_client_trace_family_unrecorded ... ok
+test issuer::residual_leader_shaped_sign_unconfirmed_stop_keeps_no_admission ... ok
+test uninstall_doctor::doctor_reports_enrollment_evidence_stale ... ok
+test uninstall_doctor::doctor_reports_reverification_inconclusive ... ok
+test uninstall_doctor::doctor_reports_managed_dir_unsafe ... ok
+test uninstall_doctor::pty::pty_child ... ignored, child-mode entry of the uninstall pty tests, started by them
+test uninstall_doctor::runtime_start_refused_while_the_purge_lock_is_held ... ok
+test uninstall_doctor::doctor_reports_slot_free_with_command ... ok
+test uninstall_doctor::status_shows_time_confirmation_chore_after_reboot ... ok
+test uninstall_doctor::uninstall_json_shows_the_preview_on_the_terminal ... ok
+test uninstall_doctor::uninstall_lists_remote_enrollments_and_refuses_purge_without_ack ... ok
+test uninstall_doctor::uninstall_fence_scope_end_to_end ... ok
+test uninstall_doctor::uninstall_plain_keep_remote_enrollments_is_the_acknowledgement ... ok
+test uninstall_doctor::uninstall_purge_keeping_enrollments_requires_fresh_bundle ... ok
+test uninstall_doctor::uninstall_purge_refuses_abandoned_foreign_system_form_removal ... ok
+test uninstall_doctor::uninstall_purge_race_with_concurrent_enrollment_keeps_state ... ok
+test uninstall_doctor::uninstall_purge_refuses_withdrawn_late_write ... ok
+test uninstall_doctor::uninstall_purge_refuses_unresolved_remote_step ... ok
+test uninstall_doctor::uninstall_states_store_item_fate ... ok
+test uninstall_refuses_purge_with_live_enrollments ... ok
+test issuer::recheck4_cancelling_stop_must_not_signal_unverified_child ... ok
+test issuer::recheck3_real_issuer_unconfirmed_stop_keeps_the_admission_held ... ok
+
+successes:
+
+---- access::internal_session_lock_state_reads_the_source_read_only stdout ----
+m03 observation: internal session-lock-state platform state=unavailable signal=none
+
+
+successes:
+    access::access_ensure_strict_reports_strict_disconnect
+    access::access_lock_behavior_refused_where_unavailable
+    access::connections_list_and_owner_close
+    access::destination_prefer_resolves_alias_and_journals_the_preference
+    access::internal_session_lock_state_reads_the_source_read_only
+    access::lock_behavior_results_labelled_signal_unverified_on_linux_only
+    access::m03_help_and_discovery_goldens
+    access::revoke_output_lists_owned_connections_and_ordinary_note
+    enroll::enroll_commands_print_one_json_envelope
+    enroll::enroll_consent_shows_the_runtimes_lock_text_with_saved_limits
+    enroll::enroll_ctrl_c_between_step_and_result_prints_uncertain_message
+    enroll::enroll_decision_kinds_need_typed_yes
+    enroll::enroll_preview_shows_disclosures_and_exact_line
+    enroll::enroll_reconcile_after_manual_recovery_never_redispatches
+    enroll::enroll_status_shows_slot_free_late_write_and_held_next_step
+    enroll::enroll_step_pauses_at_the_runtime_inserted_pause_point
+    enroll::enroll_system_form_cli_shows_lines_and_never_claims_removed
+    enroll::enroll_verify_absence_clears_late_write_only_after_not_after
+    enroll::enroll_verify_absence_line_present_names_enroll_remove
+    enroll::enroll_verify_approve_target_change_shows_key_diff_and_needs_decision
+    enroll::foreign_remove_cli_refuses_redacted_bundle
+    enroll::json_decision_approve_of_an_enrollment_shows_its_disclosures_before_the_prompt
+    enroll::json_enroll_on_a_terminal_shows_disclosure_prose_before_the_prompt
+    enroll::json_remove_on_a_terminal_shows_the_removal_consent_before_the_prompt
+    internal_issuer_refuses_a_test_configuration_without_an_explicit_home
+    issuer::issuer_ceremonies_refuse_redirected_stdin_with_a_terminal_attached
+    issuer::issuer_commands_json_envelopes_without_a_runtime_or_terminal
+    issuer::issuer_init_prints_passphrase_only_to_tty
+    issuer::issuer_retire_typed_yes_and_r2b_deletion_on_scratch_store
+    issuer::issuer_status_bundle_unlock_json_envelopes
+    issuer::recheck3_real_issuer_cancelled_load_cannot_cross_fence
+    issuer::recheck3_real_issuer_late_sign_cannot_cross_fence
+    issuer::recheck3_real_issuer_unconfirmed_stop_keeps_the_admission_held
+    issuer::recheck4_cancelling_stop_must_not_signal_unverified_child
+    issuer::replace_orphan_cli_warns_and_cross_checks_bundle
+    issuer::residual_leader_shaped_sign_unconfirmed_stop_keeps_no_admission
+    m03_cli_commands_answer_without_a_runtime_and_never_panic
+    m03_test_gates_are_validated_before_anything_else
+    no_m03_source_contains_the_wave_0_text
+    uninstall_doctor::doctor_reports_client_trace_family_unrecorded
+    uninstall_doctor::doctor_reports_enrollment_evidence_stale
+    uninstall_doctor::doctor_reports_managed_dir_unsafe
+    uninstall_doctor::doctor_reports_reverification_inconclusive
+    uninstall_doctor::doctor_reports_slot_free_with_command
+    uninstall_doctor::runtime_start_refused_while_the_purge_lock_is_held
+    uninstall_doctor::status_shows_time_confirmation_chore_after_reboot
+    uninstall_doctor::uninstall_fence_scope_end_to_end
+    uninstall_doctor::uninstall_json_shows_the_preview_on_the_terminal
+    uninstall_doctor::uninstall_lists_remote_enrollments_and_refuses_purge_without_ack
+    uninstall_doctor::uninstall_plain_keep_remote_enrollments_is_the_acknowledgement
+    uninstall_doctor::uninstall_purge_keeping_enrollments_requires_fresh_bundle
+    uninstall_doctor::uninstall_purge_race_with_concurrent_enrollment_keeps_state
+    uninstall_doctor::uninstall_purge_refuses_abandoned_foreign_system_form_removal
+    uninstall_doctor::uninstall_purge_refuses_unresolved_remote_step
+    uninstall_doctor::uninstall_purge_refuses_withdrawn_late_write
+    uninstall_doctor::uninstall_states_store_item_fate
+    uninstall_refuses_purge_with_live_enrollments
+
+test result: ok. 57 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 35.75s
+
+### e2e_cli_m03 exit=0
+### e2e_deadline_m03
+
+running 1 test
+test registration_failure_reasons_are_launch_failed_127 ... ok
+
+successes:
+
+successes:
+    registration_failure_reasons_are_launch_failed_127
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### e2e_deadline_m03 exit=0
+### e2e_enroll_m03
+
+running 101 tests
+test abandon_from_outcome_unknown_remove_unknown_and_rollback_pending ... ok
+test a10_narrow_certificate_refused_on_other_host_system_form ... ok
+test a10_narrow_certificate_refused_on_other_host_account_form ... ok
+test abandoned_with_late_write_removed_before_not_after_keeps_residual ... ok
+test absence_verify_before_not_after_keeps_late_write ... ok
+test ca_retirement_refused_until_every_enrollment_final_or_abandoned ... ok
+test cli_killed_during_append_step_leaves_outcome_unknown ... ok
+test client_change_triggers_prompt_reverification ... ok
+test e5_rotation_keeps_projection_and_adds_issuing_ca ... ok
+test enroll_account_approval_records_lock_disclosure_acknowledgement_once ... ok
+test enroll_noninteractive_provider_interaction_refused_before_write ... ok
+test enroll_password_only_account_refused_existing_access_kind_unsupported ... ok
+test enroll_preview_apply_verify_setup_apply_ensure_ssh ... ok
+test enroll_reconcile_applied ... ok
+test abandoned_with_late_write_removed_after_not_after_clears_residual has been running for over 60 seconds
+test absence_verify_after_not_after_observing_absence_clears_late_write has been running for over 60 seconds
+test absence_verify_observing_line_present_keeps_late_write has been running for over 60 seconds
+test enroll_reconcile_approval_lapsed has been running for over 60 seconds
+test abandoned_with_late_write_removed_after_not_after_clears_residual ... ok
+test absence_verify_after_not_after_observing_absence_clears_late_write ... ok
+test enroll_reconcile_unreachable ... ok
+test absence_verify_observing_line_present_keeps_late_write ... ok
+test enroll_requires_attended_decision ... ok
+test enroll_remove_lists_affected_grants_and_degrades_them ... ok
+test enroll_same_key_replays_different_params_conflict ... ok
+test enroll_second_for_same_pair_and_ca_already_enrolled ... ok
+test enroll_restart_leaves_operation_unresolved_and_reported ... ok
+test enrollment_result_next_discloses_slot_free ... ok
+test enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check ... ok
+test evidence_invalidated_on_host_key_or_client_change ... ok
+test ensure_scope_minimum_refused_before_any_pass ... ok
+test fence::acquisition_waits_for_in_flight_activation ... ok
+test fence::activation_refused_while_fence_is_being_acquired ... ok
+test fence::cancelled_verification_leader_with_a_pending_result_write_is_never_repeated ... ok
+test fence::deferred_verification_is_not_duplicated_by_step_and_reconcile ... ok
+test fence::concurrent_reverification_resumes_run_one_verification ... ok
+test enroll_reconcile_approval_lapsed ... ok
+test fence::deferred_verification_runs_after_the_fence_lifts ... ok
+test fence::recheck_allowed_step_result_does_not_start_new_issuance_under_fence ... ok
+test fence::recheck2_deferred_verification_is_not_duplicated_by_two_steps ... ok
+test fence::recheck3_fence_holder_can_finish_own_verification ... ok
+test fence::recheck_direct_issuer_request_refused_under_uninstall_fence ... ok
+test fence::recheck_direct_admission_refused_under_uninstall_fence ... ok
+test fence::recheck_verification_reservation_refused_under_uninstall_fence ... ok
+test fence::verification_fence_refusal_is_returned_and_changes_no_evidence ... ok
+test fence_audit_keeps_signals_sent_on_unproven ... ok
+test fence::verification_result_write_records_only_the_run_it_started_from ... ok
+test foreign_removal_approved_planned_to_removing ... ok
+test foreign_removal_denied_withdrawn_nothing_remote ... ok
+test fence::refused_reverification_is_resumed_once_after_the_fence_lifts ... ok
+test foreign_removal_from_second_installation_with_different_catalog ... ok
+test foreign_removal_held_recovery_by_new_decision_or_abandon ... ok
+test fence_unproven_never_unlocks_and_counts_attempt ... ok
+test foreign_removal_refuses_bundle_host_mismatch ... ok
+test foreign_removal_held_reuse_needs_the_exact_descriptor ... ok
+test foreign_removal_refuses_non_concrete_recorded_endpoint ... ok
+test foreign_removal_refuses_redacted_bundle_and_line_hash_mismatch ... ok
+test foreign_removal_system_form_manual_route_never_reported_removed ... ok
+test foreign_system_form_abandon_keeps_pending_until_line_removed ... ok
+test foreign_system_form_cancel_after_ca_not_held_never_planned_or_withdrawn ... ok
+test foreign_removal_lost_reply_reconciled_by_marker ... ok
+test held_host_key_change_needs_target_reapproval_with_key_diff ... ok
+test held_removal_with_freshly_evaluated_target ... ok
+test held_evidence_hold_reverifies_on_owner_request ... ok
+test inconclusive_reverification_after_client_change_keeps_scope_unknown ... ok
+test initial_verification_retry_under_open_apply_via_reconcile ... ok
+test journal_never_stores_marker_bearing_foreign_lines ... ok
+test journal_never_stores_foreign_registry_bytes ... ok
+test late_write_present_check_reports_late_write_present_and_keeps_residual ... ok
+test late_write_cleared_record_is_no_longer_an_outstanding_obligation ... ok
+test manual_removal_cancel_returns_to_origin_state_and_evidence ... ok
+test managed_ensure_result_carries_d8_connection_policy_graceful_and_strict ... ok
+test initial_verification_failure_after_approval_lapsed_holds ... ok
+test recheck_manual_recovered_last_removal_drops_issuing_ca ... ok
+test recheck_manual_recovered_withdrawn_removal_clears_residual ... ok
+test reconcile_terminates_stale_holder_then_redispatches ... ok
+test reconcile_after_manual_recovery_classifies_without_redispatch ... ok
+test reenroll_after_abandoned_uses_new_marker_old_residual_listed ... ok
+test removal_finding_the_line_gone_is_finished_once_by_two_steps ... ok
+test removing_old_enrollment_keeps_ca_while_a_newer_verified_one_trusts_it ... ok
+test removing_the_last_enrollment_under_a_ca_drops_it_from_the_issuing_set ... ok
+test removing_withdrawn_residual_keeps_ca_while_a_newer_verified_one_trusts_it ... ok
+test rotation_and_removal_with_every_managed_binding_released_and_issuer_unavailable ... ok
+test routed_enrollment_held_on_a_changed_final_key_and_never_verified_around_its_route ... ok
+test second_step_refused_while_one_outstanding ... ok
+test step_refused_when_route_changed_after_approval ... ok
+test step_result_timeout_marks_mutation_uncertain_and_read_retryable ... ok
+test step_result_with_wrong_token_refused_nothing_recorded ... ok
+test rotation_two_accounts_one_unreachable ... ok
+test system_form_cancel_from_manual_pending_keeps_entry_until_absence_verified ... ok
+test supervisor_reverifies_before_freshness_lapses ... ok
+test system_form_never_reported_removed_without_absence_check ... ok
+test target_change_failure_or_inconclusive_keeps_approved_target_and_held ... ok
+test target_change_pass_replaces_approved_target_atomically ... ok
+test target_change_pins_come_from_proposed_target ... ok
+test verification_authority_apply_initial_needs_its_own_approval_and_stage ... ok
+test verification_authority_system_absence_own_stage ... ok
+test verification_authority_target_change_needs_its_own_decision_and_stage ... ok
+test verification_refused_by_the_issuer_before_any_login_is_unclassified ... ok
+test verification_session_dropped_on_every_exit_path ... ok
+test withdrawn_with_late_write_remove_removes_exactly_that_line_and_clears_residual ... ok
+test withdrawn_without_late_write_refuses_remove ... ok
+test enroll_reconcile_not_applied_within_validity has been running for over 60 seconds
+test enroll_reconcile_not_applied_within_validity ... ok
+test reconcile_redispatch_requires_attended_session has been running for over 60 seconds
+test uncertain_append_left_for_withdrawn_keeps_late_write_residual has been running for over 60 seconds
+test reconcile_redispatch_requires_attended_session ... ok
+test uncertain_append_left_for_withdrawn_keeps_late_write_residual ... ok
+
+successes:
+
+successes:
+    a10_narrow_certificate_refused_on_other_host_account_form
+    a10_narrow_certificate_refused_on_other_host_system_form
+    abandon_from_outcome_unknown_remove_unknown_and_rollback_pending
+    abandoned_with_late_write_removed_after_not_after_clears_residual
+    abandoned_with_late_write_removed_before_not_after_keeps_residual
+    absence_verify_after_not_after_observing_absence_clears_late_write
+    absence_verify_before_not_after_keeps_late_write
+    absence_verify_observing_line_present_keeps_late_write
+    ca_retirement_refused_until_every_enrollment_final_or_abandoned
+    cli_killed_during_append_step_leaves_outcome_unknown
+    client_change_triggers_prompt_reverification
+    e5_rotation_keeps_projection_and_adds_issuing_ca
+    enroll_account_approval_records_lock_disclosure_acknowledgement_once
+    enroll_noninteractive_provider_interaction_refused_before_write
+    enroll_password_only_account_refused_existing_access_kind_unsupported
+    enroll_preview_apply_verify_setup_apply_ensure_ssh
+    enroll_reconcile_applied
+    enroll_reconcile_approval_lapsed
+    enroll_reconcile_not_applied_within_validity
+    enroll_reconcile_unreachable
+    enroll_remove_lists_affected_grants_and_degrades_them
+    enroll_requires_attended_decision
+    enroll_restart_leaves_operation_unresolved_and_reported
+    enroll_same_key_replays_different_params_conflict
+    enroll_second_for_same_pair_and_ca_already_enrolled
+    enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check
+    enrollment_result_next_discloses_slot_free
+    ensure_scope_minimum_refused_before_any_pass
+    evidence_invalidated_on_host_key_or_client_change
+    fence::acquisition_waits_for_in_flight_activation
+    fence::activation_refused_while_fence_is_being_acquired
+    fence::cancelled_verification_leader_with_a_pending_result_write_is_never_repeated
+    fence::concurrent_reverification_resumes_run_one_verification
+    fence::deferred_verification_is_not_duplicated_by_step_and_reconcile
+    fence::deferred_verification_runs_after_the_fence_lifts
+    fence::recheck2_deferred_verification_is_not_duplicated_by_two_steps
+    fence::recheck3_fence_holder_can_finish_own_verification
+    fence::recheck_allowed_step_result_does_not_start_new_issuance_under_fence
+    fence::recheck_direct_admission_refused_under_uninstall_fence
+    fence::recheck_direct_issuer_request_refused_under_uninstall_fence
+    fence::recheck_verification_reservation_refused_under_uninstall_fence
+    fence::refused_reverification_is_resumed_once_after_the_fence_lifts
+    fence::verification_fence_refusal_is_returned_and_changes_no_evidence
+    fence::verification_result_write_records_only_the_run_it_started_from
+    fence_audit_keeps_signals_sent_on_unproven
+    fence_unproven_never_unlocks_and_counts_attempt
+    foreign_removal_approved_planned_to_removing
+    foreign_removal_denied_withdrawn_nothing_remote
+    foreign_removal_from_second_installation_with_different_catalog
+    foreign_removal_held_recovery_by_new_decision_or_abandon
+    foreign_removal_held_reuse_needs_the_exact_descriptor
+    foreign_removal_lost_reply_reconciled_by_marker
+    foreign_removal_refuses_bundle_host_mismatch
+    foreign_removal_refuses_non_concrete_recorded_endpoint
+    foreign_removal_refuses_redacted_bundle_and_line_hash_mismatch
+    foreign_removal_system_form_manual_route_never_reported_removed
+    foreign_system_form_abandon_keeps_pending_until_line_removed
+    foreign_system_form_cancel_after_ca_not_held_never_planned_or_withdrawn
+    held_evidence_hold_reverifies_on_owner_request
+    held_host_key_change_needs_target_reapproval_with_key_diff
+    held_removal_with_freshly_evaluated_target
+    inconclusive_reverification_after_client_change_keeps_scope_unknown
+    initial_verification_failure_after_approval_lapsed_holds
+    initial_verification_retry_under_open_apply_via_reconcile
+    journal_never_stores_foreign_registry_bytes
+    journal_never_stores_marker_bearing_foreign_lines
+    late_write_cleared_record_is_no_longer_an_outstanding_obligation
+    late_write_present_check_reports_late_write_present_and_keeps_residual
+    managed_ensure_result_carries_d8_connection_policy_graceful_and_strict
+    manual_removal_cancel_returns_to_origin_state_and_evidence
+    recheck_manual_recovered_last_removal_drops_issuing_ca
+    recheck_manual_recovered_withdrawn_removal_clears_residual
+    reconcile_after_manual_recovery_classifies_without_redispatch
+    reconcile_redispatch_requires_attended_session
+    reconcile_terminates_stale_holder_then_redispatches
+    reenroll_after_abandoned_uses_new_marker_old_residual_listed
+    removal_finding_the_line_gone_is_finished_once_by_two_steps
+    removing_old_enrollment_keeps_ca_while_a_newer_verified_one_trusts_it
+    removing_the_last_enrollment_under_a_ca_drops_it_from_the_issuing_set
+    removing_withdrawn_residual_keeps_ca_while_a_newer_verified_one_trusts_it
+    rotation_and_removal_with_every_managed_binding_released_and_issuer_unavailable
+    rotation_two_accounts_one_unreachable
+    routed_enrollment_held_on_a_changed_final_key_and_never_verified_around_its_route
+    second_step_refused_while_one_outstanding
+    step_refused_when_route_changed_after_approval
+    step_result_timeout_marks_mutation_uncertain_and_read_retryable
+    step_result_with_wrong_token_refused_nothing_recorded
+    supervisor_reverifies_before_freshness_lapses
+    system_form_cancel_from_manual_pending_keeps_entry_until_absence_verified
+    system_form_never_reported_removed_without_absence_check
+    target_change_failure_or_inconclusive_keeps_approved_target_and_held
+    target_change_pass_replaces_approved_target_atomically
+    target_change_pins_come_from_proposed_target
+    uncertain_append_left_for_withdrawn_keeps_late_write_residual
+    verification_authority_apply_initial_needs_its_own_approval_and_stage
+    verification_authority_system_absence_own_stage
+    verification_authority_target_change_needs_its_own_decision_and_stage
+    verification_refused_by_the_issuer_before_any_login_is_unclassified
+    verification_session_dropped_on_every_exit_path
+    withdrawn_with_late_write_remove_removes_exactly_that_line_and_clears_residual
+    withdrawn_without_late_write_refuses_remove
+
+test result: ok. 101 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 185.28s
+
+### e2e_enroll_m03 exit=0
+### e2e_exit_m03
+
+running 14 tests
+test lock::a03_fresh_logins_while_locked_continue ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test lock::a03_lock_cleanup ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test lock::a03_lock_prepare ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test lock::a03_lock_revokes_ends_grant_and_fresh_login_fails ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test lock::a03_new_grant_while_locked_under_standing_policy ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test lock::a03_post_unlock_follows_remaining_deadline ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test lock::a03_vault_stand_in_locked_agent_does_not_matter ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test a10_bound_consumer_issuer_reachability_recorded ... ok
+test projection_rolled_back_or_recovery_kept_after_a_failure_after_apply ... ok
+test a33_secret_bytes_scan_all_artifacts ... ok
+test worker_process_entry ... ok
+test real_issuer_signs_verification_certificates_enroll_verify_passes ... ok
+test real_issuer_activation_reissue_revocation_with_fresh_logins ... ok
+test managed_revoke_reaches_revoked_once_the_residual_passes has been running for over 60 seconds
+test managed_revoke_reaches_revoked_once_the_residual_passes ... ok
+
+successes:
+
+---- a10_bound_consumer_issuer_reachability_recorded stdout ----
+m03 observation: a10 linux issuer_path none (endpoints: control=1 environment=1 binding=1 issuer=0 other=0; control: the worker's live binding endpoint is among them)
+m03 observation: a10 linux issuer_child_sockets unobservable: /proc/<pid>/fd is root's for a non-dumpable process (harden_process)
+m03 observation: a10 linux bound_unix_sockets_naming_issuer 0 (the namespace's sockets bound under the Heimdall home are exactly its 3 endpoints; control: the runtime's listeners are listed)
+m03 observation: a10 linux ca_key_listed 0 (agent endpoints listed: 2 from the test, 2 from the worker; control: the worker's binding endpoint lists exactly its grant's certificate, key ID and serial)
+m03 observation: a10 linux issuer_pipe_descriptors 0 (the bound worker holds no pipe but the stdout and stderr this test gave it, so none of the issuer's; 0 other runtime children, not comparable; the issuer pipes' identities are unobservable here: /proc/<pid>/fd is root's for a non-dumpable process (harden_process))
+m03 observation: a10 linux secret_service_item_reading unobservable: no disposable Secret Service on this run (B11)
+m03 observation: a10 linux k_ca_bytes 0 (outputs=14 files=23 crash_files=0 process_argv=3 process_environ=1; control: the CA public blob found in 1 Heimdall-home files)
+m03 observation: a10 linux k_ca_bytes unobservable: environment of the issuer child process: /proc/<pid>/environ is root's for a non-dumpable process (harden_process)
+m03 observation: a10 linux k_ca_bytes unobservable: environment of the runtime process: /proc/<pid>/environ is root's for a non-dumpable process (harden_process)
+m03 observation: a10 linux k_ca_bytes unobservable: system core dumps: core_pattern pipes to a handler whose dumps only root reads
+m03 observation: a10 linux issuer_isolation same_user_process: the boundary is the OS user
+
+---- projection_rolled_back_or_recovery_kept_after_a_failure_after_apply stdout ----
+
+thread 'projection_rolled_back_or_recovery_kept_after_a_failure_after_apply' (1518806) panicked at crates/heimdall/../../tests/e2e/exit_m03/world.rs:717:9:
+injected failure after setup apply (W6-R01 regression)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+m03 observation: lock cleanup projection rollback: setup rollback exit 0, restoration verified
+
+thread 'projection_rolled_back_or_recovery_kept_after_a_failure_after_apply' (1518806) panicked at crates/heimdall/../../tests/e2e/exit_m03/world.rs:717:9:
+injected failure after setup apply (W6-R01 regression)
+m03 observation: lock cleanup projection rollback FAILED (injected rollback failure (W6-R01 regression)): the scratch home holding the projection's state and backups is kept for recovery
+
+---- a33_secret_bytes_scan_all_artifacts stdout ----
+m03 observation: a33 linux secret_bytes 0 (kinds: k_env 80 forms, k_ca 12 forms, canary 2 forms; checkpoints: after the activation [outputs=18 files=26 crash_files=0 process_argv=4 process_environ=2]; after the re-issue [outputs=42 files=26 crash_files=0 process_argv=4 process_environ=2]; after the revocation [outputs=48 files=17 crash_files=0 process_argv=3 process_environ=1]; controls: CA public blob in 1 Heimdall-home files, placed canary seen in 2 environments, all 2 K_env seeded (indices [0, 1]))
+m03 observation: a33 linux fake_adapter_credential_ref_in_effect_receipts 10 (the test configuration's canary-named credential reference, stored by design in the state database's effect receipts; not counted)
+m03 observation: a33 linux unobservable: environment of the issuer child process: /proc/<pid>/environ is root's for a non-dumpable process (harden_process)
+m03 observation: a33 linux unobservable: environment of the runtime process: /proc/<pid>/environ is root's for a non-dumpable process (harden_process)
+m03 observation: a33 linux unobservable: system core dumps: core_pattern pipes to a handler whose dumps only root reads
+
+---- real_issuer_activation_reissue_revocation_with_fresh_logins stdout ----
+m03 observation: issuer_child linux activation=signed_and_login_accepted reissue=signed_and_login_accepted revocation=login_refused reissue_trigger=runtime_restart_same_boot key_id_last_field=serial
+
+---- managed_revoke_reaches_revoked_once_the_residual_passes stdout ----
+m03 observation: managed_revoke_residual linux certificate_validity_s=90 state_at_revoke=revoking state_after_residual=revoked obligation=bounded_by_expiry clock=unmeasured status=nominally_expired record_kept=true rounds_after_revoke=0
+
+
+successes:
+    a10_bound_consumer_issuer_reachability_recorded
+    a33_secret_bytes_scan_all_artifacts
+    managed_revoke_reaches_revoked_once_the_residual_passes
+    projection_rolled_back_or_recovery_kept_after_a_failure_after_apply
+    real_issuer_activation_reissue_revocation_with_fresh_logins
+    real_issuer_signs_verification_certificates_enroll_verify_passes
+    worker_process_entry
+
+test result: ok. 7 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 94.32s
+
+### e2e_exit_m03 exit=0
+### e2e_exit_m05
+
+running 8 tests
+test a28::a28_child_subset_refusals_and_no_owner_functions ... ok
+test a16::a04_default_and_profile_change_never_redirects_bindings ... ok
+test a16::a16_two_environments_defaults_and_cleanup ... ok
+test u5::u5_ordinary_ssh_activates_the_personal_default ... ok
+test worker_process_entry ... ok
+test a28::a28_parent_end_cascades_child_login_fails ... ok
+test a02::a02_trusted_week_zero_further_prompts has been running for over 60 seconds
+test pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual ... ok
+test a02::a02_trusted_week_zero_further_prompts ... ok
+
+successes:
+
+---- a28::a28_child_subset_refusals_and_no_owner_functions stdout ----
+m05 started-pid runtime 1519559
+m05 started-pid run-worker 1519737
+m05 observation: a28 linux subset=server_enforced wider=refused longer=refused frames=agent_failure owner_functions=not_delegated
+
+---- a16::a04_default_and_profile_change_never_redirects_bindings stdout ----
+m05 started-pid runtime 1519560
+m05 started-pid run-worker 1519685
+m05 started-pid run-worker 1519688
+m05 started-pid run-worker 1519882
+m05 observation: a04 linux default_change=redirected_nothing profile_change=redirected_nothing new_request_revision=2
+
+---- a16::a16_two_environments_defaults_and_cleanup stdout ----
+m05 started-pid runtime 1519558
+m05 started-pid runtime 1519770
+m05 started-pid run-worker 1519949
+m05 started-pid run-worker 1519952
+m05 started-pid run-worker 1519956
+m05 started-pid run-worker 1519962
+m05 observation: a16 linux environments=2 jobs=4 pins_unchanged=true cross_routed=0 handover_generation=2 cleanup=clear
+
+---- u5::u5_ordinary_ssh_activates_the_personal_default stdout ----
+m05 started-pid runtime 1520278
+m05 observation: i13 linux failed
+m05 started-pid stand-in-shell 1520336
+m05 observation: u5 linux default_at_setup=1_decision activation_decisions=0 paused=nothing_activated resumed=activated
+
+---- a28::a28_parent_end_cascades_child_login_fails stdout ----
+m05 started-pid runtime 1519994
+m05 started-pid run-worker 1520162
+m05 observation: a28 linux parent_end=revoke child_grant_state=revoking child_next_login=refused states_settled_after_login_s=0
+m05 started-pid run-worker 1520223
+m05 observation: a28 linux parent_end=cutoff child_grant_state=expired child_next_login=refused states_settled_after_login_s=0
+
+---- pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual stdout ----
+m05 started-pid runtime 1520053
+
+---- a02::a02_trusted_week_zero_further_prompts stdout ----
+m05 started-pid runtime 1519553
+m05 started-pid stand-in-shell 1519706
+m05 started-pid stand-in-shell 1519719
+m05 started-pid stand-in-shell 1519756
+m05 started-pid issuer-child 1519582
+m05 started-pid runtime 1519928
+m05 observation: a02 linux decisions_after_first=0 pending_listed=0 attended_prompts=0 provider_prompts=0 recovered_runtime=true issuer_child_after_kill=exited
+
+
+successes:
+    a02::a02_trusted_week_zero_further_prompts
+    a16::a04_default_and_profile_change_never_redirects_bindings
+    a16::a16_two_environments_defaults_and_cleanup
+    a28::a28_child_subset_refusals_and_no_owner_functions
+    a28::a28_parent_end_cascades_child_login_fails
+    pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual
+    u5::u5_ordinary_ssh_activates_the_personal_default
+    worker_process_entry
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 157.18s
+
+### e2e_exit_m05 exit=0
+all-tests-exit=0

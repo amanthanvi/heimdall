@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Page",
+  "description": "The answer to a `page` request.",
+  "type": "object",
+  "properties": {
+    "items": {
+      "description": "This page's items, each complete.",
+      "type": "array",
+      "items": true
+    },
+    "more": {
+      "description": "Whether more remain after this page. `false` ends the traversal.",
+      "type": "boolean"
+    },
+    "next_page_token": {
+      "description": "The token for the next page: present exactly when `more` is true.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PageToken"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "items",
+    "more"
+  ],
+  "$defs": {
+    "PageToken": {
+      "description": "An opaque page token: base64url, at most [`MAX_PAGE_TOKEN_LEN`] bytes, never parsed by a\nclient. The runtime integrity-protects it (HMAC-SHA256 over a version, the scoped tuple\nand the position) and re-applies the reader's visibility on every page: a token carries\na position, never authority.",
+      "type": "string"
+    }
+  }
+}

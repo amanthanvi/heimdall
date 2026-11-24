@@ -1,0 +1,660 @@
+### e2e_delegation_m05
+
+running 4 tests
+test probe_process_entry ... ok
+test parent_binding_flags_are_validated_before_any_runtime_contact ... ok
+test wider_or_longer_request_launches_nothing ... ok
+test run_parent_binding_gives_the_worker_only_the_child_endpoint ... ok
+
+successes:
+
+successes:
+    parent_binding_flags_are_validated_before_any_runtime_contact
+    probe_process_entry
+    run_parent_binding_gives_the_worker_only_the_child_endpoint
+    wider_or_longer_request_launches_nothing
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.84s
+
+### e2e_delegation_m05 exit=0
+### e2e_dev_home_guard
+
+running 2 tests
+test the_escape_variable_lets_it_through ... ok
+test a_debug_build_refuses_the_account_home_without_touching_anything ... ok
+
+successes:
+
+successes:
+    a_debug_build_refuses_the_account_home_without_touching_anything
+    the_escape_variable_lets_it_through
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+### e2e_dev_home_guard exit=0
+### e2e_enroll_m03
+
+running 101 tests
+test abandon_from_outcome_unknown_remove_unknown_and_rollback_pending ... ok
+test a10_narrow_certificate_refused_on_other_host_system_form ... ok
+test a10_narrow_certificate_refused_on_other_host_account_form ... ok
+test abandoned_with_late_write_removed_before_not_after_keeps_residual ... ok
+test absence_verify_before_not_after_keeps_late_write ... ok
+test ca_retirement_refused_until_every_enrollment_final_or_abandoned ... ok
+test cli_killed_during_append_step_leaves_outcome_unknown ... ok
+test client_change_triggers_prompt_reverification ... ok
+test e5_rotation_keeps_projection_and_adds_issuing_ca ... ok
+test enroll_account_approval_records_lock_disclosure_acknowledgement_once ... ok
+test enroll_noninteractive_provider_interaction_refused_before_write ... ok
+test enroll_password_only_account_refused_existing_access_kind_unsupported ... ok
+test enroll_preview_apply_verify_setup_apply_ensure_ssh ... ok
+test enroll_reconcile_applied ... ok
+test abandoned_with_late_write_removed_after_not_after_clears_residual has been running for over 60 seconds
+test absence_verify_after_not_after_observing_absence_clears_late_write has been running for over 60 seconds
+test absence_verify_observing_line_present_keeps_late_write has been running for over 60 seconds
+test enroll_reconcile_approval_lapsed has been running for over 60 seconds
+test abandoned_with_late_write_removed_after_not_after_clears_residual ... ok
+test absence_verify_after_not_after_observing_absence_clears_late_write ... ok
+test enroll_reconcile_unreachable ... ok
+test absence_verify_observing_line_present_keeps_late_write ... ok
+test enroll_requires_attended_decision ... ok
+test enroll_remove_lists_affected_grants_and_degrades_them ... ok
+test enroll_same_key_replays_different_params_conflict ... ok
+test enroll_second_for_same_pair_and_ca_already_enrolled ... ok
+test enroll_restart_leaves_operation_unresolved_and_reported ... ok
+test enrollment_result_next_discloses_slot_free ... ok
+test enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check ... ok
+test evidence_invalidated_on_host_key_or_client_change ... ok
+test ensure_scope_minimum_refused_before_any_pass ... ok
+test fence::acquisition_waits_for_in_flight_activation ... ok
+test fence::activation_refused_while_fence_is_being_acquired ... ok
+test fence::cancelled_verification_leader_with_a_pending_result_write_is_never_repeated ... ok
+test fence::deferred_verification_is_not_duplicated_by_step_and_reconcile ... ok
+test fence::concurrent_reverification_resumes_run_one_verification ... ok
+test enroll_reconcile_approval_lapsed ... ok
+test fence::deferred_verification_runs_after_the_fence_lifts ... ok
+test fence::recheck_allowed_step_result_does_not_start_new_issuance_under_fence ... ok
+test fence::recheck2_deferred_verification_is_not_duplicated_by_two_steps ... ok
+test fence::recheck_direct_admission_refused_under_uninstall_fence ... ok
+test fence::recheck_direct_issuer_request_refused_under_uninstall_fence ... ok
+test fence::recheck3_fence_holder_can_finish_own_verification ... ok
+test fence::recheck_verification_reservation_refused_under_uninstall_fence ... ok
+test fence::verification_fence_refusal_is_returned_and_changes_no_evidence ... ok
+test fence_audit_keeps_signals_sent_on_unproven ... ok
+test fence::verification_result_write_records_only_the_run_it_started_from ... ok
+test foreign_removal_approved_planned_to_removing ... ok
+test foreign_removal_denied_withdrawn_nothing_remote ... ok
+test fence::refused_reverification_is_resumed_once_after_the_fence_lifts ... ok
+test foreign_removal_from_second_installation_with_different_catalog ... ok
+test foreign_removal_held_recovery_by_new_decision_or_abandon ... ok
+test fence_unproven_never_unlocks_and_counts_attempt ... ok
+test foreign_removal_held_reuse_needs_the_exact_descriptor ... ok
+test foreign_removal_refuses_bundle_host_mismatch ... ok
+test foreign_removal_refuses_non_concrete_recorded_endpoint ... ok
+test foreign_removal_refuses_redacted_bundle_and_line_hash_mismatch ... ok
+test foreign_removal_system_form_manual_route_never_reported_removed ... ok
+test foreign_system_form_abandon_keeps_pending_until_line_removed ... ok
+test foreign_system_form_cancel_after_ca_not_held_never_planned_or_withdrawn ... ok
+test foreign_removal_lost_reply_reconciled_by_marker ... ok
+test held_host_key_change_needs_target_reapproval_with_key_diff ... ok
+test held_removal_with_freshly_evaluated_target ... ok
+test held_evidence_hold_reverifies_on_owner_request ... ok
+test inconclusive_reverification_after_client_change_keeps_scope_unknown ... ok
+test initial_verification_retry_under_open_apply_via_reconcile ... ok
+test journal_never_stores_marker_bearing_foreign_lines ... ok
+test journal_never_stores_foreign_registry_bytes ... ok
+test late_write_present_check_reports_late_write_present_and_keeps_residual ... ok
+test late_write_cleared_record_is_no_longer_an_outstanding_obligation ... ok
+test manual_removal_cancel_returns_to_origin_state_and_evidence ... ok
+test managed_ensure_result_carries_d8_connection_policy_graceful_and_strict ... ok
+test initial_verification_failure_after_approval_lapsed_holds ... ok
+test recheck_manual_recovered_last_removal_drops_issuing_ca ... ok
+test recheck_manual_recovered_withdrawn_removal_clears_residual ... ok
+test reconcile_terminates_stale_holder_then_redispatches ... ok
+test reconcile_after_manual_recovery_classifies_without_redispatch ... ok
+test reenroll_after_abandoned_uses_new_marker_old_residual_listed ... ok
+test removal_finding_the_line_gone_is_finished_once_by_two_steps ... ok
+test removing_old_enrollment_keeps_ca_while_a_newer_verified_one_trusts_it ... ok
+test removing_the_last_enrollment_under_a_ca_drops_it_from_the_issuing_set ... ok
+test removing_withdrawn_residual_keeps_ca_while_a_newer_verified_one_trusts_it ... ok
+test rotation_and_removal_with_every_managed_binding_released_and_issuer_unavailable ... ok
+test routed_enrollment_held_on_a_changed_final_key_and_never_verified_around_its_route ... ok
+test second_step_refused_while_one_outstanding ... ok
+test step_refused_when_route_changed_after_approval ... ok
+test step_result_timeout_marks_mutation_uncertain_and_read_retryable ... ok
+test step_result_with_wrong_token_refused_nothing_recorded ... ok
+test rotation_two_accounts_one_unreachable ... ok
+test system_form_cancel_from_manual_pending_keeps_entry_until_absence_verified ... ok
+test supervisor_reverifies_before_freshness_lapses ... ok
+test system_form_never_reported_removed_without_absence_check ... ok
+test target_change_failure_or_inconclusive_keeps_approved_target_and_held ... ok
+test target_change_pass_replaces_approved_target_atomically ... ok
+test target_change_pins_come_from_proposed_target ... ok
+test verification_authority_apply_initial_needs_its_own_approval_and_stage ... ok
+test verification_authority_system_absence_own_stage ... ok
+test verification_authority_target_change_needs_its_own_decision_and_stage ... ok
+test verification_refused_by_the_issuer_before_any_login_is_unclassified ... ok
+test verification_session_dropped_on_every_exit_path ... ok
+test withdrawn_with_late_write_remove_removes_exactly_that_line_and_clears_residual ... ok
+test withdrawn_without_late_write_refuses_remove ... ok
+test enroll_reconcile_not_applied_within_validity has been running for over 60 seconds
+test enroll_reconcile_not_applied_within_validity ... ok
+test reconcile_redispatch_requires_attended_session has been running for over 60 seconds
+test uncertain_append_left_for_withdrawn_keeps_late_write_residual has been running for over 60 seconds
+test reconcile_redispatch_requires_attended_session ... ok
+test uncertain_append_left_for_withdrawn_keeps_late_write_residual ... ok
+
+successes:
+
+successes:
+    a10_narrow_certificate_refused_on_other_host_account_form
+    a10_narrow_certificate_refused_on_other_host_system_form
+    abandon_from_outcome_unknown_remove_unknown_and_rollback_pending
+    abandoned_with_late_write_removed_after_not_after_clears_residual
+    abandoned_with_late_write_removed_before_not_after_keeps_residual
+    absence_verify_after_not_after_observing_absence_clears_late_write
+    absence_verify_before_not_after_keeps_late_write
+    absence_verify_observing_line_present_keeps_late_write
+    ca_retirement_refused_until_every_enrollment_final_or_abandoned
+    cli_killed_during_append_step_leaves_outcome_unknown
+    client_change_triggers_prompt_reverification
+    e5_rotation_keeps_projection_and_adds_issuing_ca
+    enroll_account_approval_records_lock_disclosure_acknowledgement_once
+    enroll_noninteractive_provider_interaction_refused_before_write
+    enroll_password_only_account_refused_existing_access_kind_unsupported
+    enroll_preview_apply_verify_setup_apply_ensure_ssh
+    enroll_reconcile_applied
+    enroll_reconcile_approval_lapsed
+    enroll_reconcile_not_applied_within_validity
+    enroll_reconcile_unreachable
+    enroll_remove_lists_affected_grants_and_degrades_them
+    enroll_requires_attended_decision
+    enroll_restart_leaves_operation_unresolved_and_reported
+    enroll_same_key_replays_different_params_conflict
+    enroll_second_for_same_pair_and_ca_already_enrolled
+    enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check
+    enrollment_result_next_discloses_slot_free
+    ensure_scope_minimum_refused_before_any_pass
+    evidence_invalidated_on_host_key_or_client_change
+    fence::acquisition_waits_for_in_flight_activation
+    fence::activation_refused_while_fence_is_being_acquired
+    fence::cancelled_verification_leader_with_a_pending_result_write_is_never_repeated
+    fence::concurrent_reverification_resumes_run_one_verification
+    fence::deferred_verification_is_not_duplicated_by_step_and_reconcile
+    fence::deferred_verification_runs_after_the_fence_lifts
+    fence::recheck2_deferred_verification_is_not_duplicated_by_two_steps
+    fence::recheck3_fence_holder_can_finish_own_verification
+    fence::recheck_allowed_step_result_does_not_start_new_issuance_under_fence
+    fence::recheck_direct_admission_refused_under_uninstall_fence
+    fence::recheck_direct_issuer_request_refused_under_uninstall_fence
+    fence::recheck_verification_reservation_refused_under_uninstall_fence
+    fence::refused_reverification_is_resumed_once_after_the_fence_lifts
+    fence::verification_fence_refusal_is_returned_and_changes_no_evidence
+    fence::verification_result_write_records_only_the_run_it_started_from
+    fence_audit_keeps_signals_sent_on_unproven
+    fence_unproven_never_unlocks_and_counts_attempt
+    foreign_removal_approved_planned_to_removing
+    foreign_removal_denied_withdrawn_nothing_remote
+    foreign_removal_from_second_installation_with_different_catalog
+    foreign_removal_held_recovery_by_new_decision_or_abandon
+    foreign_removal_held_reuse_needs_the_exact_descriptor
+    foreign_removal_lost_reply_reconciled_by_marker
+    foreign_removal_refuses_bundle_host_mismatch
+    foreign_removal_refuses_non_concrete_recorded_endpoint
+    foreign_removal_refuses_redacted_bundle_and_line_hash_mismatch
+    foreign_removal_system_form_manual_route_never_reported_removed
+    foreign_system_form_abandon_keeps_pending_until_line_removed
+    foreign_system_form_cancel_after_ca_not_held_never_planned_or_withdrawn
+    held_evidence_hold_reverifies_on_owner_request
+    held_host_key_change_needs_target_reapproval_with_key_diff
+    held_removal_with_freshly_evaluated_target
+    inconclusive_reverification_after_client_change_keeps_scope_unknown
+    initial_verification_failure_after_approval_lapsed_holds
+    initial_verification_retry_under_open_apply_via_reconcile
+    journal_never_stores_foreign_registry_bytes
+    journal_never_stores_marker_bearing_foreign_lines
+    late_write_cleared_record_is_no_longer_an_outstanding_obligation
+    late_write_present_check_reports_late_write_present_and_keeps_residual
+    managed_ensure_result_carries_d8_connection_policy_graceful_and_strict
+    manual_removal_cancel_returns_to_origin_state_and_evidence
+    recheck_manual_recovered_last_removal_drops_issuing_ca
+    recheck_manual_recovered_withdrawn_removal_clears_residual
+    reconcile_after_manual_recovery_classifies_without_redispatch
+    reconcile_redispatch_requires_attended_session
+    reconcile_terminates_stale_holder_then_redispatches
+    reenroll_after_abandoned_uses_new_marker_old_residual_listed
+    removal_finding_the_line_gone_is_finished_once_by_two_steps
+    removing_old_enrollment_keeps_ca_while_a_newer_verified_one_trusts_it
+    removing_the_last_enrollment_under_a_ca_drops_it_from_the_issuing_set
+    removing_withdrawn_residual_keeps_ca_while_a_newer_verified_one_trusts_it
+    rotation_and_removal_with_every_managed_binding_released_and_issuer_unavailable
+    rotation_two_accounts_one_unreachable
+    routed_enrollment_held_on_a_changed_final_key_and_never_verified_around_its_route
+    second_step_refused_while_one_outstanding
+    step_refused_when_route_changed_after_approval
+    step_result_timeout_marks_mutation_uncertain_and_read_retryable
+    step_result_with_wrong_token_refused_nothing_recorded
+    supervisor_reverifies_before_freshness_lapses
+    system_form_cancel_from_manual_pending_keeps_entry_until_absence_verified
+    system_form_never_reported_removed_without_absence_check
+    target_change_failure_or_inconclusive_keeps_approved_target_and_held
+    target_change_pass_replaces_approved_target_atomically
+    target_change_pins_come_from_proposed_target
+    uncertain_append_left_for_withdrawn_keeps_late_write_residual
+    verification_authority_apply_initial_needs_its_own_approval_and_stage
+    verification_authority_system_absence_own_stage
+    verification_authority_target_change_needs_its_own_decision_and_stage
+    verification_refused_by_the_issuer_before_any_login_is_unclassified
+    verification_session_dropped_on_every_exit_path
+    withdrawn_with_late_write_remove_removes_exactly_that_line_and_clears_residual
+    withdrawn_without_late_write_refuses_remove
+
+test result: ok. 101 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 185.72s
+
+### e2e_enroll_m03 exit=0
+### e2e_environment_cli_m06
+
+running 3 tests
+test m06_help_goldens ... ok
+test show_key_creates_k_mgmt_once_and_a_locked_store_refuses ... ok
+test environment_commands_use_the_controller_records_under_the_instance_lock ... ok
+
+successes:
+
+successes:
+    environment_commands_use_the_controller_records_under_the_instance_lock
+    m06_help_goldens
+    show_key_creates_k_mgmt_once_and_a_locked_store_refuses
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+### e2e_environment_cli_m06 exit=0
+### e2e_environment_runner_m06
+
+running 9 tests
+test driver_e2e::the_controllers_runtime_hosts_the_driver_and_reports_through_environment_status ... ok
+test driver_e2e::a_forwarded_ensure_reaches_onward_ssh_from_the_runner_with_the_controller_stopped ... ok
+test a_controller_reaches_a_real_runner_through_its_management_line ... ok
+test driver_e2e::the_driver_issues_revokes_while_disconnected_and_resynchronizes ... ok
+test the_bootstrap_offers_to_start_the_runner_runtime_in_its_attended_session ... ok
+test remote_init_refuses_and_reports_what_it_never_changes ... ok
+test the_bridge_refuses_a_session_with_a_terminal_or_a_forwarded_agent ... ok
+test the_runners_sshd_policy_reaches_the_runner_and_gates_limited_roles ... ok
+test driver_e2e::a_controller_policy_naming_the_runner_issues_for_a_runner_originated_grant ... ok
+
+successes:
+
+---- the_bootstrap_offers_to_start_the_runner_runtime_in_its_attended_session stdout ----
+m06 observation: bootstrap runtime-offer: declined=not_started_next_step_named accepted=started_in_session_serving running=stated_no_offer by_hand=no_offer
+
+
+successes:
+    a_controller_reaches_a_real_runner_through_its_management_line
+    driver_e2e::a_controller_policy_naming_the_runner_issues_for_a_runner_originated_grant
+    driver_e2e::a_forwarded_ensure_reaches_onward_ssh_from_the_runner_with_the_controller_stopped
+    driver_e2e::the_controllers_runtime_hosts_the_driver_and_reports_through_environment_status
+    driver_e2e::the_driver_issues_revokes_while_disconnected_and_resynchronizes
+    remote_init_refuses_and_reports_what_it_never_changes
+    the_bootstrap_offers_to_start_the_runner_runtime_in_its_attended_session
+    the_bridge_refuses_a_session_with_a_terminal_or_a_forwarded_agent
+    the_runners_sshd_policy_reaches_the_runner_and_gates_limited_roles
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 33.57s
+
+### e2e_environment_runner_m06 exit=0
+### e2e_exit_m03
+
+running 14 tests
+test lock::a03_fresh_logins_while_locked_continue ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test lock::a03_lock_cleanup ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test lock::a03_lock_prepare ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test lock::a03_lock_revokes_ends_grant_and_fresh_login_fails ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test lock::a03_new_grant_while_locked_under_standing_policy ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test lock::a03_post_unlock_follows_remaining_deadline ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test lock::a03_vault_stand_in_locked_agent_does_not_matter ... ignored, run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)
+test a10_bound_consumer_issuer_reachability_recorded ... ok
+test projection_rolled_back_or_recovery_kept_after_a_failure_after_apply ... ok
+test a33_secret_bytes_scan_all_artifacts ... ok
+test worker_process_entry ... ok
+test real_issuer_signs_verification_certificates_enroll_verify_passes ... ok
+test real_issuer_activation_reissue_revocation_with_fresh_logins ... ok
+test managed_revoke_reaches_revoked_once_the_residual_passes has been running for over 60 seconds
+test managed_revoke_reaches_revoked_once_the_residual_passes ... ok
+
+successes:
+
+---- a10_bound_consumer_issuer_reachability_recorded stdout ----
+m03 observation: a10 linux issuer_path none (endpoints: control=1 environment=1 binding=1 issuer=0 other=0; control: the worker's live binding endpoint is among them)
+m03 observation: a10 linux issuer_child_sockets unobservable: /proc/<pid>/fd is root's for a non-dumpable process (harden_process)
+m03 observation: a10 linux bound_unix_sockets_naming_issuer 0 (the namespace's sockets bound under the Heimdall home are exactly its 3 endpoints; control: the runtime's listeners are listed)
+m03 observation: a10 linux ca_key_listed 0 (agent endpoints listed: 2 from the test, 2 from the worker; control: the worker's binding endpoint lists exactly its grant's certificate, key ID and serial)
+m03 observation: a10 linux issuer_pipe_descriptors 0 (the bound worker holds no pipe but the stdout and stderr this test gave it, so none of the issuer's; 0 other runtime children, not comparable; the issuer pipes' identities are unobservable here: /proc/<pid>/fd is root's for a non-dumpable process (harden_process))
+m03 observation: a10 linux secret_service_item_reading unobservable: no disposable Secret Service on this run (B11)
+m03 observation: a10 linux k_ca_bytes 0 (outputs=14 files=23 crash_files=0 process_argv=3 process_environ=1; control: the CA public blob found in 1 Heimdall-home files)
+m03 observation: a10 linux k_ca_bytes unobservable: environment of the issuer child process: /proc/<pid>/environ is root's for a non-dumpable process (harden_process)
+m03 observation: a10 linux k_ca_bytes unobservable: environment of the runtime process: /proc/<pid>/environ is root's for a non-dumpable process (harden_process)
+m03 observation: a10 linux k_ca_bytes unobservable: system core dumps: core_pattern pipes to a handler whose dumps only root reads
+m03 observation: a10 linux issuer_isolation same_user_process: the boundary is the OS user
+
+---- projection_rolled_back_or_recovery_kept_after_a_failure_after_apply stdout ----
+
+thread 'projection_rolled_back_or_recovery_kept_after_a_failure_after_apply' (1697117) panicked at crates/heimdall/../../tests/e2e/exit_m03/world.rs:717:9:
+injected failure after setup apply (W6-R01 regression)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+m03 observation: lock cleanup projection rollback: setup rollback exit 0, restoration verified
+
+thread 'projection_rolled_back_or_recovery_kept_after_a_failure_after_apply' (1697117) panicked at crates/heimdall/../../tests/e2e/exit_m03/world.rs:717:9:
+injected failure after setup apply (W6-R01 regression)
+m03 observation: lock cleanup projection rollback FAILED (injected rollback failure (W6-R01 regression)): the scratch home holding the projection's state and backups is kept for recovery
+
+---- a33_secret_bytes_scan_all_artifacts stdout ----
+m03 observation: a33 linux secret_bytes 0 (kinds: k_env 80 forms, k_ca 12 forms, canary 2 forms; checkpoints: after the activation [outputs=18 files=26 crash_files=0 process_argv=4 process_environ=2]; after the re-issue [outputs=42 files=26 crash_files=0 process_argv=4 process_environ=2]; after the revocation [outputs=48 files=17 crash_files=0 process_argv=3 process_environ=1]; controls: CA public blob in 1 Heimdall-home files, placed canary seen in 2 environments, all 2 K_env seeded (indices [0, 1]))
+m03 observation: a33 linux fake_adapter_credential_ref_in_effect_receipts 10 (the test configuration's canary-named credential reference, stored by design in the state database's effect receipts; not counted)
+m03 observation: a33 linux unobservable: environment of the issuer child process: /proc/<pid>/environ is root's for a non-dumpable process (harden_process)
+m03 observation: a33 linux unobservable: environment of the runtime process: /proc/<pid>/environ is root's for a non-dumpable process (harden_process)
+m03 observation: a33 linux unobservable: system core dumps: core_pattern pipes to a handler whose dumps only root reads
+
+---- real_issuer_activation_reissue_revocation_with_fresh_logins stdout ----
+m03 observation: issuer_child linux activation=signed_and_login_accepted reissue=signed_and_login_accepted revocation=login_refused reissue_trigger=runtime_restart_same_boot key_id_last_field=serial
+
+---- managed_revoke_reaches_revoked_once_the_residual_passes stdout ----
+m03 observation: managed_revoke_residual linux certificate_validity_s=90 state_at_revoke=revoking state_after_residual=revoked obligation=bounded_by_expiry clock=unmeasured status=nominally_expired record_kept=true rounds_after_revoke=0
+
+
+successes:
+    a10_bound_consumer_issuer_reachability_recorded
+    a33_secret_bytes_scan_all_artifacts
+    managed_revoke_reaches_revoked_once_the_residual_passes
+    projection_rolled_back_or_recovery_kept_after_a_failure_after_apply
+    real_issuer_activation_reissue_revocation_with_fresh_logins
+    real_issuer_signs_verification_certificates_enroll_verify_passes
+    worker_process_entry
+
+test result: ok. 7 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 94.23s
+
+### e2e_exit_m03 exit=0
+### e2e_exit_m05
+
+running 8 tests
+test a28::a28_child_subset_refusals_and_no_owner_functions ... ok
+test a16::a04_default_and_profile_change_never_redirects_bindings ... ok
+test a16::a16_two_environments_defaults_and_cleanup ... ok
+test u5::u5_ordinary_ssh_activates_the_personal_default ... ok
+test worker_process_entry ... ok
+test a28::a28_parent_end_cascades_child_login_fails ... ok
+test a02::a02_trusted_week_zero_further_prompts has been running for over 60 seconds
+test pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual ... ok
+test a02::a02_trusted_week_zero_further_prompts ... ok
+
+successes:
+
+---- a28::a28_child_subset_refusals_and_no_owner_functions stdout ----
+m05 started-pid runtime 1697886
+m05 started-pid run-worker 1698064
+m05 observation: a28 linux subset=server_enforced wider=refused longer=refused frames=agent_failure owner_functions=not_delegated
+
+---- a16::a04_default_and_profile_change_never_redirects_bindings stdout ----
+m05 started-pid runtime 1697877
+m05 started-pid run-worker 1697996
+m05 started-pid run-worker 1697999
+m05 started-pid run-worker 1698189
+m05 observation: a04 linux default_change=redirected_nothing profile_change=redirected_nothing new_request_revision=2
+
+---- a16::a16_two_environments_defaults_and_cleanup stdout ----
+m05 started-pid runtime 1697893
+m05 started-pid runtime 1698086
+m05 started-pid run-worker 1698274
+m05 started-pid run-worker 1698277
+m05 started-pid run-worker 1698280
+m05 started-pid run-worker 1698285
+m05 observation: a16 linux environments=2 jobs=4 pins_unchanged=true cross_routed=0 handover_generation=2 cleanup=clear
+
+---- u5::u5_ordinary_ssh_activates_the_personal_default stdout ----
+m05 started-pid runtime 1698592
+m05 observation: i13 linux failed
+m05 started-pid stand-in-shell 1698656
+m05 observation: u5 linux default_at_setup=1_decision activation_decisions=0 paused=nothing_activated resumed=activated
+
+---- a28::a28_parent_end_cascades_child_login_fails stdout ----
+m05 started-pid runtime 1698311
+m05 started-pid run-worker 1698482
+m05 observation: a28 linux parent_end=revoke child_grant_state=revoking child_next_login=refused states_settled_after_login_s=0
+m05 started-pid run-worker 1698542
+m05 observation: a28 linux parent_end=cutoff child_grant_state=expired child_next_login=refused states_settled_after_login_s=0
+
+---- pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual stdout ----
+m05 started-pid runtime 1698366
+
+---- a02::a02_trusted_week_zero_further_prompts stdout ----
+m05 started-pid runtime 1697869
+m05 started-pid stand-in-shell 1698017
+m05 started-pid stand-in-shell 1698031
+m05 started-pid stand-in-shell 1698062
+m05 started-pid issuer-child 1697900
+m05 started-pid runtime 1698239
+m05 observation: a02 linux decisions_after_first=0 pending_listed=0 attended_prompts=0 provider_prompts=0 recovered_runtime=true issuer_child_after_kill=exited
+
+
+successes:
+    a02::a02_trusted_week_zero_further_prompts
+    a16::a04_default_and_profile_change_never_redirects_bindings
+    a16::a16_two_environments_defaults_and_cleanup
+    a28::a28_child_subset_refusals_and_no_owner_functions
+    a28::a28_parent_end_cascades_child_login_fails
+    pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual
+    u5::u5_ordinary_ssh_activates_the_personal_default
+    worker_process_entry
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 156.77s
+
+### e2e_exit_m05 exit=0
+### e2e_exit_m06
+
+running 10 tests
+test a07_runner_disconnected ... ok
+test a25_pairing_invite_join_through_the_product_cli ... ok
+test a26_routes_and_host_trust_without_iroh ... ok
+test a_delivered_pause_of_a_held_policy_is_named_by_access_resume ... ok
+test connect_on_a_runner_is_a_clean_launch ... ok
+test local_widening_route_add_on_a_controller ... ok
+test a24_runner_without_controller has been running for over 60 seconds
+test a25_roles_invitations_decisions has been running for over 60 seconds
+test a25_roles_invitations_decisions ... ok
+test a24_runner_without_controller ... ok
+test t06_second_controller ... ok
+test a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally has been running for over 60 seconds
+test a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally ... ok
+
+successes:
+
+---- a07_runner_disconnected stdout ----
+m06 observation: a07 issued: grant=issued onward_login=ok
+m06 observation: a07 disconnected: connectivity=not_connected issuance=awaiting_resync
+m06 observation: a07 revoke-pending: local_applied=false remote_pending=1 target=grant_revoke residual=stated acknowledged=false
+m06 observation: a07 reconnect: remote_pending=0 residual_acknowledged=true residual_names_destination_clock_error=true runner_endpoint_identities=0 onward_login=refused
+m06 observation: a07 barrier: while_disconnected=awaiting_resync after_resync=reconciled
+m06 observation: a07 no-stale-reactivation: same_request_again=OK revoked_grant_identities=0 revoked_grant_readiness=none
+m06 observation: a07 pause-pending: remote_pending=1 target=policy_pause
+m06 observation: a07 cutoff-pending: remote_pending=2 target=policy_cutoff
+m06 observation: a07 uncertain-time: runner_time=not_synchronized remote_pending=0 policy_paused=applied policy_cutoff=applied
+m06 observation: a07 fresh-work-refused: fresh_work_id=POLICY_PAUSED issued=nothing
+m06 observation: a07 cutoff-refused: runner_time=synchronized remote_pending=0 policy_paused=lifted_at_runner policy_cutoff=in_force fresh_work_id=POLICY_CUTOFF issued=nothing
+
+---- a25_pairing_invite_join_through_the_product_cli stdout ----
+m06 observation: a25-cli enrollment: catalog=product_commands ca_and_enrollment_record=written_as_m03_exit_world verified_by=product_enroll_verify state=verified
+m06 observation: a25-cli add-declined: typed=no_at_runner_confirmation runner_wrote=nothing controller_recorded=nothing controller_code=OUTCOME_UNKNOWN
+m06 observation: a25-cli add: bootstrap=ssh_session_on_terminal_over_verified_access runner_confirmation=typed_yes_on_that_terminal runtime_said=not_running runtime_offer=accepted runner_runtime=serving management_line=in_runner_authorized_keys controller_record=owner seeded=nothing
+m06 observation: a25-cli invite: owner_confirmation=typed_fingerprint_shown runner=holds_for_local_confirmation answer=APPROVAL_REQUIRED bundle_before_runner_confirmation=none
+m06 observation: a25-cli approve: at=runner_local_terminal command=decision_approve typed=yes
+m06 observation: a25-cli join: show_key=product bundle=from_invite_after_runner_confirmation join_declined_at_device=nothing_joined join=typed_host_key_and_environment_confirmation role=requester own_session=reads_runner seeded=nothing session_level=nothing device_home_bytes=84
+m06 observation: a25-cli revoke-client: by=first_controller_cli revoked_device_session=refused its_management_line=removed owner_session=still_served repeat=OK
+m06 observation: a25-cli remove: by=first_controller_cli revoked_on_runner=true controller_record=forgotten management_lines_left=0 other_authorized_keys_lines=kept
+
+---- a26_routes_and_host_trust_without_iroh stdout ----
+m06 observation: a26-routes routes: catalog=product_commands route_add_jump=OK route_add_direct=OK approved=3 (definition_address,jump_via_bastion,wrong_host_direct) seeded=nothing
+m06 observation: a26-routes upgrade: after_route_add=p_unchanged,no_pin_file setup_apply_diff_shows=ProxyCommand_route_connect alias_after=helper,HostKeyAlias,StrictHostKeyChecking_yes,catalog_only_trust,no_multiplexing helper_endpoint=the_aliases_own_IdentityAgent other_alias=byte_identical user_config=byte_identical pin_file=destination_and_bastion_catalog_keys
+m06 observation: a26-routes jump: login=ordinary_ssh_alias preferred=jump_via_bastion login_result=ok bastion_connections=1 destination_connections=1 wrong_host_connections=0 inspect_route_health=final_route_is_the_jump_route binding=resolved_at_the_aliases_own_endpoint
+m06 observation: a26-routes direct: preferred=definition_address login_result=ok bastion_connections=0 destination_connections=1 inspect_route_health=final_route_is_the_direct_route
+m06 observation: a26-routes wrong-host: preferred=wrong_host_direct approved_after_it=(definition_address,jump_via_bastion) login_result=refused cause=host_key_verification_under_the_catalog_pin wrong_host_connections=1 destination_connections=0 bastion_connections=0 retried_on_another_route=false
+m06 observation: a26-routes failover: approved=(closed_port_direct,definition_address,jump_via_bastion) login_result=ok failover=before_identification_to_the_next_approved_route inspect_route_health=failed_over,first_attempt_refused,final_route_definition_address
+m06 observation: a26-routes two-hop-substitution: pin_file_key_substituted=bastion,then_destination each=refused_host_pin_defeated routes_tried=0 destination_connections=0 bastion_connections=0 failed_over_to_the_direct_route=false catalog_pins_restored=login_ok_through_the_jump
+m06 observation: a26-routes host-pin-defeated: user_config_line_above_the_include_block=StrictHostKeyChecking_accept-new ordinary_login=refused_by_the_route_helper reason=host_pin_defeated setting=stricthostkeychecking routes_tried=0 destination_connections=0 doctor=host_pin_defeated inspect_destinations=host_pin_defeated line_removed=login_ok,inspect_clear
+m06 observation: a26-routes undetermined-backstop: user_config=Match_exec_then_StrictHostKeyChecking_no_above_the_include static_doctor=pin_status_undetermined,not_defeated,ran_nothing ordinary_login=refused_by_the_route_helper_ssh_G reason=host_pin_defeated setting=stricthostkeychecking routes_tried=0 destination_connections=0 lines_removed=login_ok
+
+---- a_delivered_pause_of_a_held_policy_is_named_by_access_resume stdout ----
+m06 observation: lift-held issued-before: by=runner_owner command=access_pause_then_access_resume_runner_pol answer=INTERACTION_REQUIRED delivered=none
+m06 observation: lift-held pause-delivered: by=controller_cli command=access_pause_runner_pol applied_on_runner=true in_force=true
+m06 observation: lift-held stale: by=runner_local_owner_on_terminal command=decision_approve_early typed=yes answer=DECISION_STALE exit=6 next=fix_request names=pause_of_policy:runner-pol policy=paused in_force=true
+m06 observation: lift-held named: by=runner_unattended_owner command=access_resume_runner_pol answer=INTERACTION_REQUIRED decision_lifted_effects=1(scope_key=policy:runner-pol,kind=pause,controller,delivered_at) in_force=true
+m06 observation: lift-held lift: by=runner_local_owner_on_terminal command=decision_approve typed=yes policy=active in_force=false
+
+---- connect_on_a_runner_is_a_clean_launch stdout ----
+m06 observation: connect-runner clean-launch: launched_by=heimdall_connect alias=existing_access environment=declared_pass_list_and_launcher_set_values home_user_logname_shell=account_database_not_the_parents lang=default_c_utf8 ssh_auth_sock=absent forwarded_agent=fixture_agent_standing_for_it forwarded_agent_inherited=false forwarded_agent_provenance=controller_dependency
+m06 observation: connect-runner configured-agent: alias_identity_agent=the_inherited_session_socket unattended_connect=refused code=CAPABILITY_UNAVAILABLE reason=controller_dependency client_started=false
+m06 observation: connect-runner ordinary-path-agent: alias_identity_agent=ordinary_local_path unattended_connect=refused code=CAPABILITY_UNAVAILABLE reason=dependency_provenance_unknown client_started=false
+m06 observation: connect-runner undetermined-agent: alias_identity_agent=tilde_path|percent_token|match_exec_dependent unattended_connect=refused_each code=CAPABILITY_UNAVAILABLE reason=dependency_provenance_unknown names_alias_and_why=true client_started=false identity_agent_none=launched
+
+---- local_widening_route_add_on_a_controller stdout ----
+m06 observation: local-widening route-unattended: command=route_add_iroh_relay session=non_interactive answer=INTERACTION_REQUIRED detail=names_the_widening reason=none decisions_recorded=0 routes=unchanged
+m06 observation: local-widening route-submit: command=route_add_iroh_relay session=terminal answer=APPROVAL_REQUIRED exit=3 decision_ref=named record_origin=local record_client=none delta_names_relay=true routes=unchanged
+m06 observation: local-widening route-retry: same_command_again=APPROVAL_REQUIRED decision_ref=the_same pending_records=1
+m06 observation: local-widening route-approve-unattended: command=decision_approve session=non_interactive exit=3 sent=nothing record=still_pending routes=unchanged
+m06 observation: local-widening route-declined: another_relay=APPROVAL_REQUIRED approve_prompt_answered=no exit=3 record=still_pending routes=unchanged
+m06 observation: local-widening route-approve: command=decision_approve session=terminal prompt_shows=request_and_delta typed=yes answer=OK route=approved_with_relay_policy same_command_again=already_present second_approval=refused
+
+---- a25_roles_invitations_decisions stdout ----
+m06 observation: a25 sshd-policy-unverified: authorized_keys_command=management_sshd_unverified force_command=management_sshd_unverified accept_env_all=management_sshd_unverified lines_written=0
+m06 observation: a25 t-ra1: paired_owner_widening=APPROVAL_REQUIRED executed=nothing lines_written=0
+m06 observation: a25 t-ra2: paired_decide=INTERACTION_REQUIRED paired_attend=INTERACTION_REQUIRED
+m06 observation: a25 unattended-local: unattended_local_decide=INTERACTION_REQUIRED lines_written=0
+m06 observation: a25 t-ra3: replay_after_runner_local_decision=recorded_terminal_result new_record=false reexecuted=false
+m06 observation: a25 pending-key: capabilities=remote-control/1_only other_request=CAPABILITY_UNAVAILABLE activation_probe=OK
+m06 observation: a25 invitation-wrong-key: join_with_another_keys_invitation=CAPABILITY_UNAVAILABLE reason=invitation_expired
+m06 observation: a25 limited-session-hello: joined_viewer_hello_requiring_nothing=served role=viewer remote_control=not_negotiated runner=not_negotiated joined_viewer_hello_requiring_remote_control=refused_CAPABILITY_UNAVAILABLE
+m06 observation: a25 invitation-consumed: join_again_by_its_key=SCHEMA_UNSUPPORTED join_by_another_key=CAPABILITY_UNAVAILABLE
+m06 observation: a25 t-ra4: limited_client_policy_widening=CAPABILITY_UNAVAILABLE reason=role_insufficient limited_client_invitation=SCHEMA_UNSUPPORTED lines_written=0
+m06 observation: a25 limited-client: shell_command=not_run pty=refused forward=refused agent_forwarding=refused setenv=not_delivered viewer_ensure=CAPABILITY_UNAVAILABLE reason=role_insufficient
+m06 observation: a25 collision: same_request_id operations=2 owner=ACCEPTED_pending_its_issuer requester=CAPABILITY_UNAVAILABLE reason=issuer_untrusted each_replays_its_own=true
+m06 observation: a25 limited-product-view: through=product_cli record=seeded command=environment_status_env viewer=read requester=read form=inspect_environments list_form_session=none lines_written=0
+m06 observation: a25 limited-product-request: through=product_cli record=seeded command=access_ensure_environment requester=ACCEPTED_pending refresh_dependency=controller ca_named=none requester_delivered_records=0 runner_grant=pending viewer=CAPABILITY_UNAVAILABLE reason=role_insufficient refused_at=controller
+m06 observation: a25 requester-no-owner-record: owner_controller=issuer_and_owner_record policy_naming_runner=none hosted_pass=reconciled owner_delivered_records=0 issuance_entries=0 runner_certificates_for_grant=0 requester_replay=ACCEPTED_pending
+m06 observation: a25 requester-owner-record: owner_policy_naming_runner=approved_on_terminal record_source=b owner_record_for_grant=from_its_policy signed_under=owner_policy requester_operation_wait=ready mechanism=managed_certificate requester_delivered_records=0
+m06 observation: a25 limited-owner-forms: owner_forms=81 from=role_table sent_by=viewer,requester served=0 refusals=CAPABILITY_UNAVAILABLE/role_insufficient:2,INTERACTION_REQUIRED/local_owner_required:10,SCHEMA_UNSUPPORTED/none:150 lines_written=0
+m06 observation: a25 limited-rotate-endpoint: capability=base reached=per_request_check viewer=usage_error requester=usage_error why=invitation_without_iroh_admission effect=none
+m06 observation: a25 limited-product-cli: record=seeded refused_at=controller viewer:update=role_insufficient,revoke_client=role_insufficient,invite=role_insufficient,recheck=role_insufficient,remove=forgotten_locally,revoke_sent=false,still_enrolled=true requester:update=role_insufficient,revoke_client=role_insufficient,invite=role_insufficient,recheck=role_insufficient,remove=forgotten_locally,revoke_sent=false,still_enrolled=true lines_written=0
+m06 observation: a25 owner-record-limited-key: record=seeded_owner key=viewer environment_update=CAPABILITY_UNAVAILABLE reason=role_insufficient refused_at=hello
+m06 observation: a25 host-key-replaced: session=refused_host_key_verification authenticated=nothing pin=unchanged genuine_host=ok
+m06 observation: a25 old-client: hello=refused code=SCHEMA_UNSUPPORTED
+m06 observation: a25 missing-capability: hello=refused code=SCHEMA_UNSUPPORTED
+m06 observation: a25 positive-control: restricted_line_agent_forwarding=refused control_line_agent_forwarding=forwarded bridge=refused_session downgrade=session_agent_forwarded limited_role_after=management_sshd_unverified
+
+---- a24_runner_without_controller stdout ----
+m06 observation: a24 pair: runner=remote_init_confirmed_on_terminal owner_enrolled=true issuer_trusted=true controller_record=seeded
+m06 observation: a24 approve: admitted_by=runner_standing_policy mechanism=managed_certificate issued_by=controller_issuer_child
+m06 observation: a24 readiness: refresh_dependency=controller status=within_bound earliest_bound=certificate_valid_before bound_within_grant_deadline=true conditions=0
+m06 observation: a24 controller-leaves: controller_runtime=stopped issuer_child=stopped management_route=blocked
+m06 observation: a24 onward-managed: login=ok credential=runner_k_env_certificate signed_by=controller_ca controller=stopped route=blocked
+m06 observation: a24 work-clean-launch: launched_by=heimdall_run controller=stopped environment=clean_allowlist_only work_agent=binding_endpoint work_agent_lists=runner_k_env_certificate_only forwarded_agent=fixture_agent_standing_for_it forwarded_agent_inherited=false forwarded_agent_provenance=controller_dependency
+m06 observation: a24 ordinary-path-agent: agent_at_ordinary_path=fixture_agent provenance=unknown passed_to_work=false unattended_launch_on_runner_signer=ok
+m06 observation: a24 onward-fixed: launched_by=heimdall_connect unattended=true controller=stopped route=blocked alias=runner_local_existing_access catalog=destination_add_observed login=ok accepted_key=runner_own_key_file forwarded_agent_contacts=0 forwarded_agent_provenance=controller_dependency
+m06 observation: a24 fixed-agent-refused: alias_identity_agent=the_forwarded_agent unattended_connect=refused code=CAPABILITY_UNAVAILABLE reason=controller_dependency destination_logins=none_new forwarded_agent_contacts=0
+m06 observation: a24 no-controller-socket: endpoint=under_runner_home identities=1 identity=runner_k_env_certificate runner_started_with_ssh_auth_sock=false
+m06 observation: a24 bound: managed_login_at_predicted_bound=refused status=bound_passed controller=stopped
+m06 observation: a24 after-bound: new_managed_request=ACCEPTED_pending refresh_dependency=controller ready=false issued=nothing
+m06 observation: a24 forwarded-agent: session_with_forwarded_agent=refused_before_any_frame code=CAPABILITY_UNAVAILABLE session_without=served
+
+---- t06_second_controller stdout ----
+m06 observation: t06 first-grant: issued_under=first_ca identities=1
+m06 observation: t06 second-owner: invited_by=first_owner_cli(environment_invite_--role_owner,typed_yes) approved_by=runner_local_owner_terminal(decision_approve,typed_yes) joined_by=second_device_cli(environment_join,typed_yes) key=made_by_join_--show-key role=owner requests_at_session_level=none controller_record=written_by_join seeded=its_copy_of_the_profile_only
+m06 observation: t06 first-controller-gone: first_controller_runtime=stopped
+m06 observation: t06 no-issuer: forwarded_request=CAPABILITY_UNAVAILABLE reason=issuer_unavailable issued=nothing
+m06 observation: t06 narrowing: effect=grant_revoke target=first_controllers_grant applied_on_runner=true acknowledged_to=second_controller
+m06 observation: t06 untrusted-issuer: forwarded_request=CAPABILITY_UNAVAILABLE reason=issuer_untrusted
+m06 observation: t06 own-grant: trusted_by=runner_local_owner_on_terminal issued_under=second_ca issuance_entries_for_first_controllers_grant=0
+m06 observation: t06 destination-trust: destination_trusting_first_ca_only=refused destination_trusting_second_ca=ok
+m06 observation: t06 first-cutoff-all: by=first_controller_cli scope=all applied_on_runner=true in_force=true second_controller_request=POLICY_CUTOFF first_controller_request=POLICY_CUTOFF
+m06 observation: t06 lift-at-runner: by=runner_local_owner_on_terminal command=access_cutoff_clear_all typed=yes delivered_cutoff_in_force=false second_controller_request=OK (no_acknowledgement_of_its_own) first_controller_request=ACCEPTED (not_acknowledged_yet)
+m06 observation: t06 first-acknowledges: by=first_controller_owner_on_terminal command=environment_resume_issuance typed=yes first_controller_request=OK
+m06 observation: t06 second-pause: by=second_controller_cli first_controller=stopped effect=policy_pause applied_on_runner=true acknowledged_to=second_controller
+m06 observation: t06 second-cutoff: by=second_controller_cli effect=policy_cutoff applied_on_runner=true acknowledged_to=second_controller fresh_work=POLICY_PAUSED
+m06 observation: t06 effect-id-collision: producers=2 effect_ids=1 same_target=true first_controllers_effect=product_cli_pause_while_disconnected its_effect_id=rewritten_in_its_pending_outbox_row(staged) delivered_by=first_controller_runtime runner_acknowledgements=one_per_producer runner_policy_revisions=one_per_producer second_controllers_acknowledgement=unchanged first_controller_sees=its_own_effect_acknowledged
+
+---- a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally stdout ----
+m06 observation: lift baseline: runner_standing_policies=0(fixture:deleted_while_stopped) controller_request=OK/none
+m06 observation: lift cutoff-all: by=controller_cli scope=all runner_standing_policies=0 delivered=true in_force=true controller_request=ACCEPTED_pending_not_issued(admitted_by_runner_owner;awaits_issuer)
+m06 observation: lift ack-alone: by=controller_owner_on_terminal command=environment_resume_issuance typed=yes runner_reports=in_force controller_request=ACCEPTED_pending_not_issued
+m06 observation: lift paired-cannot-lift: runner_unattended_owner_clear=INTERACTION_REQUIRED in_force=true controller_request=ACCEPTED_pending_not_issued
+m06 observation: lift lift: by=runner_local_owner_on_terminal command=access_cutoff_clear_all typed=yes in_force=false acknowledged=earlier controller_request=OK/none (as_at_baseline)
+
+
+successes:
+    a07_runner_disconnected
+    a24_runner_without_controller
+    a25_pairing_invite_join_through_the_product_cli
+    a25_roles_invitations_decisions
+    a26_routes_and_host_trust_without_iroh
+    a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally
+    a_delivered_pause_of_a_held_policy_is_named_by_access_resume
+    connect_on_a_runner_is_a_clean_launch
+    local_widening_route_add_on_a_controller
+    t06_second_controller
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 95.07s
+
+### e2e_exit_m06 exit=0
+### e2e_exit_m06_iroh
+
+running 3 tests
+test local_widening_adopt_roost_on_a_controller ... ok
+test a26_iroh_through_a_projected_alias ... ok
+test a26_iroh_routes_trust ... ok
+
+successes:
+
+---- local_widening_adopt_roost_on_a_controller stdout ----
+m06 observation: local-widening roost-unattended: command=transport_adopt_roost session=non_interactive answer=INTERACTION_REQUIRED detail=names_the_widening reason=none decisions_recorded=0 routes=unchanged
+m06 observation: local-widening roost-submit: command=transport_adopt_roost session=terminal answer=APPROVAL_REQUIRED exit=3 record_origin=local record_client=none delta_names_roost=true same_command_again=the_same_record routes=unchanged
+m06 observation: local-widening roost-approve: unattended_decision_approve=nothing_sent terminal_decision_approve=OK typed=yes prompt_shows=request_and_delta route=external_roost consent=this_decision_and_delta disclosure_lines=3 same_command_again=CONFIG_CONFLICT_no_record
+
+---- a26_iroh_through_a_projected_alias stdout ----
+m06 observation: a26-iroh-alias dialer-key: installation=controller command=transport_enable decision=none_needed serve=false store_kind=fixture_store key_store=fixture_store
+m06 observation: a26-iroh-alias serve: serving_runners=2 (destination,wrong_host) each=local_owner_on_a_terminal_typed_yes bind=loopback relays=none dialer_admitted_at=remote_init key_store=fixture_store
+m06 observation: a26-iroh-alias route-widening: command=route_add_iroh_address_relay unattended=INTERACTION_REQUIRED on_terminal=APPROVAL_REQUIRED record_origin=local record_client=none delta_names_relay=true decision_approve_typed_yes=OK approved=(definition_address,iroh) relay=closed_loopback_port key_store=fixture_store
+m06 observation: a26-iroh-alias projected: after_route_add=p_unchanged setup_apply_diff_shows=ProxyCommand_route_connect alias_after=helper,HostKeyAlias,catalog_pin_file key_store=fixture_store
+m06 observation: a26-iroh-alias login-iroh: dialer=controller login=ordinary_ssh_alias_through_heimdall_run command_line_options=F_scratch_config,BatchMode,ConnectTimeout route_used=iroh login_result=ok destination_connections=1 host_key=catalog_pin credential=managed_certificate_of_the_aliases_own_endpoint inspect_route_health=final_route_is_the_iroh_route key_store=fixture_store
+m06 observation: a26-iroh-alias helper-by-hand: helper_invocation=not_the_projected_aliass_proxy (another_endpoint) result=refused reason=host_pin_defeated setting=proxycommand routes_tried=0 destination_connections=0 key_store=fixture_store
+m06 observation: a26-iroh-alias wrong-host: preferred=iroh_route_to_the_wrong_hosts_serving_runner approved_after_it=(iroh,definition_address) login_result=refused cause=host_key_verification_under_the_catalog_pin wrong_host_connections=1 destination_connections=0 retried_on_another_route=false key_store=fixture_store
+m06 observation: a26-iroh-alias failover: serving_runtime=stopped login=ordinary_ssh_alias login_result=ok first_attempt=iroh_route_timeout failover=before_identification final_route=definition_address destination_connections=1 key_store=fixture_store
+
+---- a26_iroh_routes_trust stdout ----
+m06 observation: a26 store-unusable: variable=names_a_missing_directory transport_enable=CAPABILITY_UNAVAILABLE reason=transport_key_store_unavailable transport_keys_recorded=0 directory_created=false key_store=fixture_store
+m06 observation: a26 dialer-key: command=transport_enable decision=none_needed serve=false store_kind=fixture_store key_store=fixture_store
+m06 observation: a26 sshd-port-flag: flag=transport_enable_serve_sshd_port zero=usage_error past_65535=usage_error unattended_local_owner=INTERACTION_REQUIRED recorded=nothing key_store=fixture_store
+m06 observation: a26 build: test_target_feature=iroh binary=harness_supplied transport_capability=negotiated key_store=fixture_store
+m06 observation: a26 exposure-serve: paired_owner_serve_widening=APPROVAL_REQUIRED_pending_runner_local_decision applied=nothing key_store=fixture_store
+m06 observation: a26 exposure-relay: unapproved_relay=APPROVAL_REQUIRED_pending n0_public=APPROVAL_REQUIRED_pending applied=nothing key_store=fixture_store
+m06 observation: a26 no-remote-decision: paired_decide=INTERACTION_REQUIRED unattended_local_decide=INTERACTION_REQUIRED key_store=fixture_store
+m06 observation: a26 nothing-exposed: before_approval transport_keys_recorded=0 serve_child=none serving_store_items=0 key_store=fixture_store
+m06 observation: a26 serve-local-submit: command=transport_enable_serve_sshd_port session=terminal answer=APPROVAL_REQUIRED exit=3 record_origin=local record_client=none delta=serve_and_sshd_port same_command_again=the_same_record paired_decide=INTERACTION_REQUIRED non_interactive_decision_approve=nothing_sent applied=nothing key_store=fixture_store
+m06 observation: a26 serve-local-approve: command=decision_approve session=terminal typed=yes answer=OK applied=the_recorded_request_once key_store=fixture_store
+m06 observation: a26 paired-after-local: paired_owner_serve_record=still_its_own_record_with_its_client attended_local_approve_after_the_local_serve=CAPABILITY_UNAVAILABLE reason=decision_binding_mismatch applied=nothing key_store=fixture_store
+m06 observation: a26 serve: submitted_by=runner_local_owner_on_a_terminal approved_by=the_same_owner_attended serve_child=running bind=loopback relays=none target=fixture_sshd_on_loopback target_port_from=serve_policy_sshd_port key_store=fixture_store
+m06 observation: a26 route-iroh: approved_routes=iroh_only helper=route_connect_as_proxy_command login=ok destination=fixture_sshd credential=dialer_k_env_certificate host_key=pinned catalog=seeded key_store=fixture_store
+m06 observation: a26 serve-restart: serving_runtime=stopped_then_started login_while_stopped=refused serve_child=new_process endpoint_id=unchanged serve_port=unchanged sshd_port=unchanged_from_durable_state route=unchanged login_after_restart=ok key_store=fixture_store
+m06 observation: a26 unapproved-hint: route_with_unapproved_relay asked_by_attended_local_owner=APPROVAL_REQUIRED_pending asked_by_unattended_local_owner=INTERACTION_REQUIRED_names_the_relay approved=never written=nothing key_store=fixture_store
+m06 observation: a26 failover-before-identification: approved_routes=iroh_then_direct iroh_leg=no_server_before_identification next_route=direct login=ok key_store=fixture_store
+m06 observation: a26 late-refusal-terminal: approved_routes=iroh_then_direct live_session=over_iroh closed_by=serving_side_after_forwarding session=failed moved_to_direct_route=false key_store=fixture_store
+m06 observation: a26 revocation: revoked_by=runner_local_owner answer=OK iroh_admission=applied live_connection=closed_by_the_answer enrolled_endpoints=0 new_dial=refused_before_identification failover_to_direct=ok iroh_route_alone=refused key_store=fixture_store
+m06 observation: a26 disable: asked_by=runner_local_owner serve_child=stopped active_key=none store_items=0 serve_port=forgotten key_store=fixture_store
+m06 observation: a26 paired-approve: runner=a_serving_runner_of_its_own_serving_nothing asked_by=paired_owner_over_its_management_session answer=APPROVAL_REQUIRED record_origin=paired record_client=the_paired_owner non_interactive_decision_approve=INTERACTION_REQUIRED approved_by=runner_local_owner_on_a_terminal typed=yes answer_after=OK installed=key,serve_policy_sshd_port,serve_child paired_replay=the_recorded_result_same_endpoint key_store=fixture_store
+
+
+successes:
+    a26_iroh_routes_trust
+    a26_iroh_through_a_projected_alias
+    local_widening_adopt_roost_on_a_controller
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.83s
+
+### e2e_exit_m06_iroh exit=0
+all-tests-exit=0

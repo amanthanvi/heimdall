@@ -1,0 +1,154 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running ../../tests/e2e/exit_m06.rs (target/debug/deps/e2e_exit_m06-01a130d5e9c4b5cc)
+
+running 10 tests
+test connect_on_a_runner_is_a_clean_launch ... ok
+test a_delivered_pause_of_a_held_policy_is_named_by_access_resume ... ok
+test local_widening_route_add_on_a_controller ... ok
+test a07_runner_disconnected ... ok
+test t06_second_controller ... ok
+test a25_pairing_invite_join_through_the_product_cli ... ok
+test a26_routes_and_host_trust_without_iroh ... ok
+test a24_runner_without_controller has been running for over 60 seconds
+test a25_roles_invitations_decisions has been running for over 60 seconds
+test a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally has been running for over 60 seconds
+test a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally ... ok
+test a25_roles_invitations_decisions ... ok
+test a24_runner_without_controller ... ok
+
+successes:
+
+---- connect_on_a_runner_is_a_clean_launch stdout ----
+m06 observation: connect-runner clean-launch: launched_by=heimdall_connect alias=existing_access environment=declared_pass_list_and_launcher_set_values home_user_logname_shell=account_database_not_the_parents lang=default_c_utf8 ssh_auth_sock=absent forwarded_agent=fixture_agent_standing_for_it forwarded_agent_inherited=false forwarded_agent_provenance=controller_dependency
+m06 observation: connect-runner configured-agent: alias_identity_agent=the_inherited_session_socket unattended_connect=refused code=CAPABILITY_UNAVAILABLE reason=controller_dependency client_started=false
+m06 observation: connect-runner ordinary-path-agent: alias_identity_agent=ordinary_local_path unattended_connect=refused code=CAPABILITY_UNAVAILABLE reason=dependency_provenance_unknown client_started=false
+m06 observation: connect-runner undetermined-agent: alias_identity_agent=tilde_path|percent_token|match_exec_dependent unattended_connect=refused_each code=CAPABILITY_UNAVAILABLE reason=dependency_provenance_unknown names_alias_and_why=true client_started=false identity_agent_none=launched
+
+---- a_delivered_pause_of_a_held_policy_is_named_by_access_resume stdout ----
+m06 observation: lift-held issued-before: by=runner_owner command=access_pause_then_access_resume_runner_pol answer=INTERACTION_REQUIRED delivered=none
+m06 observation: lift-held pause-delivered: by=controller_cli command=access_pause_runner_pol applied_on_runner=true in_force=true
+m06 observation: lift-held stale: by=runner_local_owner_on_terminal command=decision_approve_early typed=yes answer=DECISION_STALE exit=6 next=fix_request names=pause_of_policy:runner-pol policy=paused in_force=true
+m06 observation: lift-held named: by=runner_unattended_owner command=access_resume_runner_pol answer=INTERACTION_REQUIRED decision_lifted_effects=1(scope_key=policy:runner-pol,kind=pause,controller,delivered_at) in_force=true
+m06 observation: lift-held lift: by=runner_local_owner_on_terminal command=decision_approve typed=yes policy=active in_force=false
+
+---- local_widening_route_add_on_a_controller stdout ----
+m06 observation: local-widening route-unattended: command=route_add_iroh_relay session=non_interactive answer=INTERACTION_REQUIRED detail=names_the_widening reason=none decisions_recorded=0 routes=unchanged
+m06 observation: local-widening route-submit: command=route_add_iroh_relay session=terminal answer=APPROVAL_REQUIRED exit=3 decision_ref=named record_origin=local record_client=none delta_names_relay=true routes=unchanged
+m06 observation: local-widening route-retry: same_command_again=APPROVAL_REQUIRED decision_ref=the_same pending_records=1
+m06 observation: local-widening route-approve-unattended: command=decision_approve session=non_interactive exit=3 sent=nothing record=still_pending routes=unchanged
+m06 observation: local-widening route-declined: another_relay=APPROVAL_REQUIRED approve_prompt_answered=no exit=3 record=still_pending routes=unchanged
+m06 observation: local-widening route-approve: command=decision_approve session=terminal prompt_shows=request_and_delta typed=yes answer=OK route=approved_with_relay_policy same_command_again=already_present second_approval=refused
+
+---- a07_runner_disconnected stdout ----
+m06 observation: a07 issued: grant=issued onward_login=ok
+m06 observation: a07 disconnected: connectivity=not_connected issuance=awaiting_resync
+m06 observation: a07 revoke-pending: local_applied=false remote_pending=1 target=grant_revoke residual=stated acknowledged=false
+m06 observation: a07 reconnect: remote_pending=0 residual_acknowledged=true residual_names_destination_clock_error=true runner_endpoint_identities=0 onward_login=refused
+m06 observation: a07 barrier: while_disconnected=awaiting_resync after_resync=reconciled
+m06 observation: a07 no-stale-reactivation: same_request_again=OK revoked_grant_identities=0 revoked_grant_readiness=none
+m06 observation: a07 pause-pending: remote_pending=1 target=policy_pause
+m06 observation: a07 cutoff-pending: remote_pending=2 target=policy_cutoff
+m06 observation: a07 uncertain-time: runner_time=not_synchronized remote_pending=0 policy_paused=applied policy_cutoff=applied
+m06 observation: a07 fresh-work-refused: fresh_work_id=POLICY_PAUSED issued=nothing
+m06 observation: a07 cutoff-refused: runner_time=synchronized remote_pending=0 policy_paused=lifted_at_runner policy_cutoff=in_force fresh_work_id=POLICY_CUTOFF issued=nothing
+
+---- t06_second_controller stdout ----
+m06 observation: t06 first-grant: issued_under=first_ca identities=1
+m06 observation: t06 second-owner: invited_by=first_owner_cli(environment_invite_--role_owner,typed_yes) approved_by=runner_local_owner_terminal(decision_approve,typed_yes) joined_by=second_device_cli(environment_join,typed_yes) key=made_by_join_--show-key role=owner requests_at_session_level=none controller_record=written_by_join seeded=its_copy_of_the_profile_only
+m06 observation: t06 first-controller-gone: first_controller_runtime=stopped
+m06 observation: t06 no-issuer: forwarded_request=CAPABILITY_UNAVAILABLE reason=issuer_unavailable issued=nothing
+m06 observation: t06 narrowing: effect=grant_revoke target=first_controllers_grant applied_on_runner=true acknowledged_to=second_controller
+m06 observation: t06 untrusted-issuer: forwarded_request=CAPABILITY_UNAVAILABLE reason=issuer_untrusted
+m06 observation: t06 own-grant: trusted_by=runner_local_owner_on_terminal issued_under=second_ca issuance_entries_for_first_controllers_grant=0
+m06 observation: t06 destination-trust: destination_trusting_first_ca_only=refused destination_trusting_second_ca=ok
+m06 observation: t06 first-cutoff-all: by=first_controller_cli scope=all applied_on_runner=true in_force=true second_controller_request=POLICY_CUTOFF first_controller_request=POLICY_CUTOFF
+m06 observation: t06 lift-at-runner: by=runner_local_owner_on_terminal command=access_cutoff_clear_all typed=yes delivered_cutoff_in_force=false second_controller_request=OK (no_acknowledgement_of_its_own) first_controller_request=ACCEPTED (not_acknowledged_yet)
+m06 observation: t06 first-acknowledges: by=first_controller_owner_on_terminal command=environment_resume_issuance typed=yes first_controller_request=OK
+m06 observation: t06 second-pause: by=second_controller_cli first_controller=stopped effect=policy_pause applied_on_runner=true acknowledged_to=second_controller
+m06 observation: t06 second-cutoff: by=second_controller_cli effect=policy_cutoff applied_on_runner=true acknowledged_to=second_controller fresh_work=POLICY_PAUSED
+m06 observation: t06 effect-id-collision: producers=2 effect_ids=1 same_target=true first_controllers_effect=product_cli_pause_while_disconnected its_effect_id=rewritten_in_its_pending_outbox_row(staged) delivered_by=first_controller_runtime runner_acknowledgements=one_per_producer runner_policy_revisions=one_per_producer second_controllers_acknowledgement=unchanged first_controller_sees=its_own_effect_acknowledged
+
+---- a25_pairing_invite_join_through_the_product_cli stdout ----
+m06 observation: a25-cli enrollment: catalog=product_commands ca_and_enrollment_record=written_as_m03_exit_world verified_by=product_enroll_verify state=verified
+m06 observation: a25-cli add-declined: typed=no_at_runner_confirmation runner_wrote=nothing controller_recorded=nothing controller_code=OUTCOME_UNKNOWN
+m06 observation: a25-cli add: bootstrap=ssh_session_on_terminal_over_verified_access runner_confirmation=typed_yes_on_that_terminal runtime_said=not_running runtime_offer=accepted runner_runtime=serving management_line=in_runner_authorized_keys controller_record=owner seeded=nothing
+m06 observation: a25-cli invite: owner_confirmation=typed_fingerprint_shown runner=holds_for_local_confirmation answer=APPROVAL_REQUIRED bundle_before_runner_confirmation=none
+m06 observation: a25-cli approve: at=runner_local_terminal command=decision_approve typed=yes
+m06 observation: a25-cli join: show_key=product bundle=from_invite_after_runner_confirmation join_declined_at_device=nothing_joined join=typed_host_key_and_environment_confirmation role=requester own_session=reads_runner seeded=nothing session_level=nothing device_home_bytes=84
+m06 observation: a25-cli revoke-client: by=first_controller_cli revoked_device_session=refused its_management_line=removed owner_session=still_served repeat=OK
+m06 observation: a25-cli remove: by=first_controller_cli revoked_on_runner=true controller_record=forgotten management_lines_left=0 other_authorized_keys_lines=kept
+
+---- a26_routes_and_host_trust_without_iroh stdout ----
+m06 observation: a26-routes routes: catalog=product_commands route_add_jump=OK route_add_direct=OK approved=3 (definition_address,jump_via_bastion,wrong_host_direct) seeded=nothing
+m06 observation: a26-routes upgrade: after_route_add=p_unchanged,no_pin_file setup_apply_diff_shows=ProxyCommand_route_connect alias_after=helper,HostKeyAlias,StrictHostKeyChecking_yes,catalog_only_trust,no_multiplexing helper_endpoint=the_aliases_own_IdentityAgent other_alias=byte_identical user_config=byte_identical pin_file=destination_and_bastion_catalog_keys
+m06 observation: a26-routes jump: login=ordinary_ssh_alias preferred=jump_via_bastion login_result=ok bastion_connections=1 destination_connections=1 wrong_host_connections=0 inspect_route_health=final_route_is_the_jump_route binding=resolved_at_the_aliases_own_endpoint
+m06 observation: a26-routes direct: preferred=definition_address login_result=ok bastion_connections=0 destination_connections=1 inspect_route_health=final_route_is_the_direct_route
+m06 observation: a26-routes wrong-host: preferred=wrong_host_direct approved_after_it=(definition_address,jump_via_bastion) login_result=refused cause=host_key_verification_under_the_catalog_pin wrong_host_connections=1 destination_connections=0 bastion_connections=0 retried_on_another_route=false
+m06 observation: a26-routes failover: approved=(closed_port_direct,definition_address,jump_via_bastion) login_result=ok failover=before_identification_to_the_next_approved_route inspect_route_health=failed_over,first_attempt_refused,final_route_definition_address
+m06 observation: a26-routes two-hop-substitution: pin_file_key_substituted=bastion,then_destination each=refused_host_pin_defeated routes_tried=0 destination_connections=0 bastion_connections=0 failed_over_to_the_direct_route=false catalog_pins_restored=login_ok_through_the_jump
+m06 observation: a26-routes host-pin-defeated: user_config_line_above_the_include_block=StrictHostKeyChecking_accept-new ordinary_login=refused_by_the_route_helper reason=host_pin_defeated setting=stricthostkeychecking routes_tried=0 destination_connections=0 doctor=host_pin_defeated inspect_destinations=host_pin_defeated line_removed=login_ok,inspect_clear
+m06 observation: a26-routes undetermined-backstop: user_config=Match_exec_then_StrictHostKeyChecking_no_above_the_include static_doctor=pin_status_undetermined,not_defeated,ran_nothing ordinary_login=refused_by_the_route_helper_ssh_G reason=host_pin_defeated setting=stricthostkeychecking routes_tried=0 destination_connections=0 lines_removed=login_ok
+
+---- a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally stdout ----
+m06 observation: lift baseline: runner_standing_policies=0(fixture:deleted_while_stopped) controller_request=OK/none
+m06 observation: lift cutoff-all: by=controller_cli scope=all runner_standing_policies=0 delivered=true in_force=true controller_request=ACCEPTED_pending_not_issued(admitted_by_runner_owner;awaits_issuer)
+m06 observation: lift ack-alone: by=controller_owner_on_terminal command=environment_resume_issuance typed=yes runner_reports=in_force controller_request=ACCEPTED_pending_not_issued
+m06 observation: lift paired-cannot-lift: runner_unattended_owner_clear=INTERACTION_REQUIRED in_force=true controller_request=ACCEPTED_pending_not_issued
+m06 observation: lift lift: by=runner_local_owner_on_terminal command=access_cutoff_clear_all typed=yes in_force=false acknowledged=earlier controller_request=OK/none (as_at_baseline)
+
+---- a25_roles_invitations_decisions stdout ----
+m06 observation: a25 sshd-policy-unverified: authorized_keys_command=management_sshd_unverified force_command=management_sshd_unverified accept_env_all=management_sshd_unverified lines_written=0
+m06 observation: a25 t-ra1: paired_owner_widening=APPROVAL_REQUIRED executed=nothing lines_written=0
+m06 observation: a25 t-ra2: paired_decide=INTERACTION_REQUIRED paired_attend=INTERACTION_REQUIRED
+m06 observation: a25 unattended-local: unattended_local_decide=INTERACTION_REQUIRED lines_written=0
+m06 observation: a25 t-ra3: replay_after_runner_local_decision=recorded_terminal_result new_record=false reexecuted=false
+m06 observation: a25 pending-key: capabilities=remote-control/1_only other_request=CAPABILITY_UNAVAILABLE activation_probe=OK
+m06 observation: a25 invitation-wrong-key: join_with_another_keys_invitation=CAPABILITY_UNAVAILABLE reason=invitation_expired
+m06 observation: a25 limited-session-hello: joined_viewer_hello_requiring_nothing=served role=viewer remote_control=not_negotiated runner=not_negotiated joined_viewer_hello_requiring_remote_control=refused_CAPABILITY_UNAVAILABLE
+m06 observation: a25 invitation-consumed: join_again_by_its_key=SCHEMA_UNSUPPORTED join_by_another_key=CAPABILITY_UNAVAILABLE
+m06 observation: a25 t-ra4: limited_client_policy_widening=CAPABILITY_UNAVAILABLE reason=role_insufficient limited_client_invitation=SCHEMA_UNSUPPORTED lines_written=0
+m06 observation: a25 limited-client: shell_command=not_run pty=refused forward=refused agent_forwarding=refused setenv=not_delivered viewer_ensure=CAPABILITY_UNAVAILABLE reason=role_insufficient
+m06 observation: a25 collision: same_request_id operations=2 owner=ACCEPTED_pending_its_issuer requester=CAPABILITY_UNAVAILABLE reason=issuer_untrusted each_replays_its_own=true
+m06 observation: a25 limited-product-view: through=product_cli record=seeded command=environment_status_env viewer=read requester=read form=inspect_environments list_form_session=none lines_written=0
+m06 observation: a25 limited-product-request: through=product_cli record=seeded command=access_ensure_environment requester=ACCEPTED_pending refresh_dependency=controller ca_named=none requester_delivered_records=0 runner_grant=pending viewer=CAPABILITY_UNAVAILABLE reason=role_insufficient refused_at=controller
+m06 observation: a25 requester-no-owner-record: owner_controller=issuer_and_owner_record policy_naming_runner=none hosted_pass=reconciled owner_delivered_records=0 issuance_entries=0 runner_certificates_for_grant=0 requester_replay=ACCEPTED_pending
+m06 observation: a25 requester-owner-record: owner_policy_naming_runner=approved_on_terminal record_source=b owner_record_for_grant=from_its_policy signed_under=owner_policy requester_operation_wait=ready mechanism=managed_certificate requester_delivered_records=0
+m06 observation: a25 limited-owner-forms: owner_forms=81 from=role_table sent_by=viewer,requester served=0 refusals=CAPABILITY_UNAVAILABLE/role_insufficient:2,INTERACTION_REQUIRED/local_owner_required:10,SCHEMA_UNSUPPORTED/none:150 lines_written=0
+m06 observation: a25 limited-rotate-endpoint: capability=base reached=per_request_check viewer=usage_error requester=usage_error why=invitation_without_iroh_admission effect=none
+m06 observation: a25 limited-product-cli: record=seeded refused_at=controller viewer:update=role_insufficient,revoke_client=role_insufficient,invite=role_insufficient,recheck=role_insufficient,remove=forgotten_locally,revoke_sent=false,still_enrolled=true requester:update=role_insufficient,revoke_client=role_insufficient,invite=role_insufficient,recheck=role_insufficient,remove=forgotten_locally,revoke_sent=false,still_enrolled=true lines_written=0
+m06 observation: a25 owner-record-limited-key: record=seeded_owner key=viewer environment_update=CAPABILITY_UNAVAILABLE reason=role_insufficient refused_at=hello
+m06 observation: a25 host-key-replaced: session=refused_host_key_verification authenticated=nothing pin=unchanged genuine_host=ok
+m06 observation: a25 old-client: hello=refused code=SCHEMA_UNSUPPORTED
+m06 observation: a25 missing-capability: hello=refused code=SCHEMA_UNSUPPORTED
+m06 observation: a25 positive-control: blocked (sshd >= 10.1 places forwarded agent sockets under the account's real ~/.ssh/agent)
+
+---- a24_runner_without_controller stdout ----
+m06 observation: a24 pair: runner=remote_init_confirmed_on_terminal owner_enrolled=true issuer_trusted=true controller_record=seeded
+m06 observation: a24 approve: admitted_by=runner_standing_policy mechanism=managed_certificate issued_by=controller_issuer_child
+m06 observation: a24 readiness: refresh_dependency=controller status=within_bound earliest_bound=certificate_valid_before bound_within_grant_deadline=true conditions=0
+m06 observation: a24 controller-leaves: controller_runtime=stopped issuer_child=stopped management_route=blocked
+m06 observation: a24 onward-managed: login=ok credential=runner_k_env_certificate signed_by=controller_ca controller=stopped route=blocked
+m06 observation: a24 work-clean-launch: launched_by=heimdall_run controller=stopped environment=clean_allowlist_only work_agent=binding_endpoint work_agent_lists=runner_k_env_certificate_only forwarded_agent=fixture_agent_standing_for_it forwarded_agent_inherited=false forwarded_agent_provenance=controller_dependency
+m06 observation: a24 ordinary-path-agent: agent_at_ordinary_path=fixture_agent provenance=unknown passed_to_work=false unattended_launch_on_runner_signer=ok
+m06 observation: a24 onward-fixed: launched_by=heimdall_connect unattended=true controller=stopped route=blocked alias=runner_local_existing_access catalog=destination_add_observed login=ok accepted_key=runner_own_key_file forwarded_agent_contacts=0 forwarded_agent_provenance=controller_dependency
+m06 observation: a24 fixed-agent-refused: alias_identity_agent=the_forwarded_agent unattended_connect=refused code=CAPABILITY_UNAVAILABLE reason=controller_dependency destination_logins=none_new forwarded_agent_contacts=0
+m06 observation: a24 no-controller-socket: endpoint=under_runner_home identities=1 identity=runner_k_env_certificate runner_started_with_ssh_auth_sock=false
+m06 observation: a24 bound: managed_login_at_predicted_bound=refused status=bound_passed controller=stopped
+m06 observation: a24 after-bound: new_managed_request=ACCEPTED_pending refresh_dependency=controller ready=false issued=nothing
+m06 observation: a24 forwarded-agent: session_with_forwarded_agent=refused_before_any_frame code=CAPABILITY_UNAVAILABLE session_without=served
+
+
+successes:
+    a07_runner_disconnected
+    a24_runner_without_controller
+    a25_pairing_invite_join_through_the_product_cli
+    a25_roles_invitations_decisions
+    a26_routes_and_host_trust_without_iroh
+    a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally
+    a_delivered_pause_of_a_held_policy_is_named_by_access_resume
+    connect_on_a_runner_is_a_clean_launch
+    local_widening_route_add_on_a_controller
+    t06_second_controller
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 78.01s
+

@@ -30,6 +30,7 @@
 //! `schema_version` is rejected explicitly; omitted, `null`, and `unknown` are
 //! distinct; timestamps are RFC 3339 with an explicit offset; IDs are opaque.
 
+pub mod bounds;
 pub mod canonical;
 pub mod catalog;
 pub mod code;
@@ -40,15 +41,21 @@ pub mod enrollment;
 pub mod envelope;
 pub mod environment;
 pub mod event;
+pub mod event_payload;
 pub mod exit;
 pub mod ids;
 pub mod ipc;
 pub mod issuer;
+pub mod lifecycle;
 pub mod managed;
+pub mod page;
+pub mod primitives;
 pub mod project;
 pub mod provider;
+pub mod reasons;
 pub mod remote;
 pub mod request;
+pub mod request_state;
 pub mod route;
 pub mod run_record;
 pub mod schema;
@@ -56,6 +63,7 @@ pub mod setup;
 pub mod state;
 pub mod trust;
 pub mod version;
+pub mod views;
 
 pub use code::Code;
 pub use envelope::{EffectStatus, Envelope, ErrorData, ErrorDetail, NextAction, Warning};

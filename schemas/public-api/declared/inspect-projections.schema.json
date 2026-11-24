@@ -1,0 +1,709 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProjectionListView",
+  "description": "`inspect projections` data: this environment's projection resources and its projection\nrecord, read-only.",
+  "type": "object",
+  "properties": {
+    "preview": {
+      "description": "`inspect --preview`'s result. Omitted without a preview.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreviewView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "projections": {
+      "description": "The `config_projection` resources the projection owns.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ProjectionResourceView"
+      }
+    },
+    "record": {
+      "description": "What each projection item last committed (subject metadata, kept: D1). Omitted\nuntil a projection is committed, and for a role that is not the owner (today:\n`null`).",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProjectionRecordView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "projections"
+  ],
+  "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "BindingId": {
+      "description": "Work binding ID (spec §4.1 \"Work binding\").",
+      "type": "string"
+    },
+    "Capability": {
+      "description": "Credential capabilities a caller may request (spec §7.2).",
+      "oneOf": [
+        {
+          "description": "SSH user authentication.",
+          "type": "string",
+          "const": "ssh-authentication"
+        },
+        {
+          "description": "Git commit/tag signing (never implied by authentication; spec §7.2).",
+          "type": "string",
+          "const": "git-signing"
+        },
+        {
+          "description": "Agent forwarding (explicit, disabled by default; spec §8.5).",
+          "type": "string",
+          "const": "agent-forwarding"
+        }
+      ]
+    },
+    "Code": {
+      "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "OK"
+        },
+        {
+          "type": "string",
+          "const": "ACCESS_READY"
+        },
+        {
+          "type": "string",
+          "const": "ACCEPTED"
+        },
+        {
+          "type": "string",
+          "const": "APPROVAL_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "INTERACTION_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "PROVIDER_LOCKED"
+        },
+        {
+          "type": "string",
+          "const": "CAPABILITY_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_PAUSED"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_CUTOFF"
+        },
+        {
+          "type": "string",
+          "const": "CREDENTIAL_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "HOST_TRUST_CHANGED"
+        },
+        {
+          "type": "string",
+          "const": "DELEGATION_EXCEEDS_PARENT"
+        },
+        {
+          "type": "string",
+          "const": "OPERATION_CANCELLED"
+        },
+        {
+          "type": "string",
+          "const": "DESTINATION_UNREACHABLE"
+        },
+        {
+          "type": "string",
+          "const": "TIME_UNCERTAIN"
+        },
+        {
+          "type": "string",
+          "const": "UNSUPPORTED_CLIENT"
+        },
+        {
+          "type": "string",
+          "const": "SERVICE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "STATE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "BACKPRESSURE"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "CONFIG_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "RESYNC_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "DECISION_STALE"
+        },
+        {
+          "type": "string",
+          "const": "OUTCOME_UNKNOWN"
+        },
+        {
+          "type": "string",
+          "const": "USAGE_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "SCHEMA_UNSUPPORTED"
+        },
+        {
+          "type": "string",
+          "const": "NOT_FOUND"
+        },
+        {
+          "type": "string",
+          "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
+        }
+      ]
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
+    "GrantId": {
+      "description": "Grant ID (spec §4.1 \"Grant\").",
+      "type": "string"
+    },
+    "OperationId": {
+      "description": "Durable operation ID (spec §4.1 \"Operation\").",
+      "type": "string"
+    },
+    "PreviewSnapshot": {
+      "description": "What a preview would resolve.",
+      "type": "object",
+      "properties": {
+        "deadline": {
+          "description": "The deadline that would be enforced.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "mechanism": {
+          "description": "The mechanism that would serve it. Omitted when no adapter is resolved (today:\n`null`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile": {
+          "description": "The profile.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "profile_revision": {
+          "description": "Its current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "requested": {
+          "description": "The requested scope.",
+          "$ref": "#/$defs/ScopeView"
+        }
+      },
+      "required": [
+        "profile",
+        "profile_revision",
+        "requested",
+        "deadline"
+      ]
+    },
+    "PreviewView": {
+      "description": "`inspect --preview`'s `preview` key: resolution without effects, added to the data of\nany subject but `export` when the request carries `preview`. Tagged by `outcome`.",
+      "oneOf": [
+        {
+          "description": "Existing authority covers the request.",
+          "type": "object",
+          "properties": {
+            "effective": {
+              "description": "The effective authority (the domain `EffectiveAuthority`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "allowed"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "effective"
+          ]
+        },
+        {
+          "description": "Only the delta needs an owner decision.",
+          "type": "object",
+          "properties": {
+            "covered": {
+              "description": "What existing authority already covers (the domain `EffectiveAuthority`,\nverbatim). Omitted when nothing is covered (today: `null`)."
+            },
+            "delta": {
+              "description": "What needs a decision (the domain `AuthorityDelta`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "approval_required"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "delta"
+          ]
+        },
+        {
+          "description": "Refused.",
+          "type": "object",
+          "properties": {
+            "code": {
+              "description": "The refusal's code.",
+              "$ref": "#/$defs/Code"
+            },
+            "message": {
+              "description": "The refusal's message.",
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "denied"
+            }
+          },
+          "required": [
+            "outcome",
+            "code",
+            "message"
+          ]
+        }
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "ProjectionItemRecordView": {
+      "description": "One projection item's last committed state.",
+      "type": "object",
+      "properties": {
+        "aliases": {
+          "description": "The managed aliases rendered into the managed file (the `ssh` item); empty for\n`git`. Always written, possibly empty.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "committed_at": {
+          "description": "When it was committed.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "files": {
+          "description": "Its files at that generation (each `{role, path, identity, sha256}`, the domain\n`ProjectionLocator`, verbatim). Always written, possibly empty.",
+          "type": "array",
+          "default": [],
+          "items": true
+        },
+        "generation": {
+          "description": "Its last committed generation.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "include_file": {
+          "description": "The global Git file the `git` item's block was written into. Omitted for the `ssh`\nitem and for a record written before the field existed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation": {
+          "description": "The operation that committed it.",
+          "$ref": "#/$defs/OperationId"
+        }
+      },
+      "required": [
+        "generation",
+        "operation",
+        "committed_at"
+      ]
+    },
+    "ProjectionRecordItemsView": {
+      "description": "A projection record's items, one key per committed\n[`crate::setup::ProjectionItem`] (the domain record's map, keyed by item name). Each\nkey is omitted until its item is committed. A key a newer item adds is tolerated on\nread.",
+      "type": "object",
+      "properties": {
+        "distribution_git": {
+          "description": "⟨M04⟩ A WSL distribution's Git item (Mode A).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectionItemRecordView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "distribution_projection": {
+          "description": "⟨M04⟩ A WSL distribution's projection (Mode B).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectionItemRecordView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "git": {
+          "description": "The Git include block and the managed Git file.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectionItemRecordView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "login_entry": {
+          "description": "⟨M04⟩ The runtime's login entry.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectionItemRecordView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ssh": {
+          "description": "The OpenSSH include block and the managed file.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectionItemRecordView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ProjectionRecordView": {
+      "description": "An environment's projection record: what each item last committed.",
+      "type": "object",
+      "properties": {
+        "environment": {
+          "description": "The environment.",
+          "$ref": "#/$defs/EnvironmentId"
+        },
+        "items": {
+          "description": "Each committed item's record, keyed by its [`crate::setup::ProjectionItem`] name.\nAlways written, possibly empty.",
+          "$ref": "#/$defs/ProjectionRecordItemsView",
+          "default": {}
+        }
+      },
+      "required": [
+        "environment"
+      ]
+    },
+    "ProjectionResourceView": {
+      "description": "One managed resource of the projection.",
+      "type": "object",
+      "properties": {
+        "desired": {
+          "description": "Its desired state.",
+          "$ref": "#/$defs/ResourceStateView"
+        },
+        "generation": {
+          "description": "Its current generation.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "id": {
+          "description": "The resource.",
+          "$ref": "#/$defs/ResourceId"
+        },
+        "kind": {
+          "description": "Its kind (`config_projection` here).",
+          "$ref": "#/$defs/ResourceKindView"
+        },
+        "last_operation": {
+          "description": "The last operation that touched it. Omitted when none is recorded (today: `null`).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "locator": {
+          "description": "Its opaque locator (for a projection file, the canonical JSON of its path, role,\nfile identity and digest); never a secret.",
+          "type": "string"
+        },
+        "observed": {
+          "description": "Its last observed state.",
+          "$ref": "#/$defs/ResourceStateView"
+        },
+        "owner": {
+          "description": "Its owner.",
+          "$ref": "#/$defs/ResourceOwnerView"
+        },
+        "updated_at": {
+          "description": "When it was last written.",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "owner",
+        "generation",
+        "desired",
+        "observed",
+        "locator",
+        "updated_at"
+      ]
+    },
+    "ResourceId": {
+      "description": "Managed resource ID (spec §4.1 \"Managed resource\").",
+      "type": "string"
+    },
+    "ResourceKindView": {
+      "description": "The kind of a runtime-owned resource.",
+      "oneOf": [
+        {
+          "description": "A control or signing endpoint.",
+          "type": "string",
+          "const": "endpoint"
+        },
+        {
+          "description": "A supervised child process.",
+          "type": "string",
+          "const": "process"
+        },
+        {
+          "description": "A generated configuration file.",
+          "type": "string",
+          "const": "config_projection"
+        },
+        {
+          "description": "A host-trust entry.",
+          "type": "string",
+          "const": "trust_entry"
+        },
+        {
+          "description": "An issued certificate.",
+          "type": "string",
+          "const": "certificate"
+        },
+        {
+          "description": "A route helper.",
+          "type": "string",
+          "const": "route_helper"
+        },
+        {
+          "description": "A remote enrollment record.",
+          "type": "string",
+          "const": "remote_enrollment"
+        },
+        {
+          "description": "⟨M03⟩ A materialized key or certificate file.",
+          "type": "string",
+          "const": "materialized_file"
+        },
+        {
+          "description": "⟨M03⟩ An owned connection.",
+          "type": "string",
+          "const": "connection"
+        },
+        {
+          "description": "⟨M04⟩ The runtime's login entry.",
+          "type": "string",
+          "const": "login_entry"
+        }
+      ]
+    },
+    "ResourceOwnerView": {
+      "description": "Who owns a resource. Tagged by `kind`.",
+      "oneOf": [
+        {
+          "description": "A binding.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The binding.",
+              "$ref": "#/$defs/BindingId"
+            },
+            "kind": {
+              "type": "string",
+              "const": "binding"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        },
+        {
+          "description": "A grant.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The grant.",
+              "$ref": "#/$defs/GrantId"
+            },
+            "kind": {
+              "type": "string",
+              "const": "grant"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        },
+        {
+          "description": "The runtime itself.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "runtime"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "⟨M02⟩ The managed projection of an environment.",
+          "type": "object",
+          "properties": {
+            "environment": {
+              "description": "The environment.",
+              "$ref": "#/$defs/EnvironmentId"
+            },
+            "kind": {
+              "type": "string",
+              "const": "projection"
+            }
+          },
+          "required": [
+            "kind",
+            "environment"
+          ]
+        }
+      ]
+    },
+    "ResourceStateView": {
+      "description": "A resource's desired or observed state (spec §13.5).",
+      "oneOf": [
+        {
+          "description": "Should exist / does exist.",
+          "type": "string",
+          "const": "present"
+        },
+        {
+          "description": "Should not exist / does not exist.",
+          "type": "string",
+          "const": "absent"
+        },
+        {
+          "description": "Not yet observed.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "ScopeView": {
+      "description": "A set of destination/account pairs and the capabilities permitted on them, as views\nshow a scope (the domain `Scope`'s wire form: two arrays, each sorted and unique).",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "description": "Capabilities permitted on every pair.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        },
+        "pairs": {
+          "description": "Destination/account pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        }
+      },
+      "required": [
+        "pairs",
+        "capabilities"
+      ]
+    }
+  }
+}

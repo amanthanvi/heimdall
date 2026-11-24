@@ -1,11 +1,11 @@
-Export your portable intent: profiles and destinations, never authority (M05; ADR-0011 §2.4)
+Export your portable intent: profiles and destinations, never authority
 
 Usage: heimdall export [OPTIONS]
 
 Options:
       --json             Machine output: one JSON envelope on stdout (NDJSON for event streams)
       --redact           Redact host names, addresses and labels
-      --non-interactive  Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --non-interactive  Never open a browser, dialog, or terminal prompt. Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
       --out <FILE>       Write the bundle to this new file (created exclusively, owner-only) instead of stdout
-      --home <DIR>       Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+      --home <DIR>       Use this Heimdall home directory instead of the default [env: HEIMDALL_HOME=]
   -h, --help             Print help

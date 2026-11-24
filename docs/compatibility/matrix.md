@@ -595,7 +595,39 @@ container rows `deferred_with_decision` to M04's exit. They are closed by M04-3 
 pair; A28 container row: the endpoint lists only the binding's identity and a control-protocol hello fails) and M04-5
 (A28 forwarding row); `docs/architecture/m04-exit-draft.md` §3 has the mapping by record and row.
 
-## M06 environments and transport (in progress; no rows until the M06 exit)
+## M06 environments and transport (the M06 exit, 2026-11-24)
+
+> **M06 exit (2026-11-24).** The records are `tests/evidence/m06-*.json` (build commit `0a5def0357548cad7f5dbf55427607153a551722`); each platform names
+> its own run commit: macOS at `aa87c34c`, Windows (the cargo row and the controller journey) at `842044c7`, the devbox and
+> the cross-host journey at `a10eec63`. Every platform row below is `verified`; each record is `blocked`
+> only on named owner inputs. **Exit record:** `docs/architecture/m06-exit.md` (build identity, per-platform commits and the
+> product drift between them).
+
+These rows test Heimdall itself.
+- **Records:** `tests/evidence/m06-*.json` (A24, A25, A26, T06, the A07 runner rows and the exit claims). **Artifacts:**
+  `tests/evidence/artifacts/m06/` (`exit-runs.json` holds the configuration, with each platform's `run_commit`;
+  `digests.txt` lists every binary).
+- **Label.** Every row stays `not-tested` (ADR-0001 §9).
+- **What the rows cover.** A controller (macOS or Windows) pairing a remote Linux runner over SSH with the product CLI:
+  roles and invitations, runner-local widening, forwarded `ensure` and remote issuance, onward SSH from the runner with
+  the controller gone, narrowing while disconnected and resynchronization, a second controller, and routes (direct,
+  jump, and Iroh in the preview build on loopback). Servers are loopback fixture `sshd`s trusting a per-run CA; the
+  runner is the devbox account under a scratch `HEIMDALL_HOME`; K_mgmt and K_iroh are fixture stores except where a row
+  says otherwise.
+
+| # | Environment | Client | Provider / signer | Mechanism | Label | M06 evidence | Record |
+|---|---|---|---|---|---|---|---|
+| M06-1 | macOS 27.2.1 arm64 (controller, and single-host runner) | OpenSSH 10.5p1 (system) | Heimdall managed signer; the runner's K_env signed by the controller's issuer; fixture CA | environments: pair, roles, widening, forwarded `ensure`, runner without controller, disconnected narrowing, second controller, routes; Iroh preview on loopback | not-tested | verified (A24, A25, A26, T06, A07 runner rows) | `m06-a24-runner-without-controller.json`, `m06-a25-roles-invitations.json`, `m06-a26-iroh-routes-trust.json`, `m06-t06-second-controller.json`, `m06-a07-runner-disconnected.json`, `m06-exit-claims.json` |
+| M06-2 | Linux x86-64 (the devbox, kernel 6.8.0, glibc 2.39; headless runner) | OpenSSH 9.6p1 | as M06-1 | as M06-1 | not-tested | verified (as M06-1) | as M06-1 |
+| M06-3 | macOS controller → the devbox runner on another host (cross-host) | OpenSSH 10.5p1 and 9.6p1; management through an ssh forward to the runner's loopback fixture `sshd` | as M06-1 | A24, A25 (limited client after verification), T06, A07 runner rows through the product CLI on both hosts | not-tested | verified (32 of 32 steps) | as M06-1 |
+| M06-4 | Windows 11 x64 (10.0.26300.10075; owner controller) | in-box `ssh.exe` (OpenSSH_for_Windows 9.5p2) | DPAPI K_mgmt; named-pipe management-key agent; a fixture Linux runner in a scratch directory of the existing WSL distribution | the controller journey (pair, forwarded `ensure`, issue, onward ssh, revoke on reconnect, the controller stopped) and the cargo suites | not-tested | verified (A24 journey 10 of 10; A25 version and capability rows) | as M06-1 |
+| M06-5 | Linux arm64 | OpenSSH | any | as M06-1 | not-tested | blocked: B9 | `m06-exit-claims.json` |
+| M06-6 | a second Windows account | — | — | T06's Windows controller row | not-tested | blocked: B2 | `m06-t06-second-controller.json` |
+| M06-7 | macOS, a disposable standard account | — | macOS Keychain (K_mgmt, K_iroh) | the verified-store persistence journey; the Keychain K_mgmt rows with the locked store | not-tested | blocked: B3 | `m06-a26-iroh-routes-trust.json`, `m06-exit-claims.json` |
+| M06-8 | a disposable Linux lifecycle environment | — | — | no linger, `KillUserProcesses=yes`, reboot | not-tested | blocked: the lifecycle environment | `m06-a24-runner-without-controller.json` |
+| M06-9 | containers; public relays; real NATs | — | — | Iroh private-relay mechanism rows; the n0-public capture; a direct path across NATs | not-tested | deferred_with_decision (ADR-0015; m06-plan §5); the capture blocked on the owner's authorization | `m06-a26-iroh-routes-trust.json` |
+
+Row 15 of the matrix table (Iroh) gets no product row: the transport is a preview, source build only (below).
 
 ### M06 limitations and residuals
 
@@ -609,8 +641,32 @@ pair; A28 container row: the endpoint lists only the binding's identity and a co
   ruling of 2026-11-22; a line for the release notes' limitations list). The confirming probes do not run on Windows,
   so a limited-role join and a policy recheck from Windows refuse, and say why.
 
+- **The Iroh transport is a preview, source build only** (ADR-0015, the orchestrator's ruling E2 of 2026-11-23; a line
+  for the limitations list). V1's release artifacts are built without it. In them the `transport` forms refuse
+  `driver_unavailable` with a message naming the preview; route commands accept and record an Iroh leg, and using it
+  is recorded `driver_unavailable` and failed over to the route's other legs (a route whose legs are all Iroh refuses
+  with the preview message) ⟨2026-11-24, the M06 exit review's R03; refusing the add itself is follow-up M06-F7⟩. The
+  preview is a source build with `cargo build --features iroh`: no support label on any platform, no stable claim.
+  Row 15 of the matrix table gets no product row from M06.
 - **A remote runner does not dial onward over Iroh through a projected alias** (ADR-0012 §5, ruling of 2026-11-22;
   outside V1; a line for the limitations list). Routes and the Iroh transport are for a controller's destinations.
+- **The M06 exit's limits** (`docs/architecture/m06-exit.md` §5; lines for the limitations list where marked):
+  - **Route verification and the jump leg on Windows:** they inherit the environment; a Windows process started without
+    `ProgramData` fails closed there, `HOST_PIN_DEFEATED`: `unreadable` (exit review R02; follow-up M06-F6). A line for the
+    limitations list.
+  - **An inherited `ProgramData` is trusted:** a same-user parent environment chooses `%ProgramData%\ssh` (exit review R01;
+    follow-up M06-F5).
+  - **The Windows fill:** `FOLDERID_Windows` relies on the caller's `windir` (with neither `SystemDrive` nor `windir` set,
+    the guard refuses); the fallback ignores a relocated `ProgramData` (ADR-0006 §18.9 item 13).
+  - **A07's runner rows:** a runner reports only the `new_authentication` residual component (U0-Q14); namespaced
+    acknowledgements have model and single-host evidence only; pending approval while disconnected is not asserted on
+    the runner path.
+  - **"No silent controller socket"** rests on three cross-host observations and the clean-launch exact-set test; the
+    runner runtime is non-dumpable.
+  - **Fixtures:** a test sshd running as the account must not forward agents on OpenSSH >= 10.1 (it places the socket
+    under the account's real `~/.ssh/agent`), so those steps are blocked on such hosts and run on the devbox; the fixture
+    session's working directory is the account's real home (its `HOME` is scratch); the limited client is not run in a
+    container.
 - **Certificate content change, for the M08 release notes:** the bastion of an approved jump route now gets
   `permit-port-forwarding` in its certificate (ADR-0012 §5). The destination's certificate is unchanged.
 

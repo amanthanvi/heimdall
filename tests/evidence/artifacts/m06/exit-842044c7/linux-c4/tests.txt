@@ -1,0 +1,389 @@
+### e2e_cli_m07
+
+running 5 tests
+test diagnostic_redacts_mixed_case_windows_identifiers ... ok
+test status_counts_only_live_approvals_in_human_output ... ok
+test enrollment_wait_explains_an_interrupted_step ... ok
+test cli_standalone_access_and_stop ... ok
+test cli_sync_wait_explains_itself ... ok
+
+successes:
+
+successes:
+    cli_standalone_access_and_stop
+    cli_sync_wait_explains_itself
+    diagnostic_redacts_mixed_case_windows_identifiers
+    enrollment_wait_explains_an_interrupted_step
+    status_counts_only_live_approvals_in_human_output
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.78s
+
+### e2e_cli_m07 exit=0
+### e2e_exit_m06
+
+running 10 tests
+test a07_runner_disconnected ... ok
+test a25_pairing_invite_join_through_the_product_cli ... ok
+test a26_routes_and_host_trust_without_iroh ... ok
+test a_delivered_pause_of_a_held_policy_is_named_by_access_resume ... ok
+test connect_on_a_runner_is_a_clean_launch ... ok
+test a24_runner_without_controller has been running for over 60 seconds
+test a25_roles_invitations_decisions has been running for over 60 seconds
+test local_widening_route_add_on_a_controller ... ok
+test a25_roles_invitations_decisions ... ok
+test a24_runner_without_controller ... ok
+test t06_second_controller ... ok
+test a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally has been running for over 60 seconds
+test a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally ... ok
+
+successes:
+
+---- a07_runner_disconnected stdout ----
+m06 observation: a07 issued: grant=issued onward_login=ok
+m06 observation: a07 disconnected: connectivity=not_connected issuance=awaiting_resync
+m06 observation: a07 revoke-pending: local_applied=false remote_pending=1 target=grant_revoke residual=stated acknowledged=false
+m06 observation: a07 reconnect: remote_pending=0 residual_acknowledged=true residual_names_destination_clock_error=true runner_endpoint_identities=0 onward_login=refused
+m06 observation: a07 barrier: while_disconnected=awaiting_resync after_resync=reconciled
+m06 observation: a07 no-stale-reactivation: same_request_again=OK revoked_grant_identities=0 revoked_grant_readiness=none
+m06 observation: a07 pause-pending: remote_pending=1 target=policy_pause
+m06 observation: a07 cutoff-pending: remote_pending=2 target=policy_cutoff
+m06 observation: a07 uncertain-time: runner_time=not_synchronized remote_pending=0 policy_paused=applied policy_cutoff=applied
+m06 observation: a07 fresh-work-refused: fresh_work_id=POLICY_PAUSED issued=nothing
+m06 observation: a07 cutoff-refused: runner_time=synchronized remote_pending=0 policy_paused=lifted_at_runner policy_cutoff=in_force fresh_work_id=POLICY_CUTOFF issued=nothing
+
+---- a25_pairing_invite_join_through_the_product_cli stdout ----
+m06 observation: a25-cli enrollment: catalog=product_commands ca_and_enrollment_record=written_as_m03_exit_world verified_by=product_enroll_verify state=verified
+m06 observation: a25-cli add-declined: typed=no_at_runner_confirmation runner_wrote=nothing controller_recorded=nothing controller_code=OUTCOME_UNKNOWN
+m06 observation: a25-cli add: bootstrap=ssh_session_on_terminal_over_verified_access runner_confirmation=typed_yes_on_that_terminal runtime_said=not_running runtime_offer=accepted runner_runtime=serving management_line=in_runner_authorized_keys controller_record=owner seeded=nothing
+m06 observation: a25-cli invite: owner_confirmation=typed_fingerprint_shown runner=holds_for_local_confirmation answer=APPROVAL_REQUIRED bundle_before_runner_confirmation=none
+m06 observation: a25-cli approve: at=runner_local_terminal command=decision_approve typed=yes
+m06 observation: a25-cli join: show_key=product bundle=from_invite_after_runner_confirmation join_declined_at_device=nothing_joined join=typed_host_key_and_environment_confirmation role=requester own_session=reads_runner seeded=nothing session_level=nothing device_home_bytes=84
+m06 observation: a25-cli revoke-client: by=first_controller_cli revoked_device_session=refused its_management_line=removed owner_session=still_served repeat=OK
+m06 observation: a25-cli remove: by=first_controller_cli revoked_on_runner=true controller_record=forgotten management_lines_left=0 other_authorized_keys_lines=kept
+
+---- a26_routes_and_host_trust_without_iroh stdout ----
+m06 observation: a26-routes routes: catalog=product_commands route_add_jump=OK route_add_direct=OK approved=3 (definition_address,jump_via_bastion,wrong_host_direct) seeded=nothing
+m06 observation: a26-routes upgrade: after_route_add=p_unchanged,no_pin_file setup_apply_diff_shows=ProxyCommand_route_connect alias_after=helper,HostKeyAlias,StrictHostKeyChecking_yes,catalog_only_trust,no_multiplexing helper_endpoint=the_aliases_own_IdentityAgent other_alias=byte_identical user_config=byte_identical pin_file=destination_and_bastion_catalog_keys
+m06 observation: a26-routes jump: login=ordinary_ssh_alias preferred=jump_via_bastion login_result=ok bastion_connections=1 destination_connections=1 wrong_host_connections=0 inspect_route_health=final_route_is_the_jump_route binding=resolved_at_the_aliases_own_endpoint
+m06 observation: a26-routes direct: preferred=definition_address login_result=ok bastion_connections=0 destination_connections=1 inspect_route_health=final_route_is_the_direct_route
+m06 observation: a26-routes wrong-host: preferred=wrong_host_direct approved_after_it=(definition_address,jump_via_bastion) login_result=refused cause=host_key_verification_under_the_catalog_pin wrong_host_connections=1 destination_connections=0 bastion_connections=0 retried_on_another_route=false
+m06 observation: a26-routes failover: approved=(closed_port_direct,definition_address,jump_via_bastion) login_result=ok failover=before_identification_to_the_next_approved_route inspect_route_health=failed_over,first_attempt_refused,final_route_definition_address
+m06 observation: a26-routes two-hop-substitution: pin_file_key_substituted=bastion,then_destination each=refused_host_pin_defeated routes_tried=0 destination_connections=0 bastion_connections=0 failed_over_to_the_direct_route=false catalog_pins_restored=login_ok_through_the_jump
+m06 observation: a26-routes host-pin-defeated: user_config_line_above_the_include_block=StrictHostKeyChecking_accept-new ordinary_login=refused_by_the_route_helper reason=host_pin_defeated setting=stricthostkeychecking routes_tried=0 destination_connections=0 doctor=host_pin_defeated inspect_destinations=host_pin_defeated line_removed=login_ok,inspect_clear
+m06 observation: a26-routes undetermined-backstop: user_config=Match_exec_then_StrictHostKeyChecking_no_above_the_include static_doctor=pin_status_undetermined,not_defeated,ran_nothing ordinary_login=refused_by_the_route_helper_ssh_G reason=host_pin_defeated setting=stricthostkeychecking routes_tried=0 destination_connections=0 lines_removed=login_ok
+
+---- a_delivered_pause_of_a_held_policy_is_named_by_access_resume stdout ----
+m06 observation: lift-held issued-before: by=runner_owner command=access_pause_then_access_resume_runner_pol answer=INTERACTION_REQUIRED delivered=none
+m06 observation: lift-held pause-delivered: by=controller_cli command=access_pause_runner_pol applied_on_runner=true in_force=true
+m06 observation: lift-held stale: by=runner_local_owner_on_terminal command=decision_approve_early typed=yes answer=DECISION_STALE exit=6 next=fix_request names=pause_of_policy:runner-pol policy=paused in_force=true
+m06 observation: lift-held named: by=runner_unattended_owner command=access_resume_runner_pol answer=INTERACTION_REQUIRED decision_lifted_effects=1(scope_key=policy:runner-pol,kind=pause,controller,delivered_at) in_force=true
+m06 observation: lift-held lift: by=runner_local_owner_on_terminal command=decision_approve typed=yes policy=active in_force=false
+
+---- connect_on_a_runner_is_a_clean_launch stdout ----
+m06 observation: connect-runner clean-launch: launched_by=heimdall_connect alias=existing_access environment=declared_pass_list_and_launcher_set_values home_user_logname_shell=account_database_not_the_parents lang=default_c_utf8 ssh_auth_sock=absent forwarded_agent=fixture_agent_standing_for_it forwarded_agent_inherited=false forwarded_agent_provenance=controller_dependency
+m06 observation: connect-runner configured-agent: alias_identity_agent=the_inherited_session_socket unattended_connect=refused code=CAPABILITY_UNAVAILABLE reason=controller_dependency client_started=false
+m06 observation: connect-runner ordinary-path-agent: alias_identity_agent=ordinary_local_path unattended_connect=refused code=CAPABILITY_UNAVAILABLE reason=dependency_provenance_unknown client_started=false
+m06 observation: connect-runner undetermined-agent: alias_identity_agent=tilde_path|percent_token|match_exec_dependent unattended_connect=refused_each code=CAPABILITY_UNAVAILABLE reason=dependency_provenance_unknown names_alias_and_why=true client_started=false identity_agent_none=launched
+
+---- local_widening_route_add_on_a_controller stdout ----
+m06 observation: local-widening route-unattended: command=route_add_iroh_relay session=non_interactive answer=INTERACTION_REQUIRED detail=names_the_widening reason=none decisions_recorded=0 routes=unchanged
+m06 observation: local-widening route-submit: command=route_add_iroh_relay session=terminal answer=APPROVAL_REQUIRED exit=3 decision_ref=named record_origin=local record_client=none delta_names_relay=true routes=unchanged
+m06 observation: local-widening route-retry: same_command_again=APPROVAL_REQUIRED decision_ref=the_same pending_records=1
+m06 observation: local-widening route-approve-unattended: command=decision_approve session=non_interactive exit=3 sent=nothing record=still_pending routes=unchanged
+m06 observation: local-widening route-declined: another_relay=APPROVAL_REQUIRED approve_prompt_answered=no exit=3 record=still_pending routes=unchanged
+m06 observation: local-widening route-approve: command=decision_approve session=terminal prompt_shows=request_and_delta typed=yes answer=OK route=approved_with_relay_policy same_command_again=already_present second_approval=refused
+
+---- a25_roles_invitations_decisions stdout ----
+m06 observation: a25 sshd-policy-unverified: authorized_keys_command=management_sshd_unverified force_command=management_sshd_unverified accept_env_all=management_sshd_unverified lines_written=0
+m06 observation: a25 t-ra1: paired_owner_widening=APPROVAL_REQUIRED executed=nothing lines_written=0
+m06 observation: a25 t-ra2: paired_decide=INTERACTION_REQUIRED paired_attend=INTERACTION_REQUIRED
+m06 observation: a25 unattended-local: unattended_local_decide=INTERACTION_REQUIRED lines_written=0
+m06 observation: a25 t-ra3: replay_after_runner_local_decision=recorded_terminal_result new_record=false reexecuted=false
+m06 observation: a25 pending-key: capabilities=remote-control/1_only other_request=CAPABILITY_UNAVAILABLE activation_probe=OK
+m06 observation: a25 invitation-wrong-key: join_with_another_keys_invitation=CAPABILITY_UNAVAILABLE reason=invitation_expired
+m06 observation: a25 limited-session-hello: joined_viewer_hello_requiring_nothing=served role=viewer remote_control=not_negotiated runner=not_negotiated joined_viewer_hello_requiring_remote_control=refused_CAPABILITY_UNAVAILABLE
+m06 observation: a25 invitation-consumed: join_again_by_its_key=SCHEMA_UNSUPPORTED join_by_another_key=CAPABILITY_UNAVAILABLE
+m06 observation: a25 t-ra4: limited_client_policy_widening=CAPABILITY_UNAVAILABLE reason=role_insufficient limited_client_invitation=SCHEMA_UNSUPPORTED lines_written=0
+m06 observation: a25 limited-client: shell_command=not_run pty=refused forward=refused agent_forwarding=refused setenv=not_delivered viewer_ensure=CAPABILITY_UNAVAILABLE reason=role_insufficient
+m06 observation: a25 collision: same_request_id operations=2 owner=ACCEPTED_pending_its_issuer requester=CAPABILITY_UNAVAILABLE reason=issuer_untrusted each_replays_its_own=true
+m06 observation: a25 limited-product-view: through=product_cli record=seeded command=environment_status_env viewer=read requester=read form=inspect_environments list_form_session=none lines_written=0
+m06 observation: a25 limited-product-request: through=product_cli record=seeded command=access_ensure_environment requester=ACCEPTED_pending refresh_dependency=controller ca_named=none requester_delivered_records=0 runner_grant=pending viewer=CAPABILITY_UNAVAILABLE reason=role_insufficient refused_at=controller
+m06 observation: a25 requester-no-owner-record: owner_controller=issuer_and_owner_record policy_naming_runner=none hosted_pass=reconciled owner_delivered_records=0 issuance_entries=0 runner_certificates_for_grant=0 requester_replay=ACCEPTED_pending
+m06 observation: a25 requester-owner-record: owner_policy_naming_runner=approved_on_terminal record_source=b owner_record_for_grant=from_its_policy signed_under=owner_policy requester_operation_wait=ready mechanism=managed_certificate requester_delivered_records=0
+m06 observation: a25 limited-owner-forms: owner_forms=81 from=role_table sent_by=viewer,requester served=0 refusals=CAPABILITY_UNAVAILABLE/role_insufficient:2,INTERACTION_REQUIRED/local_owner_required:10,SCHEMA_UNSUPPORTED/none:150 lines_written=0
+m06 observation: a25 limited-rotate-endpoint: capability=base reached=per_request_check viewer=usage_error requester=usage_error why=invitation_without_iroh_admission effect=none
+m06 observation: a25 limited-product-cli: record=seeded refused_at=controller viewer:update=role_insufficient,revoke_client=role_insufficient,invite=role_insufficient,recheck=role_insufficient,remove=forgotten_locally,revoke_sent=false,still_enrolled=true requester:update=role_insufficient,revoke_client=role_insufficient,invite=role_insufficient,recheck=role_insufficient,remove=forgotten_locally,revoke_sent=false,still_enrolled=true lines_written=0
+m06 observation: a25 owner-record-limited-key: record=seeded_owner key=viewer environment_update=CAPABILITY_UNAVAILABLE reason=role_insufficient refused_at=hello
+m06 observation: a25 host-key-replaced: session=refused_host_key_verification authenticated=nothing pin=unchanged genuine_host=ok
+m06 observation: a25 old-client: hello=refused code=SCHEMA_UNSUPPORTED
+m06 observation: a25 missing-capability: hello=refused code=SCHEMA_UNSUPPORTED
+m06 observation: a25 positive-control: restricted_line_agent_forwarding=refused control_line_agent_forwarding=forwarded bridge=refused_session downgrade=session_agent_forwarded limited_role_after=management_sshd_unverified
+
+---- a24_runner_without_controller stdout ----
+m06 observation: a24 pair: runner=remote_init_confirmed_on_terminal owner_enrolled=true issuer_trusted=true controller_record=seeded
+m06 observation: a24 approve: admitted_by=runner_standing_policy mechanism=managed_certificate issued_by=controller_issuer_child
+m06 observation: a24 readiness: refresh_dependency=controller status=within_bound earliest_bound=certificate_valid_before bound_within_grant_deadline=true conditions=0
+m06 observation: a24 controller-leaves: controller_runtime=stopped issuer_child=stopped management_route=blocked
+m06 observation: a24 onward-managed: login=ok credential=runner_k_env_certificate signed_by=controller_ca controller=stopped route=blocked
+m06 observation: a24 work-clean-launch: launched_by=heimdall_run controller=stopped environment=clean_allowlist_only work_agent=binding_endpoint work_agent_lists=runner_k_env_certificate_only forwarded_agent=fixture_agent_standing_for_it forwarded_agent_inherited=false forwarded_agent_provenance=controller_dependency
+m06 observation: a24 ordinary-path-agent: agent_at_ordinary_path=fixture_agent provenance=unknown passed_to_work=false unattended_launch_on_runner_signer=ok
+m06 observation: a24 onward-fixed: launched_by=heimdall_connect unattended=true controller=stopped route=blocked alias=runner_local_existing_access catalog=destination_add_observed login=ok accepted_key=runner_own_key_file forwarded_agent_contacts=0 forwarded_agent_provenance=controller_dependency
+m06 observation: a24 fixed-agent-refused: alias_identity_agent=the_forwarded_agent unattended_connect=refused code=CAPABILITY_UNAVAILABLE reason=controller_dependency destination_logins=none_new forwarded_agent_contacts=0
+m06 observation: a24 no-controller-socket: endpoint=under_runner_home identities=1 identity=runner_k_env_certificate runner_started_with_ssh_auth_sock=false
+m06 observation: a24 bound: managed_login_at_predicted_bound=refused status=bound_passed controller=stopped
+m06 observation: a24 after-bound: new_managed_request=ACCEPTED_pending refresh_dependency=controller ready=false issued=nothing
+m06 observation: a24 forwarded-agent: session_with_forwarded_agent=refused_before_any_frame code=CAPABILITY_UNAVAILABLE session_without=served
+
+---- t06_second_controller stdout ----
+m06 observation: t06 first-grant: issued_under=first_ca identities=1
+m06 observation: t06 second-owner: invited_by=first_owner_cli(environment_invite_--role_owner,typed_yes) approved_by=runner_local_owner_terminal(decision_approve,typed_yes) joined_by=second_device_cli(environment_join,typed_yes) key=made_by_join_--show-key role=owner requests_at_session_level=none controller_record=written_by_join seeded=its_copy_of_the_profile_only
+m06 observation: t06 first-controller-gone: first_controller_runtime=stopped
+m06 observation: t06 no-issuer: forwarded_request=CAPABILITY_UNAVAILABLE reason=issuer_unavailable issued=nothing
+m06 observation: t06 narrowing: effect=grant_revoke target=first_controllers_grant applied_on_runner=true acknowledged_to=second_controller
+m06 observation: t06 untrusted-issuer: forwarded_request=CAPABILITY_UNAVAILABLE reason=issuer_untrusted
+m06 observation: t06 own-grant: trusted_by=runner_local_owner_on_terminal issued_under=second_ca issuance_entries_for_first_controllers_grant=0
+m06 observation: t06 destination-trust: destination_trusting_first_ca_only=refused destination_trusting_second_ca=ok
+m06 observation: t06 first-cutoff-all: by=first_controller_cli scope=all applied_on_runner=true in_force=true second_controller_request=POLICY_CUTOFF first_controller_request=POLICY_CUTOFF
+m06 observation: t06 lift-at-runner: by=runner_local_owner_on_terminal command=access_cutoff_clear_all typed=yes delivered_cutoff_in_force=false second_controller_request=OK (no_acknowledgement_of_its_own) first_controller_request=ACCEPTED (not_acknowledged_yet)
+m06 observation: t06 first-acknowledges: by=first_controller_owner_on_terminal command=environment_resume_issuance typed=yes first_controller_request=OK
+m06 observation: t06 second-pause: by=second_controller_cli first_controller=stopped effect=policy_pause applied_on_runner=true acknowledged_to=second_controller
+m06 observation: t06 second-cutoff: by=second_controller_cli effect=policy_cutoff applied_on_runner=true acknowledged_to=second_controller fresh_work=POLICY_PAUSED
+m06 observation: t06 effect-id-collision: producers=2 effect_ids=1 same_target=true first_controllers_effect=product_cli_pause_while_disconnected its_effect_id=rewritten_in_its_pending_outbox_row(staged) delivered_by=first_controller_runtime runner_acknowledgements=one_per_producer runner_policy_revisions=one_per_producer second_controllers_acknowledgement=unchanged first_controller_sees=its_own_effect_acknowledged
+
+---- a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally stdout ----
+m06 observation: lift baseline: runner_standing_policies=0(fixture:deleted_while_stopped) controller_request=OK/none
+m06 observation: lift cutoff-all: by=controller_cli scope=all runner_standing_policies=0 delivered=true in_force=true controller_request=ACCEPTED_pending_not_issued(admitted_by_runner_owner;awaits_issuer)
+m06 observation: lift ack-alone: by=controller_owner_on_terminal command=environment_resume_issuance typed=yes runner_reports=in_force controller_request=ACCEPTED_pending_not_issued
+m06 observation: lift paired-cannot-lift: runner_unattended_owner_clear=INTERACTION_REQUIRED in_force=true controller_request=ACCEPTED_pending_not_issued
+m06 observation: lift lift: by=runner_local_owner_on_terminal command=access_cutoff_clear_all typed=yes in_force=false acknowledged=earlier controller_request=OK/none (as_at_baseline)
+
+
+successes:
+    a07_runner_disconnected
+    a24_runner_without_controller
+    a25_pairing_invite_join_through_the_product_cli
+    a25_roles_invitations_decisions
+    a26_routes_and_host_trust_without_iroh
+    a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally
+    a_delivered_pause_of_a_held_policy_is_named_by_access_resume
+    connect_on_a_runner_is_a_clean_launch
+    local_widening_route_add_on_a_controller
+    t06_second_controller
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 94.47s
+
+### e2e_exit_m06 exit=0
+### e2e_exit_m06_iroh
+
+running 3 tests
+test local_widening_adopt_roost_on_a_controller ... ok
+test a26_iroh_through_a_projected_alias ... ok
+test a26_iroh_routes_trust ... ok
+
+successes:
+
+---- local_widening_adopt_roost_on_a_controller stdout ----
+m06 observation: local-widening roost-unattended: command=transport_adopt_roost session=non_interactive answer=INTERACTION_REQUIRED detail=names_the_widening reason=none decisions_recorded=0 routes=unchanged
+m06 observation: local-widening roost-submit: command=transport_adopt_roost session=terminal answer=APPROVAL_REQUIRED exit=3 record_origin=local record_client=none delta_names_roost=true same_command_again=the_same_record routes=unchanged
+m06 observation: local-widening roost-approve: unattended_decision_approve=nothing_sent terminal_decision_approve=OK typed=yes prompt_shows=request_and_delta route=external_roost consent=this_decision_and_delta disclosure_lines=3 same_command_again=CONFIG_CONFLICT_no_record
+
+---- a26_iroh_through_a_projected_alias stdout ----
+m06 observation: a26-iroh-alias dialer-key: installation=controller command=transport_enable decision=none_needed serve=false store_kind=fixture_store key_store=fixture_store
+m06 observation: a26-iroh-alias serve: serving_runners=2 (destination,wrong_host) each=local_owner_on_a_terminal_typed_yes bind=loopback relays=none dialer_admitted_at=remote_init key_store=fixture_store
+m06 observation: a26-iroh-alias route-widening: command=route_add_iroh_address_relay unattended=INTERACTION_REQUIRED on_terminal=APPROVAL_REQUIRED record_origin=local record_client=none delta_names_relay=true decision_approve_typed_yes=OK approved=(definition_address,iroh) relay=closed_loopback_port key_store=fixture_store
+m06 observation: a26-iroh-alias projected: after_route_add=p_unchanged setup_apply_diff_shows=ProxyCommand_route_connect alias_after=helper,HostKeyAlias,catalog_pin_file key_store=fixture_store
+m06 observation: a26-iroh-alias login-iroh: dialer=controller login=ordinary_ssh_alias_through_heimdall_run command_line_options=F_scratch_config,BatchMode,ConnectTimeout route_used=iroh login_result=ok destination_connections=1 host_key=catalog_pin credential=managed_certificate_of_the_aliases_own_endpoint inspect_route_health=final_route_is_the_iroh_route key_store=fixture_store
+m06 observation: a26-iroh-alias helper-by-hand: helper_invocation=not_the_projected_aliass_proxy (another_endpoint) result=refused reason=host_pin_defeated setting=proxycommand routes_tried=0 destination_connections=0 key_store=fixture_store
+m06 observation: a26-iroh-alias wrong-host: preferred=iroh_route_to_the_wrong_hosts_serving_runner approved_after_it=(iroh,definition_address) login_result=refused cause=host_key_verification_under_the_catalog_pin wrong_host_connections=1 destination_connections=0 retried_on_another_route=false key_store=fixture_store
+m06 observation: a26-iroh-alias failover: serving_runtime=stopped login=ordinary_ssh_alias login_result=ok first_attempt=iroh_route_timeout failover=before_identification final_route=definition_address destination_connections=1 key_store=fixture_store
+
+---- a26_iroh_routes_trust stdout ----
+m06 observation: a26 store-unusable: variable=names_a_missing_directory transport_enable=CAPABILITY_UNAVAILABLE reason=transport_key_store_unavailable transport_keys_recorded=0 directory_created=false key_store=fixture_store
+m06 observation: a26 dialer-key: command=transport_enable decision=none_needed serve=false store_kind=fixture_store key_store=fixture_store
+m06 observation: a26 sshd-port-flag: flag=transport_enable_serve_sshd_port zero=usage_error past_65535=usage_error unattended_local_owner=INTERACTION_REQUIRED recorded=nothing key_store=fixture_store
+m06 observation: a26 build: test_target_feature=iroh binary=harness_supplied transport_capability=negotiated key_store=fixture_store
+m06 observation: a26 exposure-serve: paired_owner_serve_widening=APPROVAL_REQUIRED_pending_runner_local_decision applied=nothing key_store=fixture_store
+m06 observation: a26 exposure-relay: unapproved_relay=APPROVAL_REQUIRED_pending n0_public=APPROVAL_REQUIRED_pending applied=nothing key_store=fixture_store
+m06 observation: a26 no-remote-decision: paired_decide=INTERACTION_REQUIRED unattended_local_decide=INTERACTION_REQUIRED key_store=fixture_store
+m06 observation: a26 nothing-exposed: before_approval transport_keys_recorded=0 serve_child=none serving_store_items=0 key_store=fixture_store
+m06 observation: a26 serve-local-submit: command=transport_enable_serve_sshd_port session=terminal answer=APPROVAL_REQUIRED exit=3 record_origin=local record_client=none delta=serve_and_sshd_port same_command_again=the_same_record paired_decide=INTERACTION_REQUIRED non_interactive_decision_approve=nothing_sent applied=nothing key_store=fixture_store
+m06 observation: a26 serve-local-approve: command=decision_approve session=terminal typed=yes answer=OK applied=the_recorded_request_once key_store=fixture_store
+m06 observation: a26 paired-after-local: paired_owner_serve_record=still_its_own_record_with_its_client attended_local_approve_after_the_local_serve=CAPABILITY_UNAVAILABLE reason=decision_binding_mismatch applied=nothing key_store=fixture_store
+m06 observation: a26 serve: submitted_by=runner_local_owner_on_a_terminal approved_by=the_same_owner_attended serve_child=running bind=loopback relays=none target=fixture_sshd_on_loopback target_port_from=serve_policy_sshd_port key_store=fixture_store
+m06 observation: a26 route-iroh: approved_routes=iroh_only helper=route_connect_as_proxy_command login=ok destination=fixture_sshd credential=dialer_k_env_certificate host_key=pinned catalog=seeded key_store=fixture_store
+m06 observation: a26 serve-restart: serving_runtime=stopped_then_started login_while_stopped=refused serve_child=new_process endpoint_id=unchanged serve_port=unchanged sshd_port=unchanged_from_durable_state route=unchanged login_after_restart=ok key_store=fixture_store
+m06 observation: a26 unapproved-hint: route_with_unapproved_relay asked_by_attended_local_owner=APPROVAL_REQUIRED_pending asked_by_unattended_local_owner=INTERACTION_REQUIRED_names_the_relay approved=never written=nothing key_store=fixture_store
+m06 observation: a26 failover-before-identification: approved_routes=iroh_then_direct iroh_leg=no_server_before_identification next_route=direct login=ok key_store=fixture_store
+m06 observation: a26 late-refusal-terminal: approved_routes=iroh_then_direct live_session=over_iroh closed_by=serving_side_after_forwarding session=failed moved_to_direct_route=false key_store=fixture_store
+m06 observation: a26 revocation: revoked_by=runner_local_owner answer=OK iroh_admission=applied live_connection=closed_by_the_answer enrolled_endpoints=0 new_dial=refused_before_identification failover_to_direct=ok iroh_route_alone=refused key_store=fixture_store
+m06 observation: a26 disable: asked_by=runner_local_owner serve_child=stopped active_key=none store_items=0 serve_port=forgotten key_store=fixture_store
+m06 observation: a26 paired-approve: runner=a_serving_runner_of_its_own_serving_nothing asked_by=paired_owner_over_its_management_session answer=APPROVAL_REQUIRED record_origin=paired record_client=the_paired_owner non_interactive_decision_approve=INTERACTION_REQUIRED approved_by=runner_local_owner_on_a_terminal typed=yes answer_after=OK installed=key,serve_policy_sshd_port,serve_child paired_replay=the_recorded_result_same_endpoint key_store=fixture_store
+
+
+successes:
+    a26_iroh_routes_trust
+    a26_iroh_through_a_projected_alias
+    local_widening_adopt_roost_on_a_controller
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.82s
+
+### e2e_exit_m06_iroh exit=0
+### e2e_harness_m07
+
+running 3 tests
+test journey::an_unsafe_home_or_store_fails_before_any_launch ... ok
+test harnesses_are_independent_and_use_only_the_standard_library ... ok
+test journey::both_harnesses_complete_the_deterministic_tasks ... ok
+
+successes:
+
+---- journey::both_harnesses_complete_the_deterministic_tasks stdout ----
+a32 note: H2 held 2 binding(s) for one piece of work when task 6 began
+a32 record: {"calls":2,"detail":"","discovery_bytes":9821,"harness":"H1","human_handoffs":0,"invalid_retries":0,"name":"discover","round_trips":2,"success":true,"task":1,"wall_time_ms":46.668,"world":"existing-access"}
+a32 record: {"calls":1,"detail":"","discovery_bytes":0,"harness":"H1","human_handoffs":0,"invalid_retries":0,"name":"covered","round_trips":1,"success":true,"task":2,"wall_time_ms":92.773,"world":"existing-access"}
+a32 record: {"calls":4,"detail":"","discovery_bytes":0,"harness":"H1","human_handoffs":1,"invalid_retries":0,"name":"approval","round_trips":4,"success":true,"task":3,"wall_time_ms":68.916,"world":"fixture-adapter"}
+a32 record: {"calls":2,"detail":"","discovery_bytes":0,"harness":"H1","human_handoffs":0,"invalid_retries":0,"name":"timeout","round_trips":2,"success":true,"task":4,"wall_time_ms":887.301,"world":"fixture-adapter"}
+a32 record: {"calls":1,"detail":"","discovery_bytes":0,"harness":"H1","human_handoffs":0,"invalid_retries":0,"name":"bind-run","round_trips":1,"success":true,"task":5,"wall_time_ms":718.657,"world":"existing-access"}
+a32 record: {"calls":1,"detail":"","discovery_bytes":0,"harness":"H1","human_handoffs":0,"invalid_retries":0,"name":"release","round_trips":1,"success":true,"task":6,"wall_time_ms":23.596,"world":"existing-access"}
+a32 record: {"calls":1,"detail":"CAPABILITY_UNAVAILABLE (effect none)","discovery_bytes":0,"harness":"H1","human_handoffs":0,"invalid_retries":0,"name":"capability-refusal","round_trips":1,"success":true,"task":7,"wall_time_ms":37.089,"world":"existing-access"}
+a32 record: {"calls":1,"detail":"discovered","discovery_bytes":4381,"harness":"H2","human_handoffs":0,"invalid_retries":0,"name":"discover","round_trips":1,"success":true,"task":1,"wall_time_ms":7.197,"world":"existing-access"}
+a32 record: {"calls":1,"detail":"ready","discovery_bytes":0,"harness":"H2","human_handoffs":0,"invalid_retries":0,"name":"covered","round_trips":1,"success":true,"task":2,"wall_time_ms":90.168,"world":"existing-access"}
+a32 record: {"calls":2,"detail":"ready","discovery_bytes":0,"harness":"H2","human_handoffs":1,"invalid_retries":0,"name":"approval","round_trips":2,"success":true,"task":3,"wall_time_ms":52.026,"world":"fixture-adapter"}
+a32 record: {"calls":2,"detail":"ready","discovery_bytes":0,"harness":"H2","human_handoffs":0,"invalid_retries":0,"name":"timeout","round_trips":2,"success":true,"task":4,"wall_time_ms":882.898,"world":"fixture-adapter"}
+a32 record: {"calls":1,"detail":"running","discovery_bytes":0,"harness":"H2","human_handoffs":0,"invalid_retries":0,"name":"bind-run","round_trips":1,"success":true,"task":5,"wall_time_ms":688.211,"world":"existing-access"}
+a32 record: {"calls":2,"detail":"stopped","discovery_bytes":0,"harness":"H2","human_handoffs":0,"invalid_retries":0,"name":"stop","round_trips":2,"success":true,"task":6,"wall_time_ms":40.638,"world":"existing-access"}
+a32 record: {"calls":1,"detail":"CAPABILITY_UNAVAILABLE (effect none)","discovery_bytes":0,"harness":"H2","human_handoffs":0,"invalid_retries":0,"name":"capability-refusal","round_trips":1,"success":true,"task":7,"wall_time_ms":36.738,"world":"existing-access"}
+
+
+successes:
+    harnesses_are_independent_and_use_only_the_standard_library
+    journey::an_unsafe_home_or_store_fails_before_any_launch
+    journey::both_harnesses_complete_the_deterministic_tasks
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.80s
+
+### e2e_harness_m07 exit=0
+### e2e_tui_m07
+
+running 13 tests
+test diagnostic_redacts_mixed_case_windows_identifiers ... ok
+test pty::a20_key_latency ... ok
+test pty::a20_key_latency_settings_and_activity ... ok
+test pty::pty_child ... ignored, child-mode entry of the pty tests, started by them
+test pty::resize_then_yes_before_redraw_stops_nothing ... ok
+test pty::a_stopped_runtime_is_shown_as_stale_not_ready ... ok
+test pty::roundtrip_resize_before_redraw_triggers_nothing::network_probe_enter ... ok
+test pty::roundtrip_resize_before_redraw_triggers_nothing::settings_pause_yes ... ok
+test pty::roundtrip_resize_before_redraw_triggers_nothing::stop_menu_yes ... ok
+test pty::a20_keyboard_walkthrough ... ok
+test pty::tui_standalone_access_and_stop ... ok
+test pty::roundtrip_resize_before_redraw_triggers_nothing::operation_cancel_x ... ok
+test pty::idle_tui_writes_nothing_between_minute_ticks ... ok
+
+successes:
+
+---- pty::a20_key_latency stdout ----
+M07 A20 key latency (debug build, completed frame showing the key's effect, 5000 destinations, a live slow operation): key Tab: samples 40, timeouts at 2 s 0, p50 3.3 ms, p95 4.4 ms, max 4.5 ms; host Linux 6.8.0-147-generic x86_64
+  Tab samples (ms, sorted): [3.2, 3.2, 3.2, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.4, 3.4, 3.4, 3.4, 3.4, 3.4, 3.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.5]
+M07 A20 key latency (debug build, completed frame showing the key's effect, 5000 destinations, a live slow operation): key PageDown: samples 40, timeouts at 2 s 0, p50 4.4 ms, p95 4.5 ms, max 4.5 ms; host Linux 6.8.0-147-generic x86_64
+  PageDown samples (ms, sorted): [4.2, 4.3, 4.3, 4.3, 4.3, 4.3, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5]
+M07 A20 key latency (debug build, completed frame showing the key's effect, 5000 destinations, a live slow operation): key search keystroke: samples 40, timeouts at 2 s 0, p50 5.5 ms, p95 6.5 ms, max 6.6 ms; host Linux 6.8.0-147-generic x86_64
+  search keystroke samples (ms, sorted): [4.4, 4.4, 4.4, 4.4, 5.4, 5.4, 5.4, 5.4, 5.4, 5.4, 5.4, 5.4, 5.4, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.6, 5.6, 5.6, 5.6, 5.6, 5.7, 6.5, 6.5, 6.5, 6.5, 6.6]
+
+---- pty::a20_key_latency_settings_and_activity stdout ----
+M07 A20 key latency (debug build, completed frame showing the key's effect, 4000 managed destinations, 1000 enrollment records): key PageDown on Settings: samples 40, timeouts at 2 s 0, p50 4.4 ms, p95 4.5 ms, max 4.5 ms; host Linux 6.8.0-147-generic x86_64
+  PageDown on Settings samples (ms, sorted): [4.3, 4.3, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5]
+M07 A20 key latency (debug build, completed frame showing the key's effect, 4000 managed destinations, 1000 enrollment records): key PageDown on Activity: samples 40, timeouts at 2 s 0, p50 4.4 ms, p95 4.5 ms, max 4.5 ms; host Linux 6.8.0-147-generic x86_64
+  PageDown on Activity samples (ms, sorted): [4.3, 4.3, 4.3, 4.3, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5]
+
+---- pty::roundtrip_resize_before_redraw_triggers_nothing::network_probe_enter stdout ----
+M07-W2-R01 roundtrip resize (stopped; 120x40 -> 40x5 -> 5 ms -> 120x40; keys; continued): the probe menu's Enter on network: 20 of 20 attempts triggered nothing; the same keys to a drawn frame then worked once
+
+---- pty::roundtrip_resize_before_redraw_triggers_nothing::settings_pause_yes stdout ----
+M07-W2-R01 roundtrip resize (stopped; 120x40 -> 40x5 -> 5 ms -> 120x40; keys; continued): the Settings Pause yes: 20 of 20 attempts triggered nothing; the same keys to a drawn frame then worked once
+
+---- pty::roundtrip_resize_before_redraw_triggers_nothing::stop_menu_yes stdout ----
+M07-W2-R01 roundtrip resize (stopped; 120x40 -> 40x5 -> 5 ms -> 120x40; keys; continued): the stop menu's yes: 20 of 20 attempts triggered nothing; the same keys to a drawn frame then worked once
+
+---- pty::a20_keyboard_walkthrough stdout ----
+M07 walkthrough: after x the operation is "cancelled"
+
+---- pty::roundtrip_resize_before_redraw_triggers_nothing::operation_cancel_x stdout ----
+M07-W2-R01 roundtrip resize (stopped; 120x40 -> 40x5 -> 5 ms -> 120x40; keys; continued): the operation detail's x: 20 of 20 attempts triggered nothing; the same keys to a drawn frame then worked once
+
+---- pty::idle_tui_writes_nothing_between_minute_ticks stdout ----
+M07-U1 idle: 0 bytes written in 12 s between minute ticks (120x40, 100 destinations; host Linux 6.8.0-147-generic x86_64)
+
+
+successes:
+    diagnostic_redacts_mixed_case_windows_identifiers
+    pty::a20_key_latency
+    pty::a20_key_latency_settings_and_activity
+    pty::a20_keyboard_walkthrough
+    pty::a_stopped_runtime_is_shown_as_stale_not_ready
+    pty::idle_tui_writes_nothing_between_minute_ticks
+    pty::resize_then_yes_before_redraw_stops_nothing
+    pty::roundtrip_resize_before_redraw_triggers_nothing::network_probe_enter
+    pty::roundtrip_resize_before_redraw_triggers_nothing::operation_cancel_x
+    pty::roundtrip_resize_before_redraw_triggers_nothing::settings_pause_yes
+    pty::roundtrip_resize_before_redraw_triggers_nothing::stop_menu_yes
+    pty::tui_standalone_access_and_stop
+
+test result: ok. 12 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 39.53s
+
+### e2e_tui_m07 exit=0
+### e2e_wrapper_m07
+
+running 9 tests
+test covered_ensure_replay_and_conflict ... ok
+test event_checkpoint_survives_disconnect_and_resumes_the_same_filter ... ok
+test hello_inspect_and_version_skew ... ok
+test lost_reply_is_observed_and_reconciled_without_resending_ensure ... ok
+test missing_rule_four_home_or_store_prevents_process_launch ... ok
+test expired_history_recovers_with_one_subscription_and_replacement_snapshot ... ok
+test wider_scope_needs_real_terminal_approval ... ok
+test materialize_log_in_and_release_through_the_wrapper ... ok
+test bounded_wait_and_backpressure_leave_the_operation_running_until_cancelled ... ok
+
+successes:
+
+---- missing_rule_four_home_or_store_prevents_process_launch stdout ----
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1526122) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:222:22:
+missing rule-4 key
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1526122) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:222:22:
+missing rule-4 key
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1526122) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:222:22:
+missing rule-4 key
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1526122) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:248:18:
+missing or malformed fixture store path
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1526122) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:248:18:
+missing or malformed fixture store path
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1526122) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:254:29:
+redirected fixture store HEIMDALL_TEST_MGMT_STORE
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1526122) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:254:29:
+redirected fixture store HEIMDALL_TEST_IROH_KEY_STORE
+
+
+successes:
+    bounded_wait_and_backpressure_leave_the_operation_running_until_cancelled
+    covered_ensure_replay_and_conflict
+    event_checkpoint_survives_disconnect_and_resumes_the_same_filter
+    expired_history_recovers_with_one_subscription_and_replacement_snapshot
+    hello_inspect_and_version_skew
+    lost_reply_is_observed_and_reconciled_without_resending_ensure
+    materialize_log_in_and_release_through_the_wrapper
+    missing_rule_four_home_or_store_prevents_process_launch
+    wider_scope_needs_real_terminal_approval
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.24s
+
+### e2e_wrapper_m07 exit=0
+all-tests-exit=0

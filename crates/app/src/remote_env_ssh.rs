@@ -21,6 +21,12 @@
 //!   `SSH_ASKPASS_REQUIRE` removed, standard streams piped, killed on drop. The forced
 //!   command on the runner is the bridge; the controller speaks the IPC protocol over the
 //!   child's standard streams.
+//! * ⟨M06 exit; ADR-0006 §18.9 item 13⟩ **The environment of every `ssh` here**: each launch
+//!   (the preflight, the bootstrap session, the management session, the probes) applies an
+//!   injected [`OpensshEnvFill`] first (the `heimdall` binary passes the operating system's
+//!   fill of `ProgramData` and the related variables, as every other product launch of
+//!   `ssh`), then on Windows the guard ([`prepare_client_environment`]): a child that would
+//!   still lack `ProgramData` is never started.
 
 use std::ffi::OsString;
 use std::io::Write as _;
@@ -565,9 +571,11 @@ pub const WINDOWS_CLIENT_REQUIRED_ENV: &str = "ProgramData";
 
 /// ⟨`w5v`⟩ The refusal when the environment an `ssh` child would inherit lacks
 /// [`WINDOWS_CLIENT_REQUIRED_ENV`] (`env` looks a name up; the product passes the process
-/// environment). `None` when it is set and not empty. Checked before every non-interactive
-/// `ssh` this controller starts on Windows ([`BootstrapSsh::preflight`],
-/// [`spawn_management`]); elsewhere the check is never made. The OpenSSH client would not start
+/// environment). `None` when it is set and not empty. ⟨M06 exit⟩ Checked on Windows before
+/// every `ssh` this controller starts ([`BootstrapSsh::preflight`], the bootstrap session,
+/// [`spawn_management`], [`run_probe`]), after the launch's [`OpensshEnvFill`] (so it bites
+/// only when the fill could not supply the variable: the backstop); elsewhere the check is
+/// never made. The OpenSSH client would not start
 /// properly and would not say why, so nothing is started: `CAPABILITY_UNAVAILABLE`,
 /// `ssh_client_not_started`, and the message names the variable. No path.
 #[must_use]
@@ -589,13 +597,63 @@ pub fn windows_client_environment_refusal(
     })
 }
 
-/// [`windows_client_environment_refusal`] for this process, on Windows only.
-fn client_environment_refusal() -> Option<OpError> {
-    if cfg!(windows) {
-        windows_client_environment_refusal(&|n| std::env::var_os(n))
-    } else {
-        None
+/// ⟨M06 exit; ADR-0006 §18.9 item 13⟩ The OpenSSH environment fill every M06 launch of `ssh`
+/// applies to its command before the guard ([`prepare_client_environment`]). `inherits`: the
+/// child starts from this process's environment (always `true` here: nothing is cleared). It
+/// sets, from the operating system, each of the variables OpenSSH for Windows needs that the
+/// child would lack, and nothing else. `heimdall-app` cannot depend on `heimdall-localenv`, so
+/// the `heimdall` binary passes `heimdall_localenv::sys::openssh_env::fill_openssh_environment`
+/// (a no-op off Windows).
+pub type OpensshEnvFill = fn(&mut std::process::Command, bool);
+
+/// The value `name` would have in the child of `command`: the last change on the command (set
+/// or removed), else `parent`'s (the command inherits). Names compare ASCII
+/// case-insensitively, as Windows does.
+#[must_use]
+pub fn launch_env_value(
+    command: &std::process::Command,
+    name: &str,
+    parent: &dyn Fn(&str) -> Option<OsString>,
+) -> Option<OsString> {
+    match command
+        .get_envs()
+        .filter(|(k, _)| k.eq_ignore_ascii_case(name))
+        .last()
+    {
+        Some((_, value)) => value.map(ToOwned::to_owned),
+        None => parent(name),
     }
+}
+
+/// ⟨M06 exit⟩ Prepare an `ssh` child's environment: apply `fill` (inheriting), then, when
+/// `windows`, the guard: [`windows_client_environment_refusal`] over what the child would
+/// get ([`launch_env_value`], `parent` reads this process's environment). The guard is the
+/// backstop for a fill that could not supply `ProgramData`.
+///
+/// # Errors
+/// The guard's refusal (`CAPABILITY_UNAVAILABLE`, `ssh_client_not_started`).
+pub fn prepare_client_environment(
+    command: &mut std::process::Command,
+    fill: OpensshEnvFill,
+    windows: bool,
+    parent: &dyn Fn(&str) -> Option<OsString>,
+) -> Result<(), OpError> {
+    fill(command, true);
+    if !windows {
+        return Ok(());
+    }
+    windows_client_environment_refusal(&|n| launch_env_value(command, n, parent))
+        .map_or(Ok(()), Err)
+}
+
+/// [`prepare_client_environment`] for a launch from this process (the guard on Windows only).
+fn prepare_launch(
+    command: &mut tokio::process::Command,
+    fill: OpensshEnvFill,
+) -> Result<(), OpError> {
+    prepare_client_environment(command.as_std_mut(), fill, cfg!(windows), &|n| {
+        std::env::var_os(n)
+    })
 }
 
 /// ⟨`w5v`⟩ A finished preflight: [`classify_preflight`], except that a client that said
@@ -632,7 +690,7 @@ pub fn append_stderr_record(file: &Path, leg: &str, exit: Option<i32>, stderr: &
 }
 
 /// The production [`BootstrapRunner`]: the verified `ssh` client over the existing access.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct BootstrapSsh {
     /// The verified `ssh` client (absolute).
     pub ssh_client: PathBuf,
@@ -655,6 +713,9 @@ pub struct BootstrapSsh {
     /// K_iroh: passed to the runner's `remote init` ([`remote_init_command_for`]), which
     /// admits the owner client over Iroh with it. `None`: no Iroh key, nothing is passed.
     pub iroh_endpoint: Option<IrohEndpointId>,
+    /// ⟨M06 exit⟩ The OpenSSH environment fill of the preflight's and the session's `ssh`
+    /// ([`OpensshEnvFill`]; the `heimdall` binary wires the operating system's).
+    pub fill: OpensshEnvFill,
 }
 
 impl BootstrapSsh {
@@ -722,13 +783,6 @@ impl BootstrapSsh {
     pub async fn preflight(&self, plan: &BootstrapPlan, pin_file: &Path) -> Result<(), OpError> {
         self.check_client()?;
         let args = preflight_args(plan, pin_file, self.config.as_deref(), &self.extra_options)?;
-        // ⟨`w5v`, PC job 44⟩ A Windows client that cannot start says nothing: refuse first.
-        if let Some(refusal) = client_environment_refusal() {
-            if let Some(file) = &self.stderr_file {
-                append_stderr_record(file, "preflight (not started: no ProgramData)", None, b"");
-            }
-            return Err(refusal);
-        }
         let mut command = crate::no_window!(tokio::process::Command::new(&self.ssh_client));
         command
             .args(&args)
@@ -740,6 +794,15 @@ impl BootstrapSsh {
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        // ⟨M06 exit⟩ The fill first; ⟨`w5v`, PC job 44⟩ then, as the backstop, a Windows
+        // client that would still lack `ProgramData` (it cannot start and says nothing) is
+        // refused.
+        if let Err(refusal) = prepare_launch(&mut command, self.fill) {
+            if let Some(file) = &self.stderr_file {
+                append_stderr_record(file, "preflight (not started: no ProgramData)", None, b"");
+            }
+            return Err(refusal);
+        }
         const LEG: &str = "over the existing access";
         let Ok(child) = command.spawn() else {
             if let Some(file) = &self.stderr_file {
@@ -792,18 +855,19 @@ impl BootstrapRunner for BootstrapSsh {
                 args.splice(0..0, [OsString::from("-E"), file.as_os_str().to_owned()]);
             }
             // The interactive session shares the user's terminal: not a `no_window!` child.
-            let status = tokio::process::Command::new(&self.ssh_client)
+            let mut command = tokio::process::Command::new(&self.ssh_client);
+            command
                 .args(&args)
                 .env_remove("SSH_ASKPASS")
                 .env_remove("SSH_ASKPASS_REQUIRE")
                 .stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .status()
-                .await
-                .map_err(|_| {
-                    OpError::new(Code::LaunchFailed, "the ssh client could not be started")
-                })?;
+                .stderr(Stdio::inherit());
+            // ⟨M06 exit⟩ As the preflight: the fill, then the guard.
+            prepare_launch(&mut command, self.fill)?;
+            let status = command.status().await.map_err(|_| {
+                OpError::new(Code::LaunchFailed, "the ssh client could not be started")
+            })?;
             if status.success() {
                 Ok(())
             } else {
@@ -855,13 +919,13 @@ pub struct ManagementChild {
 ///
 /// # Errors
 /// `LAUNCH_FAILED` when the client cannot be started; on Windows `CAPABILITY_UNAVAILABLE`
-/// (`ssh_client_not_started`) when the environment lacks `ProgramData`
-/// ([`windows_client_environment_refusal`]).
-pub fn spawn_management(ssh_client: &Path, args: &[OsString]) -> Result<ManagementChild, OpError> {
-    // ⟨`w5v`⟩ As the preflight: a Windows client that cannot start says nothing.
-    if let Some(refusal) = client_environment_refusal() {
-        return Err(refusal);
-    }
+/// (`ssh_client_not_started`) when `fill` could not supply `ProgramData` and the environment
+/// lacks it ([`prepare_client_environment`]).
+pub fn spawn_management(
+    ssh_client: &Path,
+    args: &[OsString],
+    fill: OpensshEnvFill,
+) -> Result<ManagementChild, OpError> {
     let mut command = crate::no_window!(tokio::process::Command::new(ssh_client));
     command
         .args(args)
@@ -873,6 +937,8 @@ pub fn spawn_management(ssh_client: &Path, args: &[OsString]) -> Result<Manageme
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    // ⟨M06 exit⟩ As the preflight: the fill, then the guard.
+    prepare_launch(&mut command, fill)?;
     let failed = || OpError::new(Code::LaunchFailed, "the ssh client could not be started");
     let mut child = command.spawn().map_err(|_| failed())?;
     let (Some(stdin), Some(stdout), Some(mut stderr)) =
@@ -1094,8 +1160,9 @@ async fn read_bounded<R: tokio::io::AsyncRead + Unpin>(mut from: R) -> Vec<u8> {
 
 /// Run one probe: a non-interactive `ssh` child (`no_window!`) with the same environment
 /// removals as a management session, no standard input, bounded by [`PROBE_BOUND`]. A
-/// child that cannot be started or does not end in time is an empty run (inconclusive).
-pub async fn run_probe(ssh_client: &Path, args: &[OsString]) -> ProbeRun {
+/// child that cannot be started or does not end in time is an empty run (inconclusive), and
+/// so is one the guard refuses after `fill` ([`prepare_client_environment`]).
+pub async fn run_probe(ssh_client: &Path, args: &[OsString], fill: OpensshEnvFill) -> ProbeRun {
     let mut command = crate::no_window!(tokio::process::Command::new(ssh_client));
     command
         .args(args)
@@ -1107,6 +1174,9 @@ pub async fn run_probe(ssh_client: &Path, args: &[OsString]) -> ProbeRun {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    if prepare_launch(&mut command, fill).is_err() {
+        return ProbeRun::default();
+    }
     let Ok(mut child) = command.spawn() else {
         return ProbeRun::default();
     };
@@ -1180,6 +1250,7 @@ pub async fn run_probes(
     config: &Path,
     alias: &str,
     disposable_agent: &DisposableAgent,
+    fill: OpensshEnvFill,
 ) -> Option<heimdall_contract::remote::ProbeObservation> {
     let mut verdicts = [ProbeVerdict::Inconclusive; 4];
     let kinds = [
@@ -1190,7 +1261,7 @@ pub async fn run_probes(
     ];
     for (verdict, kind) in verdicts.iter_mut().zip(kinds) {
         let args = probe_args(config, alias, kind, disposable_agent.socket())?;
-        *verdict = classify_probe(kind, &run_probe(ssh_client, &args).await);
+        *verdict = classify_probe(kind, &run_probe(ssh_client, &args, fill).await);
         if *verdict == ProbeVerdict::Inconclusive {
             return None;
         }
@@ -1656,6 +1727,7 @@ mod tests {
             stderr_file: Some(dir.join("ssh-stderr.txt")),
             issuer_ca: None,
             iroh_endpoint: None,
+            fill: |_, _| {},
         };
         let plan = plan();
         let pin = adapter.write_pin_file(&plan).unwrap();
@@ -1743,9 +1815,143 @@ mod tests {
             })
             .is_none()
         );
-        // Off Windows nothing is checked.
-        #[cfg(not(windows))]
-        assert!(client_environment_refusal().is_none());
+    }
+
+    /// ⟨M06 exit⟩ A stand-in for the operating system's fill: sets `ProgramData` and
+    /// `ALLUSERSPROFILE` (the variables the real fill takes from `FOLDERID_ProgramData`) to a
+    /// fixed value.
+    fn stand_in_fill(command: &mut std::process::Command, inherits: bool) {
+        assert!(inherits, "an M06 launch never clears its environment");
+        command
+            .env("ProgramData", "C:\\filled")
+            .env("ALLUSERSPROFILE", "C:\\filled");
+    }
+
+    /// ⟨M06 exit; ADR-0006 §18.9 item 13, test (a)⟩ The seam, on every platform: with a
+    /// parent environment that lacks them, the launch environment carries what the fill
+    /// supplied, and the Windows guard then passes. Off Windows the fill still runs (the real
+    /// one does nothing there) and nothing is checked.
+    #[test]
+    fn the_fill_supplies_what_the_parent_environment_lacks() {
+        let parent = |_: &str| None::<OsString>;
+        for windows in [true, false] {
+            let mut command = std::process::Command::new("ssh");
+            command.env_remove("SSH_AUTH_SOCK");
+            assert_eq!(launch_env_value(&command, "ProgramData", &parent), None);
+            prepare_client_environment(&mut command, stand_in_fill, windows, &parent)
+                .expect("the filled environment passes the guard");
+            for name in ["ProgramData", "ALLUSERSPROFILE"] {
+                assert_eq!(
+                    launch_env_value(&command, name, &parent),
+                    Some(OsString::from("C:\\filled")),
+                    "{name}, windows={windows}"
+                );
+            }
+        }
+        // What the child inherits counts; a removal on the command wins over it.
+        let parent = |n: &str| (n == "ProgramData").then(|| OsString::from("C:\\p"));
+        let mut command = std::process::Command::new("ssh");
+        assert!(prepare_client_environment(&mut command, |_, _| {}, true, &parent).is_ok());
+        command.env_remove("PROGRAMDATA");
+        assert_eq!(launch_env_value(&command, "ProgramData", &parent), None);
+    }
+
+    /// ⟨M06 exit; test (b)⟩ The guard stays the backstop: when the fill's source yields
+    /// nothing (a fill that sets nothing) and the environment lacks `ProgramData` (absent,
+    /// empty, or removed on the command), the Windows launch is refused before any `ssh`
+    /// starts, `CAPABILITY_UNAVAILABLE` / `ssh_client_not_started`, naming the variable.
+    #[test]
+    fn without_the_fills_source_the_guard_still_refuses() {
+        let nothing: OpensshEnvFill = |_, _| {};
+        let empty = |n: &str| (n == "ProgramData").then(OsString::new);
+        let set = |n: &str| (n == "ProgramData").then(|| OsString::from("C:\\p"));
+        let absent = |_: &str| None::<OsString>;
+        let mut removed = std::process::Command::new("ssh");
+        removed.env_remove("ProgramData");
+        type Parent<'a> = &'a dyn Fn(&str) -> Option<OsString>;
+        let cases: [(std::process::Command, Parent<'_>); 3] = [
+            (std::process::Command::new("ssh"), &absent),
+            (std::process::Command::new("ssh"), &empty),
+            (removed, &set),
+        ];
+        for (mut command, parent) in cases {
+            let refused =
+                prepare_client_environment(&mut command, nothing, true, parent).unwrap_err();
+            assert_eq!(refused.code, Code::CapabilityUnavailable);
+            assert_eq!(
+                refused.reason.as_deref(),
+                Some(reason::SSH_CLIENT_NOT_STARTED)
+            );
+            assert!(
+                refused.message.contains("no ProgramData variable"),
+                "{}",
+                refused.message
+            );
+            // Off Windows the same launch is never checked.
+            assert!(prepare_client_environment(&mut command, nothing, false, parent).is_ok());
+        }
+    }
+
+    /// ⟨M06 exit⟩ Every M06 launch of `ssh` applies its fill: the preflight, the bootstrap
+    /// session, the management session and a probe, each run against a stand-in client (a
+    /// shell script, never a real `ssh`) that records the `ProgramData` it was given. With the
+    /// stand-in fill each launch carries the filled value; with a fill that sets nothing, none
+    /// does (this host's own environment has no `ProgramData`).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn every_m06_launch_carries_the_fill() {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert!(
+            std::env::var_os("ProgramData").is_none(),
+            "blocked: this host's environment sets ProgramData"
+        );
+        let dir = std::env::temp_dir().join(format!("hm-mexit-fill-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("seen.txt");
+        let client = dir.join("ssh");
+        // The preflight reads "Permission denied (" as a verified host, so the bootstrap
+        // goes on to its session.
+        std::fs::write(
+            &client,
+            format!(
+                "#!/bin/sh\nprintf 'ProgramData=%s\\n' \"${{ProgramData-unset}}\" >> '{}'\n\
+                 echo 'u@h: Permission denied (publickey).' >&2\nexit 0\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&client, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut seen = Vec::new();
+        for (fill, want) in [
+            (stand_in_fill as OpensshEnvFill, "ProgramData=C:\\filled"),
+            (|_, _| {}, "ProgramData=unset"),
+        ] {
+            let _ = std::fs::remove_file(&log);
+            let adapter = BootstrapSsh {
+                ssh_client: client.clone(),
+                scratch_dir: dir.join("mgmt"),
+                config: None,
+                extra_options: Vec::new(),
+                stderr_file: None,
+                issuer_ca: None,
+                iroh_endpoint: None,
+                fill,
+            };
+            // The preflight, then the bootstrap session.
+            adapter.run(&plan()).await.unwrap();
+            let args = management_args(&dir.join("config"), "hm-env-lab");
+            let mut management = spawn_management(&client, &args, fill).unwrap();
+            management.child.wait().await.unwrap();
+            run_probe(&client, &args, fill).await;
+            let text = std::fs::read_to_string(&log).unwrap_or_default();
+            seen.push((want, text));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        for (want, text) in seen {
+            let lines: Vec<&str> = text.lines().collect();
+            assert_eq!(lines, [want; 4], "preflight, session, management, probe");
+        }
     }
 
     /// ⟨`w5v`, PC job 44⟩ The child half of
@@ -1774,6 +1980,7 @@ mod tests {
             stderr_file: None,
             issuer_ca: None,
             iroh_endpoint: None,
+            fill: |_, _| {},
         };
         let plan = plan();
         let pin = adapter.write_pin_file(&plan).unwrap();
@@ -1796,7 +2003,10 @@ mod tests {
     ///   without a pseudoconsole (so the pseudoconsole loses no standard error).
     /// * Without it (what the driver passed in job 44): refused before any ssh starts,
     ///   `ssh_client_not_started`. Before the fix the client exited 255 silently, which read
-    ///   `ssh_unreachable_other`: job 44's result.
+    ///   `ssh_unreachable_other`: job 44's result. ⟨M06 exit⟩ This crate has no operating
+    ///   system fill (the child's adapter passes one that sets nothing: the fill's source
+    ///   removed), so this case is the guard's backstop; the product's fill is covered by
+    ///   `heimdall`'s `m06_cmd::tests::the_os_fill_reaches_an_m06_launch_without_program_data`.
     #[cfg(windows)]
     #[test]
     #[ignore = "needs the in-box OpenSSH client: run on the Windows PC by exact name"]

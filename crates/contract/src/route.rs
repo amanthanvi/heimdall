@@ -654,6 +654,9 @@ pub enum RouteFailureClass {
     /// ⟨rev6.1⟩ The jump leg failed SSH host-key verification or authentication at the jump
     /// host before identification: terminal, never failed over (ADR-0012 §5.5 item 3).
     AuthenticationOrTrust,
+    /// ⟨M06 exit, Q-B⟩ The leg's driver is not in this build (an Iroh leg in a build without
+    /// the `iroh` feature): never dialed, failed over.
+    DriverUnavailable,
 }
 
 /// One tried route of an attempt.

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LaunchProvenanceEntry",
+  "description": "⟨rev7⟩ One inherited agent's provenance, as a run record will report it.",
+  "type": "object",
+  "properties": {
+    "passed": {
+      "description": "Whether the work received it.",
+      "type": "boolean"
+    },
+    "provenance": {
+      "description": "Its provenance.",
+      "$ref": "#/$defs/LaunchProvenance"
+    },
+    "source": {
+      "description": "The source the agent would come from (for example `SSH_AUTH_SOCK`).",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "provenance",
+    "passed"
+  ],
+  "$defs": {
+    "LaunchProvenance": {
+      "description": "⟨rev7⟩ Where an agent that runner work would inherit comes from (the contract owner's\nruling on U0-Q4), with M06's values (`heimdall_runtime::runner_launch`'s\n`DependencyProvenance`). **Standalone, not attached:** the `launching` and\n`prelaunch_failed` records gain a `launch_provenance` list in the change that emits it\n(U3); today the report is a stderr line only. The unattended refusal already carries its\nreason under the code it answers (`CAPABILITY_UNAVAILABLE` / `controller_dependency` or\n`dependency_provenance_unknown`).",
+      "oneOf": [
+        {
+          "description": "The runner's own agent (clean).",
+          "type": "string",
+          "const": "runner_managed"
+        },
+        {
+          "description": "An agent the runner's owner manages independently of any controller (clean).",
+          "type": "string",
+          "const": "independently_managed"
+        },
+        {
+          "description": "An agent that depends on a controller's session (refused for unattended work).",
+          "type": "string",
+          "const": "controller_dependency"
+        },
+        {
+          "description": "Undetermined (refused for unattended work).",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    }
+  }
+}

@@ -301,6 +301,12 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
     // owner's acknowledgement that a delivered pause or cutoff was lifted is one of the two
     // things that reopen issuance for a runner, so the rows compare.
     ("remote_lift_acks", RecoveryClass::Rows),
+    // ⟨rev7⟩ Migration 0014 (ADR-0014 H9, §3.6 step 4): request fences are replay records,
+    // like `idempotency`; no writer until U2b.
+    (
+        "request_fences",
+        RecoveryClass::Discarded("request replay fences; local"),
+    ),
 ];
 
 /// ⟨M06⟩ Why a migration-0009 table is `Discarded` in wave 0 ([`TABLE_RECOVERY`]).
@@ -316,6 +322,9 @@ const M06_UNWRITTEN: &str = "M06 wave 0: created by migration 0009 with no write
 /// reads every `META_*` constant of this crate and fails on one that is not listed.
 pub const META_RECOVERY: &[(&str, Option<&str>)] = &[
     ("self_environment_id", None),
+    // ⟨rev7⟩ Migration 0014 (ADR-0014 H9): the restore epoch. A restore raises it, so it is
+    // compared.
+    ("restore_epoch", None),
     (
         "authority_generation",
         Some("the local authority generation"),
