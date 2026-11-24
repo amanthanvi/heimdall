@@ -1,0 +1,11 @@
+#201	INITED cov: 98 ft: 423 corp: 85/8962b exec/s: 0 rss: 51Mb
+#132881613	REDUCE cov: 98 ft: 423 corp: 85/8832b lim: 1052672 exec/s: 107683 rss: 126Mb L: 522/1537 MS: 2 ShuffleBytes-EraseBytes-
+#132953610	REDUCE cov: 98 ft: 423 corp: 85/8829b lim: 1052672 exec/s: 107654 rss: 126Mb L: 519/1537 MS: 1 EraseBytes-
+#134217728	pulse  cov: 98 ft: 423 corp: 85/8829b lim: 1052672 exec/s: 107546 rss: 126Mb
+#189350205	DONE   cov: 98 ft: 423 corp: 85/8829b lim: 1052672 exec/s: 105136 rss: 126Mb
+Done 189350205 runs in 1801 second(s)
+stat::number_of_executed_units: 189350205
+stat::average_exec_per_sec:     105136
+stat::new_units_added:          6
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              126

@@ -180,6 +180,7 @@ Each unit lists its marking, owner role, owned paths, what it builds, its tests 
 - **Native:** the regressions run everywhere with the workspace suite. The campaign runs on the Mac container only; its record says so.
 
 **U1b — after the contract handoff.**
+- **Scope added by W2-2 (ruled 2026-11-23):** three new attack tests at the frozen tree: a same-name `Host <alias>` in the user's configuration or an included file (refused or reported as a conflict); a client held on the old binding endpoint across a stop, then signing (refused); a pre-restart issuer reservation replayed against the restarted child (refused).
 - **Builds:** targets for boundaries 12–15 (M06's bridge frames and invitation records, the route helper's pre-identification buffer, the `sshd -T` verifier, M07's page tokens and selectors). The spec §14.3 table (§7.1), with one new test per item that has none. An inventory of the modules that allow `unsafe`, for M09-T03's review. The A29 run at the exit build.
 - **Native:** macOS, the devbox and Windows at the merge candidate.
 
@@ -422,7 +423,7 @@ The devbox (B8) is not needed for the exit: the WSL distribution carries the Lin
 | Item | What it is | Checked by |
 |---|---|---|
 | `MANIFEST.sha256` | SHA-256 of every file in the archive **except itself** | `verify_artifact.py`; the install script before it copies |
-| `BUILD-RECORD.json` | The commit, a clean-tree flag, the toolchain and target, the feature set, the flags, the `Cargo.lock` digest, the builder's OS, each tool's pinned version, the times, and the digests of the **executables only** | Listed in the manifest; compared with what the binary reports about itself once H7 exists |
+| `BUILD-RECORD.json` | The commit, a clean-tree flag, the toolchain and target, the feature set, the flags, the `Cargo.lock` digest, the builder's OS, each tool's pinned version, the commit time, and the digests of the **executables only** (the external record adds the build's start and finish) | Listed in the manifest; compared with what the binary reports about itself once H7 exists |
 | SBOM | One CycloneDX JSON for this target, from the package-, target- and feature-selected graph, each component labelled `target`, `host` or `test-support` | The validation adapter, against cargo's selected graph and the build's compiled packages |
 | `THIRD-PARTY-NOTICES.txt` | Every component with its licence text; `third_party/netdev` included | The generator fails on a missing text |
 | `LICENSE` | The project's licence | **B17** |
@@ -544,13 +545,13 @@ Records live in `tests/evidence/m08-*.json`. The lowest-row rule applies. "All" 
 | Malformed and oversized agent messages | `agent_frames.rs`, `agent_client_frames.rs` |
 | Signing and control namespace confusion | `signer_requests.rs`; A14's endpoint rows |
 | Inherited authority across unrelated jobs | M05's A16 and A28 |
-| Host alias collision | to confirm in U1b |
+| Host alias collision | **Partly covered** (confirmed 2026-11-23, M08 W2-2): within Heimdall's own catalog and managed file, `catalog_alias_rename_keeps_destination_id` (`tests/model/setup.rs`), `duplicate_alias_is_refused` (`crates/sshconf/src/render.rs`, case variants), `one_alias_is_claimed_once` (`portable_m05.rs`) and the portable import's `alias_collision` reports; a user `Host *`, `Host m*` or same-name section capturing a managed alias's identity settings: `identity_selection_not_exclusive_with_inherited_identityfile_or_certificatefile` (`tests/model/sshconf_eval.rs`). **Gap, in U1b's scope after the handoff:** no test puts a same-name `Host <alias>` in the user's `~/.ssh/config` or an included file and expects a refusal or a conflict report. **The contract's doctor finding `alias_collision` and setup conflict `AliasCollision` have no producer** in `crates/localenv`: produce them or stop promising them, the contract owner's decision (U0-Q10, `docs/architecture/m07-u0-handoff.md`). **Known defect (low), owner U0:** the catalog's alias uniqueness is case-sensitive, so `Alpha` beside `alpha` is stored and only the renderer refuses it; no wrong identity is written, but the catalog can hold a state it cannot render (U0-Q9) |
 | Stale configuration rollback | `projection_recovery` |
 | Expiry and revoke races | `tests/model/{revocation, timegate}.rs`; M03's A07 |
 | Another destination trusting the same CA | M03's A10 |
 | A child asking for a later deadline | `tests/model/authority.rs`; M05's delegation tests |
 | A repeated work ID after a cutoff | M05's A05 |
-| A stopped service recovering with a stale signing handle | to confirm in U1b (A17's groups) |
+| A stopped service recovering with a stale signing handle | **Mostly covered for the runtime signer** (confirmed 2026-11-23, M08 W2-2): `crash_after_install_makes_instance_lost_at_restart` (`tests/integration/managed_signer.rs`: the old instance is lost, the grant degraded, signing refused), `reissue_restores_binding_endpoint_files_and_slot_so_ssh_signs_with_the_new_key` (`managed_store/live_tests/pipeline.rs`: real `ssh` through the old slot fails until re-issue, which signs only at a new binding generation), `binding_endpoint_removed_by_generation`, and the same-boot restart tests in M03's `sleep-logout-reboot` group (not A17's). **Partly for the issuer:** `issuer_crash_mid_sign_reservation_counted_never_published`, `late_reply_after_drop_is_discarded_and_nothing_published`, `generation_only_refusal_re_reserves_within_bound` (`tests/integration/issuer_child.rs`). **Gaps, in U1b's scope after the handoff:** no test keeps a client connected to the old binding endpoint across the stop and then signs; no test replays a pre-restart issuer reservation against the restarted child. (OpenSSH's own stale mux handles after `ssh -O stop` are a recorded gate result, `g04-exp-g09-prelim-mux-preconnected-after-stop`, and a stated limitation in `docs/user/limitations.md`.) |
 | A forwarding peer reaching identities outside the set | M04's A15 and A28 forwarding rows |
 
 - **Rows not run natively:** the cross-user rows (B2); the arm64 rows (B9).

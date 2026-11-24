@@ -1,0 +1,11 @@
+#9513	INITED cov: 6285 ft: 14472 corp: 2905/155Kb exec/s: 1359 rss: 211Mb
+#67281696	REDUCE cov: 7073 ft: 15742 corp: 3334/180Kb lim: 658439 exec/s: 37545 rss: 565Mb L: 235/300 MS: 1 EraseBytes-
+#67311809	REDUCE cov: 7073 ft: 15742 corp: 3334/180Kb lim: 658724 exec/s: 37541 rss: 565Mb L: 73/300 MS: 3 EraseBytes-PersAutoDict-CopyPart- DE: "attend"-
+#67358341	REDUCE cov: 7073 ft: 15742 corp: 3334/180Kb lim: 659180 exec/s: 37546 rss: 565Mb L: 39/300 MS: 2 ShuffleBytes-EraseBytes-
+#67666376	DONE   cov: 7073 ft: 15742 corp: 3334/180Kb lim: 662239 exec/s: 37571 rss: 565Mb
+Done 67666376 runs in 1801 second(s)
+stat::number_of_executed_units: 67666376
+stat::average_exec_per_sec:     37571
+stat::new_units_added:          1460
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              565

@@ -1,16 +1,19 @@
 # Build the Heimdall Windows release archive on the PC (m08-plan U3a; ADR-0014 sections 4.2
 # and 4.4). The counterpart of build-release.sh for x86_64-pc-windows-msvc.
 #
-# STATUS: first run on the PC (job 34, at c3abefbf) built heimdall.exe and then stopped at
-# the provenance step: Windows PowerShell 5.1 had written cargo's messages with a byte order
-# mark, and the first compiled package was dropped. Fixed (raw-byte capture below; a strict
-# reader in provenance.py); not yet rerun. Nothing it produces is evidence until a
-# successful run is recorded.
+# STATUS: run successfully on the PC under Windows PowerShell 5.1 (jobs 40 and 43, at
+# 5348551b and 3c8265c5), after two first-run fixes: job 34 stopped at provenance (a byte
+# order mark in cargo's messages; fixed by the raw-byte capture below and a strict reader)
+# and job 36 at verification (combase.dll). Jobs 40 and 43 differed only in the link time
+# and the PDB GUID; the link is now deterministic (/Brepro), and whether two builds are
+# identical is shown by a two-clone PC run (tools/packaging/README.md).
 #
 # Usage (PowerShell 5.1 or 7, from the repository root):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\packaging\build-release.ps1 `
 #       -LinuxHelper <path to the Linux x86_64 heimdall from the Linux archive> `
 #       [-Features <list>] [-AllowDirty] [-Offline]
+#   (-Features takes a comma list, quoted or not: an unquoted `default,iroh` arrives as an
+#   array and is joined. -CheckFeaturesOnly runs only the feature checks, then exits.)
 # Exit code: 0 when the archive was built and passed verify_artifact.py; 1 when the build,
 # the inventory or the verification failed; 2 on a usage or setup error.
 #
@@ -26,9 +29,11 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$LinuxHelper,
-    [string]$Features = "",
+    [string[]]$Features = @(),
     [switch]$AllowDirty,
-    [switch]$Offline
+    [switch]$Offline,
+    [switch]$AllFeatures,
+    [switch]$CheckFeaturesOnly
 )
 $ErrorActionPreference = "Stop"
 $target = "x86_64-pc-windows-msvc"
@@ -38,6 +43,24 @@ $here = "tools\packaging"
 $env:PYTHONDONTWRITEBYTECODE = "1"
 
 function Fail([int]$code, [string]$msg) { Write-Host "build-release: $msg"; exit $code }
+
+# The feature request, checked before anything else (review M08-W2-F2). Windows PowerShell
+# passes an unquoted `-Features default,iroh` as an array; it used to fail binding to a string
+# with a PowerShell error, before this script's own refusal. The elements are joined with
+# commas into the one list cargo takes, and every check below reads that list.
+$featureList = (@($Features) | Where-Object { $_ }) -join ','
+if ($AllFeatures) { Fail 2 "-AllFeatures is refused: release artifacts are built without the iroh feature (the Iroh transport is a source-build preview)" }
+# The feature list is passed to cargo on one command line (below), so it may hold only the
+# characters a feature list uses.
+if ($featureList -and ($featureList -notmatch '^[A-Za-z0-9_,/-]+$')) { Fail 2 "-Features may hold only letters, digits, '_', '-', '/' and ','" }
+if ($CheckFeaturesOnly) {
+    $onlyArgs = @("check-features", "--target", $target)
+    if ($featureList) { $onlyArgs += @("--features", $featureList) }
+    if ($Offline) { $onlyArgs += "--offline" }
+    & python -I "$here\provenance.py" @onlyArgs
+    if ($LASTEXITCODE -ne 0) { Fail 2 "refused before the build; nothing was built" }
+    exit 0
+}
 
 foreach ($tool in "cargo", "rustc", "rustup", "git", "python") {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { Fail 2 "$tool not found" }
@@ -67,21 +90,25 @@ $env:TZ = "UTC"
 $commitTime = (git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD).Trim()
 $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
 if (-not $version) { Fail 2 "no workspace version" }
-# The feature list is passed to cargo on one command line (below), so it may hold only the
-# characters a feature list uses.
-if ($Features -and ($Features -notmatch '^[A-Za-z0-9_,/-]+$')) { Fail 2 "-Features may hold only letters, digits, '_', '-', '/' and ','" }
+# Release artifacts ship without the Iroh transport (ruling E2, option c): a source-build preview.
+# The feature list is judged by `provenance.py check-features` before the build, the one
+# authoritative check (review M08-W2-RC06), and what was compiled by `build-record` after it.
 
 # rustc applies the last matching --remap-path-prefix, so the general one comes first.
 $sep = [char]0x1f
 $flags = @(
     "-Ctarget-feature=+crt-static",
+    # Deterministic link (W2-6): without it the MSVC linker writes the link time into the PE
+    # header and debug directory and a random PDB GUID, the only differences between PC
+    # jobs 40 and 43.
+    "-Clink-arg=/Brepro",
     "--remap-path-prefix=$userHome=/builder",
     "--remap-path-prefix=$rustupHome=/rustup",
     "--remap-path-prefix=$cargoHome=/cargo",
     "--remap-path-prefix=$repo=/heimdall"
 )
 $env:CARGO_ENCODED_RUSTFLAGS = $flags -join $sep
-$flagsText = "-Ctarget-feature=+crt-static --remap-path-prefix=<home>=/builder --remap-path-prefix=<rustup-home>=/rustup --remap-path-prefix=<cargo-home>=/cargo --remap-path-prefix=<checkout>=/heimdall"
+$flagsText = "-Ctarget-feature=+crt-static -Clink-arg=/Brepro --remap-path-prefix=<home>=/builder --remap-path-prefix=<rustup-home>=/rustup --remap-path-prefix=<cargo-home>=/cargo --remap-path-prefix=<checkout>=/heimdall"
 # cl.exe: /d1trimfile strips a prefix from __FILE__; the static CRT for the bundled C code.
 $env:CFLAGS_x86_64_pc_windows_msvc = "/MT /d1trimfile:$userHome\ /d1trimfile:$repo\"
 if (-not $env:CARGO_BUILD_JOBS) { $env:CARGO_BUILD_JOBS = "4" }
@@ -92,7 +119,12 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
 $messages = Join-Path $out ".build-messages-$target.json"
 $cargoArgs = @("build", "--release", "--locked", "-p", "heimdall", "--target", $target, "--message-format=json-render-diagnostics")
 if ($Offline) { $cargoArgs += "--offline" }
-if ($Features) { $cargoArgs += @("--features", $Features) }
+if ($featureList) { $cargoArgs += @("--features", $featureList) }
+$checkArgs = @("check-features", "--target", $target)
+if ($featureList) { $checkArgs += @("--features", $featureList) }
+if ($Offline) { $checkArgs += "--offline" }
+& python -I "$here\provenance.py" @checkArgs
+if ($LASTEXITCODE -ne 0) { Fail 2 "refused before the build; nothing was built" }
 $started = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 Write-Host "== build-release: $target at $($commit.Substring(0,12)) (tree clean: $clean)"
 # cargo's JSON goes to the file byte for byte (PC job 34). Piping `& cargo` through PowerShell
@@ -118,7 +150,11 @@ $name = "heimdall-$version-$target"
 $stage = Join-Path $out $name
 if ($stage.StartsWith((Join-Path $repo "target\release-artifacts\heimdall-")) -and (Test-Path $stage)) { Remove-Item -Recurse -Force -LiteralPath $stage }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
-Copy-Item "target\$target\release\heimdall.exe" (Join-Path $stage "heimdall.exe")
+# Exactly the executable this build produced, by the path cargo reported (review M08-W2-RC02).
+$stageArgs = @("stage-exe", "--target", $target, "--build-messages", $messages, "--expect", (Join-Path $repo "target\$target\release\heimdall.exe"), "--out", (Join-Path $stage "heimdall.exe"))
+if ($Offline) { $stageArgs += "--offline" }
+& python -I "$here\provenance.py" @stageArgs
+if ($LASTEXITCODE -ne 0) { Fail 1 "the executable to pack is not the one this build produced; nothing packed" }
 # The helper sits where the product looks for it: <exe dir>\<HELPER_DIR>\<HELPER_FILE>
 # (crates\wsl\src\spawn.rs, `helper_windows_path`).
 function SpawnConst([string]$n) {
@@ -135,11 +171,11 @@ foreach ($f in "LICENSE", "SECURITY.md") { if (Test-Path $f) { Copy-Item $f (Joi
 if (Test-Path "$here\install.ps1") { Copy-Item "$here\install.ps1" (Join-Path $stage "install.ps1") } else { $missing += "install.ps1" }
 
 function Py { & python -I "$here\provenance.py" @args; if ($LASTEXITCODE -ne 0) { exit 1 } }
-$feat = @(); if ($Features) { $feat = @("--features", $Features) }
+$feat = @(); if ($featureList) { $feat = @("--features", $featureList) }
 $off = @(); if ($Offline) { $off = @("--offline") }
 Py sbom --target $target @feat @off --commit $commit --time $commitTime --tool $sbomTool --build-messages $messages --out (Join-Path $stage "heimdall-$target.cdx.json")
 Py notices --target $target @feat @off --out (Join-Path $stage "THIRD-PARTY-NOTICES.txt")
-Py build-record --target $target @feat --commit $commit --time $commitTime --clean $clean --flags $flagsText --started $started --finished $finished --signature "none (unsigned)" --stage $stage --out (Join-Path $stage "BUILD-RECORD.json")
+Py build-record --target $target @feat @off --build-messages $messages --commit $commit --time $commitTime --clean $clean --flags $flagsText --signature "none (unsigned)" --stage $stage --out (Join-Path $stage "BUILD-RECORD.json")
 Py manifest --stage $stage
 Remove-Item -Force -LiteralPath $messages
 
@@ -162,7 +198,8 @@ try {
     & python -I "$here\verify_artifact.py" $archive --target $target --forbid-file $forbid --allow-exact $label
     if ($LASTEXITCODE -ne 0) { Remove-Item -Force -LiteralPath $archive; Fail 1 "the archive failed verification and was removed" }
     Copy-Item (Join-Path $stage "heimdall-$target.cdx.json") (Join-Path $out "$name.cdx.json")
-    Copy-Item (Join-Path $stage "BUILD-RECORD.json") (Join-Path $out "$name.build-record.json")
+    # The external copy adds the build's wall-clock start and finish (W2-6).
+    Py external-record --record (Join-Path $stage "BUILD-RECORD.json") --started $started --finished $finished --out (Join-Path $out "$name.build-record.json")
     Py index --dir $out
     & python -I "$here\verify_artifact.py" $archive --target $target --forbid-file $forbid --allow-exact $label --index (Join-Path $out "SHA256SUMS") | Out-Null
     if ($LASTEXITCODE -ne 0) { Fail 1 "the archive does not match the external index" }

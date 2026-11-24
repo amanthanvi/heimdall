@@ -5,9 +5,9 @@ Install, update, roll back and uninstall from release archives (m08-plan §7.2, 
 
 | File | What it does |
 |---|---|
-| `install-selftest.sh` | Tests `tools/packaging/install.sh` with fake archives: no real executable is used or run, so it is safe on any host. 41 checks, including the W0 review's cases (a failed backup, symlinks at staging names, an unterminated manifest, a runtime that does not answer, an interrupted rollback) |
+| `install-selftest.sh` | Tests `tools/packaging/install.sh` with fake archives: no real executable is used or run, so it is safe on any host. 45 checks (43 before W2.1), including the W0 review's cases (a failed backup, symlinks at staging names, an unterminated manifest, a runtime that does not answer, an interrupted rollback) |
 | `journey.sh` | The journey itself. `--build release`: archives, run as a disposable account; it sets no test variable, refuses outside a container and refuses if any `HEIMDALL_TEST_*` is set; there is no override. `--build debug`: two debug executables, on a host; it exports and verifies all six scratch variables first, runs every `ssh` with `-F` on the scratch configuration behind a default-identity guard, and **skips every `heimdall connect` step** (see the incident below) |
-| `install-selftest.ps1` | The Windows counterpart, for `install.ps1`: 53 checks. Run on the Windows PC under Windows PowerShell 5.1 and PowerShell 7, with real junctions (see Runs) |
+| `install-selftest.ps1` | The Windows counterpart, for `install.ps1`: 85 checks (77 before W2.2, 71 before W2.1). Run on the Windows PC under Windows PowerShell 5.1 and PowerShell 7, with real junctions (see Runs) |
 | `install-revert-proofs.ps1` | Takes one fix at a time out of a scratch copy of `install.ps1` (by its marker comments) and shows the self-test then fails in the expected cases. For the PC job |
 | `run-journey.sh` | Starts `journey.sh --build release` in the M08 container (no network, 2 CPUs, 2 GiB, an init process) |
 
@@ -138,9 +138,10 @@ under 5.1 and 7.
 | Job 33, at `c3abefbf`: the Linux x86-64 archive in the existing WSL2 distribution, as files only | Archive sha256 and `verify_artifact --index`: PASS; the inner `heimdall` matches `3b90dfc9…`. Without running it: four NEEDED libraries, each found by `ldconfig -p`; highest symbol version `GLIBC_2.30` against the distribution's 2.39. `install-selftest.sh` 41 ok, 0 failed. `install.sh` install, repeat, update to a marked copy and `--rollback` with `--assume-stopped`: exit 0 each, with the expected digests. The distribution list was unchanged. Not a clean-machine row: the distribution is the owner's, not a fresh one |
 | Job 40, at `5348551b`: the real Windows archive, as files only | `install.ps1` install, repeat, update to a marked copy and `-Rollback`, all with `-AssumeStopped`: exit 0 each. The update was executable-only (the marked copy changed `heimdall.exe` alone), and the rollback left the install without its helper: **finding M08-W1-F1**, fixed in `1ea93bf2` (below). `heimdall.exe` was never run |
 
-These close the paragraph above that calls Windows the open evidence, for the self-test's
-cases. They do not show an install of a real Windows archive: `build-release.ps1` has never
-been run, so no Windows archive exists. The `Kind` access-denied line stays untested.
+Jobs 31 and 32 closed the paragraph above that calls Windows the open evidence, for the
+self-test's cases. Jobs 40 and 43 installed a real Windows archive, built by
+`build-release.ps1` on the PC, as files (its executable never run). The `Kind`
+access-denied line stays untested.
 
 ## W1: finding M08-W1-F1 (PC job 40, 2026-11-23)
 
@@ -194,3 +195,73 @@ These were rehearsals of the logic. **The evidence is PC job 43, at `3c8265c5` (
 | The real Windows archive of `3c8265c5`, installed as files, every call with `-AssumeStopped` | Install, then again ("already installed"). An executable-only update to a marked copy keeps the whole old pair under `.previous` (`027f22fe…` and `3b90dfc9…`); `-Rollback` brings both back. An update to a marked copy that changes both halves, then `-Rollback`, restores the original pair with the marked one under `.previous`. With `linux-x86_64.previous\heimdall` deleted, `-Rollback` exits 1 with `the previous pair is incomplete: missing linux-x86_64.previous/heimdall`, and no digest changes. No staging name is left after any step. `heimdall.exe` was never run |
 
 **M08-W1-F1 is closed on Windows.**
+
+## W2: the W1 review's installer findings (R04 to R07)
+
+All four are fixed in one commit, so one PC job covers them.
+
+| Finding | The fix | Test (`install-selftest.ps1` unless said) | Shown failing without the fix |
+|---|---|---|---|
+| **R04** (`install.ps1`): "finish an interrupted update" was decided from which files exist, so a lost `heimdall.exe` beside an older `.previous` executable without a helper paired that executable with the newer helper | Decided before the leftover cleanup, from the interrupted run's own evidence: its staged `.heimdall.new.exe` must be there | Two cases (`W2-R04:`): the rerun does not move the helper, and the `-Rollback` that follows refuses | Revert proof `W2-R04` (the old condition put back): both fail. **Reopened by the W2 review (M08-W2-R01):** a leftover staged file also stays after a run stopped at staging, so W2's evidence was not the run's own; see W2.1 |
+| **R05**: a repair whose last rename fails said both halves were put back; the header and the runbook said a stop between renames 3a and 3b leaves the previous pair under `.previous` | A failed repair now says "the helper repair failed … the helper may now be missing. Run this script again"; the header, the rollback refusal and `docs/operations/update-and-rollback.md` say what the code does (the old helper may still be at the current name; rerun the same archive's script; `-Rollback` first settles an interrupted rollback) | Two cases (`W2-R05:`): the message, and the rerun that repairs | No revert proof (not blocking: a low message fix, ADR-0009 §2.3) |
+| **R07**: step 2 re-checked only the staged executable's digest | Each staged helper file is hashed against the manifest before any rename (ADR-0014 §4.3 step 2) | One case (`W2-R07:`), with a test switch that alters a staged helper file | Revert proof `W2-R07` (the check removed): it fails |
+| **R06** (W0 code; both installers): the live-process check compared path strings | `install.ps1`: both sides through `Resolve-Final` (full path, every link and junction resolved). `install.sh`: `[ word -ef "$cur" ]`, the same device and inode | `install.ps1`: four cases (`W2-R06:`), with process paths handed in: a relative `-Prefix`, a prefix through a link, a process started through a link, and an unrelated `heimdall.exe` that does not block. `install-selftest.sh`: two cases, with a real stand-in process: a relative `--prefix` and one through a symbolic link | The three positive `install.ps1` cases fail with the string comparison put back; both `install.sh` cases fail on the old `install.sh` |
+
+**Stated limits of R06.** A process started through a subst drive letter or an 8.3 short name
+(Windows), or through a relative path or by name from PATH (`install.sh`, which sees only
+absolute paths on the command line), is not matched by the process check. It is then caught
+only by the runtime query that follows, which `-AssumeStopped` / `--assume-stopped` skips.
+
+**Rehearsed on macOS** (pwsh 7.7): `install-selftest.ps1` PASS, 69 checks; `install-revert-proofs.ps1`
+PASS; `install-selftest.sh` PASS. The Windows evidence is the PC job that follows.
+
+**The Windows evidence: PC job 47, at `3ca2f844` (2026-11-23).**
+
+| Run | Result |
+|---|---|
+| `install-selftest.ps1`, Windows PowerShell 5.1 and PowerShell 7 | PASS, 69 checks each; every W2 line `ok` |
+| `install-revert-proofs.ps1`, both | PASS. Reverted, the self-test fails: W01-R01 12, W01-R02 6, W1-F1 3, W1-F1 rollback 3, W2-R04 2, W2-R07 1 |
+| The real archive of `3ca2f844`, as files, every call with `-AssumeStopped` | R04: no false finish and no `linux-x86_64.previous`; the rollback then refuses with "run that archive's install.ps1 again", nothing changed. R06: a relative prefix and a prefix through a junction both refuse while a copy of `PING.EXE` (loopback, no listener) runs as `heimdall.exe` ("a process started from"; "-AssumeStopped does not override this"); each PING process was stopped by its recorded PID after re-checking it, and the junction removed as a link. R07: altering a staged helper refuses ("the staged helper file heimdall does not match the manifest"), the pair unchanged, no staging name left. `heimdall.exe` was never run |
+
+**R05 to R07 are closed on Windows. R04 is not:** the W2 review (M08-W2-R01) showed a first
+install stopped after staging, over the same state, still read as an interrupted update. The
+W2.1 fix and its Windows run follow.
+
+**One message fixed after it (PC job 47's observation, low).** After an update whose `.previous`
+held only an executable (no `linux-x86_64.previous`), the script still printed "the previous pair
+is kept under the .previous names (install.ps1 -Rollback puts it back)"; the rollback correctly
+refused that half pair. The message now says what `.previous` holds: the pair, or "an older
+executable is kept as heimdall.previous.exe without its WSL helper; install.ps1 -Rollback will
+refuse it". Two self-test cases (71 checks in all, PASS under pwsh 7 on macOS); the first fails
+with the old message. It runs on Windows with the candidate's PC job.
+
+## W2.1: the W2 review's installer findings (R01 and R04)
+
+| Finding | The fix | Test | Shown failing without the fix |
+|---|---|---|---|
+| **R01** (`install.ps1`; reopens W2's R04): a leftover `.heimdall.new.exe` was read as an update interrupted between its renames, but a run stopped after staging leaves one too | An update writes the marker `.heimdall.updating` (the staged executable's digest) just before rename 3a and removes it after 4b, and on the rollback of a failed update. A rerun finishes an interrupted update only when the marker is there; the marker is then removed (W2.1 left one in place on the "already installed" path and through `-Rollback`: RC01, fixed in W2.2). A directory at the marker's name is refused like the other names. `install.sh` needs no change: there a leftover staged file is only removed and decides nothing | `install-selftest.ps1`, six cases (`W2.1-R01:`): over W2-R04's state, a run stopped at staging and its rerun is not finished as an update (no `linux-x86_64.previous`), and the `-Rollback` after it refuses; an update stopped after 3a leaves the marker and its rerun finishes and removes it; a directory at the marker's name is refused | Revert proof `W2-R04` now puts back W2's leftover-file rule: the reviewer's case fails |
+| **R04** (`install.sh`): with the installed file moved or deleted, `-ef` had no file to compare, so a running process started from it no longer refused the install | The process's path is compared as a string too: as given, and with its directory resolved on both sides (`pwd -P`), alongside `-ef`. The resolution is done only for a word naming `heimdall`; a failed one never matches | `install-selftest.sh`, two cases (`W2-R04:`): the installed file moved away while the stand-in runs, through an absolute and a relative `--prefix` | Both fail with `-ef` alone (checked by hand on macOS; the reviewer's `curabs` alone fails the relative case there, because `/var` is a link to `/private/var`) |
+
+**Rehearsed on macOS:** `install-selftest.ps1` PASS, 77 checks (pwsh 7); `install-selftest.sh`
+PASS, 45 checks, with `sh` and with `dash`. The Windows evidence is the PC job at the W2.1 tip.
+
+## W2.2: the re-check's installer finding (RC01)
+
+| Finding | The fix | Test | Shown failing without the fix |
+|---|---|---|---|
+| **RC01** (`install.ps1`): the update marker could outlive its update. A run stopped after 4b left it; the "already installed" rerun exited before removing it, and `-Rollback` ignored it. So after a lost executable, a later rerun "finished" an update that had completed, pairing an older helper-less executable with the newer helper (the re-check's case C) | The marker is written only when rename 3b follows (there is a current helper to move). The "already installed" rerun removes a leftover marker, and says so, only after checking that the installed pair is complete and matches the archive's manifest. `-Rollback` refuses while a marker is present, says why, and changes nothing. Only the marker's presence is read; the digest it holds is for a person looking at it | `install-selftest.ps1`, eight cases (`W2.2-RC01:`): case C (a helper-less install, an update stopped after 4b leaves no marker, the rerun after a lost executable is not finished as an update, the rollback after it refuses); an ordinary update stopped after 4b keeps its marker, `-Rollback` refuses and changes nothing, the already-installed rerun removes the marker and says so, `-Rollback` then works; with the helper damaged, `-Rollback` still refuses on the marker | Revert proof `W2-RC01` (all three changes taken out): six of the eight cases fail, case C's rerun and rollback among them (the two that pass are the ones that hold without the fix) |
+
+**Rehearsed on macOS** (pwsh 7): `install-selftest.ps1` PASS, 85 checks; `install-revert-proofs.ps1`
+PASS, run to its closing line (every revert fails its own cases). The Windows evidence is the PC
+job at the W2 candidate.
+
+**The Windows evidence for W2.1 and W2.2: PC job 57, at `7905a671` (2026-11-24).**
+
+| Run | Result |
+|---|---|
+| `install-selftest.ps1`, Windows PowerShell 5.1 and PowerShell 7 | PASS, 85 checks each; every W2.1-R01 (6) and W2.2-RC01 (8) line `ok` |
+| `install-revert-proofs.ps1`, both | PASS to its closing line, with the full output kept and identical between the shells. W2-R04's revert failed exactly its 2 W2.1-R01 cases; W2-RC01's 6 cases, including case C; W2-R07's 1 |
+| The real archive of `7905a671`, as files, every call with `-AssumeStopped` | 7a: the reviewer's R01 case (no finish, no `linux-x86_64.previous`, `-Rollback` exit 1). 7b: a 3a stop, finished by the rerun, no marker left. 7c: case C (no marker after a 4b stop of a helper-less install's update; the rerun after the lost executable not finished; `-Rollback` exit 1). 7d: a 4b stop: `-Rollback` refused on the marker, the rerun removed it and said so, then `-Rollback` worked. 7e: the job-47 message. `heimdall.exe` was never run |
+
+**R01 (W2) and RC01 (W2.2) are closed on Windows**, and so is R04 (W1), which they reopened.
+Records: `tests/evidence/artifacts/m08/pc-job57-7905a671/`.

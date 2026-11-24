@@ -1,0 +1,1 @@
+13453c69d123f948 linked-crates=crates/adapters,crates/app,crates/contract,crates/credential,crates/domain,crates/enroll,crates/ipc,crates/issuer,crates/localenv,crates/project,crates/registry,crates/remote,crates/runtime,crates/sshconf,crates/store,crates/transport-iroh,crates/wsl

@@ -9,6 +9,8 @@
 //!   recovery that trusts only the pointer ([`StateDir::open`]).
 //! * [`Ledger`]: the append-only request ledger outside every generation, with the
 //!   retention rule of ADR-0006 §7.4 ([`ledger::may_trim`]).
+//!   A damaged ledger (anything but a torn tail) refuses every append and writes nothing
+//!   (ruled 2026-11-23); recovery is U0's attended path.
 //! * [`Fs`]: the file-system calls, as a trait. [`RealFs`] is the real one; [`FaultFs`]
 //!   fails, stops or parks the process at any one step, for the fault tests.
 //!

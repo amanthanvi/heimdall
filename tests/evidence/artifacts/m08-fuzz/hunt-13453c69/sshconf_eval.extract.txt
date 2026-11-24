@@ -1,0 +1,11 @@
+#3699	INITED cov: 1703 ft: 7842 corp: 1259/440Kb exec/s: 142 rss: 615Mb
+#282681	REDUCE cov: 1706 ft: 7942 corp: 1311/535Kb lim: 5211 exec/s: 157 rss: 615Mb L: 233/4803 MS: 4 ChangeBinInt-CopyPart-CopyPart-EraseBytes-
+#283024	REDUCE cov: 1706 ft: 7942 corp: 1311/535Kb lim: 5211 exec/s: 157 rss: 615Mb L: 66/4803 MS: 3 CrossOver-ChangeBit-EraseBytes-
+#283469	REDUCE cov: 1706 ft: 7942 corp: 1311/535Kb lim: 5211 exec/s: 157 rss: 615Mb L: 272/4803 MS: 5 CopyPart-ShuffleBytes-CMP-ChangeByte-EraseBytes- DE: "\023\000\000\000\000\000\000\000"-
+#283484	DONE   cov: 1706 ft: 7942 corp: 1311/535Kb lim: 5211 exec/s: 157 rss: 615Mb
+Done 283484 runs in 1801 second(s)
+stat::number_of_executed_units: 283484
+stat::average_exec_per_sec:     157
+stat::new_units_added:          501
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              615

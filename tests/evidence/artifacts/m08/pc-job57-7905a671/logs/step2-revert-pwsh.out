@@ -1,0 +1,44 @@
+﻿with every fix in place: exit 0, 0 failing
+W01-R01 reverted: exit 1; failing cases:
+   FAIL W01-R01: a directory at .heimdall.new.exe is refused and keep.txt survives
+   FAIL W01-R01: a directory at .heimdall.swap.exe is refused on rollback and keep.txt survives
+   FAIL W01-R01: a junction (or link) at a staging name is refused and its target survives
+   FAIL W01-R01: a junction (or link) at the executable staging name is refused and its target survives
+   FAIL W01-R01: a staged helper directory holding a foreign file is not deleted
+   FAIL W0.3: a junction (or link) at a subdirectory inside a staged helper is refused; the file behind it survives
+   FAIL W01-R02: a rollback killed after ra1, then rerun: both versions survive as complete pairs
+   FAIL W01-R02: a rollback killed after ra2, then rerun: both versions survive as complete pairs
+   FAIL W01-R02: a rollback killed after rb1, then rerun: both versions survive as complete pairs
+   FAIL W01-R02: a rollback killed after rb2, then rerun: both versions survive as complete pairs
+   FAIL W01-R02: a rollback killed after rc1, then rerun: both versions survive as complete pairs
+   FAIL W2.1-R01: a directory at the marker's name is refused and nothing changes
+W01-R02 reverted: exit 1; failing cases:
+   FAIL W01-R02: a rerun after a kill between the renames repairs the pair, not 'already installed'
+   FAIL W01-R02: a matching executable with a different helper is repaired
+   FAIL W1-F1: a helper-only repair fixes the helper in place and leaves .previous byte-identical
+   FAIL W2-R05: a repair that fails at its last rename says the helper may be missing, not that both halves were put back
+   FAIL W2-R05: and running the script again repairs the helper
+   FAIL interrupted after 4a: rerunning finishes the update, executable and helper together
+W1-F1 reverted: exit 1; failing cases:
+   FAIL W1-F1: an executable-only update keeps the whole old pair under .previous
+   FAIL W1-F1: an executable-only update then a rollback restores the complete old pair (both digests)
+   FAIL W1-F1: after an earlier full update, an executable-only update leaves .previous a matched pair
+W1-F1 rollback check reverted: exit 1; failing cases:
+   FAIL W1-F1: a rollback with an incomplete .previous pair refuses, names what is missing, and changes nothing
+   FAIL W1-F1: a rollback with no .previous helper directory refuses and changes nothing
+   FAIL W2-R04: and a rollback then refuses instead of installing the older executable with the newer helper
+   FAIL W2.1-R01: and the rollback that follows refuses, pairing nothing
+   FAIL W2.2-RC01: case C: the rollback after it refuses and pairs nothing
+W2-R04 reverted: exit 1; failing cases:
+   FAIL W2.1-R01: a rerun after a stop at staging is not finished as an interrupted update
+   FAIL W2.1-R01: and the rollback that follows refuses, pairing nothing
+W2-RC01 reverted: exit 1; failing cases:
+   FAIL W2.2-RC01: an update of a helper-less install leaves no marker, even stopped after 4b
+   FAIL W2.2-RC01: case C: the rerun after the executable is lost is not finished as an interrupted update
+   FAIL W2.2-RC01: case C: the rollback after it refuses and pairs nothing
+   FAIL W2.2-RC01: -Rollback refuses while the marker is present, says why, and changes nothing
+   FAIL W2.2-RC01: the already-installed rerun removes the leftover marker and says so
+   FAIL W2.2-RC01: with the pair not matching, -Rollback still refuses on the marker
+W2-R07 reverted: exit 1; failing cases:
+   FAIL W2-R07: a staged helper file that does not match the manifest stops the update before any rename
+install-revert-proofs: PASS

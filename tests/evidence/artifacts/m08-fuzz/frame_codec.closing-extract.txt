@@ -1,0 +1,11 @@
+#188	INITED cov: 98 ft: 423 corp: 85/8976b exec/s: 0 rss: 51Mb
+#137100896	REDUCE cov: 98 ft: 423 corp: 85/8954b lim: 1052672 exec/s: 95474 rss: 120Mb L: 140/1537 MS: 2 EraseBytes-CopyPart-
+#161770791	REDUCE cov: 98 ft: 423 corp: 85/8952b lim: 1052672 exec/s: 93834 rss: 121Mb L: 35/1537 MS: 5 ChangeBinInt-ChangeBinInt-ShuffleBytes-CrossOver-EraseBytes-
+#168492801	DONE   cov: 98 ft: 423 corp: 85/8952b lim: 1052672 exec/s: 93555 rss: 121Mb
+#168492801	DONE   cov: 98 ft: 423 corp: 85/8952b lim: 1052672 exec/s: 93555 rss: 121Mb
+Done 168492801 runs in 1801 second(s)
+stat::number_of_executed_units: 168492801
+stat::average_exec_per_sec:     93555
+stat::new_units_added:          13
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              121
