@@ -23,10 +23,19 @@ the `ssh -G` output reader take files and a child process, and have no target.
     container capped at 2 CPUs, so a target's second of `-max_total_time` is about one
     CPU-second (R08(e)).
   - **Time counts per build** (R08(a)). Setup records a build identity: a SHA-256 over every
-    file of the workspace crates the fuzz crate links, its manifest, lock file and targets.
-    Every run line carries it (`build=`), and the report counts only the current build's runs,
-    plus earlier unrecorded runs that `fuzz/accounting.txt` declares equivalent, with the
-    reason. It prints the counted time, its two parts and the time of all runs.
+    file of the workspace crates the fuzz crate links, its manifest, lock file and targets,
+    and (since W2.1, review M08-W2-R03) the workspace's root `Cargo.toml` and `Cargo.lock`, the
+    product's `rust-toolchain.toml`, the pinned nightly with its `rustc --version`, the
+    cargo-fuzz version and `RUSTFLAGS`. Every run line carries it (`build=`), and the report
+    counts only the current build's runs, plus earlier unrecorded runs that
+    `fuzz/accounting.txt` declares equivalent, with the reason. It prints the counted time, its
+    two parts and the time of all runs.
+  - **No run counts until a setup completes** (M08-W2-R03). Setup first removes the recorded
+    identity, computes the new one from the copied sources before building, and records it only
+    after every step has passed and a recomputation over what was built gives the same value.
+    A setup that fails or is killed part-way leaves no identity, so the runs that follow carry
+    `build=unknown`, which the report never counts. `build-id show` prints the identity of the
+    volume's sources under the current formula and writes nothing.
 
 | Target | Boundary | Entry points |
 |---|---|---|

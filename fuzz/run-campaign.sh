@@ -5,6 +5,7 @@
 #        bash fuzz/run-campaign.sh run <seconds> [target...]   run targets (default: all), 2 at a time
 #        bash fuzz/run-campaign.sh report             print each target's last result lines
 #        bash fuzz/run-campaign.sh build-id           record the build identity of an existing build
+#        bash fuzz/run-campaign.sh build-id show      print the identity of the volume's sources, writing nothing
 #        bash fuzz/run-campaign.sh crashes <dir>      copy crash inputs out (they may be hostile bytes)
 #        bash fuzz/run-campaign.sh clean              remove the container volume, by exact name
 # Exit code: 0 on success; 1 when a build fails or a target reports a crash, hang or memory
@@ -31,7 +32,10 @@ CARGO_FUZZ="0.13.2"
 RUSTUP_VERSION="1.29.3"
 RUSTUP_SHA_AARCH64="9f608c142e0e38a78957d0661ba1dfaf0b6fb37184cfaa4b9a0aa57af6184282"
 RUSTUP_SHA_X86_64="b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55"
-VOLUME="hm-m08-fuzz"
+# HM_FUZZ_VOLUME names another volume (hm-m08-fuzz-<suffix>), for a scratch setup that
+# must not touch the campaign's volume.
+VOLUME="${HM_FUZZ_VOLUME:-hm-m08-fuzz}"
+case "$VOLUME" in hm-m08-fuzz|hm-m08-fuzz-[a-z0-9]*) ;; *) echo "run-campaign: HM_FUZZ_VOLUME must be hm-m08-fuzz or hm-m08-fuzz-<suffix>" >&2; exit 2 ;; esac
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
 # target:max_len (just above each boundary's own cap, ADR-0014 section 2.1)
@@ -50,20 +54,30 @@ in_container() { # NETWORK SCRIPT [ARGS...]
         "$IMAGE" bash -euo pipefail -c "$script" campaign "$@"
 }
 
-# The build identity (review M08-W1-R08(a)): a SHA-256 over every file of the workspace
-# crates the fuzz crate links (from `cargo tree`), the fuzz crate's manifest, lock file and
-# targets, as copied into the volume and built. Written to /vol/work/out/build-id; each run
-# line carries it, and the report sums time per build.
+# The build identity (review M08-W1-R08(a), widened by M08-W2-R03): a SHA-256 over every
+# file of the workspace crates the fuzz crate links (from `cargo tree`), the fuzz crate's
+# manifest, lock file and targets, the workspace's root Cargo.toml and Cargo.lock, the
+# product's rust-toolchain.toml (copied into the volume under another name, so it selects
+# nothing), and one line naming the nightly (its pin and `rustc --version`), cargo-fuzz and
+# RUSTFLAGS, all as copied into the volume and built. Each run line carries it, and the
+# report sums time per build.
+# Arguments: the file to write (`-` prints only) and `offline` or `online` (setup computes
+# the identity before the build, when the dependencies may not be fetched yet).
 BUILD_ID_SCRIPT='
     export PATH=/vol/cargo/bin:$PATH
+    out=$1; net=$2
     cd /vol/work/src
-    dirs=$(cargo "+$NIGHTLY" tree --offline --manifest-path fuzz/Cargo.toml --prefix none -e normal,build 2>/dev/null \
+    off=--offline; [ "$net" = offline ] || off=
+    dirs=$(cargo "+$NIGHTLY" tree $off --manifest-path fuzz/Cargo.toml --prefix none -e normal,build 2>/dev/null \
         | grep -o "(/vol/work/src/crates/[^)]*)" | tr -d "()" | sed "s#^/vol/work/src/##" | sort -u)
     [ -n "$dirs" ] || { echo "run-campaign: cannot list the crates the fuzz crate links" >&2; exit 1; }
-    id=$( { find $dirs -type f ! -path "*/target/*"; find fuzz/fuzz_targets -type f; echo fuzz/Cargo.toml; echo fuzz/Cargo.lock; } \
-        | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -c1-16)
-    printf "%s linked-crates=%s\n" "$id" "$(echo $dirs | tr " " ",")" >/vol/work/out/build-id
-    echo "build-id: $id"
+    toolfile=absent; [ ! -f product-rust-toolchain.toml ] || toolfile=product-rust-toolchain.toml
+    inputs="nightly=$NIGHTLY rustc=$(rustc "+$NIGHTLY" --version | tr " " "_") cargo-fuzz=$CARGO_FUZZ rustflags=$RUSTFLAGS"
+    id=$( { { find $dirs -type f ! -path "*/target/*"; find fuzz/fuzz_targets -type f; echo fuzz/Cargo.toml; echo fuzz/Cargo.lock
+              echo Cargo.toml; echo Cargo.lock; [ "$toolfile" = absent ] || echo "$toolfile"; } \
+            | LC_ALL=C sort | xargs sha256sum; echo "$inputs"; } | sha256sum | cut -c1-16)
+    line=$(printf "%s linked-crates=%s toolchain-file=%s %s" "$id" "$(echo $dirs | tr " " ",")" "$toolfile" "$inputs")
+    if [ "$out" = - ]; then echo "$line"; else printf "%s\n" "$line" >"$out"; echo "build-id: $id"; fi
 '
 
 case "${1:-}" in
@@ -71,6 +85,11 @@ setup)
     docker volume create "$VOLUME" >/dev/null
     # The sanitizer build of the runtime crate was killed at 4 GiB: build with 8 GiB and one job.
     HM_FUZZ_MEMORY=8g; HM_FUZZ_JOBS=1
+    # Until this setup completes, no run counts toward any build (review M08-W2-R03): the
+    # recorded identity is removed first, so a setup that fails or is killed part-way leaves
+    # none, and every run line reads "unknown", which the report never counts. The identity
+    # is computed from the copied sources before the build and recorded only at the end.
+    in_container none 'mkdir -p /vol/work/out && rm -f /vol/work/out/build-id /vol/work/out/build-id.pending'
     in_container bridge '
         export PATH=/vol/cargo/bin:$PATH
         apt-get update -qq >/dev/null
@@ -92,8 +111,14 @@ setup)
         rustup toolchain install "$NIGHTLY" --profile minimal >/dev/null
         cargo "+$NIGHTLY" install --locked --version "=$CARGO_FUZZ" cargo-fuzz >/dev/null 2>&1 || cargo "+$NIGHTLY" install --locked --version "=$CARGO_FUZZ" cargo-fuzz
         rm -rf /vol/work/src && mkdir -p /vol/work/src /vol/work/corpus /vol/work/out
-        # The product toolchain file is deliberately not copied: it would select stable.
+        # The product toolchain file is copied under another name: as rust-toolchain.toml it
+        # would select stable. It is hashed into the build identity.
         cp -R /src/Cargo.toml /src/Cargo.lock /src/crates /src/fuzz /vol/work/src/
+        cp /src/rust-toolchain.toml /vol/work/src/product-rust-toolchain.toml
+    '
+    in_container bridge "$BUILD_ID_SCRIPT" /vol/work/out/build-id.pending online
+    in_container bridge '
+        export PATH=/vol/cargo/bin:$PATH
         cd /vol/work/src/fuzz
         rm -rf target && ln -s /vol/work/target target && mkdir -p /vol/work/target
         cp /src/fuzz/Cargo.lock Cargo.lock 2>/dev/null || true
@@ -122,6 +147,15 @@ setup)
         echo "run-campaign: fuzz/Cargo.lock changed during setup; review fuzz/Cargo.lock.new" >&2; exit 1
     fi
     mv "$repo/fuzz/Cargo.lock.new" "$repo/fuzz/Cargo.lock"
+    # Recorded only when the identity of what was built equals the one computed before the
+    # build (a lock file cargo rewrote, or any other input that changed, refuses).
+    in_container none "$BUILD_ID_SCRIPT" /vol/work/out/build-id.final offline >/dev/null
+    in_container none '
+        cd /vol/work/out
+        if [ "$(cat build-id.pending)" != "$(cat build-id.final)" ]; then
+            rm -f build-id.final; echo "run-campaign: the build inputs changed during setup; no identity recorded" >&2; exit 1
+        fi
+        rm -f build-id.final && mv build-id.pending build-id && cat build-id'
     ;;
 run)
     secs=${2:-}; case "$secs" in ''|*[!0-9]*) echo "run-campaign: run <seconds> [target...]" >&2; exit 2 ;; esac
@@ -217,9 +251,11 @@ report)
 build-id)
     # For a build made before setup recorded its identity. The volume's copy of the sources
     # is the one that was built (setup is its only writer), so its digest is the build's.
-    # An existing identity is never replaced.
+    # An existing identity is never replaced. `build-id show` prints the identity of the
+    # volume's sources under the current formula and writes nothing.
+    if [ "${2:-}" = show ]; then in_container none "$BUILD_ID_SCRIPT" - offline; exit 0; fi
     in_container none '[ ! -s /vol/work/out/build-id ] || { echo "run-campaign: build-id exists: $(cat /vol/work/out/build-id)" >&2; exit 2; }'
-    in_container none "$BUILD_ID_SCRIPT"
+    in_container none "$BUILD_ID_SCRIPT" /vol/work/out/build-id offline
     ;;
 crashes)
     out=${2:-}; [ -n "$out" ] || { echo "run-campaign: crashes <dir>" >&2; exit 2; }
