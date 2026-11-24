@@ -198,7 +198,17 @@ closing line is in `results.txt`. Round 2 was 3,600 s on eight targets, then 1,8
   N = 2,000, 4,000 and 8,000 (three points, so a near-quadratic result cannot pass by luck); with a
   counting allocator in its own test binary, each doubling stays under 2.5 times the allocations,
   and the result reports N blocks, none intact (accepted by the orchestrator, 2026-11-23).
-- **Closed only when:** after the fix, `gitedit_scan` is fuzzed again on the newest build (defect
-  hunting) and the sanitizer build no longer runs out of memory. Until then F1 stays open here.
+- **Closed (2026-11-24).** Fixed by the orchestrator in `crates/sshconf` (main `b14c210b`, with
+  `tests/adversarial/sshconf_block_scan.rs`: allocation ratios at N = 2,000, 4,000 and 8,000, both
+  flavours). Checked on the fuzz build `13453c69d123f948` (the merge `1d7b2870`):
+  - the whole `gitedit_scan` corpus (25,189 inputs) replayed in the sanitizer build at
+    `-rss_limit_mb=1024`: exit 0, peak 636 MB, 6 s (before: out of memory at 1,108 MB);
+  - the old artifact alone: 4 ms, 45 MB (before: 363 ms, 263 MB);
+  - 3,600 s of fuzzing: exit 0, no new artifact, peak RSS 816 MB, 8.9 million executions.
+
+  The old artifact was moved out of the target's artifact directory into the volume's
+  `artifacts-history/9dd72f8fd9e5c17c/`, so the report counts findings on the current build only.
+  Watch item: the sanitizer build's peak RSS reached 816 MB of the 1,024 MB limit in one hour; a
+  longer run is the next evidence.
 - `gitedit_scan` stays **not met** while M08-W2-F1 is open.
 
