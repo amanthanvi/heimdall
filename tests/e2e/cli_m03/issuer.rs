@@ -42,6 +42,7 @@ use heimdall_credential::cert::SecretCaKey;
 use heimdall_issuer::store::{SecretStore, StoreItemRef};
 use heimdall_store::{IssuerRecord, Store};
 use heimdall_testkit::assert_no_canary;
+use heimdall_testkit::ca::ceremony::without_passphrase;
 use heimdall_testkit::scratch_store::ScratchSecretStore;
 use serde_json::Value;
 
@@ -706,6 +707,33 @@ mod term {
 
     use super::*;
 
+    /// ⟨M08-W3-F1⟩ A pty transcript. Checks read the raw text (`Deref<Target = str>`). Any
+    /// formatting of it (`{t}`, `{t:?}`, a failure message) shows it through
+    /// `without_passphrase`, so no test prints a shown passphrase (the Windows cases'
+    /// `Case::shown` does the same). Text taken out of it (a slice, a `String`) is raw:
+    /// print that through `without_passphrase` too.
+    pub(super) struct Transcript(String);
+
+    impl std::ops::Deref for Transcript {
+        type Target = str;
+
+        fn deref(&self) -> &str {
+            &self.0
+        }
+    }
+
+    impl std::fmt::Display for Transcript {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&without_passphrase(&self.0))
+        }
+    }
+
+    impl std::fmt::Debug for Transcript {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            std::fmt::Debug::fmt(without_passphrase(&self.0).as_str(), f)
+        }
+    }
+
     /// A pseudo-terminal whose output is drained into an in-memory transcript.
     pub(super) struct Pty {
         master: OwnedFd,
@@ -760,8 +788,9 @@ mod term {
             }
         }
 
-        pub(super) fn transcript(&self) -> String {
-            String::from_utf8_lossy(&self.output.lock().unwrap()).into_owned()
+        /// What the terminal showed so far ([`Transcript`]).
+        pub(super) fn transcript(&self) -> Transcript {
+            Transcript(String::from_utf8_lossy(&self.output.lock().unwrap()).into_owned())
         }
 
         /// Wait until the transcript contains `needle`; `false` when `child` exited first.
@@ -1160,21 +1189,6 @@ fn process_args(pid: u32) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
-/// `transcript` with every form of the passphrase it shows (if any) replaced, for a
-/// failure message: no test prints a passphrase.
-#[cfg(target_os = "macos")]
-fn without_passphrase(transcript: &str) -> String {
-    let Some(found) = heimdall_testkit::ca::ceremony::find_passphrase(transcript.as_bytes()) else {
-        return transcript.to_owned();
-    };
-    let joined = String::from_utf8_lossy(&found).into_owned();
-    passphrase_forms(&joined)
-        .iter()
-        .fold(transcript.to_owned(), |t, form| {
-            t.replace(form, "<passphrase>")
-        })
-}
-
 /// Every form a shown passphrase may take: joined, grouped by spaces, grouped by `-`.
 #[cfg(target_os = "macos")]
 fn passphrase_forms(joined: &str) -> Vec<String> {
@@ -1258,7 +1272,7 @@ fn init_on_pty_replacing(
     assert!(
         pty.wait_for("Type 'written'", &mut started.child),
         "{}",
-        without_passphrase(&pty.transcript())
+        pty.transcript()
     );
     let shown = pty.transcript();
     let joined = String::from_utf8(
@@ -1280,13 +1294,15 @@ fn init_on_pty_replacing(
     pty.type_line("written");
     let out = finish(&mut started);
     let transcript = pty.transcript();
-    // ⟨M08-W3-F1⟩ A failure shows the transcript without the passphrase.
-    assert_eq!(out.code, 0, "{out:?}\n{}", without_passphrase(&transcript));
+    // ⟨M08-W3-F1⟩ A failure shows the transcript without the passphrase (`Transcript`).
+    assert_eq!(out.code, 0, "{out:?}\n{transcript}");
     let env = out.json();
     assert_eq!(env["code"], "OK", "{out:?}");
     let ca = &env["data"]["cas"][0];
-    assert_eq!(ca["state"], "active", "{env}");
-    assert_eq!(ca["store"], "macos_login_keychain", "{env}");
+    // ⟨M08-W3-F1⟩ The ceremony's own envelope, printed without any passphrase.
+    let shown_env = || without_passphrase(&env.to_string());
+    assert_eq!(ca["state"], "active", "{}", shown_env());
+    assert_eq!(ca["store"], "macos_login_keychain", "{}", shown_env());
     let fp = CaFingerprint::parse(ca["fingerprint"].as_str().unwrap()).unwrap();
     // `written` cleared the passphrase's region (cursor up, column 1, clear to the end).
     let after = &transcript[before_written..];
@@ -1451,7 +1467,7 @@ fn issuer_rotate_begin_registers_the_successor_on_the_product_store() {
     assert_eq!(out.code, 0, "{out:?}\n{}", pty.transcript());
     let env = out.json();
     let cas = env["data"]["cas"].as_array().unwrap();
-    assert_eq!(cas.len(), 2, "{env}");
+    assert_eq!(cas.len(), 2, "{}", without_passphrase(&env.to_string()));
     let new = cas
         .iter()
         .find(|c| c["fingerprint"] != old.as_str())
@@ -2447,7 +2463,11 @@ fn init_shows_runtime_lock_text(rig: &Rig, case: &str, expect: &[&str]) {
     let shown = pty.transcript();
     let before = &shown[..shown.find("Type 'yes'").unwrap()];
     for needle in ["Register CA SHA256:", "backup SHA-256 ", "backup file "] {
-        assert!(before.contains(needle), "{needle:?}: {before}");
+        assert!(
+            before.contains(needle),
+            "{needle:?}: {}",
+            without_passphrase(before)
+        );
     }
     for kind in [
         DisclosureKind::SameUserIssuerBoundary,
@@ -2455,9 +2475,17 @@ fn init_shows_runtime_lock_text(rig: &Rig, case: &str, expect: &[&str]) {
         DisclosureKind::BackupInstructions,
     ] {
         let prose = disclosure_text(kind, &DisclosureContext::default());
-        assert!(before.contains(&prose), "{kind:?}: {before}");
+        assert!(
+            before.contains(&prose),
+            "{kind:?}: {}",
+            without_passphrase(before)
+        );
     }
-    assert!(before.contains(&text), "the runtime's lock text: {before}");
+    assert!(
+        before.contains(&text),
+        "the runtime's lock text: {}",
+        without_passphrase(before)
+    );
     assert!(!before.contains(&general), "not the general sentence");
     assert!(
         rig.store()
@@ -2611,7 +2639,8 @@ fn issuer_init_backup_path_controls_never_reach_the_terminal() {
     let rest = without_own_clearing(&t);
     assert!(
         !rest.contains('\x1b'),
-        "only the ceremony's own clearing: {rest:?}"
+        "only the ceremony's own clearing: {:?}",
+        without_passphrase(&rest)
     );
     assert_ne!(rest.len(), t.len(), "the passphrase's region was cleared");
 }
@@ -2957,20 +2986,23 @@ fn recheck_retire_after_new_item_restore_deletes_only_current_generation() {
     let out = finish(&mut s);
     let t = pty.transcript();
     assert_eq!(out.code, 0, "exit 0, the retirement applied: {out:?}\n{t}");
-    let text = format!("{}{}{t}", out.stdout, out.stderr);
-    assert!(text.contains("retired"), "{text}");
+    let text = format!("{}{}{}", out.stdout, out.stderr, &*t);
+    let shown = || without_passphrase(&text);
+    assert!(text.contains("retired"), "{}", shown());
     assert!(
         text.contains(&format!(
             "delete it yourself in Keychain Access (service {service}, account {})",
             env_id.as_str()
         )),
-        "the orphan's step: {text}"
+        "the orphan's step: {}",
+        shown()
     );
     assert!(
         !text.contains("issuer restore") && !text.contains("rerun the restore"),
-        "no restore advice after a completed retirement: {text}"
+        "no restore advice after a completed retirement: {}",
+        shown()
     );
-    assert!(!text.contains("effect_status"), "{text}");
+    assert!(!text.contains("effect_status"), "{}", shown());
     // The current item deleted and confirmed; the CA retired.
     assert_eq!(rig.ca_state(&fp), Some(CaState::Retired));
     // The old item is still in the keychain, and listed with its service and account.
