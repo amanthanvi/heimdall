@@ -423,7 +423,7 @@ The devbox (B8) is not needed for the exit: the WSL distribution carries the Lin
 | Item | What it is | Checked by |
 |---|---|---|
 | `MANIFEST.sha256` | SHA-256 of every file in the archive **except itself** | `verify_artifact.py`; the install script before it copies |
-| `BUILD-RECORD.json` | The commit, a clean-tree flag, the toolchain and target, the feature set, the flags, the `Cargo.lock` digest, the builder's OS, each tool's pinned version, the times, and the digests of the **executables only** | Listed in the manifest; compared with what the binary reports about itself once H7 exists |
+| `BUILD-RECORD.json` | The commit, a clean-tree flag, the toolchain and target, the feature set, the flags, the `Cargo.lock` digest, the builder's OS, each tool's pinned version, the commit time, and the digests of the **executables only** (the external record adds the build's start and finish) | Listed in the manifest; compared with what the binary reports about itself once H7 exists |
 | SBOM | One CycloneDX JSON for this target, from the package-, target- and feature-selected graph, each component labelled `target`, `host` or `test-support` | The validation adapter, against cargo's selected graph and the build's compiled packages |
 | `THIRD-PARTY-NOTICES.txt` | Every component with its licence text; `third_party/netdev` included | The generator fails on a missing text |
 | `LICENSE` | The project's licence | **B17** |
