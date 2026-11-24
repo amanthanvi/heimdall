@@ -23,30 +23,58 @@ import threading
 import time
 
 
+def peer_of(sock):
+    """(pid, uid) of the process at the other end of a connected Unix socket, where the
+    platform reports it (Linux SO_PEERCRED; macOS LOCAL_PEERPID, pid only); else None."""
+    import struct
+    peercred = getattr(socket, "SO_PEERCRED", None)
+    if peercred is not None:
+        pid, uid, _ = struct.unpack("3i", sock.getsockopt(socket.SOL_SOCKET, peercred, struct.calcsize("3i")))
+        return pid, uid
+    if sys.platform == "darwin":
+        (pid,) = struct.unpack("i", sock.getsockopt(0, 2, 4))  # SOL_LOCAL, LOCAL_PEERPID
+        return pid, None
+    return None
+
+
 class Upstream:
-    """The upstream as checked at start-up (review M08-W2-RC07): its resolved path and the
-    socket file's identity. Every connection goes to that resolved path, never back through
-    a link, and is refused if the file there is no longer the one checked; on Linux the
-    connected peer must also run as this account (SO_PEERCRED)."""
+    """The upstream as checked at start-up (review M08-W2-RC07). Every connection goes to the
+    resolved path that was checked, never back through a link. It is refused unless the file
+    there is still a socket of this account with the same device and inode, and unless the
+    process at the other end is the one that answered at start-up (its pid, and on Linux its
+    uid). The peer check is what catches a socket unlinked and bound again at the same path:
+    Linux reuses the inode number, and even the change time can match (seen on the devbox)."""
 
     def __init__(self, path):
         self.real = os.path.realpath(path)
         st = os.lstat(self.real)
         self.ident = (st.st_dev, st.st_ino)
+        self.peer = None
+        probe = self._connect()
+        try:
+            self.peer = peer_of(probe)
+        finally:
+            probe.close()
+        if self.peer is not None and self.peer[1] is not None and self.peer[1] != os.getuid():
+            raise OSError("the upstream peer does not run as this account")
 
-    def open(self):
+    def _connect(self):
         st = os.lstat(self.real)
         if not stat.S_ISSOCK(st.st_mode) or (st.st_dev, st.st_ino) != self.ident or st.st_uid != os.getuid():
             raise OSError("the upstream socket is not the one checked at start-up")
         up = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             up.connect(self.real)
-            peercred = getattr(socket, "SO_PEERCRED", None)
-            if peercred is not None:
-                import struct
-                _, uid, _ = struct.unpack("3i", up.getsockopt(socket.SOL_SOCKET, peercred, struct.calcsize("3i")))
-                if uid != os.getuid():
-                    raise OSError("the upstream peer does not run as this account")
+        except OSError:
+            up.close()
+            raise
+        return up
+
+    def open(self):
+        up = self._connect()
+        try:
+            if self.peer is not None and peer_of(up) != self.peer:
+                raise OSError("the process at the upstream is not the one checked at start-up")
         except OSError:
             up.close()
             raise
@@ -131,7 +159,7 @@ def self_test():
             # RC07: a link checked at start-up and swapped afterwards is not followed: the
             # connection goes to the socket that was checked.
             for sk in socks:
-                sk.listen(1)
+                sk.listen(8)
                 sk.setblocking(False)
             inner = os.path.join(a, "inner.sock")
             os.symlink(os.path.join(a, "agent.sock"), inner)
@@ -152,18 +180,27 @@ def self_test():
             conn.close()
             if got != [a]:
                 bad.append("after the link is swapped, the connection still goes to the checked socket")
-            # RC07: the checked socket file replaced by another is refused at connect time.
+            # RC07: the checked socket replaced by another process's socket at the same path
+            # is refused at connect time.
+            import subprocess
             socks[0].close()
             os.unlink(os.path.join(a, "agent.sock"))
-            other = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            other.bind(os.path.join(a, "agent.sock"))
-            other.listen(1)
-            socks[0] = other
+            child = subprocess.Popen([sys.executable, "-I", "-c",
+                                      "import socket,sys,time; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); "
+                                      "s.listen(4); print('ready', flush=True); time.sleep(30)",
+                                      os.path.join(a, "agent.sock")], stdout=subprocess.PIPE, text=True)
             try:
-                checked.open().close()
-                bad.append("a replaced upstream socket is refused at connect time")
-            except OSError:
-                pass
+                child.stdout.readline()
+                try:
+                    checked.open().close()
+                    bad.append("a replaced upstream socket is refused at connect time")
+                except OSError:
+                    pass
+            finally:
+                child.kill()
+                child.wait()
+                child.stdout.close()
+            socks[0] = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         finally:
             os.rmdir(a + "-sibling")
             for sk in socks:
