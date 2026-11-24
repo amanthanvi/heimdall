@@ -60,6 +60,18 @@
         "windows"
       ],
       "rationale": "#[cfg(windows)]: the TUI on a Windows pseudoconsole through heimdall_testkit::console::TerminalCommand (A20's and the TUI standalone row's Windows tests); their Unix rows are the pty:: cases."
+    },
+    "heimdall_testkit-unit::pinned_ssh::tests::the_built_wrapper_checks_the_declared_agent_pipe_on_real_pipes": {
+      "platforms": [
+        "windows"
+      ],
+      "rationale": "#[cfg(windows)]: real named pipes, GetNamedPipeServerProcessId and the in-box ssh.exe -G (W9e; ADR-0007 §12.52)."
+    },
+    "heimdall_testkit-unit::win::tests::a_pipes_server_and_a_processes_creation_time": {
+      "platforms": [
+        "windows"
+      ],
+      "rationale": "#[cfg(windows)]: the testkit's inventoried Windows unsafe module (win.rs)."
     }
   },
   "groups": {
@@ -128,7 +140,14 @@
       ],
       "tests": {
         "e2e_harness_m07": "*",
-        "e2e_wrapper_m07": "*"
+        "e2e_wrapper_m07": "*",
+        "heimdall_testkit-unit": [
+          "pinned_ssh::tests::the_built_wrapper_checks_the_declared_agent_pipe_on_real_pipes*",
+          "win::tests::a_pipes_server_and_a_processes_creation_time*",
+          "pinned_ssh::tests::the_declared_agent_pipe_name_rule",
+          "pinned_ssh::tests::a_declared_agent_pipe_needs_all_three_fields",
+          "pinned_ssh::tests::a_declared_agent_pipe_is_accepted_only_from_its_runtime"
+        ]
       },
       "declared_platforms": [
         "macos",
@@ -143,6 +162,10 @@
             "journey::every_windows_goal_starting_the_in_box_client_carries_the_isolation",
             "journey::an_unsafe_home_or_store_fails_before_any_launch",
             "harnesses_are_independent_and_use_only_the_standard_library"
+          ],
+          "heimdall_testkit-unit": [
+            "pinned_ssh::tests::the_built_wrapper_checks_the_declared_agent_pipe_on_real_pipes",
+            "win::tests::a_pipes_server_and_a_processes_creation_time"
           ]
         }
       },
@@ -155,10 +178,10 @@
         {
           "platform": "windows-11 task 5's login through the binding's own signing endpoint",
           "status": "deferred_with_decision",
-          "decision": "by ruling (2026-11-23): on Windows nothing between `run` and the in-box ssh.exe can check that SSH_AUTH_SOCK names the disposable agent, so the isolated set uses IdentityAgent=none; proven on Unix only (WINDOWS_HELD in tests/e2e/harness_m07.rs)"
+          "decision": "by ruling (2026-11-23): on Windows nothing between `run` and the in-box ssh.exe can check that SSH_AUTH_SOCK names the disposable agent, so the isolated set uses IdentityAgent=none; proven on Unix only (WINDOWS_HELD in tests/e2e/harness_m07.rs) W9e builds the proof (the wrapper accepts the binding's declared pipe from its runtime only); the row stays deferred until the PC run passes, then the generator decides it."
         }
       ],
-      "note": "The Python suites of examples/reference-wrapper, examples/harnesses/cli and examples/harnesses/goal-loop run through tools/validation/check.sh and on Windows in the PC job. Held for revision 7: the wrapper's skew run against the M06 exit build, H2's call set from `schema show primitives` (U4b, U5h), pages and the A19 contract rows (U3). A32's LLM metrics are M09-T02."
+      "note": "The Python suites of examples/reference-wrapper, examples/harnesses/cli and examples/harnesses/goal-loop run through tools/validation/check.sh and on Windows in the PC job. Held for revision 7: the wrapper's skew run against the M06 exit build, H2's call set from `schema show primitives` (U4b, U5h), pages and the A19 contract rows (U3). A32's LLM metrics are M09-T02. On Windows, task 5 shows two logins, named apart in the journey's output: the endpoint login (task 5's `run` child, a scratch hm-pinned-ssh that uses the binding's own signing endpoint, checked by name, by the pipe server's PID and start time and by `ssh -G`: `a32 endpoint login <harness>-child: logins 1, other keys offered: 0`) and the isolated in-box login the driver makes itself after each harness, outside `heimdall run` (`a32 isolated login <harness>-child: logins 1`)."
     },
     "CLI-standalone": {
       "title": "CLI standalone: access and stop through the CLI only",

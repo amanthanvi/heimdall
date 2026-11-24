@@ -50,6 +50,11 @@
           "materialize_log_in_and_release_through_the_wrapper",
           "missing_rule_four_home_or_store_prevents_process_launch",
           "wider_scope_needs_real_terminal_approval"
+        ],
+        "heimdall_testkit-unit": [
+          "pinned_ssh::tests::a_declared_agent_pipe_is_accepted_only_from_its_runtime",
+          "pinned_ssh::tests::a_declared_agent_pipe_needs_all_three_fields",
+          "pinned_ssh::tests::the_declared_agent_pipe_name_rule"
         ]
       }
     },
@@ -84,6 +89,10 @@
         "e2e_harness_m07": [
           "journey::both_harnesses_use_existing_access_on_windows",
           "journey::both_harnesses_use_the_fixture_adapter_on_windows"
+        ],
+        "heimdall_testkit-unit": [
+          "pinned_ssh::tests::the_built_wrapper_checks_the_declared_agent_pipe_on_real_pipes",
+          "win::tests::a_pipes_server_and_a_processes_creation_time"
         ]
       }
     },
@@ -203,11 +212,17 @@
     "e2e_wrapper_m07::wider_scope_needs_real_terminal_approval": [
       "linux",
       "macos"
+    ],
+    "heimdall_testkit-unit::pinned_ssh::tests::the_built_wrapper_checks_the_declared_agent_pipe_on_real_pipes": [
+      "windows"
+    ],
+    "heimdall_testkit-unit::win::tests::a_pipes_server_and_a_processes_creation_time": [
+      "windows"
     ]
   },
   "scanned_platforms": [
     "linux",
     "windows"
   ],
-  "sources_sha256": "31ee3312b22a248890d61e12b22f982fe0908bca68bd0971e2027e12f1fa0016"
+  "sources_sha256": "ea2b318531fc505c0ada7ae6f0a56519c918266105122f2804d451cc0b945591"
 }
