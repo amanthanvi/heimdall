@@ -2535,7 +2535,18 @@ fn migration_0005_to_0006_keeps_m01_m02_rows_byte_identical() {
     assert!(PathBuf::from(backup).exists(), "v5 file backed up first");
 
     let after = raw(&s);
-    assert_eq!(after, before, "every M01/M02 document is byte-identical");
+    // ⟨rev7; review U0-R06⟩ Every pre-existing document byte-identical; the meta family keeps
+    // every pre-existing row (0014 adds `restore_epoch`).
+    for (i, (a, b)) in after.iter().zip(&before).enumerate() {
+        if RAW.get(i) == Some(&RawDocuments::Meta) {
+            for row in b {
+                assert!(a.contains(row), "meta row {} is byte-identical", row.0);
+            }
+        } else {
+            assert_eq!(a, b, "every M01/M02 document is byte-identical");
+        }
+    }
+    assert_eq!(after.len(), before.len());
     assert_eq!(typed(&s), typed_before, "and decodes unchanged");
     // Each document decodes with today's types and re-encodes byte-identically.
     reencodes!(StageReceipt, &after[0]);

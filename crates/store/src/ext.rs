@@ -179,11 +179,6 @@ fn conflict(what: String) -> StoreError {
     StoreError::GenerationConflict(what)
 }
 
-/// ⟨rev7, review U0-R01⟩ How every [`StoreError::GenerationConflict`] that
-/// [`Txn::upsert_destination`] raises for a taken alias begins, so a caller can answer it as
-/// an alias collision rather than as an unavailable store.
-pub const DESTINATION_ALIAS_TAKEN: &str = "the destination alias is taken";
-
 fn parse_grant_id(s: &str) -> Result<GrantId> {
     GrantId::parse(s).map_err(|_| codec::doc_error("stored grant id is malformed"))
 }
@@ -1745,9 +1740,11 @@ impl Txn<'_> {
     // --- catalog: destinations and identities ----------------------------------------
 
     /// Create or replace a destination by ID. Its alias is unique: an alias held by
-    /// another destination is a [`StoreError::GenerationConflict`] (the catalog
+    /// another destination is [`StoreError::DestinationAliasTaken`] (the catalog
     /// driver reports `alias_collision`). ⟨rev7, U0-Q9⟩ Uniqueness is case-insensitive
-    /// (as `ssh_config` matches `Host`): a write that creates a destination, or renames
+    /// (Heimdall's own renderer refuses case-variant aliases, `sshconf::render`'s
+    /// `DuplicateAlias`, so the catalog stays renderable; OpenSSH itself folds case only in
+    /// canonicalization, `Match final` and `Match host`): a write that creates a destination, or renames
     /// one, into a case-variant of another destination's alias is refused the same way.
     /// A write that keeps the destination's own stored alias byte for byte is not, so a
     /// legacy case-variant pair stays editable ([`Txn::destination_alias_case_collisions`]
@@ -1776,9 +1773,7 @@ impl Txn<'_> {
                 .iter()
                 .any(|other| other.id != destination.id)
         {
-            return Err(conflict(format!(
-                "{DESTINATION_ALIAS_TAKEN} (aliases compare without case)"
-            )));
+            return Err(StoreError::DestinationAliasTaken);
         }
         self.tx
             .execute(
@@ -1794,7 +1789,7 @@ impl Txn<'_> {
             )
             .map_err(|e| {
                 if unique_violation(&e) {
-                    conflict(DESTINATION_ALIAS_TAKEN.to_owned())
+                    StoreError::DestinationAliasTaken
                 } else {
                     StoreError::Sqlite(e)
                 }

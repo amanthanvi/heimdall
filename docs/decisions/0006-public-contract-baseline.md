@@ -2687,7 +2687,9 @@ revision 6.6's, and so is every live answer except the additions below.
 - the new commands `support bundle`, `state status|restore|reset|repair`, `service stop
   --preview` and `inspect request <REQUEST_ID>`: each answers `USAGE_ERROR` (exit 2, effect
   `none`, next `fix_request`), "this command is not available in this build", whatever flags it
-  is given (the ruling on ASK-H3), before any runtime contact, home creation or file read;
+  is given (the ruling on ASK-H3), before any runtime contact, home creation or file read. "Whatever
+  flags" means any valid invocation: a malformed one (a missing required argument, an unknown
+  flag) is clap's usage refusal, also exit 2 (review U0-R07, ruled);
 - `inspect <subject> <ID>` for a subject other than `request` is `USAGE_ERROR`;
 - help text names no milestone, ADR, section or test-only wording (D14), and `activate --hook`
   is hidden from help (an integration endpoint, §2.3 of ADR-0013);
@@ -2799,13 +2801,15 @@ dropped records retried without its epoch could run again).
   report is out of 1.0, stated as a limitation.
 - **D20's numbers (ruled 2026-11-24; the 64 KiB item bound stays):** 200 profile pairs, 64
   identity declarations, 8 routes per destination, 8 relays per route and 16 per destination
-  (relay URLs stay at 2,048 bytes), 4 consents and 4 direct addresses per route, 8 host-key pins
+  (relay URLs stay at 2,048 bytes), 4 consents and 3 direct addresses per route, 8 host-key pins
   per destination of at most 1,536 bytes each (an RSA-8192 pin is about 1.4 KB), 16 listed
   `remote_pending` entries. Each maximal-record test fills every field of its item at its bound
-  at once and leaves 4 KiB (at most 61,440 bytes): a maximal profile is 58,125 bytes; a maximal
-  destination with its routes is 61,105 bytes (view 9,032, routes 52,073). Each bound, of bytes or of entries, refuses at write with
-  `USAGE_ERROR` / `item_too_large` (`ItemTooLarge` names the field and the bound); a store that
-  already exceeds one is reported, never truncated.
+  at once, at its worst-case escaping (a label of `"`), and leaves 4 KiB (at most 61,440 bytes):
+  a maximal profile is 58,381 bytes; a maximal destination with its routes, its pair preference
+  and connection policy, a 64-attempt route-health report and the longest host-pin setting is
+  61,185 bytes (view 9,512, routes 51,673). Each bound, of bytes or of entries, refuses at write
+  with `USAGE_ERROR` / `item_too_large` (`ItemTooLarge` names the field and the bound); a store
+  that already exceeds one is reported, never truncated.
 - **Next actions in the reason table (ruled 2026-11-24):** every row is one (reason, code)
   answer with the `next.action` it carries, so a well-behaved agent stops instead of looping:
   `state_corrupt` and `ledger_damaged` carry `owner_decision` (the attended repair or restore),

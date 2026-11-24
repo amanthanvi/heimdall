@@ -555,7 +555,7 @@
           "capabilities": [
             "operations/1"
           ],
-          "cli": "heimdall --json operation show|wait [--operation O]",
+          "cli": "heimdall --json operation show|wait <OPERATION_ID>",
           "request_id": "none",
           "wire": "observe"
         },
@@ -581,7 +581,7 @@
           "capabilities": [
             "operations/1"
           ],
-          "cli": "heimdall --json operation cancel --operation O",
+          "cli": "heimdall --json operation cancel <OPERATION_ID>",
           "request_id": "none",
           "wire": "cancel"
         }

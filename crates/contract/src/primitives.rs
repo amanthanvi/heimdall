@@ -204,7 +204,7 @@ pub const GROUPS: &[Group] = &[
         forms: &[
             Form {
                 wire: "observe",
-                cli: "heimdall --json operation show|wait [--operation O]",
+                cli: "heimdall --json operation show|wait <OPERATION_ID>",
                 capabilities: OPS,
                 request_id: RequestIdUse::None,
             },
@@ -222,7 +222,7 @@ pub const GROUPS: &[Group] = &[
             },
             Form {
                 wire: "cancel",
-                cli: "heimdall --json operation cancel --operation O",
+                cli: "heimdall --json operation cancel <OPERATION_ID>",
                 capabilities: OPS,
                 request_id: RequestIdUse::None,
             },

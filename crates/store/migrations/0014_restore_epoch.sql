@@ -7,10 +7,10 @@
 -- kept unchanged and reads as restore epoch 0: everything minted before a first restore
 -- belongs to epoch 0.
 --
---   * `meta.restore_epoch` (text, like every `meta` value): the current restore epoch. A
---     restore writes it, durably, before its pointer moves (ADR-0014 §3.6 step 1). This step
---     writes no row: an absent key reads as epoch 0, so every existing `meta` row is kept
---     byte for byte.
+--   * `meta.restore_epoch` (text, like every `meta` value): the current restore epoch, written
+--     `0` here. A restore raises it, durably, before its pointer moves (ADR-0014 §3.6 step 1).
+--     From schema version 14 on, a store without the row is damaged (`state_corrupt`), never
+--     epoch 0: a lost row must not reset the fence (review U0-R06).
 --   * `operations.restore_epoch`, `decisions.restore_epoch`, `remote_effect_outbox.
 --     restore_epoch`: the epoch an operation ID, a decision reference or an effect ID was
 --     minted under (§3.6 step 2). A reference of an older epoch with no carried record is
@@ -31,6 +31,8 @@
 -- `active`, `revoked`; `pending`, `consumed`, `expired`, `revoked`), and U2b adds the values
 -- `quarantined` and `void`. The backup's environment binding needs none either: a backup is a
 -- consistent copy of the store, so it carries `meta.self_environment_id`.
+INSERT INTO meta (key, value) VALUES ('restore_epoch', '0');
+
 ALTER TABLE operations ADD COLUMN restore_epoch INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE decisions ADD COLUMN restore_epoch INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE remote_effect_outbox ADD COLUMN restore_epoch INTEGER NOT NULL DEFAULT 0;

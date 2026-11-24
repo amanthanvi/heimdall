@@ -29,8 +29,8 @@ pub const MAX_RELAYS_PER_ROUTE: usize = 8;
 pub const MAX_RELAYS_PER_DESTINATION: usize = 16;
 /// A route's recorded consents.
 pub const MAX_CONSENTS_PER_ROUTE: usize = 4;
-/// An Iroh route's direct addresses.
-pub const MAX_DIRECT_ADDRESSES_PER_ROUTE: usize = 4;
+/// An Iroh route's direct addresses (ruled 2026-11-24: 3 covers dual stack with one spare).
+pub const MAX_DIRECT_ADDRESSES_PER_ROUTE: usize = 3;
 /// A destination's pinned host keys (three key types through a rotation).
 pub const MAX_HOST_KEYS_PER_DESTINATION: usize = 8;
 /// A pinned host key's OpenSSH public key line, in bytes (an RSA-8192 line is about 1.4 KB).

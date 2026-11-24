@@ -517,7 +517,8 @@ pub(crate) async fn drive(ops: &Operations, id: &OperationId) -> Result<(), OpEr
     // ⟨rev7, review U0-R01⟩ A store conflict inside the action rolls its transaction back
     // whole; it is remembered here and settled below as a terminal `CONFIG_CONFLICT`, never
     // passed up as an unavailable store with the operation left queued.
-    let conflict: std::sync::Arc<std::sync::Mutex<Option<String>>> = std::sync::Arc::default();
+    let conflict: std::sync::Arc<std::sync::Mutex<Option<StoreConflict>>> =
+        std::sync::Arc::default();
     let seen = conflict.clone();
     let settle_id = id.clone();
     let result = ops
@@ -614,11 +615,17 @@ pub(crate) async fn drive(ops: &Operations, id: &OperationId) -> Result<(), OpEr
                 own: &own,
             };
             let step = match apply_action(tx, emit, &op, &intent, &ctx) {
-                Err(heimdall_store::StoreError::GenerationConflict(what)) => {
+                Err(e @ heimdall_store::StoreError::DestinationAliasTaken) => {
                     if let Ok(mut slot) = seen.lock() {
-                        *slot = Some(what.clone());
+                        *slot = Some(StoreConflict::AliasTaken);
                     }
-                    return Err(heimdall_store::StoreError::GenerationConflict(what));
+                    return Err(e);
+                }
+                Err(e @ heimdall_store::StoreError::GenerationConflict(_)) => {
+                    if let Ok(mut slot) = seen.lock() {
+                        *slot = Some(StoreConflict::Other);
+                    }
+                    return Err(e);
                 }
                 other => other?,
             };
@@ -640,24 +647,33 @@ pub(crate) async fn drive(ops: &Operations, id: &OperationId) -> Result<(), OpEr
         .await;
     let what = conflict.lock().ok().and_then(|mut slot| slot.take());
     match (result, what) {
-        (Err(_), Some(what)) => settle_store_conflict(ops, &settle_id, &what).await,
+        (Err(_), Some(what)) => settle_store_conflict(ops, &settle_id, what).await,
         (result, _) => result,
     }
 }
 
+/// ⟨rev7, review U0-R01⟩ The store conflict a catalog action met, by its typed kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StoreConflict {
+    /// `StoreError::DestinationAliasTaken`.
+    AliasTaken,
+    /// Any `StoreError::GenerationConflict`.
+    Other,
+}
+
 /// ⟨rev7, review U0-R01⟩ Settle catalog operation `id` as a terminal `CONFIG_CONFLICT` after
 /// its action's transaction met a store conflict (and rolled back whole): `alias_collision`
-/// for a taken alias, otherwise no reason. Nothing of the action was written, and nothing is
+/// for a taken alias (the store's typed `DestinationAliasTaken`), otherwise no reason. Nothing of the action was written, and nothing is
 /// left queued to be driven again.
 async fn settle_store_conflict(
     ops: &Operations,
     id: &OperationId,
-    what: &str,
+    what: StoreConflict,
 ) -> Result<(), OpError> {
     let retention = ops.local_retention();
     let now = ops.local_narrowing_now().await;
     let id = id.clone();
-    let alias = what.starts_with(heimdall_store::DESTINATION_ALIAS_TAKEN);
+    let alias = what == StoreConflict::AliasTaken;
     ops.local_write(move |tx, emit| {
         let Some(mut op) = tx.operation(&id)? else {
             return Ok(());
@@ -898,7 +914,10 @@ fn apply_action(
             if let Some(refused) = route_checks(tx, &destination.id, &definition)? {
                 return Ok(Step::Refused(Box::new(refused)));
             }
-            // ⟨rev7, U0-Q9⟩ Aliases are unique without case, as `ssh_config` matches `Host`.
+            // ⟨rev7, U0-Q9⟩ Aliases are unique without case: Heimdall's renderer refuses
+            // case-variant aliases (`sshconf::render`, `DuplicateAlias`), so the catalog stays
+            // renderable. (OpenSSH folds case only in canonicalization, `Match final` and
+            // `Match host`.)
             // A write that keeps this destination's own stored alias byte for byte is not
             // refused, so a legacy case-variant pair stays editable (`doctor` reports it).
             let keeps_own_alias = tx

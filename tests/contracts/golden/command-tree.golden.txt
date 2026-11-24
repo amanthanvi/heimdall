@@ -27,8 +27,8 @@ heimdall run
   --work-id <WORK_ID>
   --request-id <REQUEST_ID>
   --parent-binding <BINDING>
-  --scope <DEST:ACCOUNT>  [repeatable]
-  --until <INSTANT>
+  --scope <DEST:ACCOUNT>  [repeatable requires=--parent-binding]
+  --until <INSTANT>  [requires=--parent-binding]
   --require-capability <CAPABILITY>  [repeatable]
   --require-destination-scope <LEVEL>
   --require-offline-until <INSTANT>
@@ -48,11 +48,11 @@ heimdall tui
 heimdall destination
 heimdall destination add
   <ALIAS>  [positional required]
-  --hostname <HOSTNAME>  [conflicts=--observed]
-  --port <PORT>
-  --account <ACCOUNT>
-  --identity <IDENTITY>
-  --jump <DESTINATION>
+  --hostname <HOSTNAME>  [required_unless=--observed conflicts=--observed]
+  --port <PORT>  [requires=--hostname]
+  --account <ACCOUNT>  [requires=--hostname]
+  --identity <IDENTITY>  [requires=--hostname]
+  --jump <DESTINATION>  [requires=--hostname]
   --observed
   --id <ID>
   --label <LABEL>
@@ -65,19 +65,19 @@ heimdall destination remove
   --request-id <REQUEST_ID>
 heimdall destination prefer
   <ALIAS>  [positional required]
-  <MECHANISM>  [positional required]
+  <MECHANISM>  [positional required values=managed|existing]
 heimdall identity
 heimdall identity list
 heimdall identity adopt
   --from-agent  [conflicts=--pub]
-  --pub <FILE>
-  --active-probe <LEVEL>
-  --fingerprint <FINGERPRINT>  [conflicts=--pub]
+  --pub <FILE>  [required_unless=--from-agent]
+  --active-probe <LEVEL>  [requires=--from-agent]
+  --fingerprint <FINGERPRINT>  [requires=--from-agent conflicts=--pub]
   --label <LABEL>
   --request-id <REQUEST_ID>
 heimdall identity declare-interaction
   <IDENTITY>  [positional required]
-  <INTERACTION>  [positional required]
+  <INTERACTION>  [positional required values=none]
   --request-id <REQUEST_ID>
 heimdall identity withdraw-declaration
   <IDENTITY>  [positional required]
@@ -105,13 +105,14 @@ heimdall profile list
 heimdall uninstall
   --purge-state
   --keep-remote-enrollments
-  --bundle <FILE>
+  --bundle <FILE>  [requires=--keep-remote-enrollments,--purge-state]
 heimdall issuer
 heimdall issuer init
   --backup-out <PATH>  [required]
-  --replace-orphan <FINGERPRINT>
+  --replace-orphan <FINGERPRINT>  [requires=orphan_bundle]
   --bundle <FILE>
   --no-bundle-available
+  group orphan_bundle: --bundle,--no-bundle-available
 heimdall issuer status
 heimdall issuer unlock
 heimdall issuer rotate
@@ -124,11 +125,11 @@ heimdall issuer restore
   --not-stolen
 heimdall issuer bundle
   --out <PATH>  [required]
-  --redact <REDACT>
+  --redact <REDACT>  [values=hostnames]
 heimdall enroll
   <DESTINATION>  [positional required]
   --account <ACCOUNT>
-  --form <FORM>
+  --form <FORM>  [values=account|system]
   --registry-path <PATH>
   --ca <FINGERPRINT>
 heimdall enroll status
@@ -138,9 +139,10 @@ heimdall enroll verify
   --approve-target-change
 heimdall enroll remove
   <ENROLLMENT>  [positional]
-  --from-bundle <FILE>
-  --marker <MARKER>
-  --alias <ALIAS>
+  --from-bundle <FILE>  [requires=--marker,--alias]
+  --marker <MARKER>  [requires=--from-bundle]
+  --alias <ALIAS>  [requires=--from-bundle]
+  group removal: enrollment,--from-bundle  [required]
 heimdall enroll reconcile
   <OPERATION>  [positional required]
   --after-manual-recovery
@@ -183,12 +185,12 @@ heimdall project reconcile
 heimdall activate
   --hook  [hidden]
   --cwd <PATH>  [required]
-  --shell-pid <PID>  [hidden]
-  --seq <N>  [hidden default=0]
-  --last <STATE>  [hidden]
+  --shell-pid <PID>  [hidden requires=--hook]
+  --seq <N>  [hidden default=0 requires=--hook]
+  --last <STATE>  [hidden requires=--hook]
 heimdall shell
 heimdall shell init
-  <SHELL>  [positional required]
+  <SHELL>  [positional required values=zsh|bash|powershell]
 heimdall export
   --redact
   --out <FILE>
@@ -206,12 +208,12 @@ heimdall environment add
   --label <TEXT>
 heimdall environment invite
   <ENVIRONMENT>  [positional required]
-  --role <ROLE>  [required]
+  --role <ROLE>  [required values=owner|requester|viewer]
   --public-key <KEY>  [required]
   --request-id <ID>
   --iroh
 heimdall environment join
-  <BUNDLE>  [positional conflicts=--show-key]
+  <BUNDLE>  [positional required_unless=--show-key conflicts=--show-key]
   --show-key
 heimdall environment revoke-client
   <ENVIRONMENT>  [positional required]
@@ -236,6 +238,7 @@ heimdall route add
   --iroh <ENDPOINT>
   --address <IP:PORT>  [repeatable]
   --relay <URL>  [repeatable]
+  group kind: --direct,--jump,--iroh  [required]
 heimdall route remove
   <DESTINATION>  [positional required]
   <ROUTE>  [positional required]
@@ -247,8 +250,8 @@ heimdall route connect  [hidden]
 heimdall transport
 heimdall transport enable
   --serve
-  --port <PORT>
-  --sshd-port <PORT>
+  --port <PORT>  [requires=--serve]
+  --sshd-port <PORT>  [requires=--serve]
 heimdall transport disable
 heimdall transport adopt-roost
   <DESTINATION>  [positional required]
@@ -283,7 +286,7 @@ heimdall remote policy recheck  [hidden]
 heimdall support
 heimdall support bundle
   --preview
-  --out <FILE>
+  --out <FILE>  [required_unless=--preview]
   --include-identifiers
 heimdall state
 heimdall state status
@@ -295,9 +298,9 @@ heimdall inspect
   <SUBJECT>  [positional required]
   <REQUEST_ID>  [positional]
   --preview <PROFILE>
-  --environment <ENVIRONMENT>
-  --until <UNTIL>  [conflicts=--for]
-  --for <FOR_DURATION>  [conflicts=--until]
+  --environment <ENVIRONMENT>  [requires=--preview]
+  --until <UNTIL>  [requires=--preview conflicts=--for]
+  --for <FOR_DURATION>  [requires=--preview conflicts=--until]
   --require-capability <CAPABILITY>  [repeatable]
   --require-destination-scope <LEVEL>
   --require-offline-until <INSTANT>
@@ -335,42 +338,47 @@ heimdall access pause
   --profile <PROFILE>
   --workspace
   --all
-  --cwd <PATH>
+  --cwd <PATH>  [requires=--workspace]
+  group access_target: policy_id,--profile,--workspace,--all  [required]
 heimdall access resume
   <POLICY_ID>  [positional]
   --profile <PROFILE>
   --workspace
   --all
-  --cwd <PATH>
+  --cwd <PATH>  [requires=--workspace]
+  group access_target: policy_id,--profile,--workspace,--all  [required]
 heimdall access cutoff
   <POLICY_ID>  [positional]
   --profile <PROFILE>
   --workspace
   --all
-  --cwd <PATH>
-  --at <AT>  [conflicts=--clear]
+  --cwd <PATH>  [requires=--workspace]
+  --at <AT>  [required_unless=--clear conflicts=--clear]
   --clear
+  group access_target: policy_id,--profile,--workspace,--all  [required]
 heimdall access lock-behavior
   --policy <POLICY>  [required]
-  <BEHAVIOR>  [positional required]
+  <BEHAVIOR>  [positional required values=continue|revoke-on-lock]
 heimdall access connection-policy
   --policy <POLICY>  [required]
-  --existing <EXISTING>
-  --multiplexing <MULTIPLEXING>
+  --existing <EXISTING>  [values=graceful|strict]
+  --multiplexing <MULTIPLEXING>  [values=disabled|owned]
 heimdall access allow
   --policy <POLICY>
   --profile <PROFILE>
   --workspace
-  --cwd <PATH>
-  --environment <ENVIRONMENT>
+  --cwd <PATH>  [requires=--workspace]
+  --environment <ENVIRONMENT>  [requires=--profile]
+  group allow_target: --policy,--profile,--workspace  [required]
 heimdall access stop
   --work <WORK>
   --policy <POLICY>
   --profile <PROFILE>
   --workspace
   --all
-  --cwd <PATH>
-  --request-id <REQUEST_ID>
+  --cwd <PATH>  [requires=--workspace]
+  --request-id <REQUEST_ID>  [requires=--work]
+  group stop_target: --work,--policy,--profile,--workspace,--all  [required]
 heimdall access default-profile
   <PROFILE>  [positional conflicts=--clear]
   --clear
@@ -387,7 +395,7 @@ heimdall operation events
   --cursor <CURSOR>
   --follow
   --operation <OPERATION>
-  --max-events <MAX_EVENTS>
+  --max-events <MAX_EVENTS>  [requires=--follow]
   --limit <LIMIT>  [conflicts=--follow]
 heimdall decision
 heimdall decision list

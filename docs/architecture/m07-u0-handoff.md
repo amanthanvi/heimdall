@@ -171,6 +171,18 @@ Each has what today's build does (observed, with where), and a recommendation.
 - **Question:** produce them (the passive doctor and setup report a user `Host` section that names
   a managed alias), or remove them from the contract. U1b's new test follows whichever is decided.
 
+### For M08 U1b (Q9, Q10; review U0-R05, ruled 2026-11-24)
+
+- The catalog's case-insensitive alias rule exists because **Heimdall's own renderer refuses
+  case-variant aliases** (`sshconf::render`, `DuplicateAlias`), not because of how OpenSSH
+  matches `Host`. OpenSSH matches `Host` patterns byte for byte by default, and folds case only
+  in canonicalization, `Match final` and `Match host`.
+- So the `doctor` finding `alias_collision` and the `setup` conflict `AliasCollision` (Q10) must
+  not claim anything about OpenSSH's `Host` matching unless an `ssh -G` fixture test verifies
+  it, run on scratch `-F` configurations only.
+- `Txn::destination_alias_case_collisions` lists the legacy case-variant pairs the store holds,
+  for `doctor`.
+
 ## 4. Rulings already made that U0 or U4b must carry
 
 - `invalid_retries` counts answers whose `next.action` is `fix_request` or `new_request_id`.

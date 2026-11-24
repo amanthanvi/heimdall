@@ -4259,10 +4259,15 @@ mod m02 {
         let after = snapshot(&s);
         assert_eq!(after.0, before.0, "stage receipts byte-identical");
         assert_eq!(after.1, before.1, "recovery intents byte-identical");
-        assert_eq!(
-            after.2, before.2,
-            "meta records (counters, revocations, intents) byte-identical"
-        );
+        // ⟨rev7; review U0-R06⟩ Every pre-existing meta record byte-identical (a later migration
+        // may add a key: 0014's `restore_epoch`).
+        for row in &before.2 {
+            assert!(
+                after.2.contains(row),
+                "meta record {} (counters, revocations, intents) byte-identical",
+                row.0
+            );
+        }
         assert_eq!(after.3, before.3, "pending remote records decode unchanged");
         assert_eq!(after.4, before.4, "cleanup intents decode unchanged");
         assert!(after.4.iter().any(|i| i.in_flight));
@@ -4451,7 +4456,7 @@ mod m02 {
             // The alias is unique; a collision changes nothing.
             assert!(matches!(
                 tx.upsert_destination(&destination(3, "work", 1)),
-                Err(StoreError::GenerationConflict(_))
+                Err(StoreError::DestinationAliasTaken)
             ));
             // A rename keeps the destination ID; a stale revision never wins.
             tx.upsert_destination(&destination(1, "office", 2))?;

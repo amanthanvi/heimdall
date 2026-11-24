@@ -688,8 +688,9 @@ mod tests {
 
     /// ⟨rev7⟩ U0 (ADR-0014 H9; U0-Q9): `0014_restore_epoch` applies on a database at version
     /// 13 and keeps every row: each existing operation, decision, effect and idempotency
-    /// record reads as epoch 0, no `meta` row is written (an absent `restore_epoch` is 0),
-    /// and it adds exactly the
+    /// record reads as epoch 0 and keeps every column (each of the four altered tables is
+    /// seeded, the outbox included), `meta.restore_epoch` is written `0` and no other `meta` row
+    /// changes, and it adds exactly the
     /// `request_fences` table and the two indexes. The alias index is not unique, so an
     /// existing case-variant pair survives the step. A failure inside the step leaves
     /// version 13 and nothing of it.
@@ -721,6 +722,54 @@ mod tests {
             VALUES ('dec_probe', '{}', 'pending', 0, 't', 't', '{}');
             INSERT INTO destinations (id, alias, revision, record_json)
             VALUES ('d1', 'Alpha', 1, '{}'), ('d2', 'alpha', 1, '{}');";
+        // Every row of the four altered tables and `meta`, column by column (the new columns
+        // excluded), before and after the step.
+        let content = |c: &Connection| -> Vec<String> {
+            let mut out = Vec::new();
+            for (table, cols) in [
+                ("operations", "id, kind, state, code, record_json"),
+                (
+                    "idempotency",
+                    "caller_json, kind, request_id, request_hash, operation_id",
+                ),
+                ("decisions", "id, kind_json, state, generation, record_json"),
+                ("remote_effect_outbox", "*"),
+                ("meta", "key, value"),
+            ] {
+                let cols = if cols == "*" {
+                    let mut st = c
+                        .prepare(&format!(
+                            "SELECT group_concat(name, ', ') FROM pragma_table_info('{table}')
+                             WHERE name <> 'restore_epoch'"
+                        ))
+                        .unwrap();
+                    st.query_row([], |r| r.get::<_, String>(0)).unwrap()
+                } else {
+                    cols.to_owned()
+                };
+                let mut st = c
+                    .prepare(&format!("SELECT {cols} FROM {table} ORDER BY 1"))
+                    .unwrap();
+                let n = st.column_count();
+                let rows = st
+                    .query_map([], |r| {
+                        (0..n)
+                            .map(|i| {
+                                r.get::<_, rusqlite::types::Value>(i)
+                                    .map(|v| format!("{v:?}"))
+                            })
+                            .collect::<std::result::Result<Vec<_>, _>>()
+                    })
+                    .unwrap()
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .unwrap();
+                out.extend(
+                    rows.into_iter()
+                        .map(|r| format!("{table}: {}", r.join(" | "))),
+                );
+            }
+            out
+        };
         let previous = &MIGRATIONS[..13];
         assert_eq!(MIGRATIONS[13].version, 14);
         assert_eq!(MIGRATIONS[13].name, "restore_epoch");
@@ -730,7 +779,43 @@ mod tests {
         let tables = names(&c, "table");
         let indexes = names(&c, "index");
         c.execute_batch(SEED).unwrap();
+        let outbox_cols: Vec<(String, String)> = {
+            let mut st = c
+                .prepare(
+                    "SELECT name, type FROM pragma_table_info('remote_effect_outbox') ORDER BY cid",
+                )
+                .unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        // One outbox row with every NOT NULL column filled (the table is one of the four).
+        let outbox_names: Vec<&str> = outbox_cols.iter().map(|(n, _)| n.as_str()).collect();
+        let values: Vec<String> = outbox_cols
+            .iter()
+            .map(|(n, t)| {
+                if t == "INTEGER" {
+                    "1".to_owned()
+                } else {
+                    format!("'{n}-probe'")
+                }
+            })
+            .collect();
+        c.execute_batch(&format!(
+            "INSERT INTO remote_effect_outbox ({}) VALUES ({});",
+            outbox_names.join(", "),
+            values.join(", ")
+        ))
+        .unwrap();
+        let before_content = content(&c);
         assert_eq!(apply(&mut c, &NoFaults).unwrap(), 14);
+        let mut after_content = content(&c);
+        after_content.retain(|r| r != "meta: Text(\"restore_epoch\") | Text(\"0\")");
+        assert_eq!(
+            after_content, before_content,
+            "every row kept, column by column"
+        );
         let added: Vec<String> = names(&c, "table")
             .into_iter()
             .filter(|t| !tables.contains(t))
@@ -744,17 +829,18 @@ mod tests {
             added,
             ["destinations_alias_nocase", "request_fences_expires_at"]
         );
-        let epochs: (i64, i64, i64, i64) = c
+        let epochs: (i64, i64, i64, i64, String) = c
             .query_row(
                 "SELECT (SELECT restore_epoch FROM operations WHERE id = 'op_probe'),
                         (SELECT request_epoch FROM idempotency WHERE request_id = 'req_probe'),
                         (SELECT restore_epoch FROM decisions WHERE id = 'dec_probe'),
-                        (SELECT count(*) FROM meta WHERE key = 'restore_epoch')",
+                        (SELECT restore_epoch FROM remote_effect_outbox),
+                        (SELECT value FROM meta WHERE key = 'restore_epoch')",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .unwrap();
-        assert_eq!(epochs, (0, 0, 0, 0));
+        assert_eq!(epochs, (0, 0, 0, 0, "0".to_owned()));
         let pair: i64 = c
             .query_row(
                 "SELECT count(*) FROM destinations WHERE alias = 'ALPHA' COLLATE NOCASE",

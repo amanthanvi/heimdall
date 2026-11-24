@@ -411,11 +411,19 @@ fn migration_0006_to_0008_keeps_m01_m03_rows_byte_identical() {
     let mut backup = db.as_os_str().to_owned();
     backup.push(".v6.backup");
     assert!(PathBuf::from(backup).exists(), "v6 file backed up first");
-    assert_eq!(
-        snapshot(&s),
-        before,
-        "every M01–M03 document is byte-identical"
-    );
+    // ⟨rev7; review U0-R06⟩ Every pre-existing document byte-identical; the meta family keeps
+    // every pre-existing row (0014 adds `restore_epoch`).
+    let after = snapshot(&s);
+    for (i, (a, b)) in after.0.iter().zip(&before.0).enumerate() {
+        if RAW[i] == RawDocuments::Meta {
+            for row in b {
+                assert!(a.contains(row), "meta row {} is byte-identical", row.0);
+            }
+        } else {
+            assert_eq!(a, b, "every M01–M03 document is byte-identical");
+        }
+    }
+    assert_eq!((&after.1, &after.2), (&before.1, &before.2));
 
     s.transaction(|tx| {
         // The new tables start empty; the old binding has no context (personal).

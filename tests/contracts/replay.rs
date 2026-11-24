@@ -183,11 +183,13 @@ fn stored_samples_replay_through_revision_7_readers() {
             let got = read_back(&db, &label);
             let after = counts(&rusqlite::Connection::open(&db).unwrap());
             for (table, n) in &before {
-                assert_eq!(
-                    after.get(table),
-                    Some(n),
-                    "{label}: the migration kept {table}"
-                );
+                // `meta` may gain keys (0014's `restore_epoch`); every other table keeps its rows.
+                let kept = after.get(table).copied().unwrap_or(0);
+                if table == "meta" {
+                    assert!(kept >= *n, "{label}: the migration kept meta");
+                } else {
+                    assert_eq!(kept, *n, "{label}: the migration kept {table}");
+                }
             }
             for (sum, n) in read.iter_mut().zip(got) {
                 *sum += n;

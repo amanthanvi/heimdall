@@ -75,7 +75,7 @@
     },
     {
       "code": "CAPABILITY_UNAVAILABLE",
-      "next_action": "narrow_request",
+      "next_action": "owner_decision",
       "reason": "client_quarantined_after_restore"
     },
     {
@@ -135,7 +135,7 @@
     },
     {
       "code": "CAPABILITY_UNAVAILABLE",
-      "next_action": "narrow_request",
+      "next_action": "none",
       "reason": "decision_denied"
     },
     {
@@ -235,7 +235,7 @@
     },
     {
       "code": "CAPABILITY_UNAVAILABLE",
-      "next_action": "narrow_request",
+      "next_action": "owner_decision",
       "reason": "exposure_disabled_after_restore"
     },
     {
@@ -320,7 +320,7 @@
     },
     {
       "code": "CAPABILITY_UNAVAILABLE",
-      "next_action": "narrow_request",
+      "next_action": "owner_decision",
       "reason": "invitation_void_after_restore"
     },
     {
@@ -725,7 +725,7 @@
     },
     {
       "code": "USAGE_ERROR",
-      "next_action": "fix_request",
+      "next_action": "narrow_request",
       "reason": "response_too_large"
     },
     {

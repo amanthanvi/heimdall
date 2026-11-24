@@ -79,6 +79,24 @@ fn arg_line(cmd: &clap::Command, arg: &clap::Arg) -> String {
     if let Some(env) = arg.get_env() {
         props.push(format!("env={}", env.to_string_lossy()));
     }
+    let possible = arg.get_possible_values();
+    let values: Vec<&str> = possible
+        .iter()
+        .filter(|v| !v.is_hide_set())
+        .map(clap::builder::PossibleValue::get_name)
+        .collect();
+    if !values.is_empty() && !matches!(arg.get_action(), ArgAction::SetTrue) {
+        props.push(format!("values={}", values.join("|")));
+    }
+    // ⟨review U0-R08 d⟩ `requires` and `required_unless_present`: clap has no getter for
+    // either, so they are read from the pinned clap's `Debug` rendering of the argument.
+    for (field, label) in [("requires", "requires"), ("r_unless", "required_unless")] {
+        let ids = debug_ids(arg, field);
+        if !ids.is_empty() {
+            let names: Vec<String> = ids.iter().map(|id| spelling(cmd, id)).collect();
+            props.push(format!("{label}={}", names.join(",")));
+        }
+    }
     let mut conflicts: Vec<String> = cmd
         .get_arg_conflicts_with(arg)
         .iter()
@@ -98,6 +116,33 @@ fn arg_line(cmd: &clap::Command, arg: &clap::Arg) -> String {
         line.push(']');
     }
     line
+}
+
+/// The quoted IDs of field `field` in the pinned clap's `Debug` rendering of `arg`
+/// (`requires: [(IsPresent, "hostname")]`, `r_unless: ["observed"]`).
+fn debug_ids(arg: &clap::Arg, field: &str) -> Vec<String> {
+    let text = format!("{arg:?}");
+    let Some(start) = text.find(&format!("{field}: [")) else {
+        return Vec::new();
+    };
+    let rest = &text[start + field.len() + 3..];
+    let Some(end) = rest.find(']') else {
+        return Vec::new();
+    };
+    rest[..end]
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// An argument ID's spelling on this command: `--long`, or the ID of a positional or group.
+fn spelling(cmd: &clap::Command, id: &str) -> String {
+    cmd.get_arguments()
+        .find(|a| a.get_id().as_str() == id)
+        .and_then(clap::Arg::get_long)
+        .map_or_else(|| id.to_owned(), |l| format!("--{l}"))
 }
 
 /// Whether an argument is clap's own (`--help`, `--version`), which the tree leaves out.
@@ -127,6 +172,32 @@ fn walk(cmd: &clap::Command, path: &mut Vec<String>, hidden: bool, out: &mut Str
         }
         out.push_str(&arg_line(cmd, arg));
         out.push('\n');
+    }
+    // ⟨review U0-R08 d⟩ Argument groups: their members and whether one is required. The derive
+    // adds one implicit group per `Args` struct or variant, named after the Rust type (an
+    // uppercase first letter); those restate the arguments and are left out.
+    for group in cmd.get_groups().filter(|g| {
+        !g.get_id()
+            .as_str()
+            .starts_with(|c: char| c.is_ascii_uppercase())
+    }) {
+        let members: Vec<String> = group
+            .get_args()
+            .map(|id| spelling(cmd, id.as_str()))
+            .collect();
+        let mut g = group.clone();
+        let _ = writeln!(
+            out,
+            "  group {}: {}{}{}",
+            group.get_id(),
+            members.join(","),
+            if group.is_required_set() {
+                "  [required]"
+            } else {
+                ""
+            },
+            if g.is_multiple() { "  [multiple]" } else { "" }
+        );
     }
     for sub in cmd.get_subcommands() {
         if sub.get_name() == "help" {
@@ -294,4 +365,133 @@ fn help_lint_self_check() {
     assert!(lint("Profiles: named sets of pairs.").is_empty());
     assert!(lint("--home <DIR>  [env: HEIMDALL_HOME=/tmp/M01/x]").is_empty());
     assert!(lint("IM05 is not a milestone").is_empty());
+}
+
+// --- ⟨rev7; review U0-R03⟩ every primitive-index form parses with the real CLI parser ---------
+
+/// One node of a form: a token, or a bracketed group of alternatives (`[a | b]`).
+enum Node {
+    Tok(String),
+    Group(Vec<Vec<Node>>),
+}
+
+fn parse_seq(tokens: &mut std::iter::Peekable<std::vec::IntoIter<String>>) -> Vec<Vec<Node>> {
+    let mut alternatives = vec![Vec::new()];
+    while let Some(t) = tokens.next() {
+        match t.as_str() {
+            "[" => {
+                let group = parse_seq(tokens);
+                alternatives
+                    .last_mut()
+                    .unwrap_or_else(|| unreachable!())
+                    .push(Node::Group(group));
+            }
+            "]" => break,
+            "|" => alternatives.push(Vec::new()),
+            _ => alternatives
+                .last_mut()
+                .unwrap_or_else(|| unreachable!())
+                .push(Node::Tok(t)),
+        }
+    }
+    alternatives
+}
+
+/// A sample value for a placeholder, from the flag before it.
+fn sample(placeholder: &str, flag: Option<&str>) -> String {
+    match (placeholder, flag) {
+        (_, Some("--until")) => "2026-11-24T00:00:00Z".into(),
+        (_, Some("--for")) => "2h".into(),
+        (_, Some("--timeout-ms" | "--limit" | "--max-events" | "--meta-fd")) => "5".into(),
+        ("D:A", _) => "h1:deploy".into(),
+        ("<subject>", _) => "destinations".into(),
+        ("<argv>", _) => "prog".into(),
+        _ => "sample".into(),
+    }
+}
+
+fn is_placeholder(t: &str) -> bool {
+    (t.starts_with('<') && t.ends_with('>'))
+        || (!t.is_empty() && t.chars().all(|c| c.is_ascii_uppercase() || c == ':'))
+}
+
+/// Every concrete command line a form stands for: each alternative of a group, each `a|b` of a
+/// path word, every optional group included (so each of its flags is checked), placeholders
+/// filled.
+fn expand(seq: &[Node], prefix: &[String]) -> Vec<Vec<String>> {
+    let Some((first, rest)) = seq.split_first() else {
+        return vec![prefix.to_vec()];
+    };
+    let mut out = Vec::new();
+    match first {
+        Node::Group(alternatives) => {
+            for alt in alternatives {
+                for head in expand(alt, prefix) {
+                    out.extend(expand(rest, &head));
+                }
+            }
+        }
+        Node::Tok(t) if t == "…" => out.extend(expand(rest, prefix)),
+        Node::Tok(t) if t == "--require-*" => {
+            let mut p = prefix.to_vec();
+            p.push("--require-unattended".into());
+            out.extend(expand(rest, &p));
+        }
+        Node::Tok(t) if is_placeholder(t) => {
+            let mut p = prefix.to_vec();
+            let flag = prefix
+                .last()
+                .filter(|f| f.starts_with("--"))
+                .map(String::as_str);
+            p.push(sample(t, flag));
+            out.extend(expand(rest, &p));
+        }
+        Node::Tok(t) if t.contains('|') && !t.starts_with('-') => {
+            for word in t.split('|') {
+                let mut p = prefix.to_vec();
+                p.push(word.to_owned());
+                out.extend(expand(rest, &p));
+            }
+        }
+        Node::Tok(t) => {
+            let mut p = prefix.to_vec();
+            p.push(t.clone());
+            out.extend(expand(rest, &p));
+        }
+    }
+    out
+}
+
+/// ADR-0013 D7 (review U0-R03): every CLI form the primitive index publishes parses with this
+/// build's own parser, each alternative and each optional flag included, so the index cannot
+/// drift from the command tree.
+#[test]
+fn every_primitive_index_form_parses() {
+    use clap::Parser as _;
+    let mut checked = 0;
+    for group in heimdall_contract::primitives::GROUPS {
+        for form in group.forms {
+            if form.cli.starts_with('(') {
+                continue; // a wire-only form
+            }
+            let spaced = form.cli.replace('[', " [ ").replace(']', " ] ");
+            let tokens: Vec<String> = spaced.split_whitespace().map(str::to_owned).collect();
+            let mut iter = tokens.into_iter().peekable();
+            let tree = parse_seq(&mut iter);
+            assert_eq!(tree.len(), 1, "{}: a top-level `|`", form.cli);
+            for line in expand(&tree[0], &[]) {
+                assert_eq!(
+                    line.first().map(String::as_str),
+                    Some("heimdall"),
+                    "{}",
+                    form.cli
+                );
+                if let Err(e) = super::Cli::try_parse_from(&line) {
+                    panic!("{} does not parse as {line:?}: {e}", form.cli);
+                }
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked >= 12, "only {checked} command lines checked");
 }

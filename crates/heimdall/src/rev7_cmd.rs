@@ -53,7 +53,7 @@ mod tests {
                 "support",
                 "bundle",
                 "--out",
-                "bundle.txt",
+                "@OUT",
                 "--include-identifiers",
             ],
             &["state", "status"],
@@ -79,10 +79,24 @@ mod tests {
                 }
                 argv.extend(["--non-interactive", "--home"].map(str::to_owned));
                 argv.push(home.to_string_lossy().into_owned());
-                argv.extend(line.iter().map(|a| (*a).to_owned()));
+                // A file argument names a path in the scratch directory, which must stay absent.
+                let out = scratch.path().join("bundle.txt");
+                argv.extend(line.iter().map(|a| {
+                    if *a == "@OUT" {
+                        out.to_string_lossy().into_owned()
+                    } else {
+                        (*a).to_owned()
+                    }
+                }));
                 let cli = Cli::try_parse_from(&argv).unwrap_or_else(|e| panic!("{line:?}: {e}"));
                 assert_eq!(dispatch(cli), ExitCode::Usage, "{line:?} json={json}");
                 assert!(!home.exists(), "{line:?} created the home");
+                assert!(!out.exists(), "{line:?} wrote its output file");
+                assert_eq!(
+                    std::fs::read_dir(scratch.path()).unwrap().count(),
+                    0,
+                    "{line:?} wrote into the scratch directory"
+                );
             }
         }
     }

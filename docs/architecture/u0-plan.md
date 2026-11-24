@@ -43,11 +43,11 @@ and §3; m08-plan U0 and rule 2; `m07-u0-handoff.md` (main's copy plus Q8–Q10 
 
 ## Rulings of 2026-11-24 on D20 and the readings, applied
 
-- **D20:** the 64 KiB item bound stays; 200 profile pairs (a maximal profile is 58,125 bytes);
+- **D20:** the 64 KiB item bound stays; 200 profile pairs (a maximal profile is 58,381 bytes);
   8 routes, 8 relays per route, 16 relays per destination, relay URLs at 2,048 bytes, 4 consents
-  and 4 direct addresses per route, 8 host-key pins of 1,536 bytes (a maximal destination with
-  its routes is 61,105 bytes). Each maximal-record test (`contracts::rev7::maximal_*`) fills
-  every field at once and leaves 4 KiB.
+  and 3 direct addresses per route, 8 host-key pins of 1,536 bytes (a maximal destination with
+  its routes is 61,185 bytes, worst-case escaping and every field filled). Each maximal-record
+  test (`contracts::rev7::maximal_*`) fills every field at once and leaves 4 KiB.
 - **Readings confirmed:** `state_restored_authority_ended` (`CREDENTIAL_EXPIRED`), `item_too_large`
   (`USAGE_ERROR`, byte and count bounds; `ItemTooLarge` names the field and the bound),
   `ledger_damaged` and `state_corrupt` (`STATE_UNAVAILABLE`, next `owner_decision`),

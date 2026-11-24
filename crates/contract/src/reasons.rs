@@ -154,6 +154,28 @@ pub const NEXT_ACTIONS: &[(&str, &str, &str)] = &[
         "STATE_UNAVAILABLE",
         "change_client",
     ),
+    // ⟨rev7; review U0-R04⟩ A read refused before anything is sent: narrow it (ADR-0013 §4,
+    // D19). The one documented exception is a reply that does not fit after dispatch: it keeps
+    // its operation's true effect and reference, with next `observe`.
+    (reason::RESPONSE_TOO_LARGE, "USAGE_ERROR", "narrow_request"),
+    // ⟨rev7; U0-Q3⟩ The person said no: stop, do not ask again.
+    (reason::DECISION_DENIED, "CAPABILITY_UNAVAILABLE", "none"),
+    // ⟨rev7; ADR-0014 H10⟩ Only the owner's reauthorization or a new local decision reopens.
+    (
+        reason::CLIENT_QUARANTINED_AFTER_RESTORE,
+        "CAPABILITY_UNAVAILABLE",
+        "owner_decision",
+    ),
+    (
+        reason::INVITATION_VOID_AFTER_RESTORE,
+        "CAPABILITY_UNAVAILABLE",
+        "owner_decision",
+    ),
+    (
+        reason::EXPOSURE_DISABLED_AFTER_RESTORE,
+        "CAPABILITY_UNAVAILABLE",
+        "owner_decision",
+    ),
 ];
 
 /// One answer of the table: a reason under one code, with the next action it carries.

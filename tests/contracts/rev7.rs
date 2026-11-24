@@ -232,7 +232,8 @@ fn maximal_profile_item_fits_with_room_to_spare() {
         serde_json::from_value(serde_json::json!({
             "profile_id": filled(0, MAX_ID_LEN),
             "revision": u64::MAX,
-            "label": "l".repeat(heimdall_contract::catalog::MAX_LABEL_BYTES),
+            // `"` is allowed in a label and serializes as two bytes: the worst case.
+            "label": "\"".repeat(heimdall_contract::catalog::MAX_LABEL_BYTES),
             "pairs": pairs,
             "capabilities": ["ssh-authentication", "git-signing", "agent-forwarding"],
         }))
@@ -245,9 +246,11 @@ fn maximal_profile_item_fits_with_room_to_spare() {
 }
 
 /// A maximal destination item: the destination view with every field at its bound (the
-/// 255-byte alias and host name, the 256-byte label, a route-health report of 64 attempts)
+/// 255-byte alias and host name, the 256-byte label of `"` (512 bytes escaped), the pair
+/// preference with its connection policy's longest wording, a route-health report of 64
+/// attempts, the longest host-pin setting)
 /// and its approved routes (8 routes, 8 relays on each of two of them for the destination's
-/// 16, every relay URL at 2,048 bytes, 4 consents and 4 direct addresses per route, 8 host-key
+/// 16, every relay URL at 2,048 bytes, 4 consents and 3 direct addresses per route, 8 host-key
 /// pins of 1,536 bytes) fits the 64 KiB item bound with 4 KiB to spare (ruled 2026-11-24).
 #[test]
 fn maximal_destination_item_fits_with_room_to_spare() {
@@ -326,7 +329,8 @@ fn maximal_destination_item_fits_with_room_to_spare() {
             "destination_id": filled(0, MAX_ID_LEN),
             "alias": "a".repeat(255),
             "revision": u64::MAX,
-            "label": "l".repeat(heimdall_contract::catalog::MAX_LABEL_BYTES),
+            // `"` is allowed in a label and serializes as two bytes: the worst case.
+            "label": "\"".repeat(heimdall_contract::catalog::MAX_LABEL_BYTES),
             "updated_at": "2026-11-24T00:00:00.123456789Z",
             "definition": "managed",
             "hostname": "h".repeat(255),
@@ -334,6 +338,17 @@ fn maximal_destination_item_fits_with_room_to_spare() {
             "account": filled(1, MAX_ID_LEN),
             "identity_id": format!("idn_{}", hex(1, 32)),
             "jump": filled(2, MAX_ID_LEN),
+            // The connection policy's wording is one of a fixed set of disclosure sentences (the
+            // longest, strict and not exclusive with owned masters, is about 242 bytes): 256.
+            "preference": {
+                "mechanism": "managed_certificate",
+                "projection": {"state": "applied", "generation": u64::MAX},
+                "connection_policy": {
+                    "existing": "strict",
+                    "multiplexing": "owned_masters",
+                    "wording": "w".repeat(256),
+                },
+            },
             "route_health": {
                 "result": {
                     "kind": "failed_over",
@@ -345,7 +360,10 @@ fn maximal_destination_item_fits_with_room_to_spare() {
                 "reported_at": "2026-11-24T00:00:00.123456789Z",
             },
             "host_pin_defeated": {
-                "setting": "s".repeat(255),
+                "setting": heimdall_contract::route::HOST_PIN_SETTINGS
+                    .iter()
+                    .max_by_key(|s| s.len())
+                    .unwrap(),
                 "reported_at": "2026-11-24T00:00:00.123456789Z",
             },
         }))
