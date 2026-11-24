@@ -42,7 +42,9 @@
 #   a24  pair, approve, readiness, work-clean-launch, controller-leaves, onward-managed,
 #        no-controller-socket, bound
 #   a07  pair, issued, disconnected, revoke-pending, reconnect, barrier, no-stale-reactivation,
-#        pause-pending, cutoff-pending, uncertain-time, fresh-work-refused
+#        pause-pending, cutoff-pending, uncertain-time, fresh-work-refused, cutoff-refused (the
+#        cutoff alone, with time certain: the runner's own owner lifts the delivered pause
+#        and a fresh work ID is refused POLICY_CUTOFF)
 #   t06  pair, first-grant, second-owner, first-controller-gone, narrowing, untrusted-issuer,
 #        own-grant, destination-trust     (a second controller home on this Mac)
 #   a25  pair, sshd-policy-verified, limited-after-verification, sshd-policy-unverified
@@ -132,6 +134,7 @@ a07_pause_pending a07 pause-pending
 a07_cutoff_pending a07 cutoff-pending
 a07_uncertain_time a07 uncertain-time
 a07_fresh_work_refused a07 fresh-work-refused
+a07_cutoff_refused a07 cutoff-refused
 t06_pair t06 pair
 t06_first_grant t06 first-grant
 t06_second_owner t06 second-owner
@@ -300,12 +303,12 @@ selftest() {
     ok() { n=$((n + 1)); if "${@:2}"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi; }
     t_plan() {
         local p; p=$(plan)
-        [ "$(printf '%s\n' "$p" | wc -l | tr -d ' ')" = 31 ] &&
-            [ "$(printf '%s\n' "$p" | cut -d' ' -f1 | sort -u | wc -l | tr -d ' ')" = 31 ] &&
+        [ "$(printf '%s\n' "$p" | wc -l | tr -d ' ')" = 32 ] &&
+            [ "$(printf '%s\n' "$p" | cut -d' ' -f1 | sort -u | wc -l | tr -d ' ')" = 32 ] &&
             [ "$(printf '%s\n' "$p" | cut -d' ' -f2 | sort -u | tr '\n' ' ')" = "a07 a24 a25 t06 " ] &&
             ! printf '%s\n' "$p" | awk '{ t = $2 "_" $3; gsub("-", "_", t); if (t != $1) bad = 1 } END { exit !bad }'
     }
-    ok "P01 31 planned steps, unique test names, each <case>_<step>, cases a07 a24 a25 t06" t_plan
+    ok "P01 32 planned steps, unique test names, each <case>_<step>, cases a07 a24 a25 t06" t_plan
     t_order() {
         local p; p=$(plan | cut -d' ' -f1 | tr '\n' ' ')
         case "$p" in *"a24_controller_leaves a24_onward_managed a24_no_controller_socket a24_bound "*) ;; *) return 1 ;; esac
@@ -521,7 +524,7 @@ CASES
         plan | cut -d' ' -f1 >"$T/planned"
         py log --target "$TARGET" --results "$T/r.tsv" --planned "$T/planned" --exit 1 >"$T/tests.txt"
         grep -qxF "### $TARGET" "$T/tests.txt" && grep -qxF "test a24_pair ... ok" "$T/tests.txt" && grep -qxF "test a25_sshd_policy_unverified ... ignored" "$T/tests.txt" &&
-            [ "$(grep -c '^test .* \.\.\. ' "$T/tests.txt")" = 31 ] && grep -qxF "test result: ok. 1 passed; 0 failed; 30 ignored" "$T/tests.txt" &&
+            [ "$(grep -c '^test .* \.\.\. ' "$T/tests.txt")" = 32 ] && grep -qxF "test result: ok. 1 passed; 0 failed; 31 ignored" "$T/tests.txt" &&
             grep -qxF "m06 observation: a24 pair: owner_enrolled=true" "$T/tests.txt" && grep -qxF "### $TARGET exit=1" "$T/tests.txt"
     }
     ok "L01 a partial run's log lists every planned step, the ones not run as ignored" t_log
@@ -1216,6 +1219,29 @@ s_a07_fresh_work_refused() {
     eq second_fresh_request "$(af code)" "$A07_FRESH" || return 1
     case "$(view a07 "$ENVIRONMENT" last_known_readiness)" in none | "[]") ;; *) reason="issued_after_cutoff=true"; return 1 ;; esac
     obs="fresh_work_id=$A07_FRESH issued=nothing"
+}
+# ⟨M06 exit⟩ The cutoff alone, after acknowledgement and with time certain: the runner restarts
+# with a synchronized clock, its own owner lifts the delivered pause (`access resume runner-pol`,
+# approved on the runner's terminal), and a fresh work ID is then refused POLICY_CUTOFF.
+s_a07_cutoff_refused() {
+    local f ref
+    f=$(must_runner a07 runtime-stop) || return 1
+    eq runner_runtime "$(fact runtime <<<"$f")" stopped || return 1
+    f=$(must_runner a07 runtime-start-with synchronized sshd_config) || return 1
+    wait_view a07 "$ENVIRONMENT" connectivity.state connected || return 1
+    f=$(must_runner a07 json decision=next.decision_ref -- --non-interactive access resume runner-pol) || return 1
+    eqr resume_code "$(fact code <<<"$f")" INTERACTION_REQUIRED "$f" || return 1
+    ref=$(fact decision <<<"$f")
+    [ -n "$ref" ] && [ "$ref" != none ] || { reason="resume_decision=none"; return 1; }
+    f=$(must_runner a07 attended -- decision approve "$ref") || return 1
+    eqr lift_code "$(fact code <<<"$f")" OK "$f" || return 1
+    f=$(must_runner a07 policy runner-pol) || return 1
+    eq runner_policy_paused "$(fact paused <<<"$f")" false || return 1
+    eq runner_policy_cutoff "$(fact cutoff <<<"$f")" true || return 1
+    forwarded_ensure a07 "$ENVIRONMENT" job-x-a07-cutoff x-a07-fwd-4 30m || return 1
+    eq fresh_work_after_cutoff_only "$(af code)" POLICY_CUTOFF || return 1
+    case "$(view a07 "$ENVIRONMENT" last_known_readiness)" in none | "[]") ;; *) reason="issued_after_cutoff=true"; return 1 ;; esac
+    obs="runner_time=synchronized remote_pending=0 policy_paused=lifted_at_runner policy_cutoff=in_force fresh_work_id=POLICY_CUTOFF issued=nothing"
 }
 
 # ---- T06 and A25 share the invitation path ----

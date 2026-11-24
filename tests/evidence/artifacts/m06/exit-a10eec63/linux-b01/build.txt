@@ -1,0 +1,71 @@
+    Finished `native-test` profile [unoptimized] target(s) in 0.32s
+== cargo test -p heimdall --features iroh --test e2e_exit_m06_iroh --no-run (exit 0)
+warning: unreachable expression
+  --> third_party/netdev-0.47.0/src/net/ip.rs:71:5
+   |
+67 |           return None;
+   |           ----------- any code following this expression is unreachable
+...
+71 | /     if let Some(addr) = try_ipv4() {
+72 | |         Some(addr)
+73 | |     } else {
+74 | |         try_ipv6()
+75 | |     }
+   | |_____^ unreachable expression
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `netdev` (lib) generated 1 warning
+    Finished `native-test` profile [unoptimized] target(s) in 0.26s
+== cargo test -p heimdall-runtime --features iroh --test integration_transport_supervise_m06 --no-run (exit 0)
+warning: unreachable expression
+  --> third_party/netdev-0.47.0/src/net/ip.rs:71:5
+   |
+67 |           return None;
+   |           ----------- any code following this expression is unreachable
+...
+71 | /     if let Some(addr) = try_ipv4() {
+72 | |         Some(addr)
+73 | |     } else {
+74 | |         try_ipv6()
+75 | |     }
+   | |_____^ unreachable expression
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `netdev` (lib) generated 1 warning
+    Finished `native-test` profile [unoptimized] target(s) in 0.16s
+== cargo test -p heimdall-transport-iroh --features iroh --lib --no-run (exit 0)
+warning: unreachable expression
+  --> third_party/netdev-0.47.0/src/net/ip.rs:71:5
+   |
+67 |           return None;
+   |           ----------- any code following this expression is unreachable
+...
+71 | /     if let Some(addr) = try_ipv4() {
+72 | |         Some(addr)
+73 | |     } else {
+74 | |         try_ipv6()
+75 | |     }
+   | |_____^ unreachable expression
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `netdev` (lib) generated 1 warning
+    Finished `native-test` profile [unoptimized] target(s) in 0.14s
+adversarial_agent_client_frames sha256: fcb6ac8d140725e14e2050f2e825c97ac58877835f9200387f763f0b8695459a
+adversarial_agent_frames sha256: 750496c9f147f7fa2232f6198e1981f857f5d2aeec85228129ac7972a099624a
+adversarial_ipc_frames sha256: f0708f19fe2f58c6605db20a73bfd63843a330fc498d536776a6b71da48c6bb5
+adversarial_prompt_injection sha256: 050e7ca5a863c4b4bff92d17b7d7cb3be1cac8c9935ec9e2e88bef6f2df79f23
+adversarial_prompt_injection_cli sha256: d331e43e7a872ec9e8bf970dcafa9e7b588643058d0017ba40f95c07ad7ce508
+adversarial_signer_requests sha256: 7790c1e08d0142fea1cbaca9f943bc04882074eecaf65163d132b3ede82a5440
+adversarial_sshconf_hostile sha256: 981106faf3f0576cefabeb56d21ae187f57fd023170621dce3e6802575d27536
+adversarial_stategen_switch_faults sha256: cf35720377e538a659fda58d69676c8557c79750cfa1037223aedca286d3be03
+adversarial_support_bundle_redaction sha256: 38e9c7d4c4a01fd4d739a5ff971331fea5b23cc0592b877985e66f14b96774e7
+contracts sha256: 926162d06670128fac6919f19bf062c0183676e03819dcb41374b6558cce7085
+heimdall-unit sha256: 5deb1839ab3774e4ec85f8753e96583ea92f4da1f5aee85dee518f9aedd5398c
+heimdall_adapters-unit sha256: 10c921557c06ea4f40f0059128a0b842a4e853cd7237b213e362b0ca12ce5385
+heimdall (CLI for the e2e suites, HEIMDALL_E2E_BIN) sha256: 9f2addc8a143fb03403f187c41454f49a62610ea6d33916f4828cef1913188a8
+hm-fixture-hook (HM_FIXTURE_HOOK) sha256: 0e42f7301f20ef2d15f52c9126400b888d3ebb108bdf04b2a9dfe54935ce8d85
+heimdall (iroh feature; HEIMDALL_E2E_BIN for the targets that require it) sha256: ec95bc9b3816f36b2a68f4e1f58f4d22cfbcb5813a11aa56ecf5f293a869493d
+toolchain: rustc 1.99.1 (58cf8f9c3 2026-10-13); zig 0.17.1; target x86_64-unknown-linux-gnu (glibc floor 2.31)

@@ -83,6 +83,10 @@ def main():
 
         # two sshds: LoginGraceTime 120 (default) and 0 (unlimited)
         servers = {}
+        # Sessions run the account's login shell: give it a scratch HOME and ZDOTDIR and an
+        # empty BASH_ENV (sshd keeps only its first SetEnv line), and no ~/.ssh/rc.
+        session_home = os.path.join(data, "session-home")
+        os.mkdir(session_home, 0o700)
         for grace in (120, 0):
             port = free_port()
             cfg = os.path.join(data, "sshd_config_%d" % grace)
@@ -92,7 +96,8 @@ def main():
                 "PubkeyAuthentication yes", "PasswordAuthentication no",
                 "KbdInteractiveAuthentication no", "UsePAM no", "StrictModes no",
                 "PidFile " + os.path.join(data, "sshd_%d.pid" % grace),
-                "LoginGraceTime %d" % grace, "MaxStartups 100:30:200", ""]))
+                "LoginGraceTime %d" % grace, "MaxStartups 100:30:200", "PermitUserRC no",
+                "SetEnv HOME=%s ZDOTDIR=%s BASH_ENV=" % (session_home, session_home), ""]))
             T = sh(["/usr/sbin/sshd", "-T", "-f", cfg]).stdout
             if re.search(r"^PerSourcePenalties ", T, re.M | re.I):  # OpenSSH >= 9.8 only
                 open(cfg, "a").write("PerSourcePenalties no\n")

@@ -898,6 +898,218 @@ async fn paired_widening_is_confirmed_runner_locally_and_replays_its_result() {
     );
 }
 
+/// ⟨M06 exit; ADR-0013 §7, D16's precondition⟩ Decision-backed replay **after a real store
+/// restart** (the same SQLite file reopened, a new runtime over it), one record in each state,
+/// answered as `heimdall_remote::widening::replay_answer` and ADR-0013 §7's table say:
+///
+/// * **pending**, not expired: the pending answer, `APPROVAL_REQUIRED` with the same
+///   `decision_ref`, effect `none`, no reason;
+/// * **claimed** (`approved` with no result: a crash between the claim and the result):
+///   `OUTCOME_UNKNOWN`, effect `unknown`, no reason; past its expiry too (never expired while
+///   unresolved), never re-executed (no line written, no client added);
+/// * **terminal** (approved, result recorded): exactly the recorded result;
+/// * **expired by time** (pending past `expires_at`): `DECISION_STALE`, effect `none`, no
+///   reason;
+/// * **a local-origin record** (`origin = local`, no client): the same widening submitted again
+///   with a fresh request ID returns the same pending record (`APPROVAL_REQUIRED`, its
+///   `decision_ref`), and the owner's decision list shows it `origin: local`.
+///
+/// No replay creates a record.
+#[tokio::test]
+async fn decision_backed_replay_after_a_store_restart_answers_each_record_state() {
+    use heimdall_contract::route::{BindScope, ExposurePolicy, RouteRequest, RouteSpec};
+    use heimdall_domain::decision::{DEFAULT_DECISION_LIFETIME, DecisionState};
+    use heimdall_remote::widening::{
+        self, StoreWidening, Submitted, Submitter, WideningRecords as _,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("state.db");
+    let lines = Arc::new(MemoryLines::default_pair());
+    let store = Arc::new(Store::open(&db, Arc::new(NoFaults)).unwrap());
+    let rig = Rig::over(store, true, lines.clone()).await;
+    let owner = rig.enroll(1, Role::Owner);
+    let environment = rig.environment.clone();
+    let invite = move |n: u8, id: &str| {
+        let (public_key, fp) = key(n);
+        req(&format!(
+            r#"{{"op":"remote_environment","action":"invite","environment":"{environment}","role":"requester","key_fingerprint":"{fp}","public_key":"{public_key}","request_id":"{id}"}}"#
+        ))
+    };
+    let decision_of = |env: &Envelope<serde_json::Value>| {
+        assert_eq!(env.code, Code::ApprovalRequired, "{env:?}");
+        env.next
+            .as_ref()
+            .and_then(|n| n.decision_ref.clone())
+            .unwrap()
+    };
+    let decide = |id: &str| {
+        req(&format!(
+            r#"{{"op":"decide","decision_id":"{id}","verdict":"approve"}}"#
+        ))
+    };
+    let mut a = rig.connect(hello(Some(&owner), &[], false)).await.unwrap();
+
+    // At t0: the records that will be expired, terminal and claimed.
+    decision_of(&a.request(invite(20, "d16-expired")).await.unwrap());
+    let terminal = decision_of(&a.request(invite(21, "d16-terminal")).await.unwrap());
+    let claimed = decision_of(&a.request(invite(22, "d16-claimed")).await.unwrap());
+    let mut local = rig.connect(hello(None, &[], true)).await.unwrap();
+    assert_eq!(local.attend().await.unwrap().code, Code::Ok);
+    let approved = local.request(decide(&terminal)).await.unwrap();
+    assert_eq!(approved.code, Code::Ok, "{approved:?}");
+    // The claim without its result, as a crash between the two leaves it.
+    let records = StoreWidening::new(rig.store.clone());
+    let claimed_id = DecisionId::parse(&claimed).unwrap();
+    let at_claim = records
+        .settle(&claimed_id, DecisionState::Approved, rig.clock.wall(), None)
+        .unwrap();
+    assert_eq!(at_claim.state, DecisionState::Approved);
+    assert!(at_claim.result.is_none());
+
+    // Ten minutes later: the pending paired record and the local-origin record.
+    rig.clock.advance(Duration::from_secs(600));
+    let pending = decision_of(&a.request(invite(23, "d16-pending")).await.unwrap());
+    let route_add = |id: &str| {
+        Request::Route(RouteRequest::Add {
+            destination: heimdall_contract::ids::DestinationId::parse("lab").unwrap(),
+            route: RouteSpec::Iroh {
+                endpoint: heimdall_contract::ids::IrohEndpointId::parse(&"ab".repeat(32)).unwrap(),
+                direct_addresses: Vec::new(),
+                external_roost: false,
+            },
+            exposure: Some(ExposurePolicy {
+                direct_fallback: true,
+                ..ExposurePolicy::default()
+            }),
+            request_id: heimdall_contract::ids::RequestId::parse(id).unwrap(),
+        })
+    };
+    let delta = serde_json::to_value(heimdall_store::ext_transport::ExposureDelta {
+        endpoint: None,
+        serve_before: false,
+        serve_after: false,
+        bind_before: BindScope::Loopback,
+        bind_after: BindScope::Loopback,
+        relays_added: Vec::new(),
+        direct_fallback_added: true,
+        public_infrastructure_added: false,
+        external_roost: None,
+        after: ExposurePolicy {
+            direct_fallback: true,
+            ..ExposurePolicy::default()
+        },
+    })
+    .unwrap();
+    let generation = rig
+        .store
+        .transaction(|tx| tx.authority_generation())
+        .unwrap();
+    let (created, _) = widening::submit_local(
+        &records,
+        &route_add("d16-local-1"),
+        delta.clone(),
+        generation,
+        rig.clock.wall(),
+    )
+    .unwrap();
+    let Submitted::Created(local_id) = created else {
+        panic!("a new local record: {created:?}");
+    };
+    let clients_before = rig
+        .store
+        .transaction(|tx| tx.remote_clients())
+        .unwrap()
+        .len();
+
+    // A real restart over the same state file.
+    rig.stop.cancel();
+    drop((a, local, records));
+    drop(rig);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let store = Arc::new(Store::open(&db, Arc::new(NoFaults)).unwrap());
+    let rig = Rig::over(store, false, lines.clone()).await;
+    // Sixteen minutes after t0: the first three are past their expiry, the pending and the
+    // local ones are not.
+    rig.clock.advance(Duration::from_secs(960));
+    assert!(Duration::from_secs(960) > DEFAULT_DECISION_LIFETIME);
+    assert!(Duration::from_secs(960 - 600) < DEFAULT_DECISION_LIFETIME);
+    let records_before = rig.decisions();
+    let writes = lines.writes();
+    let mut a = rig.connect(hello(Some(&owner), &[], false)).await.unwrap();
+
+    let effect = |env: &Envelope<serde_json::Value>| env.data["error"]["effect_status"].clone();
+    // Pending, not expired.
+    let env = a.request(invite(23, "d16-pending")).await.unwrap();
+    assert_eq!(env.code, Code::ApprovalRequired, "{env:?}");
+    assert_eq!(
+        env.next.as_ref().unwrap().decision_ref.as_deref(),
+        Some(pending.as_str())
+    );
+    assert_eq!(effect(&env), "none", "{env:?}");
+    assert_eq!(reason_of(&env), None);
+    // Claimed, no result: OUTCOME_UNKNOWN past its expiry, nothing executed.
+    let env = a.request(invite(22, "d16-claimed")).await.unwrap();
+    assert_eq!(env.code, Code::OutcomeUnknown, "{env:?}");
+    assert_eq!(effect(&env), "unknown", "{env:?}");
+    assert_eq!(reason_of(&env), None);
+    // Terminal: exactly the recorded result.
+    let env = a.request(invite(21, "d16-terminal")).await.unwrap();
+    assert_eq!(env.code, Code::Ok, "{env:?}");
+    assert_eq!(env.data, approved.data);
+    // Expired by time: DECISION_STALE.
+    let env = a.request(invite(20, "d16-expired")).await.unwrap();
+    assert_eq!(env.code, Code::DecisionStale, "{env:?}");
+    assert_eq!(effect(&env), "none", "{env:?}");
+    assert_eq!(reason_of(&env), None);
+    // The local-origin record: a retry with a fresh request ID is the same pending record.
+    let records = StoreWidening::new(rig.store.clone());
+    let (again, answer) = widening::submit_local(
+        &records,
+        &route_add("d16-local-2"),
+        delta,
+        generation,
+        rig.clock.wall(),
+    )
+    .unwrap();
+    assert_eq!(again, Submitted::Replayed(local_id.clone()));
+    assert_eq!(answer.code, Code::ApprovalRequired, "{answer:?}");
+    assert_eq!(
+        answer.next.as_ref().unwrap().decision_ref.as_deref(),
+        Some(local_id.as_str())
+    );
+    assert_eq!(reason_of(&answer), None);
+    let rec = records.by_decision(&local_id).unwrap().unwrap();
+    assert_eq!(rec.key.submitter, Submitter::Local);
+    assert_eq!(rec.state, DecisionState::Pending);
+    let mut owner_local = rig.connect(hello(None, &[], true)).await.unwrap();
+    let listed = owner_local
+        .request(req(r#"{"op":"inspect","subject":"decisions"}"#))
+        .await
+        .unwrap();
+    let shown = listed.data["decisions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|d| d["decision_id"] == local_id.as_str()))
+        .cloned()
+        .unwrap_or_else(|| panic!("the local record is not listed: {listed:?}"));
+    assert_eq!(shown["request"]["origin"], "local", "{shown}");
+    assert!(shown["request"].get("client").is_none(), "{shown}");
+
+    // No replay made a record or ran anything; the claimed record is still claimed.
+    assert_eq!(rig.decisions(), records_before);
+    assert_eq!(lines.writes(), writes);
+    assert_eq!(
+        rig.store
+            .transaction(|tx| tx.remote_clients())
+            .unwrap()
+            .len(),
+        clients_before
+    );
+    let still = records.by_decision(&claimed_id).unwrap().unwrap();
+    assert_eq!(still.state, DecisionState::Approved);
+    assert!(still.result.is_none());
+}
+
 /// ⟨ADR-0006 §18.7 item 16; ADR-0012 §3.2 "Limits"⟩ `Join.probe` through the real dispatcher,
 /// on a runner whose sshd policy is verified:
 ///

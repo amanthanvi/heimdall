@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 13;
+pub const SCHEMA_VERSION: u32 = 14;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -102,6 +102,13 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 13,
         name: "local_widening",
         sql: include_str!("../migrations/0013_local_widening.sql"),
+    },
+    // ⟨rev7⟩ U0 (ADR-0014 H9, §3.6; U0-Q9): the restore epoch's columns, the request fences
+    // and the case-insensitive alias index; no writer yet.
+    Migration {
+        version: 14,
+        name: "restore_epoch",
+        sql: include_str!("../migrations/0014_restore_epoch.sql"),
     },
 ];
 
@@ -557,7 +564,10 @@ mod tests {
         let before = tables(&c);
         let before_columns = columns(&c);
         c.execute_batch(SEED).unwrap();
-        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 13);
+        assert_eq!(
+            apply_steps(&mut c, &NoFaults, &MIGRATIONS[..13]).unwrap(),
+            13
+        );
         assert_eq!(tables(&c), before, "the step adds and drops no table");
         let new_columns: Vec<String> = columns(&c)
             .into_iter()
@@ -674,5 +684,189 @@ mod tests {
             apply(&mut c, &NoFaults),
             Err(StoreError::Corrupt(_))
         ));
+    }
+
+    /// ⟨rev7⟩ U0 (ADR-0014 H9; U0-Q9): `0014_restore_epoch` applies on a database at version
+    /// 13 holding one seeded row in each of the four tables it alters, and keeps them: the
+    /// operation keeps its ID, kind, state, code and record, the idempotency record its key
+    /// and operation, the decision its ID, kind, state, generation and record, and the outbox
+    /// row every column (review U0-RC06); each reads epoch 0. Every `meta` row is kept and
+    /// `restore_epoch` = `0` is the only one added; the step adds exactly the `request_fences`
+    /// table and the two indexes. The alias index is not unique, so an existing case-variant
+    /// pair survives the step. A failure inside the step leaves version 13 and nothing of it.
+    #[test]
+    fn restore_epoch_step_keeps_the_seeded_rows_at_epoch_zero_and_rolls_back_whole() {
+        let names = |c: &Connection, kind: &str| -> Vec<String> {
+            let mut stmt = c
+                .prepare(
+                    "SELECT name FROM sqlite_schema WHERE type = ?1
+                     AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+                )
+                .unwrap();
+            stmt.query_map([kind], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        const SEED: &str = "
+            INSERT INTO operations (id, kind, environment, caller_json, request_id,
+                request_hash, effect_class, state, code, effect_status, result_json,
+                record_json, created_at, updated_at, terminal_at)
+            VALUES ('op_probe', 'ensure', 'env_probe', '{}', 'req_probe', 'aa', 'local',
+                'succeeded', 'ACCESS_READY', 'applied', NULL, '{}', 't', 't', 't');
+            INSERT INTO idempotency (caller_json, kind, request_id, request_hash,
+                operation_id, created_at, expires_at)
+            VALUES ('{}', 'ensure', 'req_probe', 'aa', 'op_probe', 't', NULL);
+            INSERT INTO decisions (id, kind_json, state, generation, created_at, expires_at,
+                record_json)
+            VALUES ('dec_probe', '{}', 'pending', 0, 't', 't', '{}');
+            INSERT INTO destinations (id, alias, revision, record_json)
+            VALUES ('d1', 'Alpha', 1, '{}'), ('d2', 'alpha', 1, '{}');";
+        // The seeded rows of the four altered tables (the columns named; every column of the
+        // outbox but the new one) and every `meta` row, before and after the step.
+        let content = |c: &Connection| -> Vec<String> {
+            let mut out = Vec::new();
+            for (table, cols) in [
+                ("operations", "id, kind, state, code, record_json"),
+                (
+                    "idempotency",
+                    "caller_json, kind, request_id, request_hash, operation_id",
+                ),
+                ("decisions", "id, kind_json, state, generation, record_json"),
+                ("remote_effect_outbox", "*"),
+                ("meta", "key, value"),
+            ] {
+                let cols = if cols == "*" {
+                    let mut st = c
+                        .prepare(&format!(
+                            "SELECT group_concat(name, ', ') FROM pragma_table_info('{table}')
+                             WHERE name <> 'restore_epoch'"
+                        ))
+                        .unwrap();
+                    st.query_row([], |r| r.get::<_, String>(0)).unwrap()
+                } else {
+                    cols.to_owned()
+                };
+                let mut st = c
+                    .prepare(&format!("SELECT {cols} FROM {table} ORDER BY 1"))
+                    .unwrap();
+                let n = st.column_count();
+                let rows = st
+                    .query_map([], |r| {
+                        (0..n)
+                            .map(|i| {
+                                r.get::<_, rusqlite::types::Value>(i)
+                                    .map(|v| format!("{v:?}"))
+                            })
+                            .collect::<std::result::Result<Vec<_>, _>>()
+                    })
+                    .unwrap()
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .unwrap();
+                out.extend(
+                    rows.into_iter()
+                        .map(|r| format!("{table}: {}", r.join(" | "))),
+                );
+            }
+            out
+        };
+        let previous = &MIGRATIONS[..13];
+        assert_eq!(MIGRATIONS[13].version, 14);
+        assert_eq!(MIGRATIONS[13].name, "restore_epoch");
+        let mut c = Connection::open_in_memory().unwrap();
+        c.pragma_update(None, "foreign_keys", "ON").unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, previous).unwrap(), 13);
+        let tables = names(&c, "table");
+        let indexes = names(&c, "index");
+        c.execute_batch(SEED).unwrap();
+        let outbox_cols: Vec<(String, String)> = {
+            let mut st = c
+                .prepare(
+                    "SELECT name, type FROM pragma_table_info('remote_effect_outbox') ORDER BY cid",
+                )
+                .unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        // One outbox row with every NOT NULL column filled (the table is one of the four).
+        let outbox_names: Vec<&str> = outbox_cols.iter().map(|(n, _)| n.as_str()).collect();
+        let values: Vec<String> = outbox_cols
+            .iter()
+            .map(|(n, t)| {
+                if t == "INTEGER" {
+                    "1".to_owned()
+                } else {
+                    format!("'{n}-probe'")
+                }
+            })
+            .collect();
+        c.execute_batch(&format!(
+            "INSERT INTO remote_effect_outbox ({}) VALUES ({});",
+            outbox_names.join(", "),
+            values.join(", ")
+        ))
+        .unwrap();
+        let before_content = content(&c);
+        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 14);
+        let mut after_content = content(&c);
+        after_content.retain(|r| r != "meta: Text(\"restore_epoch\") | Text(\"0\")");
+        assert_eq!(
+            after_content, before_content,
+            "the seeded rows and meta kept"
+        );
+        let added: Vec<String> = names(&c, "table")
+            .into_iter()
+            .filter(|t| !tables.contains(t))
+            .collect();
+        assert_eq!(added, ["request_fences"]);
+        let added: Vec<String> = names(&c, "index")
+            .into_iter()
+            .filter(|t| !indexes.contains(t))
+            .collect();
+        assert_eq!(
+            added,
+            ["destinations_alias_nocase", "request_fences_expires_at"]
+        );
+        let epochs: (i64, i64, i64, i64, String) = c
+            .query_row(
+                "SELECT (SELECT restore_epoch FROM operations WHERE id = 'op_probe'),
+                        (SELECT request_epoch FROM idempotency WHERE request_id = 'req_probe'),
+                        (SELECT restore_epoch FROM decisions WHERE id = 'dec_probe'),
+                        (SELECT restore_epoch FROM remote_effect_outbox),
+                        (SELECT value FROM meta WHERE key = 'restore_epoch')",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(epochs, (0, 0, 0, 0, "0".to_owned()));
+        let pair: i64 = c
+            .query_row(
+                "SELECT count(*) FROM destinations WHERE alias = 'ALPHA' COLLATE NOCASE",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(pair, 2, "a legacy case-variant pair is kept");
+
+        let broken: Vec<Migration> = [
+            previous,
+            &[Migration {
+                version: 14,
+                name: "restore_epoch_broken",
+                sql: concat!(
+                    include_str!("../migrations/0014_restore_epoch.sql"),
+                    "\nTHIS IS NOT SQL;"
+                ),
+            }],
+        ]
+        .concat();
+        let mut c = Connection::open_in_memory().unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, previous).unwrap(), 13);
+        assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
+        assert_eq!(user_version(&c).unwrap(), 13);
+        assert_eq!(names(&c, "table"), tables);
+        assert_eq!(names(&c, "index"), indexes);
     }
 }

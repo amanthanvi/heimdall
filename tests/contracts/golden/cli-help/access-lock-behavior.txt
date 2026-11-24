@@ -1,4 +1,4 @@
-Choose what a session lock does to a policy's managed grants (M03; narrowing is immediate, widening needs an owner decision)
+Choose what a session lock does to a policy's managed grants (narrowing is immediate, widening needs an owner decision)
 
 Usage: heimdall access lock-behavior [OPTIONS] --policy <POLICY> <BEHAVIOR>
 
@@ -18,10 +18,10 @@ Options:
           Policy ID
 
       --non-interactive
-          Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+          Never open a browser, dialog, or terminal prompt. Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
 
       --home <DIR>
-          Override the Heimdall home directory (fixtures and tests)
+          Use this Heimdall home directory instead of the default
           
           [env: HEIMDALL_HOME=]
 

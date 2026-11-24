@@ -1,0 +1,627 @@
+### integration_session_lock
+
+running 3 tests
+test linux_logind_lock_signal_observed ... ignored, blocked: B11 (a Linux desktop host: GNOME, gnome-keyring, systemd-logind, a disposable account)
+test source_thread_spawned_once_and_joined_at_shutdown ... ok
+test revoke_on_lock_refused_where_signal_unavailable ... ok
+
+successes:
+
+---- revoke_on_lock_refused_where_signal_unavailable stdout ----
+m03 observation: os=linux session_lock_state=Unavailable signal=None revoke_on_lock=refused lock_signal_unavailable
+
+
+successes:
+    revoke_on_lock_refused_where_signal_unavailable
+    source_thread_spawned_once_and_joined_at_shutdown
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+### integration_session_lock exit=0
+### integration_sshconf_vs_ssh_g
+
+running 15 tests
+test bom_and_crlf_acceptance ... ok
+test corpus_basic_patterns_wildcards_negation_and_first_value_match_ssh_g ... ok
+test corpus_lexer_matches_ssh_g_and_command_text_is_the_raw_rest_of_the_line ... ok
+test corpus_identity_list_matches_ssh_g ... ok
+test corpus_retired_keywords_are_accepted_by_the_client ... ok
+test corpus_nested_includes_and_bytewise_glob_order_match_ssh_g ... ok
+test corpus_unsupported_syntax_loads_and_matches_ssh_g ... ok
+test include_state_is_restored_after_included_file ... ok
+test include_target_with_glob_metacharacters_is_refused_before_any_edit ... ok
+test final_pass_case_canonical_and_parse_only_facts_match_ssh_g ... ok
+test gated_match_criteria_and_keywords_follow_the_client ... ok
+test include_tokens_follow_the_client ... ok
+test s01_env_expansion_keywords_match_the_client ... ok
+test include_tilde_follows_home_and_is_undetermined_under_another_home ... ok
+test sessiontype_in_force_matches_ssh_g ... ok
+
+successes:
+
+---- bom_and_crlf_acceptance stdout ----
+observation test=bom_and_crlf_acceptance client=linux:9.6p1 subject=encodings corpus_bom_loads="false" corpus_crlf_loads="true" bom_b_effective="false" crlf_b_effective="true" lf_b_effective="true"
+observation test=bom_and_crlf_acceptance client=linux:9.6p1 subject=planner_bom table_row="false" planner_accepts="false" client_loads="false"
+observation test=bom_and_crlf_acceptance client=linux:9.6p1 subject=planner_crlf table_row="false" planner_accepts="false" client_loads="true"
+observation test=bom_and_crlf_acceptance client=linux:9.6p1 subject=planner_bom_and_crlf table_row="false" planner_accepts="false" client_loads="false"
+
+---- corpus_basic_patterns_wildcards_negation_and_first_value_match_ssh_g stdout ----
+observation test=corpus_basic client=linux:9.6p1 subject=alpha agree="true" ssh_g_port="2201" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_basic client=linux:9.6p1 subject=x.corpus.example agree="true" ssh_g_port="2202" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_basic client=linux:9.6p1 subject=bad.corpus.example agree="true" ssh_g_port="2299" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_basic client=linux:9.6p1 subject=beta agree="true" ssh_g_port="2299" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_basic client=linux:9.6p1 subject=gamma1 agree="true" ssh_g_port="2203" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_basic client=linux:9.6p1 subject=gamma-excluded agree="true" ssh_g_port="2299" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_basic client=linux:9.6p1 subject=delta agree="true" ssh_g_port="2205" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_basic client=linux:9.6p1 subject=anything.example agree="true" ssh_g_port="2204" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+
+---- corpus_lexer_matches_ssh_g_and_command_text_is_the_raw_rest_of_the_line stdout ----
+observation test=corpus_lexer client=linux:9.6p1 subject=lex-hash agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_lexer client=linux:9.6p1 subject=lex-quote agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_lexer client=linux:9.6p1 subject=lex-equals agree="true" ssh_g_port="2290" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_lexer client=linux:9.6p1 subject=lex-escape agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_lexer client=linux:9.6p1 subject=lex-unknown-escape agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_lexer_raw_command client=linux:9.6p1 subject=lex-command file_rest_of_line="echo '$X'  \"q\"  # c" ssh_g_remotecommand="echo '$X'  \"q\"  # c" ssh_g_proxycommand="echo '$X'  \"q\"  # c" heimdall_directive_raw="echo '$X'  \"q\"  # c" heimdall_value_raw="echo '$X'  \"q\"  # c"
+
+---- corpus_identity_list_matches_ssh_g stdout ----
+observation test=corpus_identity_list_matches_ssh_g client=linux:9.6p1 subject=ident-one agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_one,/nonexistent/hm-corpus/id_shared"
+observation test=corpus_identity_list_matches_ssh_g client=linux:9.6p1 subject=ident-spaced agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_shared,/nonexistent/hm corpus/id spaced,/nonexistent/hm-corpus/id-ïdentité"
+observation test=corpus_identity_list_matches_ssh_g client=linux:9.6p1 subject=ident-percent agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_shared,/nonexistent/hm-corpus/100%%/id"
+observation test=corpus_identity_list_matches_ssh_g client=linux:9.6p1 subject=ident-pipe agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_shared"
+observation test=corpus_identity_list_matches_ssh_g client=linux:9.6p1 subject=ident-pipe-quoted agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_shared"
+observation test=corpus_identity_list_matches_ssh_g client=linux:9.6p1 subject=ident-agent-none agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_shared"
+observation test=corpus_identity_list_matches_ssh_g client=linux:9.6p1 subject=ident-files-none agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_shared,none"
+observation test=corpus_identity_list_matches_ssh_g client=linux:9.6p1 subject=default_identities printed="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa" recorded_for_this_client="id_rsa,id_ecdsa,id_ecdsa_sk,id_ed25519,id_ed25519_sk,id_xmss,id_dsa" not_in_heimdall_union=""
+
+---- corpus_retired_keywords_are_accepted_by_the_client stdout ----
+observation test=corpus_retired_keywords_are_accepted_by_the_client client=linux:9.6p1 subject=retired ssh_g_exit="0" ssh_g_port="2801" heimdall_invalid_lines="0" heimdall_port="2801"
+
+---- corpus_nested_includes_and_bytewise_glob_order_match_ssh_g stdout ----
+observation test=corpus_nested client=linux:9.6p1 subject=nested-after agree="true" ssh_g_port="2401" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_nested client=linux:9.6p1 subject=nested-level1 agree="true" ssh_g_port="2411" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_nested client=linux:9.6p1 subject=nested-glob agree="true" ssh_g_port="2421" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=corpus_nested client=linux:9.6p1 subject=nested-deep agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+
+---- corpus_unsupported_syntax_loads_and_matches_ssh_g stdout ----
+observation test=corpus_unsupported client=linux:9.6p1 subject=unsupported agree="true" ssh_g_port="2701" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+
+---- include_state_is_restored_after_included_file stdout ----
+observation test=include_state_is_restored_after_included_file client=linux:9.6p1 subject=state-alpha agree="true" ssh_g_port="2501" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=include_state_is_restored_after_included_file client=linux:9.6p1 subject=state-other agree="true" ssh_g_port="2599" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+
+---- include_target_with_glob_metacharacters_is_refused_before_any_edit stdout ----
+observation test=include_target_with_glob_metacharacters_is_refused_before_any_edit client=linux:9.6p1 subject=box ssh_g_exit="0" ssh_g_hostname="different.example" client_globbed_quoted_include="true"
+
+---- final_pass_case_canonical_and_parse_only_facts_match_ssh_g stdout ----
+observation test=host_pattern_case_first_pass client=linux:9.6p1 subject=MixedCase agree="true" ssh_g_port="2901" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=host_pattern_case_first_pass_lower client=linux:9.6p1 subject=mixedcase agree="true" ssh_g_port="2911" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=host_pattern_case_final_pass client=linux:9.6p1 subject=MixedCase agree="true" ssh_g_port="2912" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=match_final_and_canonical client=linux:9.6p1 subject=fin-a agree="true" ssh_g_port="2902" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=hostname_not_set_again_in_final_pass client=linux:9.6p1 subject=fin-b agree="true" ssh_g_port="2903" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=parse_only_include_under_false_section client=linux:9.6p1 subject=target agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_xmss,~/.ssh/id_dsa"
+observation test=parse_only_include_is_still_checked client=linux:9.6p1 subject=target ssh_g_exit="255" heimdall_invalid_lines="1"
+
+---- gated_match_criteria_and_keywords_follow_the_client stdout ----
+observation test=gated_match_criteria_and_keywords_follow_the_client client=linux:9.6p1 subject=match_command ssh_g_exit="255" heimdall_accepts="false" heimdall_invalid="true" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=linux:9.6p1 subject=match_sessiontype ssh_g_exit="255" heimdall_accepts="false" heimdall_invalid="true" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=linux:9.6p1 subject=match_version ssh_g_exit="255" heimdall_accepts="false" heimdall_invalid="true" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=linux:9.6p1 subject=kw_RefuseConnection ssh_g_exit="255" heimdall_accepts="false" heimdall_invalid="true" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=linux:9.6p1 subject=kw_RefuseConnection_ignored ssh_g_exit="0" heimdall_accepts="true" heimdall_invalid="false" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=linux:9.6p1 subject=kw_VersionAddendum ssh_g_exit="255" heimdall_accepts="false" heimdall_invalid="true" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=linux:9.6p1 subject=kw_VersionAddendum_ignored ssh_g_exit="0" heimdall_accepts="true" heimdall_invalid="false" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=linux:9.6p1 subject=kw_WarnWeakCrypto ssh_g_exit="255" heimdall_accepts="false" heimdall_invalid="true" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=linux:9.6p1 subject=kw_WarnWeakCrypto_ignored ssh_g_exit="0" heimdall_accepts="true" heimdall_invalid="false" heimdall_stricter="false"
+
+---- include_tokens_follow_the_client stdout ----
+observation test=include_tokens_follow_the_client client=linux:9.6p1 subject=tok-x ssh_g_port="2965" client_expands_include_tokens="false" heimdall_expands_include_tokens="false" heimdall_port="2965" ssh_g_user_for_u%h="u%h"
+
+---- s01_env_expansion_keywords_match_the_client stdout ----
+observation test=s01_env_expansion_keywords_match_the_client client=linux:9.6p1 subject=User dump="literal_in_dump" heimdall_expands_env="false" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=linux:9.6p1 subject=SetEnv dump="literal_in_dump" heimdall_expands_env="false" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=linux:9.6p1 subject=RevokedHostKeys dump="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=linux:9.6p1 subject=LocalForward dump="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=linux:9.6p1 subject=RemoteForward dump="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=linux:9.6p1 subject=ControlPath dump="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=linux:9.6p1 subject=IdentityAgent dump="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=linux:9.6p1 subject=IdentityFile dump="literal_in_dump" heimdall_expands_env="true" note="not observable through ssh -G"
+observation test=s01_env_expansion_keywords_match_the_client client=linux:9.6p1 subject=CertificateFile dump="literal_in_dump" heimdall_expands_env="true" note="not observable through ssh -G"
+observation test=s01_env_expansion_keywords_match_the_client client=linux:9.6p1 subject=KnownHostsCommand dump="literal_in_dump" heimdall_expands_env="true" note="not observable through ssh -G"
+observation test=s01_env_expansion_keywords_match_the_client client=linux:9.6p1 subject=UserKnownHostsFile dump="other" heimdall_expands_env="true" note="not observable through ssh -G"
+observation test=s01_env_expansion_keywords_match_the_client client=linux:9.6p1 subject=Include effect="not_expanded" heimdall_expands_env="false" heimdall_stricter="false"
+
+---- include_tilde_follows_home_and_is_undetermined_under_another_home stdout ----
+observation test=include_tilde_follows_home_and_is_undetermined_under_another_home client=linux:9.6p1 subject=tilde-x ssh_g_exit_other_home="0" ssh_g_port_other_home="2972" client_follows_home="true" heimdall_port_determined="None"
+observation test=include_tilde_follows_home_and_is_undetermined_under_another_home client=linux:9.6p1 subject=rel-x ssh_g_exit_other_home="0" ssh_g_port_other_home="2974" client_follows_home="true" heimdall_port_determined="None"
+
+---- sessiontype_in_force_matches_ssh_g stdout ----
+observation test=sessiontype_none_shell client=linux:9.6p1 subject=box ssh_g_exit="255" client_accepts="false" heimdall_accepts="false" heimdall_refused_lines="2" heimdall_stricter="false"
+observation test=sessiontype_subsystem_shell client=linux:9.6p1 subject=box ssh_g_exit="255" client_accepts="false" heimdall_accepts="false" heimdall_refused_lines="2" heimdall_stricter="false"
+observation test=sessiontype_none_dash_s client=linux:9.6p1 subject=box ssh_g_exit="255" client_accepts="false" heimdall_accepts="false" heimdall_refused_lines="2" heimdall_stricter="false"
+observation test=sessiontype_subsystem_dash_s client=linux:9.6p1 subject=box ssh_g_exit="255" client_accepts="false" heimdall_accepts="false" heimdall_refused_lines="2" heimdall_stricter="false"
+observation test=sessiontype_in_force_matches_ssh_g client=linux:9.6p1 subject=reviewer_case ssh_g_sessiontype="" ssh_g_port=""
+
+
+successes:
+    bom_and_crlf_acceptance
+    corpus_basic_patterns_wildcards_negation_and_first_value_match_ssh_g
+    corpus_identity_list_matches_ssh_g
+    corpus_lexer_matches_ssh_g_and_command_text_is_the_raw_rest_of_the_line
+    corpus_nested_includes_and_bytewise_glob_order_match_ssh_g
+    corpus_retired_keywords_are_accepted_by_the_client
+    corpus_unsupported_syntax_loads_and_matches_ssh_g
+    final_pass_case_canonical_and_parse_only_facts_match_ssh_g
+    gated_match_criteria_and_keywords_follow_the_client
+    include_state_is_restored_after_included_file
+    include_target_with_glob_metacharacters_is_refused_before_any_edit
+    include_tilde_follows_home_and_is_undetermined_under_another_home
+    include_tokens_follow_the_client
+    s01_env_expansion_keywords_match_the_client
+    sessiontype_in_force_matches_ssh_g
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+### integration_sshconf_vs_ssh_g exit=0
+### integration_store
+
+running 77 tests
+test after_commit_failure_is_visible_and_retry_replays ... ok
+test before_commit_failure_leaves_no_row ... ok
+test before_transaction_failure_runs_nothing ... ok
+test crash_child_entry ... ok
+test binding_release_is_idempotent_and_authorized_by_ownership ... ok
+test credential_instances_round_trip_and_destroyed_is_absorbing ... ok
+test cross_owner_request_id_is_a_distinct_key ... ok
+test decisions_complete_once_and_go_stale_when_the_generation_moves ... ok
+test decisions_transfer_and_withdraw_by_cas_on_pending ... ok
+test denied_ancestor_walks_through_a_revoked_grandparent ... ok
+test damaged_page_is_corrupt_not_fresh ... ok
+test duplicate_idempotency_key_is_refused_by_the_store ... ok
+test environments_upsert_and_policies_for_matches_profile_and_environment ... ok
+test error_inside_closure_rolls_back ... ok
+test events_have_per_environment_monotonic_sequence_filters_and_trim ... ok
+test grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant ... ok
+test garbage_header_is_corrupt_not_fresh ... ok
+test grant_anchor_cannot_lengthen_within_a_boot_but_is_replaced_in_a_new_boot ... ok
+test grant_approval_is_written_once_and_survives_operation_purge ... ok
+test grant_degradation_exists_only_while_the_grant_is_degraded ... ok
+test grant_has_effect_receipt_reads_only_the_effects_of_the_operations_pinning_it ... ok
+test grant_immutable_columns_and_absorbing_terminal_states ... ok
+test grant_origin_gains_its_preparing_adapter_once ... ok
+test grant_origin_is_written_once_and_gains_only_a_covered_basis ... ok
+test grants_due_descendants_and_deadline_persist_across_reopen ... ok
+test crash_at_each_migration_point_reopens_cleanly ... ok
+test high_water_mark_never_lowers ... ok
+test crash_at_each_transaction_point_reopens_with_exactly_the_committed_state ... ok
+test issuance_reserve_publish_void_cas_and_residual ... ok
+test grant_anchor_budget_never_lengthens_within_a_boot ... ok
+test m02::catalog_destinations_and_identities_are_unique_and_revisioned ... ok
+test m02::commit_projection_item_is_one_transaction ... ok
+test m02::declaration_revision_cas_and_end ... ok
+test high_water_mark_is_the_running_maximum ... ok
+test m02::insert_setup_operation_blocks_on_every_open_or_unresolved_state ... ok
+test m02::insert_setup_operation_repair_exception_is_exact ... ok
+test m02::insert_setup_operation_state_survives_restart_and_a_crash_leaves_nothing ... ok
+test m02::migration_0004_to_0005_keeps_m01_records_counters_and_receipts ... ok
+test m02::open_read_only_refuses_newer_reports_older_and_never_writes ... ok
+test idempotency_replays_and_conflicts_through_txn ... ok
+test m02::prepared_facts_and_binding_holders_round_trip ... ok
+test m02::projection_resource_generation_and_identity_cas ... ok
+test m02::recovery_intent_local_is_add_only_and_never_beside_resolved ... ok
+test m02::table_counts_count_every_row_of_the_purged_tables_without_writing ... ok
+test newer_schema_is_refused_and_untouched ... ok
+test operation_and_idempotency_round_trip_and_update ... ok
+test open_in_memory_and_file_report_current_schema ... ok
+test outcome_unknown_is_unresolved_not_open_and_survives_purge ... ok
+test pending_keys_never_expire_and_are_never_purged ... ok
+test policy_revisions_are_monotonic_and_narrowing_bumps_generation ... ok
+test profile_removal_keeps_pinned_snapshots_and_the_revision_high_water_mark ... ok
+test profile_snapshot_is_immutable_at_a_revision ... ok
+test private_key_material_is_refused_and_never_reaches_the_file ... ok
+test r1319_cleanup_intents_are_kept_per_grant_and_operation_with_increasing_versions ... ok
+test recovery_intent_approval_basis_is_add_only ... ok
+test recovery_intent_covered_basis_is_add_only ... ok
+test recovery_intent_round_trips_and_only_gains_facts ... ok
+test references_are_ownership_aware ... ok
+test remote_revocation_obligations_name_exactly_the_record_grants ... ok
+test remote_revocation_records_need_a_tombstone_and_round_trip ... ok
+test resource_cas_insert_update_and_reconcile_listing ... ok
+test issuance_residual_counts_reserved_and_published_only ... ok
+test self_environment_is_recorded_once_and_survives_reopen ... ok
+test settle_then_purge_leaves_a_marker_that_expires_reuse_until_marker_purge ... ok
+test stage_receipts_are_append_only_and_ordered ... ok
+test stored_events_after_sequences_are_monotonic_and_page_boundaries_match ... ok
+test time_anchor_round_trips ... ok
+test time_confirmation_round_trips_and_is_replaced ... ok
+test tombstone_cause_round_trips_and_the_first_record_is_kept ... ok
+test tombstones_bump_the_authority_generation_atomically ... ok
+test transfer_waiting_grant_is_a_cas_on_the_owner_while_waiting ... ok
+test truncated_file_is_corrupt_not_fresh ... ok
+test upsert_environment_advances_the_authority_generation_on_every_write ... ok
+test withdrawal_report_is_recorded_once_per_tombstoned_root ... ok
+test m02::insert_setup_operation_check_and_insert_are_one_transaction ... ok
+test resource_cas_never_lets_a_stale_writer_win ... ok
+test purge_keeps_authority_state_and_unexpired_records ... ok
+
+successes:
+
+---- grant_anchor_budget_never_lengthens_within_a_boot stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/store.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- high_water_mark_is_the_running_maximum stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/store.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- idempotency_replays_and_conflicts_through_txn stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/store.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- issuance_residual_counts_reserved_and_published_only stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/store.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- resource_cas_never_lets_a_stale_writer_win stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/store.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- purge_keeps_authority_state_and_unexpired_records stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/store.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+
+successes:
+    after_commit_failure_is_visible_and_retry_replays
+    before_commit_failure_leaves_no_row
+    before_transaction_failure_runs_nothing
+    binding_release_is_idempotent_and_authorized_by_ownership
+    crash_at_each_migration_point_reopens_cleanly
+    crash_at_each_transaction_point_reopens_with_exactly_the_committed_state
+    crash_child_entry
+    credential_instances_round_trip_and_destroyed_is_absorbing
+    cross_owner_request_id_is_a_distinct_key
+    damaged_page_is_corrupt_not_fresh
+    decisions_complete_once_and_go_stale_when_the_generation_moves
+    decisions_transfer_and_withdraw_by_cas_on_pending
+    denied_ancestor_walks_through_a_revoked_grandparent
+    duplicate_idempotency_key_is_refused_by_the_store
+    environments_upsert_and_policies_for_matches_profile_and_environment
+    error_inside_closure_rolls_back
+    events_have_per_environment_monotonic_sequence_filters_and_trim
+    garbage_header_is_corrupt_not_fresh
+    grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant
+    grant_anchor_budget_never_lengthens_within_a_boot
+    grant_anchor_cannot_lengthen_within_a_boot_but_is_replaced_in_a_new_boot
+    grant_approval_is_written_once_and_survives_operation_purge
+    grant_degradation_exists_only_while_the_grant_is_degraded
+    grant_has_effect_receipt_reads_only_the_effects_of_the_operations_pinning_it
+    grant_immutable_columns_and_absorbing_terminal_states
+    grant_origin_gains_its_preparing_adapter_once
+    grant_origin_is_written_once_and_gains_only_a_covered_basis
+    grants_due_descendants_and_deadline_persist_across_reopen
+    high_water_mark_is_the_running_maximum
+    high_water_mark_never_lowers
+    idempotency_replays_and_conflicts_through_txn
+    issuance_reserve_publish_void_cas_and_residual
+    issuance_residual_counts_reserved_and_published_only
+    m02::catalog_destinations_and_identities_are_unique_and_revisioned
+    m02::commit_projection_item_is_one_transaction
+    m02::declaration_revision_cas_and_end
+    m02::insert_setup_operation_blocks_on_every_open_or_unresolved_state
+    m02::insert_setup_operation_check_and_insert_are_one_transaction
+    m02::insert_setup_operation_repair_exception_is_exact
+    m02::insert_setup_operation_state_survives_restart_and_a_crash_leaves_nothing
+    m02::migration_0004_to_0005_keeps_m01_records_counters_and_receipts
+    m02::open_read_only_refuses_newer_reports_older_and_never_writes
+    m02::prepared_facts_and_binding_holders_round_trip
+    m02::projection_resource_generation_and_identity_cas
+    m02::recovery_intent_local_is_add_only_and_never_beside_resolved
+    m02::table_counts_count_every_row_of_the_purged_tables_without_writing
+    newer_schema_is_refused_and_untouched
+    open_in_memory_and_file_report_current_schema
+    operation_and_idempotency_round_trip_and_update
+    outcome_unknown_is_unresolved_not_open_and_survives_purge
+    pending_keys_never_expire_and_are_never_purged
+    policy_revisions_are_monotonic_and_narrowing_bumps_generation
+    private_key_material_is_refused_and_never_reaches_the_file
+    profile_removal_keeps_pinned_snapshots_and_the_revision_high_water_mark
+    profile_snapshot_is_immutable_at_a_revision
+    purge_keeps_authority_state_and_unexpired_records
+    r1319_cleanup_intents_are_kept_per_grant_and_operation_with_increasing_versions
+    recovery_intent_approval_basis_is_add_only
+    recovery_intent_covered_basis_is_add_only
+    recovery_intent_round_trips_and_only_gains_facts
+    references_are_ownership_aware
+    remote_revocation_obligations_name_exactly_the_record_grants
+    remote_revocation_records_need_a_tombstone_and_round_trip
+    resource_cas_insert_update_and_reconcile_listing
+    resource_cas_never_lets_a_stale_writer_win
+    self_environment_is_recorded_once_and_survives_reopen
+    settle_then_purge_leaves_a_marker_that_expires_reuse_until_marker_purge
+    stage_receipts_are_append_only_and_ordered
+    stored_events_after_sequences_are_monotonic_and_page_boundaries_match
+    time_anchor_round_trips
+    time_confirmation_round_trips_and_is_replaced
+    tombstone_cause_round_trips_and_the_first_record_is_kept
+    tombstones_bump_the_authority_generation_atomically
+    transfer_waiting_grant_is_a_cas_on_the_owner_while_waiting
+    truncated_file_is_corrupt_not_fresh
+    upsert_environment_advances_the_authority_generation_on_every_write
+    withdrawal_report_is_recorded_once_per_tombstoned_root
+
+test result: ok. 77 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 42.47s
+
+### integration_store exit=0
+### integration_store_m03
+
+running 36 tests
+test acknowledged_lock_epoch_never_lowers ... ok
+test enrollment_reads_by_id_marker_pair_and_ca ... ok
+test dedicated_owned_connection_needs_the_binding_holder ... ok
+test cancelling_that_removal_returns_to_abandoned ... ok
+test enrollment_transition_cannot_downgrade_absence_history ... ok
+test foreign_removal_has_no_issuer_fk_and_stays_in_the_subset ... ok
+test foreign_removal_cancel_cannot_downgrade_absence_history ... ok
+test enrollment_uniqueness_partial_index_admits_reenrollment_after_abandoned ... ok
+test held_removal_with_origin_stays_outside_the_pair_ca_uniqueness_index ... ok
+test insert_enrollment_requires_planned_marker_and_registered_ca ... ok
+test installed_instances_without_live_slot_become_lost ... ok
+test insert_issuer_get_and_list ... ok
+test lock_disclosure_ack_recorded_once ... ok
+test issuer_store_locator_compare_and_swap_keeps_displaced_items ... ok
+test issuer_store_locator_recorded_once_and_kept_through_transitions ... ok
+test owned_connection_insert_and_close_by_generation ... ok
+test pair_preference_round_trip_and_issuing_ca_set ... ok
+test open_enrollments_lists_non_final_including_abandoned ... ok
+test pair_residual_counts_grant_and_verification_entries_per_ca ... ok
+test migration_0005_to_0006_keeps_m01_m02_rows_byte_identical ... ok
+test newer_user_version_refused ... ok
+test pending_instances_destroyed_at_restart_entries_still_counted ... ok
+test register_issuer_store_locator_report_repeats_every_fact ... ok
+test removal_held_residual_outside_index_beside_live_enrollment ... ok
+test removing_abandoned_line_while_new_enrollment_open_is_allowed ... ok
+test second_live_enrollment_for_pair_and_ca_still_refused ... ok
+test set_issuer_state_cas_along_ca_transition ... ok
+test slots_for_binding_lists_held_and_clearing ... ok
+test slot_claim_release_cas_and_generation_moves ... ok
+test transition_enrollment_cas_calls_the_domain_table ... ok
+test transition_refuses_event_payload_that_differs_from_the_stored_record ... ok
+test transition_refuses_target_change_hold_that_differs_from_the_stored_record ... ok
+test verification_reserve_publish_void_and_entries ... ok
+test verified_cas_for_pair_counts_only_verified ... ok
+test transition_refuses_manual_recovery_line_absent_hold_that_differs_from_the_stored_record ... ok
+test transition_refuses_manual_recovery_line_present_hold_that_differs_from_the_stored_record ... ok
+
+successes:
+
+successes:
+    acknowledged_lock_epoch_never_lowers
+    cancelling_that_removal_returns_to_abandoned
+    dedicated_owned_connection_needs_the_binding_holder
+    enrollment_reads_by_id_marker_pair_and_ca
+    enrollment_transition_cannot_downgrade_absence_history
+    enrollment_uniqueness_partial_index_admits_reenrollment_after_abandoned
+    foreign_removal_cancel_cannot_downgrade_absence_history
+    foreign_removal_has_no_issuer_fk_and_stays_in_the_subset
+    held_removal_with_origin_stays_outside_the_pair_ca_uniqueness_index
+    insert_enrollment_requires_planned_marker_and_registered_ca
+    insert_issuer_get_and_list
+    installed_instances_without_live_slot_become_lost
+    issuer_store_locator_compare_and_swap_keeps_displaced_items
+    issuer_store_locator_recorded_once_and_kept_through_transitions
+    lock_disclosure_ack_recorded_once
+    migration_0005_to_0006_keeps_m01_m02_rows_byte_identical
+    newer_user_version_refused
+    open_enrollments_lists_non_final_including_abandoned
+    owned_connection_insert_and_close_by_generation
+    pair_preference_round_trip_and_issuing_ca_set
+    pair_residual_counts_grant_and_verification_entries_per_ca
+    pending_instances_destroyed_at_restart_entries_still_counted
+    register_issuer_store_locator_report_repeats_every_fact
+    removal_held_residual_outside_index_beside_live_enrollment
+    removing_abandoned_line_while_new_enrollment_open_is_allowed
+    second_live_enrollment_for_pair_and_ca_still_refused
+    set_issuer_state_cas_along_ca_transition
+    slot_claim_release_cas_and_generation_moves
+    slots_for_binding_lists_held_and_clearing
+    transition_enrollment_cas_calls_the_domain_table
+    transition_refuses_event_payload_that_differs_from_the_stored_record
+    transition_refuses_manual_recovery_line_absent_hold_that_differs_from_the_stored_record
+    transition_refuses_manual_recovery_line_present_hold_that_differs_from_the_stored_record
+    transition_refuses_target_change_hold_that_differs_from_the_stored_record
+    verification_reserve_publish_void_and_entries
+    verified_cas_for_pair_counts_only_verified
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+
+### integration_store_m03 exit=0
+### integration_store_m04_m05
+
+running 3 tests
+test managed_environment_admission_terminal_states_and_generation ... ok
+test trusted_work_records_cas_once_rules_and_generation ... ok
+test migration_0006_to_0008_keeps_m01_m03_rows_byte_identical ... ok
+
+successes:
+
+successes:
+    managed_environment_admission_terminal_states_and_generation
+    migration_0006_to_0008_keeps_m01_m03_rows_byte_identical
+    trusted_work_records_cas_once_rules_and_generation
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+### integration_store_m04_m05 exit=0
+### integration_testkit_fixtures
+
+running 18 tests
+test counting_proxy_counts_frames ... ok
+test client_command_never_adds_selection_options ... ok
+test default_identity_guard_covers_every_invocation_and_session_type ... ok
+test counting_proxy_in_front_of_a_disposable_ssh_agent ... ok
+test default_identity_guard_refuses_alias_without_scratch_identities ... ok
+test disposable_agent_runs_with_scratch_home ... ok
+test fake_agent_signatures_verify_with_ssh_keygen ... ok
+test f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed ... ok
+test hook_modes_behave_as_documented ... ok
+test fake_agent_modes_behave_as_documented ... ok
+test nothing_listens_beyond_loopback ... ok
+test many_keys_exhaust_max_auth_tries_without_identities_only ... ok
+test fake_agent_stall_points_hold_the_connection_until_the_peer_closes ... ok
+test properties::identities_answer_round_trips_and_prefixes_never_parse ... ok
+test properties::scratch_path_rule ... ok
+test scratch_home_cleans_up ... ok
+test fake_agent_round_trip_with_real_ssh_login ... ok
+test parallel_fixtures_keep_their_own_keys_and_logins ... ok
+
+successes:
+
+---- properties::identities_answer_round_trips_and_prefixes_never_parse stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/testkit_fixtures.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- properties::scratch_path_rule stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/testkit_fixtures.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- scratch_home_cleans_up stdout ----
+
+thread 'scratch_home_cleans_up' (1308186) panicked at crates/testkit/../../tests/integration/testkit_fixtures.rs:119:9:
+a test failure inside a fixture
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+successes:
+    client_command_never_adds_selection_options
+    counting_proxy_counts_frames
+    counting_proxy_in_front_of_a_disposable_ssh_agent
+    default_identity_guard_covers_every_invocation_and_session_type
+    default_identity_guard_refuses_alias_without_scratch_identities
+    disposable_agent_runs_with_scratch_home
+    f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed
+    fake_agent_modes_behave_as_documented
+    fake_agent_round_trip_with_real_ssh_login
+    fake_agent_signatures_verify_with_ssh_keygen
+    fake_agent_stall_points_hold_the_connection_until_the_peer_closes
+    hook_modes_behave_as_documented
+    many_keys_exhaust_max_auth_tries_without_identities_only
+    nothing_listens_beyond_loopback
+    parallel_fixtures_keep_their_own_keys_and_logins
+    properties::identities_answer_round_trips_and_prefixes_never_parse
+    properties::scratch_path_rule
+    scratch_home_cleans_up
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+### integration_testkit_fixtures exit=0
+### integration_testkit_m03
+
+running 19 tests
+test docker_ca_hook_is_container_internal_only ... ignored, docker: the M00-T03 ca1/ca2 fixtures after a clean up.sh; run with HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ca_hook_is_container_internal_only
+test docker_enrollable2_seeded_like_enrollable ... ignored, docker: the M00-T03 fixtures after a clean up.sh; run with HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_enrollable2_seeded_like_enrollable
+test fake_lock_source_pauses_consumer_and_latches ... ok
+test managed_run_context_sets_binding_endpoint ... ok
+test owner_digest_detects_change ... ok
+test lagging_clock_fixture_reports_offset_and_changes_no_clock ... ok
+test loopback_system_form_accepts_test_ca_certificate ... ok
+test pause_hook_blocks_and_releases ... ok
+test probe_shims_produce_syntax_error_and_disagreement ... ok
+test procstat_fixtures_cover_spaces_parentheses_and_newline ... ok
+test registry_guard_refuses_non_scratch_paths ... ok
+test second_installation_has_distinct_catalog_and_ids ... ok
+test shell_containers_run_each_shell_as_group_leader ... ignored, docker: disposable shell containers (pinned debian and alpine); run with HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored shell_containers_run_each_shell_as_group_leader
+test faults_each_produce_the_intended_transport_failure ... ok
+test principals_not_enforced_fixture_accepts_both_principals ... ok
+test pause_hooks_stop_and_continue_exact_group ... ok
+test three_hosts_key_ids_attributed_per_host ... ok
+test two_hosts_have_distinct_principals ... ok
+test wrong_key_fixture_variants_each_present_the_wrong_key ... ok
+
+successes:
+
+---- owner_digest_detects_change stdout ----
+
+thread 'owner_digest_detects_change' (1308315) panicked at crates/testkit/src/owner_digest.rs:282:9:
+owner material changed: ssh_tree 3b6d7642e760c8d41abbb8660298655cb02b809a92167476cd6e0aeb935a08bb -> ad1874349319d22f738c4fe6b71ae3f5aac40c8f1e1171e9ffe6007451840983; owner material changed: git_global e388802d4e293825018dc6e6cb2d29478bbc30182f07fd55d8c235a414f7079c -> 0d71195a3ace40a0998f90a67a667c866861fc767e1cbfd4a329d13db5ec4641
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+successes:
+    fake_lock_source_pauses_consumer_and_latches
+    faults_each_produce_the_intended_transport_failure
+    lagging_clock_fixture_reports_offset_and_changes_no_clock
+    loopback_system_form_accepts_test_ca_certificate
+    managed_run_context_sets_binding_endpoint
+    owner_digest_detects_change
+    pause_hook_blocks_and_releases
+    pause_hooks_stop_and_continue_exact_group
+    principals_not_enforced_fixture_accepts_both_principals
+    probe_shims_produce_syntax_error_and_disagreement
+    procstat_fixtures_cover_spaces_parentheses_and_newline
+    registry_guard_refuses_non_scratch_paths
+    second_installation_has_distinct_catalog_and_ids
+    three_hosts_key_ids_attributed_per_host
+    two_hosts_have_distinct_principals
+    wrong_key_fixture_variants_each_present_the_wrong_key
+
+test result: ok. 16 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 3.37s
+
+### integration_testkit_m03 exit=0
+### integration_transport_supervise_m06
+test revocation_is_applied_only_after_the_child_closed_the_live_connection ... ok (309.9ms)
+test route_connect_through_iroh_reaches_a_server_first_target ... ok (1.3s)
+test an_invalid_or_silent_client_reaches_no_target_through_iroh ... ok (3.7s)
+test rotation_replaces_the_child_under_a_new_endpoint ... ok (320.6ms)
+test transport_disable_clears_the_client_allowlist_before_any_re_enable ... ok (377.3ms)
+test the_serve_port_is_stable_and_an_unbindable_one_fails_closed ... ok (324.4ms)
+test an_unacknowledged_suspend_stops_the_child_by_its_exact_pid ... ok (8.2s)
+test unreadable_authority_starts_no_child_and_stops_a_running_one ... ok (221.2ms)
+test no_verified_store_is_transport_key_store_unavailable_and_direct_routes_still_work ... ok (4.2s)
+test the_route_helper_dials_iroh_with_identification_gating_and_fails_over ... ok (8.3s)
+test remote_exposure_widening_stays_pending ... ok (17.3µs)
+test credential_and_transport_agree_on_the_endpoint_id ... ok (44.3ms)
+test the_runtime_killed_mid_revocation_orphan_exits_and_closure_is_replayed ... ok (334.8ms)
+test result: ok. 13 passed; 0 failed
+### integration_transport_supervise_m06 exit=0
+### integration_workspace_observe
+
+running 5 tests
+test a_case_variant_working_directory_observes_the_recorded_root ... ok
+test symlinked_root_is_canonicalized ... ok
+test symlinked_fifo_directory_and_device_manifests_are_refused ... ok
+test file_identity_is_stable_and_differs_for_a_copy_and_a_reclone ... ok
+test a_concurrently_swapped_manifest_is_never_parsed_from_other_bytes_than_hashed ... ok
+
+successes:
+
+successes:
+    a_case_variant_working_directory_observes_the_recorded_root
+    a_concurrently_swapped_manifest_is_never_parsed_from_other_bytes_than_hashed
+    file_identity_is_stable_and_differs_for_a_copy_and_a_reclone
+    symlinked_fifo_directory_and_device_manifests_are_refused
+    symlinked_root_is_canonicalized
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+### integration_workspace_observe exit=0
+### integration_wsl_helper_channel
+
+running 5 tests
+test bridge_relay::bridge_restart_after_a_killed_helper_removes_the_stale_endpoint ... ok
+test a_second_helper_for_the_same_account_answers_busy ... ok
+test driver::d02_distribution_git_through_the_setup_driver_restart_and_cleanup ... ok
+test d02_lost_reply_then_reconcile_over_real_helper_channel ... ok
+test bridge_relay::bridge_relays_listing_and_signing_with_peer_and_classify_checks ... ok
+
+successes:
+
+successes:
+    a_second_helper_for_the_same_account_answers_busy
+    bridge_relay::bridge_relays_listing_and_signing_with_peer_and_classify_checks
+    bridge_relay::bridge_restart_after_a_killed_helper_removes_the_stale_endpoint
+    d02_lost_reply_then_reconcile_over_real_helper_channel
+    driver::d02_distribution_git_through_the_setup_driver_restart_and_cleanup
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.84s
+
+### integration_wsl_helper_channel exit=0
+all-tests-exit=0

@@ -97,6 +97,11 @@ pub enum StoreError {
     /// Optimistic concurrency: the row's generation changed under us.
     #[error("generation conflict on {0}")]
     GenerationConflict(String),
+    /// ⟨rev7; U0-Q9, review U0-R01⟩ A destination write met another destination's alias
+    /// (compared without ASCII case, [`Txn::upsert_destination`]): a typed conflict, so a caller
+    /// answers it as `CONFIG_CONFLICT` / `alias_collision`, never as an unavailable store.
+    #[error("the destination alias is taken (aliases compare without case)")]
+    DestinationAliasTaken,
 }
 
 /// Result alias.
@@ -288,6 +293,8 @@ const REQUIRED_TABLES: &[&str] = &[
     "remote_widening",
     // schema version 12 (M06 wave 4: the controller's lift acknowledgements; ADR-0006 §18.8)
     "remote_lift_acks",
+    // schema version 14 (revision 7: the request fences; ADR-0014 H9, §3.6)
+    "request_fences",
 ];
 
 /// Columns added to existing tables that the current schema must contain
@@ -301,12 +308,36 @@ const REQUIRED_COLUMNS: &[(&str, &str)] = &[
     // schema version 13 (M06 wave 5: the widening record's origin; ADR-0006 §18.9 item 8)
     ("remote_widening", "origin"),
     ("remote_widening", "delta_digest"),
+    // schema version 14 (revision 7: the restore epoch; ADR-0014 H9, §3.6)
+    ("operations", "restore_epoch"),
+    ("decisions", "restore_epoch"),
+    ("remote_effect_outbox", "restore_epoch"),
+    ("idempotency", "request_epoch"),
 ];
 
 const META_SELF_ENVIRONMENT: &str = "self_environment_id";
 const META_AUTHORITY_GENERATION: &str = "authority_generation";
 /// ⟨M03⟩ ADR-0008 D10 item 1: the installation's Windows environment pipe token.
 const META_WINDOWS_PIPE_TOKEN: &str = "windows_environment_pipe_token";
+/// ⟨rev7⟩ ADR-0014 H9, §3.6 step 1: the current restore epoch. Migration 0014 writes `0`; a
+/// restore raises it before its pointer moves (U2b). From schema version 14 on a store without
+/// it is damaged ([`StoreError::Corrupt`], `state_corrupt`), never epoch 0 (review U0-R06):
+/// [`verify_schema`] refuses it at every open.
+const META_RESTORE_EPOCH: &str = "restore_epoch";
+
+/// ⟨rev7; review U0-RC04⟩ The stored restore epoch's only form: canonical decimal (`0`, or a
+/// nonzero digit then digits), no sign, no leading zero, no whitespace, within `u64`. Anything
+/// else is damage. The reader U2b adds parses through this too, so the open check and the
+/// reader cannot disagree.
+pub(crate) fn parse_restore_epoch(text: &str) -> Option<u64> {
+    let canonical = text == "0"
+        || (text
+            .as_bytes()
+            .first()
+            .is_some_and(|b| (b'1'..=b'9').contains(b))
+            && text.bytes().all(|b| b.is_ascii_digit()));
+    if canonical { text.parse().ok() } else { None }
+}
 
 /// A Windows pipe token: 1 to 64 ASCII letters or digits (the credential crate's
 /// `pipe_token_ok`, which the store cannot name).
@@ -634,6 +665,7 @@ fn integrity_check(conn: &rusqlite::Connection) -> Result<()> {
 
 /// Every table of the current schema exists.
 fn verify_schema(conn: &rusqlite::Connection) -> Result<()> {
+    use rusqlite::OptionalExtension as _;
     for table in REQUIRED_TABLES {
         let present: bool = conn
             .query_row(
@@ -647,6 +679,20 @@ fn verify_schema(conn: &rusqlite::Connection) -> Result<()> {
                 "required table {table} is missing"
             )));
         }
+    }
+    // ⟨rev7; review U0-R06⟩ A lost restore epoch must not read as epoch 0.
+    let epoch: Option<String> = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [META_RESTORE_EPOCH],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(codec::classify)?;
+    if epoch.as_deref().and_then(parse_restore_epoch).is_none() {
+        return Err(StoreError::Corrupt(
+            "the restore epoch is missing or malformed".to_owned(),
+        ));
     }
     for (table, column) in REQUIRED_COLUMNS {
         let present: bool = conn
@@ -1701,6 +1747,17 @@ mod tests {
         },
     ];
 
+    /// Every `meta` row, as `(key, value)`.
+    fn meta_rows(c: &rusqlite::Connection) -> Vec<(String, String)> {
+        let mut st = c
+            .prepare("SELECT key, value FROM meta ORDER BY key")
+            .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap()
+    }
+
     fn backup_path(db: &Path, suffix: &str) -> std::path::PathBuf {
         let mut s = db.as_os_str().to_owned();
         s.push(suffix);
@@ -2086,7 +2143,8 @@ mod tests {
         // ⟨M06 wave 3⟩ 0011 adds one table and one defaulted column.
         // ⟨M06 wave 4⟩ 0012 adds one table.
         // ⟨M06 wave 5⟩ 0013 rebuilds `remote_widening` with its origin (rows kept).
-        assert_eq!(migrations::SCHEMA_VERSION, 13);
+        // ⟨rev7⟩ 0014 adds four defaulted columns, one table and two indexes.
+        assert_eq!(migrations::SCHEMA_VERSION, 14);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"
@@ -2360,6 +2418,9 @@ mod tests {
                 .map(|t| ((*t).to_owned(), table_count(&c, t)))
                 .collect()
         };
+        // ⟨rev7; review U0-R06⟩ Every pre-existing `meta` row, byte for byte: a later migration
+        // may add keys (0014's `restore_epoch`), never change or drop one.
+        let meta_before = meta_rows(&rusqlite::Connection::open(&db).unwrap());
         assert!(
             before.iter().all(|(_, n)| *n > 0),
             "fixture populated every table"
@@ -2391,7 +2452,14 @@ mod tests {
         {
             let c = s.lock();
             for (table, n) in &before {
+                if table == "meta" {
+                    continue;
+                }
                 assert_eq!(table_count(&c, table), *n, "{table} rows preserved");
+            }
+            let meta_after = meta_rows(&c);
+            for row in &meta_before {
+                assert!(meta_after.contains(row), "meta row {} preserved", row.0);
             }
             let fk_violation = c
                 .prepare("PRAGMA foreign_key_check")
@@ -2629,6 +2697,9 @@ mod tests {
                 .map(|t| ((*t).to_owned(), table_count(&c, t)))
                 .collect()
         };
+        // ⟨rev7; review U0-R06⟩ Every pre-existing `meta` row, byte for byte: a later migration
+        // may add keys (0014's `restore_epoch`), never change or drop one.
+        let meta_before = meta_rows(&rusqlite::Connection::open(&db).unwrap());
         let grants_before: Vec<GrantSnapshot> = {
             let s = Store::open_with_steps(
                 &db,
@@ -2655,7 +2726,14 @@ mod tests {
         {
             let c = s.lock();
             for (table, n) in &before {
+                if table == "meta" {
+                    continue;
+                }
                 assert_eq!(table_count(&c, table), *n, "{table} rows preserved");
+            }
+            let meta_after = meta_rows(&c);
+            for row in &meta_before {
+                assert!(meta_after.contains(row), "meta row {} preserved", row.0);
             }
         }
         let owner = CallerContext {
@@ -2881,5 +2959,180 @@ mod tests {
             len, 8000,
             "the read-write control did not replay the journal"
         );
+    }
+
+    /// ⟨rev7⟩ U0-Q9: catalog aliases are unique without ASCII case, checked at write. A new
+    /// destination, or a rename, into a case-variant of another destination's alias is a
+    /// conflict and changes nothing; a write that keeps a destination's own stored alias byte
+    /// for byte is not refused, so a legacy case-variant pair (written before revision 7)
+    /// stays readable and editable, and is listed once for `doctor`.
+    #[test]
+    fn catalog_aliases_are_unique_without_case_at_write() {
+        use heimdall_contract::ids::{AccountName, DestinationId, IdentityId};
+        use heimdall_domain::catalog::{DestinationDefinition, DestinationRecord};
+        let t0 = jiff::Timestamp::from_second(1_700_000_000).unwrap();
+        let destination = |n: u8, alias: &str, revision: u64| DestinationRecord {
+            id: DestinationId::parse(&format!("dest{n}")).unwrap(),
+            alias: alias.into(),
+            revision,
+            definition: DestinationDefinition::Managed {
+                hostname: "example.invalid".into(),
+                port: None,
+                account: AccountName::parse("git").unwrap(),
+                identity: IdentityId::from_random_bytes([n; 16]),
+                jump: None,
+            },
+            label: None,
+            updated_at: t0,
+        };
+        let s = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        s.transaction(|tx| {
+            tx.upsert_destination(&destination(1, "Work", 1))?;
+            for refused in [destination(2, "work", 1), destination(2, "WORK", 1)] {
+                assert!(matches!(
+                    tx.upsert_destination(&refused),
+                    Err(StoreError::DestinationAliasTaken)
+                ));
+            }
+            tx.upsert_destination(&destination(2, "home", 1))?;
+            assert!(
+                matches!(
+                    tx.upsert_destination(&destination(2, "wORK", 2)),
+                    Err(StoreError::DestinationAliasTaken)
+                ),
+                "a rename into a case-variant is refused"
+            );
+            // A change of case of the destination's own alias is no collision.
+            tx.upsert_destination(&destination(1, "work", 2))?;
+            assert_eq!(
+                tx.destinations_by_alias_ignoring_case("WORK")?
+                    .into_iter()
+                    .map(|d| d.alias)
+                    .collect::<Vec<_>>(),
+                ["work"]
+            );
+            assert!(tx.destination_alias_case_collisions()?.is_empty());
+            Ok(())
+        })
+        .unwrap();
+        // A legacy pair, as an earlier build could store it.
+        {
+            let c = s.lock();
+            let mut legacy = destination(3, "Lab", 1);
+            c.execute(
+                "INSERT INTO destinations (id, alias, revision, record_json) VALUES (?1, ?2, 1, ?3)",
+                rusqlite::params![
+                    legacy.id.as_str(),
+                    legacy.alias,
+                    serde_json::to_string(&legacy).unwrap()
+                ],
+            )
+            .unwrap();
+            legacy = destination(4, "lab", 1);
+            c.execute(
+                "INSERT INTO destinations (id, alias, revision, record_json) VALUES (?1, ?2, 1, ?3)",
+                rusqlite::params![
+                    legacy.id.as_str(),
+                    legacy.alias,
+                    serde_json::to_string(&legacy).unwrap()
+                ],
+            )
+            .unwrap();
+        }
+        s.transaction(|tx| {
+            let pairs = tx.destination_alias_case_collisions()?;
+            assert_eq!(pairs.len(), 1);
+            assert_eq!(
+                (pairs[0].0.alias.as_str(), pairs[0].1.alias.as_str()),
+                ("Lab", "lab")
+            );
+            // Each stays editable while it keeps its own alias.
+            let mut relabelled = destination(3, "Lab", 2);
+            relabelled.label = Some("kept".into());
+            tx.upsert_destination(&relabelled)?;
+            // Renaming into the other's case-variant is still refused.
+            assert!(matches!(
+                tx.upsert_destination(&destination(4, "LAB", 2)),
+                Err(StoreError::DestinationAliasTaken)
+            ));
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    /// ⟨rev7; review U0-R06⟩ A store at schema version 14 whose `meta.restore_epoch` row is
+    /// lost, malformed or not canonical decimal (U0-RC04) is refused as damaged at every open,
+    /// never read as epoch 0 or as another number: a lost row must not reset the restore fence.
+    #[test]
+    fn a_lost_restore_epoch_is_damage_never_epoch_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        for (label, damage) in [
+            ("deleted", "DELETE FROM meta WHERE key = 'restore_epoch'"),
+            (
+                "malformed",
+                "UPDATE meta SET value = 'x' WHERE key = 'restore_epoch'",
+            ),
+            (
+                "signed",
+                "UPDATE meta SET value = '+1' WHERE key = 'restore_epoch'",
+            ),
+            (
+                "leading-zero",
+                "UPDATE meta SET value = '007' WHERE key = 'restore_epoch'",
+            ),
+        ] {
+            let db = dir.path().join(format!("{label}.sqlite3"));
+            drop(Store::open(&db, Arc::new(NoFaults)).unwrap());
+            rusqlite::Connection::open(&db)
+                .unwrap()
+                .execute_batch(damage)
+                .unwrap();
+            assert!(
+                matches!(
+                    Store::open(&db, Arc::new(NoFaults)),
+                    Err(StoreError::Corrupt(_))
+                ),
+                "{label}"
+            );
+            assert!(
+                matches!(
+                    Store::open_read_only(&db, Arc::new(NoFaults)),
+                    Err(StoreError::Corrupt(_))
+                ),
+                "{label}, read-only"
+            );
+        }
+    }
+
+    /// ⟨rev7; review U0-RC04⟩ The restore epoch parses as canonical decimal only.
+    #[test]
+    fn the_restore_epoch_is_canonical_decimal_only() {
+        for (text, want) in [
+            ("0", Some(0)),
+            ("1", Some(1)),
+            ("42", Some(42)),
+            ("18446744073709551615", Some(u64::MAX)),
+        ] {
+            assert_eq!(parse_restore_epoch(text), want, "{text:?}");
+        }
+        for text in [
+            "",
+            "+1",
+            "-1",
+            "-0",
+            "00",
+            "007",
+            " 0",
+            "0 ",
+            "\t1",
+            "1\n",
+            "1e3",
+            "0x1",
+            "1_000",
+            "١",
+            "18446744073709551616",
+        ] {
+            assert_eq!(parse_restore_epoch(text), None, "{text:?}");
+        }
     }
 }

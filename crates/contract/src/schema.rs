@@ -66,6 +66,52 @@ pub fn public_schemas() -> Vec<NamedSchema> {
     ]
 }
 
+/// ⟨rev7⟩ The directory under the public schemas' directory that holds
+/// [`declared_schemas`] (`schemas/public-api/declared/`).
+pub const DECLARED_DIR: &str = "declared";
+
+/// ⟨rev7⟩ The schemas revision 7 **declares**: the standalone types of ADR-0013 §11 and
+/// ADR-0014 §7 that no live document carries yet (the ruling on S0). They are exported to
+/// [`DECLARED_DIR`] and answered by `schema show <name>`, but they are not
+/// [`public_schemas`]: `inspect capabilities` does not list them, and no published schema
+/// of a live document changes. The change that attaches a type to its live document, with
+/// its emitters and readers, moves its schema to [`public_schemas`].
+#[must_use]
+pub fn declared_schemas() -> Vec<NamedSchema> {
+    let mut out = vec![
+        // ADR-0013 D2: pages and selectors.
+        named::<crate::page::PageRequest>("page-request"),
+        named::<crate::page::Select>("select"),
+        named::<crate::page::Page<serde_json::Value>>("page"),
+        named::<crate::page::Selection<serde_json::Value>>("selection"),
+        // D4, D6: the typed snapshot and the resync reasons.
+        named::<crate::event::EventSnapshot<serde_json::Value, serde_json::Value>>(
+            "event-snapshot",
+        ),
+        named::<crate::event::ResyncReason>("resync-reason"),
+        // D5: the typed payloads, as emitted.
+        named::<crate::event_payload::EventPayload>("event-payload"),
+        // D13, D19: typed refusal details.
+        named::<crate::envelope::LiveAccessRefusal>("error.destination-has-live-access"),
+        named::<crate::envelope::ResponseTooLarge>("error.response-too-large"),
+        named::<crate::envelope::ItemTooLarge>("error.item-too-large"),
+        // U0-Q4, Q7.
+        named::<crate::run_record::LaunchProvenanceEntry>("launch-provenance"),
+        named::<crate::request_state::RequestView>("inspect-request"),
+        // ADR-0014 H1, H2, H3, H4/H10, H7; U0-Q8.
+        named::<crate::lifecycle::SupportBundleManifest>("support-bundle-manifest"),
+        named::<crate::lifecycle::StopPreview>("service-stop-preview"),
+        named::<crate::lifecycle::StateStatus>("state-status"),
+        named::<crate::lifecycle::RestoreReport>("state-restore"),
+        named::<crate::lifecycle::ResetReport>("state-reset"),
+        named::<crate::lifecycle::RepairReport>("state-repair"),
+        named::<crate::lifecycle::StateRestoredPayload>("event.state-restored"),
+        named::<crate::lifecycle::BuildProvenance>("build-provenance"),
+    ];
+    out.extend(crate::views::view_schemas());
+    out
+}
+
 /// ⟨rev5⟩ ADR-0006 revision 5 (§17; m05-plan §4 item 11): the trusted-work file
 /// formats, written to `schemas/project/` (`manifest`, `portable`). Not wire messages:
 /// the manifest is a **closed** schema (ADR-0011 §2.2, any unknown key rejects the

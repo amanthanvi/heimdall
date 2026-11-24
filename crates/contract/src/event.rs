@@ -162,6 +162,64 @@ impl EventFilter {
     }
 }
 
+// --- ⟨rev7⟩ ADR-0013 §5.3–§5.5, D4, D6: declared, not emitted --------------------------------
+
+/// ⟨rev7⟩ The most operations an [`EventSnapshot`] holds (ADR-0013 §5.5). Real use stays far
+/// below it: at most 32 operations run at once.
+pub const SNAPSHOT_OPERATIONS_MAX: usize = 1000;
+/// ⟨rev7⟩ The most pending decisions an [`EventSnapshot`] holds.
+pub const SNAPSHOT_DECISIONS_MAX: usize = 256;
+/// ⟨rev7⟩ An [`EventSnapshot`]'s serialized budget (768 KiB). Over any cap, the subscribe
+/// (and a cursorless `observe events`) is refused `USAGE_ERROR` / `response_too_large`,
+/// naming the section and the filter to use. There is no partial snapshot.
+pub const SNAPSHOT_BUDGET_BYTES: usize = 768 << 10;
+/// ⟨rev7⟩ The most visible events a backlog start delivers (ADR-0013 §5.3); a reader further
+/// behind gets a whole snapshot start with `resync_reason: backlog_too_long`.
+pub const BACKLOG_MAX: u32 = 500;
+
+/// ⟨rev7⟩ Why a subscription started from a whole snapshot, or why a stream or a page ended
+/// (ADR-0013 §5.3, §5.4). Every gap ends the stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ResyncReason {
+    /// The live buffer (256 events) overran.
+    SubscriberLagged,
+    /// Retention removed events the reader had not received.
+    HistoryTrimmed,
+    /// An event does not fit one frame.
+    EventTooLarge,
+    /// The missed backlog is longer than [`BACKLOG_MAX`] visible events.
+    BacklogTooLong,
+    /// The cursor is beyond the head, malformed, of an unknown version, or another reader's
+    /// or environment's.
+    CursorInvalid,
+}
+
+/// ⟨rev7⟩ The typed `data` of a whole snapshot (ADR-0013 §5.5, D4): read in one store
+/// transaction at the head boundary, whole or refused. Each section holds exactly what the
+/// subscription's log and visibility deliver, and a section the filter cannot maintain is
+/// omitted: `operations` only if the filter admits `operation_state_changed`,
+/// `pending_decisions` only if it admits `decision` (owner role only), and only `operation`
+/// with `filter.operation_id`. Its items are the typed operation and decision views.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct EventSnapshot<O, D> {
+    /// The environment the snapshot is of.
+    pub environment_id: EnvironmentId,
+    /// The authority generation at the head boundary.
+    pub authority_generation: u64,
+    /// The open and unresolved operations the reader may see, at most
+    /// [`SNAPSHOT_OPERATIONS_MAX`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operations: Option<Vec<O>>,
+    /// The one operation `filter.operation_id` names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<O>,
+    /// The pending decisions (owner role only), at most [`SNAPSHOT_DECISIONS_MAX`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_decisions: Option<Vec<D>>,
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {

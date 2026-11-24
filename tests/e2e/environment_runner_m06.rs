@@ -390,6 +390,7 @@ async fn a_controller_reaches_a_real_runner_through_its_management_line() {
         &joining.join("mgmt.conf"),
         &alias,
         &disposable,
+        heimdall_localenv::sys::openssh_env::fill_openssh_environment,
     )
     .await;
     drop(disposable);
@@ -515,11 +516,52 @@ async fn a_controller_reaches_a_real_runner_through_its_management_line() {
         .split_once(" ssh-ed25519 ")
         .map(|(options, _)| options.to_owned())
         .unwrap();
+    let restricted = heimdall_contract::remote::ProbeObservation {
+        pty_refused: true,
+        forward_refused: true,
+        agent_forward_refused: true,
+        setenv_canary_delivered: false,
+    };
+    // ⟨M06 exit c11⟩ The `agt` step makes this sshd, running as this account, really forward
+    // an agent; OpenSSH 10.1 and later put that listener under the account's real
+    // `~/.ssh/agent/` (AGENTS.md: never). Where the testkit guard says so, the step does not
+    // run and says why (the opt-in for a scratch account is the guard's); the `pty` step
+    // and everything before it still run and assert.
+    let forwarding_blocked =
+        heimdall_testkit::sshd::agent_forwarding_through_account_sshd_blocked();
+    if forwarding_blocked {
+        #[allow(clippy::print_stdout)]
+        {
+            println!(
+                "m06 observation: controller->runner agent-forwarding: blocked ({})",
+                heimdall_testkit::sshd::FORWARDED_AGENT_BLOCKED_REASON
+            );
+        }
+    }
     let mut unrestricted = Vec::new();
-    for (tag, grant) in [
-        ("pty", "restrict,pty,"),
-        ("agt", "restrict,agent-forwarding,"),
+    let mut expected = Vec::new();
+    for (tag, grant, observation) in [
+        (
+            "pty",
+            "restrict,pty,",
+            heimdall_contract::remote::ProbeObservation {
+                pty_refused: false,
+                ..restricted
+            },
+        ),
+        (
+            "agt",
+            "restrict,agent-forwarding,",
+            heimdall_contract::remote::ProbeObservation {
+                agent_forward_refused: false,
+                ..restricted
+            },
+        ),
     ] {
+        if tag == "agt" && forwarding_blocked {
+            continue;
+        }
+        expected.push(observation);
         let extra = MgmtKey::generate().unwrap();
         let extra_public = extra.public().unwrap();
         let extra_text = extra_public
@@ -548,6 +590,7 @@ async fn a_controller_reaches_a_real_runner_through_its_management_line() {
             &dir.join("mgmt.conf"),
             &alias,
             &disposable,
+            heimdall_localenv::sys::openssh_env::fill_openssh_environment,
         )
         .await
         .unwrap_or_else(|| panic!("{tag}: a probe was inconclusive"));
@@ -560,25 +603,7 @@ async fn a_controller_reaches_a_real_runner_through_its_management_line() {
         drop(session.client);
         session.agent.stop().await;
     }
-    let restricted = heimdall_contract::remote::ProbeObservation {
-        pty_refused: true,
-        forward_refused: true,
-        agent_forward_refused: true,
-        setenv_canary_delivered: false,
-    };
-    assert_eq!(
-        unrestricted,
-        [
-            heimdall_contract::remote::ProbeObservation {
-                pty_refused: false,
-                ..restricted
-            },
-            heimdall_contract::remote::ProbeObservation {
-                agent_forward_refused: false,
-                ..restricted
-            },
-        ]
-    );
+    assert_eq!(unrestricted, expected);
     // The first cause stands (a row of the running runner's own database, written by the
     // bridge's own connection; §18.7 item 18).
     assert_eq!(

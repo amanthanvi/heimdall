@@ -1,0 +1,426 @@
+heimdall
+  --json  [global]
+  --non-interactive  [global]
+  --home <DIR>  [global env=HEIMDALL_HOME]
+heimdall setup
+heimdall setup preview
+  --include-git
+heimdall setup apply
+  --include-git
+  --allow-config-commands
+  --request-id <REQUEST_ID>
+heimdall setup rollback
+  --keep-key-files
+  --request-id <REQUEST_ID>
+heimdall setup repair
+  --operation <OPERATION_ID>
+  <ARG>  [positional required repeatable]
+  --request-id <REQUEST_ID>
+heimdall setup status
+heimdall connect
+  <DESTINATION>  [positional required]
+  --allow-provider-interaction
+  --meta-fd <FD>  [conflicts=--meta-file]
+  --meta-file <PATH>
+heimdall run
+  --profile <PROFILE>
+  --work-id <WORK_ID>
+  --request-id <REQUEST_ID>
+  --parent-binding <BINDING>
+  --scope <DEST:ACCOUNT>  [repeatable requires=--parent-binding]
+  --until <INSTANT>  [requires=--parent-binding]
+  --require-capability <CAPABILITY>  [repeatable]
+  --require-destination-scope <LEVEL>
+  --require-offline-until <INSTANT>
+  --require-unattended
+  --allow-provider-interaction
+  --meta-fd <FD>  [conflicts=--meta-file]
+  --meta-file <PATH>
+  <ARGV>  [positional last required repeatable]
+heimdall status
+heimdall doctor
+  --active-probe <LEVEL>  [repeatable]
+  --allow-config-commands
+  --alias <ALIAS>  [repeatable]
+  --no-local-exec
+  --redact
+heimdall tui
+heimdall destination
+heimdall destination add
+  <ALIAS>  [positional required]
+  --hostname <HOSTNAME>  [required_unless=--observed conflicts=--observed]
+  --port <PORT>  [requires=--hostname]
+  --account <ACCOUNT>  [requires=--hostname]
+  --identity <IDENTITY>  [requires=--hostname]
+  --jump <DESTINATION>  [requires=--hostname]
+  --observed
+  --id <ID>
+  --label <LABEL>
+  --request-id <REQUEST_ID>
+heimdall destination list
+heimdall destination show
+  <DESTINATION>  [positional required]
+heimdall destination remove
+  <DESTINATION>  [positional required]
+  --request-id <REQUEST_ID>
+heimdall destination prefer
+  <ALIAS>  [positional required]
+  <MECHANISM>  [positional required values=managed|existing]
+heimdall identity
+heimdall identity list
+heimdall identity adopt
+  --from-agent  [conflicts=--pub]
+  --pub <FILE>  [required_unless=--from-agent]
+  --active-probe <LEVEL>  [requires=--from-agent]
+  --fingerprint <FINGERPRINT>  [requires=--from-agent conflicts=--pub]
+  --label <LABEL>
+  --request-id <REQUEST_ID>
+heimdall identity declare-interaction
+  <IDENTITY>  [positional required]
+  <INTERACTION>  [positional required values=none]
+  --request-id <REQUEST_ID>
+heimdall identity withdraw-declaration
+  <IDENTITY>  [positional required]
+  --request-id <REQUEST_ID>
+heimdall identity remove
+  <IDENTITY>  [positional required]
+  --request-id <REQUEST_ID>
+heimdall profile
+heimdall profile create
+  <PROFILE>  [positional required]
+  --pair <DEST:ACCOUNT>  [repeatable]
+  --label <LABEL>
+  --request-id <REQUEST_ID>
+heimdall profile show
+  <PROFILE>  [positional required]
+heimdall profile add
+  <PROFILE>  [positional required]
+  --pair <DEST:ACCOUNT>  [required repeatable]
+  --request-id <REQUEST_ID>
+heimdall profile remove
+  <PROFILE>  [positional required]
+  --pair <DEST:ACCOUNT>  [repeatable]
+  --request-id <REQUEST_ID>
+heimdall profile list
+heimdall uninstall
+  --purge-state
+  --keep-remote-enrollments
+  --bundle <FILE>  [requires=--keep-remote-enrollments,--purge-state]
+heimdall issuer
+heimdall issuer init
+  --backup-out <PATH>  [required]
+  --replace-orphan <FINGERPRINT>  [requires=orphan_bundle]
+  --bundle <FILE>
+  --no-bundle-available
+  group orphan_bundle: --bundle,--no-bundle-available
+heimdall issuer status
+heimdall issuer unlock
+heimdall issuer rotate
+heimdall issuer rotate begin
+  --backup-out <PATH>  [required]
+heimdall issuer retire
+  <FINGERPRINT>  [positional required]
+heimdall issuer restore
+  --backup <FILE>  [required]
+  --not-stolen
+heimdall issuer bundle
+  --out <PATH>  [required]
+  --redact <REDACT>  [values=hostnames]
+heimdall enroll
+  <DESTINATION>  [positional required]
+  --account <ACCOUNT>
+  --form <FORM>  [values=account|system]
+  --registry-path <PATH>
+  --ca <FINGERPRINT>
+heimdall enroll status
+heimdall enroll verify
+  <ENROLLMENT>  [positional required]
+  --absence  [conflicts=--approve-target-change]
+  --approve-target-change
+heimdall enroll remove
+  <ENROLLMENT>  [positional]
+  --from-bundle <FILE>  [requires=--marker,--alias]
+  --marker <MARKER>  [requires=--from-bundle]
+  --alias <ALIAS>  [requires=--from-bundle]
+  group removal: enrollment,--from-bundle  [required]
+heimdall enroll reconcile
+  <OPERATION>  [positional required]
+  --after-manual-recovery
+heimdall enroll abandon
+  <ENROLLMENT>  [positional required]
+heimdall connections
+heimdall connections close
+  <ID>  [positional required]
+heimdall internal  [hidden]
+heimdall internal issuer  [hidden]
+heimdall internal session-lock-state  [hidden]
+heimdall internal wsl-helper  [hidden]
+heimdall wsl
+heimdall wsl enable
+  <DISTRIBUTION>  [positional required]
+  --account <NAME>
+  --mode-a  [conflicts=--mode-b]
+  --mode-b
+heimdall wsl disable
+  <DISTRIBUTION>  [positional required]
+  --start
+heimdall wsl status
+heimdall container
+heimdall container add
+  <LABEL>  [positional required]
+heimdall container remove
+  <ENVIRONMENT>  [positional required]
+heimdall container mount-args
+  <ENVIRONMENT>  [positional required]
+heimdall project
+heimdall project trust
+  --cwd <PATH>
+  --profile <PROFILE>
+heimdall project status
+  --cwd <PATH>
+heimdall project untrust
+  --cwd <PATH>
+heimdall project reconcile
+  --cwd <PATH>
+heimdall activate
+  --hook  [hidden]
+  --cwd <PATH>  [required]
+  --shell-pid <PID>  [hidden requires=--hook]
+  --seq <N>  [hidden default=0 requires=--hook]
+  --last <STATE>  [hidden requires=--hook]
+heimdall shell
+heimdall shell init
+  <SHELL>  [positional required values=zsh|bash|powershell]
+heimdall export
+  --redact
+  --out <FILE>
+heimdall import
+  <BUNDLE>  [positional required]
+  --yes
+  --request-id <REQUEST_ID>
+heimdall environment
+heimdall environment add
+  --destination <DESTINATION>  [required]
+  --account <ACCOUNT>  [required]
+  --runner-program <PATH>  [required]
+  --runner-home <PATH>  [required]
+  --runner-sha256 <HEX>
+  --label <TEXT>
+heimdall environment invite
+  <ENVIRONMENT>  [positional required]
+  --role <ROLE>  [required values=owner|requester|viewer]
+  --public-key <KEY>  [required]
+  --request-id <ID>
+  --iroh
+heimdall environment join
+  <BUNDLE>  [positional required_unless=--show-key conflicts=--show-key]
+  --show-key
+heimdall environment revoke-client
+  <ENVIRONMENT>  [positional required]
+  <CLIENT>  [positional required]
+heimdall environment remove
+  <ENVIRONMENT>  [positional required]
+heimdall environment update
+  <ENVIRONMENT>  [positional required]
+heimdall environment recheck
+  <ENVIRONMENT>  [positional required]
+heimdall environment resume-issuance
+  <ENVIRONMENT>  [positional required]
+heimdall environment status
+  <ENVIRONMENT>  [positional]
+heimdall device
+heimdall device retire
+heimdall route
+heimdall route add
+  <DESTINATION>  [positional required]
+  --direct <HOST[:PORT]>
+  --jump <DESTINATION>
+  --iroh <ENDPOINT>
+  --address <IP:PORT>  [repeatable]
+  --relay <URL>  [repeatable]
+  group kind: --direct,--jump,--iroh  [required]
+heimdall route remove
+  <DESTINATION>  [positional required]
+  <ROUTE>  [positional required]
+heimdall route prefer
+  <DESTINATION>  [positional required]
+  <ROUTE>  [positional required]
+heimdall route connect  [hidden]
+  <ARGS>  [positional repeatable hidden]
+heimdall transport
+heimdall transport enable
+  --serve
+  --port <PORT>  [requires=--serve]
+  --sshd-port <PORT>  [requires=--serve]
+heimdall transport disable
+heimdall transport adopt-roost
+  <DESTINATION>  [positional required]
+  --endpoint <ENDPOINT>  [required]
+heimdall transport rotate
+heimdall transport serve  [hidden]
+  <ARGS>  [positional repeatable hidden]
+heimdall remote  [hidden]
+heimdall remote init  [hidden]
+  --owner-client <CLIENT>  [required]
+  --owner-key <KEY>  [required]
+  --expect-sha256 <HEX>
+  --issuer-ca <KEY>
+  --iroh-endpoint <ENDPOINT>
+  --offer-runtime-start
+heimdall remote serve  [hidden]
+  <ARGS>  [positional repeatable hidden]
+heimdall remote issuer-trust  [hidden]
+heimdall remote issuer-trust add  [hidden]
+  <FILE>  [positional required]
+  --controller <CLIENT>
+heimdall remote issuer-trust remove  [hidden]
+  <FINGERPRINT>  [positional required]
+heimdall remote issuer-trust list  [hidden]
+heimdall remote time-source  [hidden]
+heimdall remote time-source set  [hidden]
+  <CLIENT>  [positional required]
+heimdall remote time-source clear  [hidden]
+heimdall remote time-source show  [hidden]
+heimdall remote policy  [hidden]
+heimdall remote policy recheck  [hidden]
+heimdall support
+heimdall support bundle
+  --preview
+  --out <FILE>  [required_unless=--preview]
+  --include-identifiers
+heimdall state
+heimdall state status
+heimdall state restore
+  --backup <FILE>  [required]
+heimdall state reset
+heimdall state repair
+heimdall inspect
+  <SUBJECT>  [positional required]
+  <REQUEST_ID>  [positional]
+  --preview <PROFILE>
+  --environment <ENVIRONMENT>  [requires=--preview]
+  --until <UNTIL>  [requires=--preview conflicts=--for]
+  --for <FOR_DURATION>  [requires=--preview conflicts=--until]
+  --require-capability <CAPABILITY>  [repeatable]
+  --require-destination-scope <LEVEL>
+  --require-offline-until <INSTANT>
+  --require-unattended
+heimdall access
+heimdall access ensure
+  --profile <PROFILE>  [required]
+  --pair <DEST:ACCOUNT>  [repeatable]
+  --environment <ENVIRONMENT>
+  --work-id <WORK_ID>  [required]
+  --until <UNTIL>  [conflicts=--for]
+  --for <FOR_DURATION>  [conflicts=--until]
+  --request-id <REQUEST_ID>  [required]
+  --async
+  --timeout-ms <TIMEOUT_MS>  [default=30000]
+  --strict
+  --require-capability <CAPABILITY>  [repeatable]
+  --require-destination-scope <LEVEL>
+  --require-offline-until <INSTANT>
+  --require-unattended
+  --issuer-ca <FINGERPRINT>  [hidden conflicts=--environment]
+heimdall access release
+  <BINDING_ID>  [positional required]
+heimdall access revoke
+  <GRANT_ID>  [positional required]
+  --request-id <REQUEST_ID>
+heimdall access delegate
+  --parent <PARENT>  [required]
+  --pair <DEST:ACCOUNT>  [repeatable]
+  --until <UNTIL>
+  --work-id <WORK_ID>  [required]
+  --request-id <REQUEST_ID>  [required]
+heimdall access pause
+  <POLICY_ID>  [positional]
+  --profile <PROFILE>
+  --workspace
+  --all
+  --cwd <PATH>  [requires=--workspace]
+  group access_target: policy_id,--profile,--workspace,--all  [required]
+heimdall access resume
+  <POLICY_ID>  [positional]
+  --profile <PROFILE>
+  --workspace
+  --all
+  --cwd <PATH>  [requires=--workspace]
+  group access_target: policy_id,--profile,--workspace,--all  [required]
+heimdall access cutoff
+  <POLICY_ID>  [positional]
+  --profile <PROFILE>
+  --workspace
+  --all
+  --cwd <PATH>  [requires=--workspace]
+  --at <AT>  [required_unless=--clear conflicts=--clear]
+  --clear
+  group access_target: policy_id,--profile,--workspace,--all  [required]
+heimdall access lock-behavior
+  --policy <POLICY>  [required]
+  <BEHAVIOR>  [positional required values=continue|revoke-on-lock]
+heimdall access connection-policy
+  --policy <POLICY>  [required]
+  --existing <EXISTING>  [values=graceful|strict]
+  --multiplexing <MULTIPLEXING>  [values=disabled|owned]
+heimdall access allow
+  --policy <POLICY>
+  --profile <PROFILE>
+  --workspace
+  --cwd <PATH>  [requires=--workspace]
+  --environment <ENVIRONMENT>  [requires=--profile]
+  group allow_target: --policy,--profile,--workspace  [required]
+heimdall access stop
+  --work <WORK>
+  --policy <POLICY>
+  --profile <PROFILE>
+  --workspace
+  --all
+  --cwd <PATH>  [requires=--workspace]
+  --request-id <REQUEST_ID>  [requires=--work]
+  group stop_target: --work,--policy,--profile,--workspace,--all  [required]
+heimdall access default-profile
+  <PROFILE>  [positional conflicts=--clear]
+  --clear
+  --request-id <REQUEST_ID>
+heimdall operation
+heimdall operation show
+  <OPERATION_ID>  [positional required]
+heimdall operation wait
+  <OPERATION_ID>  [positional required]
+  --timeout-ms <TIMEOUT_MS>  [default=30000]
+heimdall operation cancel
+  <OPERATION_ID>  [positional required]
+heimdall operation events
+  --cursor <CURSOR>
+  --follow
+  --operation <OPERATION>
+  --max-events <MAX_EVENTS>  [requires=--follow]
+  --limit <LIMIT>  [conflicts=--follow]
+heimdall decision
+heimdall decision list
+heimdall decision approve
+  <DECISION_ID>  [positional required]
+heimdall decision deny
+  <DECISION_ID>  [positional required]
+heimdall time
+heimdall time confirm
+heimdall service
+heimdall service run
+  --detach
+  --login
+  --runner  [hidden]
+heimdall service status
+heimdall service stop
+  --preview
+heimdall service autostart
+heimdall service autostart enable
+heimdall service autostart disable
+heimdall service autostart status
+heimdall schema
+heimdall schema export
+  --out <OUT>  [default=schemas/public-api]
+  --config-out <CONFIG_OUT>  [default=schemas/configuration]
+  --project-out <PROJECT_OUT>  [default=schemas/project]
+heimdall schema show
+  <NAME>  [positional required]

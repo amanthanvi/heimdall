@@ -1,0 +1,103 @@
+warning: unreachable expression
+  --> third_party/netdev-0.47.0/src/net/ip.rs:71:5
+   |
+67 |           return None;
+   |           ----------- any code following this expression is unreachable
+...
+71 | /     if let Some(addr) = try_ipv4() {
+72 | |         Some(addr)
+73 | |     } else {
+74 | |         try_ipv6()
+75 | |     }
+   | |_____^ unreachable expression
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `netdev` (lib) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running ../../tests/e2e/exit_m06_iroh.rs (target/debug/deps/e2e_exit_m06_iroh-b5a2a15a1f89a965)
+
+running 3 tests
+test local_widening_adopt_roost_on_a_controller ... ok
+test a26_iroh_through_a_projected_alias ... ok
+test a26_iroh_routes_trust ... ok
+
+successes:
+
+---- local_widening_adopt_roost_on_a_controller stdout ----
+m06 observation: local-widening roost-unattended: command=transport_adopt_roost session=non_interactive answer=INTERACTION_REQUIRED detail=names_the_widening reason=none decisions_recorded=0 routes=unchanged
+m06 observation: local-widening roost-submit: command=transport_adopt_roost session=terminal answer=APPROVAL_REQUIRED exit=3 record_origin=local record_client=none delta_names_roost=true same_command_again=the_same_record routes=unchanged
+m06 observation: local-widening roost-approve: unattended_decision_approve=nothing_sent terminal_decision_approve=OK typed=yes prompt_shows=request_and_delta route=external_roost consent=this_decision_and_delta disclosure_lines=3 same_command_again=CONFIG_CONFLICT_no_record
+
+---- a26_iroh_through_a_projected_alias stdout ----
+m06 observation: a26-iroh-alias dialer-key: installation=controller command=transport_enable decision=none_needed serve=false store_kind=fixture_store key_store=fixture_store
+m06 observation: a26-iroh-alias serve: serving_runners=2 (destination,wrong_host) each=local_owner_on_a_terminal_typed_yes bind=loopback relays=none dialer_admitted_at=remote_init key_store=fixture_store
+m06 observation: a26-iroh-alias route-widening: command=route_add_iroh_address_relay unattended=INTERACTION_REQUIRED on_terminal=APPROVAL_REQUIRED record_origin=local record_client=none delta_names_relay=true decision_approve_typed_yes=OK approved=(definition_address,iroh) relay=closed_loopback_port key_store=fixture_store
+m06 observation: a26-iroh-alias projected: after_route_add=p_unchanged setup_apply_diff_shows=ProxyCommand_route_connect alias_after=helper,HostKeyAlias,catalog_pin_file key_store=fixture_store
+m06 observation: a26-iroh-alias login-iroh: dialer=controller login=ordinary_ssh_alias_through_heimdall_run command_line_options=F_scratch_config,BatchMode,ConnectTimeout route_used=iroh login_result=ok destination_connections=1 host_key=catalog_pin credential=managed_certificate_of_the_aliases_own_endpoint inspect_route_health=final_route_is_the_iroh_route key_store=fixture_store
+m06 observation: a26-iroh-alias helper-by-hand: helper_invocation=not_the_projected_aliass_proxy (another_endpoint) result=refused reason=host_pin_defeated setting=proxycommand routes_tried=0 destination_connections=0 key_store=fixture_store
+m06 observation: a26-iroh-alias wrong-host: preferred=iroh_route_to_the_wrong_hosts_serving_runner approved_after_it=(iroh,definition_address) login_result=refused cause=host_key_verification_under_the_catalog_pin wrong_host_connections=1 destination_connections=0 retried_on_another_route=false key_store=fixture_store
+m06 observation: a26-iroh-alias failover: serving_runtime=stopped login=ordinary_ssh_alias login_result=ok first_attempt=iroh_route_timeout failover=before_identification final_route=definition_address destination_connections=1 key_store=fixture_store
+
+---- a26_iroh_routes_trust stdout ----
+m06 observation: a26 store-unusable: variable=names_a_missing_directory transport_enable=CAPABILITY_UNAVAILABLE reason=transport_key_store_unavailable transport_keys_recorded=0 directory_created=false key_store=fixture_store
+m06 observation: a26 dialer-key: command=transport_enable decision=none_needed serve=false store_kind=fixture_store key_store=fixture_store
+m06 observation: a26 sshd-port-flag: flag=transport_enable_serve_sshd_port zero=usage_error past_65535=usage_error unattended_local_owner=INTERACTION_REQUIRED recorded=nothing key_store=fixture_store
+m06 observation: a26 build: test_target_feature=iroh binary=cargo_built_with_feature transport_capability=negotiated key_store=fixture_store
+m06 observation: a26 exposure-serve: paired_owner_serve_widening=APPROVAL_REQUIRED_pending_runner_local_decision applied=nothing key_store=fixture_store
+m06 observation: a26 exposure-relay: unapproved_relay=APPROVAL_REQUIRED_pending n0_public=APPROVAL_REQUIRED_pending applied=nothing key_store=fixture_store
+m06 observation: a26 no-remote-decision: paired_decide=INTERACTION_REQUIRED unattended_local_decide=INTERACTION_REQUIRED key_store=fixture_store
+m06 observation: a26 nothing-exposed: before_approval transport_keys_recorded=0 serve_child=none serving_store_items=0 key_store=fixture_store
+m06 observation: a26 serve-local-submit: command=transport_enable_serve_sshd_port session=terminal answer=APPROVAL_REQUIRED exit=3 record_origin=local record_client=none delta=serve_and_sshd_port same_command_again=the_same_record paired_decide=INTERACTION_REQUIRED non_interactive_decision_approve=nothing_sent applied=nothing key_store=fixture_store
+m06 observation: a26 serve-local-approve: command=decision_approve session=terminal typed=yes answer=OK applied=the_recorded_request_once key_store=fixture_store
+m06 observation: a26 paired-after-local: paired_owner_serve_record=still_its_own_record_with_its_client attended_local_approve_after_the_local_serve=CAPABILITY_UNAVAILABLE reason=decision_binding_mismatch applied=nothing key_store=fixture_store
+m06 observation: a26 serve: submitted_by=runner_local_owner_on_a_terminal approved_by=the_same_owner_attended serve_child=running bind=loopback relays=none target=fixture_sshd_on_loopback target_port_from=serve_policy_sshd_port key_store=fixture_store
+m06 observation: a26 route-iroh: approved_routes=iroh_only helper=route_connect_as_proxy_command login=ok destination=fixture_sshd credential=dialer_k_env_certificate host_key=pinned catalog=seeded key_store=fixture_store
+m06 observation: a26 serve-restart: serving_runtime=stopped_then_started login_while_stopped=refused serve_child=new_process endpoint_id=unchanged serve_port=unchanged sshd_port=unchanged_from_durable_state route=unchanged login_after_restart=ok key_store=fixture_store
+m06 observation: a26 unapproved-hint: route_with_unapproved_relay asked_by_attended_local_owner=APPROVAL_REQUIRED_pending asked_by_unattended_local_owner=INTERACTION_REQUIRED_names_the_relay approved=never written=nothing key_store=fixture_store
+m06 observation: a26 failover-before-identification: approved_routes=iroh_then_direct iroh_leg=no_server_before_identification next_route=direct login=ok key_store=fixture_store
+m06 observation: a26 late-refusal-terminal: approved_routes=iroh_then_direct live_session=over_iroh closed_by=serving_side_after_forwarding session=failed moved_to_direct_route=false key_store=fixture_store
+m06 observation: a26 revocation: revoked_by=runner_local_owner answer=OK iroh_admission=applied live_connection=closed_by_the_answer enrolled_endpoints=0 new_dial=refused_before_identification failover_to_direct=ok iroh_route_alone=refused key_store=fixture_store
+m06 observation: a26 disable: asked_by=runner_local_owner serve_child=stopped active_key=none store_items=0 serve_port=forgotten key_store=fixture_store
+m06 observation: a26 paired-approve: runner=a_serving_runner_of_its_own_serving_nothing asked_by=paired_owner_over_its_management_session answer=APPROVAL_REQUIRED record_origin=paired record_client=the_paired_owner non_interactive_decision_approve=INTERACTION_REQUIRED approved_by=runner_local_owner_on_a_terminal typed=yes answer_after=OK installed=key,serve_policy_sshd_port,serve_child paired_replay=the_recorded_result_same_endpoint key_store=fixture_store
+
+
+successes:
+    a26_iroh_routes_trust
+    a26_iroh_through_a_projected_alias
+    local_widening_adopt_roost_on_a_controller
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.54s
+
+warning: unreachable expression
+  --> third_party/netdev-0.47.0/src/net/ip.rs:71:5
+   |
+67 |           return None;
+   |           ----------- any code following this expression is unreachable
+...
+71 | /     if let Some(addr) = try_ipv4() {
+72 | |         Some(addr)
+73 | |     } else {
+74 | |         try_ipv6()
+75 | |     }
+   | |_____^ unreachable expression
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `netdev` (lib) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running ../../tests/integration/transport_supervise_m06.rs (target/debug/deps/integration_transport_supervise_m06-80ba80279a010e88)
+test revocation_is_applied_only_after_the_child_closed_the_live_connection ... ok (135.7ms)
+test route_connect_through_iroh_reaches_a_server_first_target ... ok (1.1s)
+test an_invalid_or_silent_client_reaches_no_target_through_iroh ... ok (3.6s)
+test rotation_replaces_the_child_under_a_new_endpoint ... ok (99.5ms)
+test transport_disable_clears_the_client_allowlist_before_any_re_enable ... ok (91.5ms)
+test the_serve_port_is_stable_and_an_unbindable_one_fails_closed ... ok (78.0ms)
+test an_unacknowledged_suspend_stops_the_child_by_its_exact_pid ... ok (8.0s)
+test unreadable_authority_starts_no_child_and_stops_a_running_one ... ok (33.2ms)
+test no_verified_store_is_transport_key_store_unavailable_and_direct_routes_still_work ... ok (4.0s)
+test the_route_helper_dials_iroh_with_identification_gating_and_fails_over ... ok (8.1s)
+test remote_exposure_widening_stays_pending ... ok (72.5µs)
+test credential_and_transport_agree_on_the_endpoint_id ... ok (5.1ms)
+test the_runtime_killed_mid_revocation_orphan_exits_and_closure_is_replayed ... ok (112.1ms)
+test result: ok. 13 passed; 0 failed

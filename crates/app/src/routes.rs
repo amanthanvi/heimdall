@@ -94,7 +94,21 @@ pub enum RouteHelperError {
     /// The catalog or the runtime could not be read (the text is not echoed to peers).
     #[error("the route catalog is unavailable")]
     Unavailable,
+    /// ⟨M06 exit, Q-B⟩ Every leg tried is an Iroh leg and this build has no Iroh driver
+    /// (`CAPABILITY_UNAVAILABLE`, `driver_unavailable`). Each attempt was recorded first.
+    #[error(
+        "{} (CAPABILITY_UNAVAILABLE / driver_unavailable)",
+        IROH_ROUTE_PREVIEW_UNAVAILABLE
+    )]
+    DriverUnavailable,
 }
+
+/// ⟨M06 exit, Q-B⟩ Why a destination whose every leg is Iroh has no usable leg in a build
+/// without the `iroh` feature. The same text as `heimdall_app::transport`'s Iroh preview
+/// message, with the final clause for a route.
+pub const IROH_ROUTE_PREVIEW_UNAVAILABLE: &str = "the Iroh transport is a preview, available \
+    only in a source build with `cargo build --features iroh`; this build does not include \
+    it, so this route has no usable leg";
 
 impl RouteHelperError {
     /// The stable reason, where there is one.
@@ -105,6 +119,7 @@ impl RouteHelperError {
             RouteHelperError::BindingAmbiguous => Some(reason::ROUTE_BINDING_AMBIGUOUS),
             RouteHelperError::RouteUnapproved => Some(reason::ROUTE_UNAPPROVED),
             RouteHelperError::NoUsableRoute(r) => Some(r),
+            RouteHelperError::DriverUnavailable => Some(reason::DRIVER_UNAVAILABLE),
         }
     }
 }
@@ -383,8 +398,9 @@ pub enum LegPlan {
         hop: Option<Box<JumpHop>>,
     },
     /// ⟨M06 U56⟩ An Iroh route, dialed through an [`legs::IrohLegDialer`] under the route's
-    /// own exposure policy and recorded addresses only (ADR-0012 §2.1). Without a dialer
-    /// (no driver or no verified key store) it is refused and failed over.
+    /// own exposure policy and recorded addresses only (ADR-0012 §2.1). Without a dialer it
+    /// is failed over: `driver_unavailable` with no driver in the build (⟨M06 exit, Q-B⟩),
+    /// refused with no verified key store.
     Iroh {
         /// The serving endpoint.
         endpoint: IrohEndpointId,
@@ -561,7 +577,9 @@ pub trait RouteHelperPorts: Send + Sync {
 /// the established leg. Refused routes are reported on `diagnostics` by ID and reason only.
 ///
 /// # Errors
-/// [`RouteHelperError`] before any route is tried.
+/// [`RouteHelperError`] before any route is tried; ⟨M06 exit, Q-B⟩
+/// [`RouteHelperError::DriverUnavailable`] after the attempts are recorded, when nothing was
+/// established and every leg tried has no driver in this build.
 pub async fn route_connect<P, D, I, O>(
     args: &HelperArgs,
     ports: &P,
@@ -640,6 +658,15 @@ where
         && (why.is_terminal() || outcome.final_route.is_none())
     {
         let _ = writeln!(diagnostics, "heimdall route connect: {}", why.message());
+    }
+    // ⟨M06 exit, Q-B⟩ Every leg had no driver in this build (all Iroh, no `iroh` feature).
+    if outcome.final_route.is_none()
+        && plan
+            .routes
+            .iter()
+            .all(|r| outcome.driver_unavailable.contains(&r.id))
+    {
+        return Err(RouteHelperError::DriverUnavailable);
     }
     Ok(outcome)
 }
@@ -887,5 +914,228 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    // --- ⟨M06 exit, Q-B⟩ an Iroh leg in a build without the `iroh` feature ----------
+
+    use heimdall_contract::route::RouteFailureClass;
+
+    struct HelperFixture {
+        view: RouteCatalogView,
+        binding: RouteBinding,
+        health: std::sync::Mutex<Vec<RouteHealthPayload>>,
+    }
+
+    #[async_trait]
+    impl RouteHelperPorts for HelperFixture {
+        async fn resolve_route_binding(
+            &self,
+            _: &DestinationId,
+            _: &AccountName,
+            _: &str,
+        ) -> Result<RouteBinding, RouteHelperError> {
+            Ok(self.binding.clone())
+        }
+        async fn route_view(&self) -> Result<RouteCatalogView, RouteHelperError> {
+            Ok(self.view.clone())
+        }
+        async fn jump_hop(
+            &self,
+            _: &ApprovedRoute,
+            _: JumpAccess,
+            _: &RouteBinding,
+        ) -> Result<JumpHop, RouteHelperError> {
+            Err(RouteHelperError::Unavailable)
+        }
+        async fn record_health(&self, payload: RouteHealthPayload) {
+            self.health.lock().unwrap().push(payload);
+        }
+    }
+
+    /// The direct leg: a server that identifies, then holds the stream until it ends.
+    /// Records every route it is asked to dial.
+    #[derive(Debug, Default)]
+    struct DirectOnly {
+        dialed: std::sync::Mutex<Vec<RouteId>>,
+    }
+
+    #[async_trait]
+    impl failover::LegDialer for DirectOnly {
+        async fn dial(
+            &self,
+            route: &PlannedRoute,
+            _: Duration,
+        ) -> Result<failover::Leg, failover::DialFailure> {
+            use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+            self.dialed.lock().unwrap().push(route.id.clone());
+            let LegPlan::Direct { .. } = route.leg else {
+                return Err(failover::DialFailure::Refused);
+            };
+            let (client, mut server) = tokio::io::duplex(4096);
+            tokio::spawn(async move {
+                let _ = server.write_all(b"SSH-2.0-OpenSSH_test\r\n").await;
+                let mut sink = Vec::new();
+                let _ = server.read_to_end(&mut sink).await;
+            });
+            let (reader, writer) = tokio::io::split(client);
+            Ok(failover::Leg {
+                reader: Box::new(reader),
+                writer: Box::new(writer),
+                ending: None,
+            })
+        }
+    }
+
+    fn iroh_route(n: u8) -> DestinationRoute {
+        route(
+            n,
+            RouteSpec::Iroh {
+                endpoint: IrohEndpointId::parse(&"ab".repeat(32)).unwrap(),
+                direct_addresses: vec!["127.0.0.1:1".into()],
+                external_roost: false,
+            },
+        )
+    }
+
+    /// Run the helper for `final`/`deploy` over `routes` with the build's dialer as a build
+    /// without the `iroh` feature makes it: no Iroh dialer, `iroh_in_build` false.
+    fn connect_without_iroh(
+        routes: Vec<DestinationRoute>,
+    ) -> (
+        Result<FailoverOutcome, RouteHelperError>,
+        Vec<RouteHealthPayload>,
+        Vec<RouteId>,
+    ) {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let p = pair("final", "deploy");
+        let mut v = view();
+        v.routes.insert(d("final"), routes);
+        let ports = HelperFixture {
+            view: v,
+            binding: binding(1, "/run/e1", std::slice::from_ref(&p)),
+            health: std::sync::Mutex::new(Vec::new()),
+        };
+        let dialer = legs::RouteLegDialer {
+            base: DirectOnly::default(),
+            iroh: None,
+            iroh_in_build: false,
+        };
+        let args = HelperArgs {
+            destination: p.destination.clone(),
+            account: p.account.clone(),
+            endpoint: "/run/e1".into(),
+        };
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let ended = rt.block_on(async {
+            let (mut client, helper) = tokio::io::duplex(4096);
+            let (helper_in, helper_out) = tokio::io::split(helper);
+            // The client identifies at once, as OpenSSH does, and ends once it has the
+            // server's identification.
+            let user = tokio::spawn(async move {
+                let _ = client.write_all(b"SSH-2.0-OpenSSH_client\r\n").await;
+                let mut got = Vec::new();
+                let mut chunk = [0u8; 256];
+                while !got.ends_with(b"\n") {
+                    match tokio::time::timeout(Duration::from_secs(5), client.read(&mut chunk))
+                        .await
+                    {
+                        Ok(Ok(n)) if n > 0 => got.extend_from_slice(&chunk[..n]),
+                        _ => break,
+                    }
+                }
+                got
+            });
+            let mut diagnostics = Vec::new();
+            let ended = route_connect(
+                &args,
+                &ports,
+                &dialer,
+                helper_in,
+                helper_out,
+                &FailoverConfig::default(),
+                &mut diagnostics,
+            )
+            .await;
+            let _ = user.await;
+            ended
+        });
+        let health = ports.health.lock().unwrap().clone();
+        let dialed = dialer.base.dialed.lock().unwrap().clone();
+        (ended, health, dialed)
+    }
+
+    #[test]
+    fn an_iroh_leg_without_the_driver_is_driver_unavailable_and_fails_over() {
+        let rid = |n: u8| RouteId::from_random_bytes([n; 16]);
+        let (ended, health, dialed) = connect_without_iroh(vec![
+            iroh_route(1),
+            route(
+                2,
+                RouteSpec::Direct {
+                    host: "127.0.0.1".into(),
+                    port: Some(2222),
+                },
+            ),
+        ]);
+        let outcome = ended.unwrap();
+        // The direct leg carried the session; the Iroh leg was never dialed.
+        assert_eq!(outcome.final_route, Some(rid(2)));
+        assert_eq!(outcome.driver_unavailable, [rid(1)]);
+        assert_eq!(dialed, [rid(2)]);
+        // The attempt record: the Iroh leg as driver-unavailable, then the direct leg.
+        let established = &health[0];
+        assert_eq!(
+            established.kind,
+            heimdall_contract::route::RouteEventKind::FailedOver
+        );
+        assert_eq!(established.final_route, Some(rid(2)));
+        let attempts: Vec<_> = established
+            .attempts
+            .iter()
+            .map(|a| (a.route.clone(), a.failure))
+            .collect();
+        assert_eq!(
+            attempts,
+            [
+                (rid(1), Some(RouteFailureClass::DriverUnavailable)),
+                (rid(2), None)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_destination_whose_every_leg_is_iroh_is_refused_driver_unavailable() {
+        let rid = |n: u8| RouteId::from_random_bytes([n; 16]);
+        let (ended, health, dialed) = connect_without_iroh(vec![iroh_route(1), iroh_route(2)]);
+        let refusal = ended.unwrap_err();
+        assert_eq!(refusal, RouteHelperError::DriverUnavailable);
+        assert_eq!(refusal.reason(), Some(reason::DRIVER_UNAVAILABLE));
+        let text = refusal.to_string();
+        assert!(text.starts_with(IROH_ROUTE_PREVIEW_UNAVAILABLE), "{text}");
+        assert!(
+            text.ends_with("(CAPABILITY_UNAVAILABLE / driver_unavailable)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("`cargo build --features iroh`")
+                && text.contains("so this route has no usable leg"),
+            "{text}"
+        );
+        // Nothing was dialed, and both attempts were recorded before the refusal.
+        assert!(dialed.is_empty());
+        let [none] = health.as_slice() else {
+            panic!("{health:?}");
+        };
+        assert_eq!(none.final_route, None);
+        let attempts: Vec<_> = none
+            .attempts
+            .iter()
+            .map(|a| (a.route.clone(), a.failure))
+            .collect();
+        let class = Some(RouteFailureClass::DriverUnavailable);
+        assert_eq!(attempts, [(rid(1), class), (rid(2), class)]);
     }
 }

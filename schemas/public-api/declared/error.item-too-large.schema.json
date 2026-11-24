@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ItemTooLarge",
+  "description": "⟨rev7⟩ The typed detail of a `USAGE_ERROR` / `item_too_large` refusal (ADR-0013 §6.4,\nD20). **Standalone, not attached** (U3, PC11).",
+  "type": "object",
+  "properties": {
+    "bound": {
+      "description": "The bound: bytes for a byte bound, entries for a count bound.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "field": {
+      "description": "The field over its bound (`pairs`, `routes`, `relays`, `label`, the whole `item`).",
+      "type": "string"
+    },
+    "resource": {
+      "description": "The item, by kind and ID, when it has one yet.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResourceRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "unit": {
+      "description": "Whether the bound counts bytes or entries.",
+      "$ref": "#/$defs/BoundUnit"
+    }
+  },
+  "required": [
+    "field",
+    "bound",
+    "unit"
+  ],
+  "$defs": {
+    "BoundUnit": {
+      "description": "⟨rev7⟩ What an [`ItemTooLarge`] bound counts.",
+      "oneOf": [
+        {
+          "description": "Serialized bytes.",
+          "type": "string",
+          "const": "bytes"
+        },
+        {
+          "description": "List entries.",
+          "type": "string",
+          "const": "entries"
+        }
+      ]
+    },
+    "ResourceRef": {
+      "description": "A reference to the resource an error concerns. Opaque IDs only; never a secret.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Opaque identifier, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "Resource kind (`operation`, `binding`, `grant`, `policy`, `destination`,\n`environment`, `endpoint`, `config`, `store`, `clock`, `decision`, and\nsince M02 `projection`, `identity`, `provider`, `executable`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    }
+  }
+}

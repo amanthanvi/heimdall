@@ -87,6 +87,38 @@ impl RunRecord {
     }
 }
 
+/// ⟨rev7⟩ Where an agent that runner work would inherit comes from (the contract owner's
+/// ruling on U0-Q4), with M06's values (`heimdall_runtime::runner_launch`'s
+/// `DependencyProvenance`). **Standalone, not attached:** the `launching` and
+/// `prelaunch_failed` records gain a `launch_provenance` list in the change that emits it
+/// (U3); today the report is a stderr line only. The unattended refusal already carries its
+/// reason under the code it answers (`CAPABILITY_UNAVAILABLE` / `controller_dependency` or
+/// `dependency_provenance_unknown`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum LaunchProvenance {
+    /// The runner's own agent (clean).
+    RunnerManaged,
+    /// An agent the runner's owner manages independently of any controller (clean).
+    IndependentlyManaged,
+    /// An agent that depends on a controller's session (refused for unattended work).
+    ControllerDependency,
+    /// Undetermined (refused for unattended work).
+    Unknown,
+}
+
+/// ⟨rev7⟩ One inherited agent's provenance, as a run record will report it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LaunchProvenanceEntry {
+    /// The source the agent would come from (for example `SSH_AUTH_SOCK`).
+    pub source: String,
+    /// Its provenance.
+    pub provenance: LaunchProvenance,
+    /// Whether the work received it.
+    pub passed: bool,
+}
+
 /// The platform that wrote the records (the meaning of a lone `launching` and of
 /// `spawned` differ).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]

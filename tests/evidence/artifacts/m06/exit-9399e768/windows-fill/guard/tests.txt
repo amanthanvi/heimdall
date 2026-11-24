@@ -1,0 +1,21 @@
+### windows-controller-journey
+
+running 10 tests
+test a24_pair ... FAILED
+test a24_approve ... ignored
+test a07_issued ... ignored
+test a07_disconnected ... ignored
+test a07_revoke_pending ... ignored
+test a07_reconnect ... ignored
+test a07_barrier ... ignored
+test a24_controller_leaves ... ignored
+test a24_onward_managed ... ignored
+test a24_no_controller_socket ... ignored
+
+failures:
+
+---- a24_pair stdout ----
+failed: first_pass_prompted=false wanted=true code=CAPABILITY_UNAVAILABLE reason=ssh_client_not_started exit=4 envelope=present error_fields=code,effect_status,message,next,reason,retryable message=this controller?s environment has no ProgramData variable, which the Windows OpenSSH client needs before it can start or report an error, so no ssh was started and nothing was sent? run Heimdall from an ordinary Windows session ?or set ProgramData?, then try again
+
+test result: FAILED. 0 passed; 1 failed; 9 ignored
+### windows-controller-journey exit=1

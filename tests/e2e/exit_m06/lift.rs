@@ -39,7 +39,7 @@ use super::world::{HOUR, Journey, journey as start, on_terminal, state_db};
 const CASE: &str = "lift";
 
 /// The runner's local owner on a terminal: `heimdall --json <args…>`, typing `yes`.
-fn at_runner(j: &Journey, args: &[&str]) -> (i32, Value) {
+pub(crate) fn at_runner(j: &Journey, args: &[&str]) -> (i32, Value) {
     let path = |p: &std::path::Path| p.to_string_lossy().into_owned();
     on_terminal(
         &j.runner.home,

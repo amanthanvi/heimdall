@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use serde_json::Value;
 
 use heimdall_contract::code::Code;
-use heimdall_contract::schema::{code_table, public_schemas};
+use heimdall_contract::schema::{DECLARED_DIR, code_table, declared_schemas, public_schemas};
 
 use crate::{assert_clean, repo_root};
 
@@ -26,7 +26,30 @@ fn render_all() -> Vec<(String, String)> {
     let mut codes = serde_json::to_string_pretty(&code_table()).unwrap();
     codes.push('\n');
     out.push(("codes.json".to_owned(), codes));
+    // ⟨rev7⟩ ADR-0013 D7, D8: the primitive index and the reason table are their own goldens.
+    for (name, doc) in [
+        ("primitives.json", heimdall_contract::primitives::index()),
+        ("reasons.json", heimdall_contract::reasons::table()),
+    ] {
+        let mut text = serde_json::to_string_pretty(&doc).unwrap();
+        text.push('\n');
+        out.push((name.to_owned(), text));
+    }
+    // ⟨rev7⟩ The declared schemas, in their own directory.
+    for s in declared_schemas() {
+        let mut text = serde_json::to_string_pretty(&s.schema).unwrap();
+        text.push('\n');
+        out.push((format!("{DECLARED_DIR}/{}.schema.json", s.name), text));
+    }
     out
+}
+
+/// Every schema the export writes, public and declared (the checks below apply to both).
+fn every_schema() -> Vec<heimdall_contract::schema::NamedSchema> {
+    public_schemas()
+        .into_iter()
+        .chain(declared_schemas())
+        .collect()
 }
 
 #[test]
@@ -57,14 +80,44 @@ fn checked_in_public_api_matches_the_model_exactly() {
             "{name} is stale: run `heimdall schema export` and commit the result"
         );
     }
-    let on_disk: BTreeSet<String> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .collect();
+    let mut on_disk: BTreeSet<String> = BTreeSet::new();
+    for e in std::fs::read_dir(&dir).unwrap() {
+        let e = e.unwrap();
+        let name = e.file_name().to_string_lossy().into_owned();
+        if e.file_type().unwrap().is_dir() {
+            assert_eq!(
+                name, DECLARED_DIR,
+                "an unexpected directory in schemas/public-api"
+            );
+            for f in std::fs::read_dir(e.path()).unwrap() {
+                on_disk.insert(format!(
+                    "{name}/{}",
+                    f.unwrap().file_name().to_string_lossy()
+                ));
+            }
+        } else {
+            on_disk.insert(name);
+        }
+    }
     let expected: BTreeSet<String> = rendered.into_iter().map(|(n, _)| n).collect();
     assert_eq!(
         on_disk, expected,
         "unexpected or missing files in schemas/public-api"
+    );
+}
+
+/// ⟨rev7⟩ The declared schemas are disjoint from the public ones (none is listed by
+/// `inspect capabilities`), and their names are unique.
+#[test]
+fn declared_schemas_are_disjoint_from_the_public_ones() {
+    let public: BTreeSet<&str> = public_schemas().iter().map(|s| s.name).collect();
+    let declared: Vec<&str> = declared_schemas().iter().map(|s| s.name).collect();
+    let unique: BTreeSet<&str> = declared.iter().copied().collect();
+    assert_eq!(unique.len(), declared.len(), "a declared name repeats");
+    assert!(
+        unique.is_disjoint(&public),
+        "a declared schema shares a public name: {:?}",
+        unique.intersection(&public).collect::<Vec<_>>()
     );
 }
 
@@ -206,7 +259,7 @@ fn every_schema_is_a_closed_set_of_supported_keywords() {
             _ => {}
         }
     }
-    for s in public_schemas() {
+    for s in every_schema() {
         let doc = serde_json::to_value(&s.schema).unwrap();
         let mut found = BTreeSet::new();
         walk(&doc, false, &mut found);
@@ -252,7 +305,7 @@ fn public_schemas_tolerate_unknown_fields_except_the_closed_bundle_types() {
         }
     }
     let mut closed_seen = BTreeSet::new();
-    for s in public_schemas() {
+    for s in every_schema() {
         let doc = serde_json::to_value(&s.schema).unwrap();
         let mut found = Vec::new();
         walk(&doc, "", &mut found);

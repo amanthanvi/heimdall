@@ -373,6 +373,8 @@ async fn bootstrap_refuses_an_unverified_host_key_and_never_scans() {
         stderr_file: None,
         issuer_ca: None,
         iroh_endpoint: None,
+        // No fill: this suite runs on Unix, where the fill does nothing.
+        fill: |_, _| {},
     };
     let mgmt_key = MgmtKey::generate().unwrap().public().unwrap();
     let plan = |pin: String| BootstrapPlan {

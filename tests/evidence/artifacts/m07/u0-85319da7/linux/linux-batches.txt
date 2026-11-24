@@ -1,0 +1,26 @@
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b01: 5676740 KiB free (floor 3145728 KiB)
+exit 0: HM_ONLY=<the 12 targets of batch b01> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b01 <linuxhost>
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b02: 5676716 KiB free (floor 3145728 KiB)
+exit 0: HM_ONLY=<the 12 targets of batch b02> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b02 <linuxhost>
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b03: 5676680 KiB free (floor 3145728 KiB)
+exit 101: HM_ONLY=<the 7 targets of batch b03> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b03 <linuxhost>
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b04: 5676504 KiB free (floor 3145728 KiB)
+exit 0: HM_ONLY=<the 12 targets of batch b04> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b04 <linuxhost>
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b05: 5676272 KiB free (floor 3145728 KiB)
+exit 0: HM_ONLY=<the 12 targets of batch b05> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b05 <linuxhost>
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b06: 5675812 KiB free (floor 3145728 KiB)
+exit 0: HM_ONLY=<the 12 targets of batch b06> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b06 <linuxhost>
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b07: 5675780 KiB free (floor 3145728 KiB)
+exit 0: HM_ONLY=<the 11 targets of batch b07> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b07 <linuxhost>
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b08: 5675612 KiB free (floor 3145728 KiB)
+exit 0: HM_ONLY=<the 15 targets of batch b08> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b08 <linuxhost>
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b09: 5675160 KiB free (floor 3145728 KiB)
+exit 0: HM_ONLY=<the 14 targets of batch b09> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b09 <linuxhost>
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b10: 5674816 KiB free (floor 3145728 KiB)
+exit 0: HM_ONLY=<the 9 targets of batch b10> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b10 <linuxhost>
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b11: 5674712 KiB free (floor 3145728 KiB)
+exit 0: HM_ONLY=<the 9 targets of batch b11> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b11 <linuxhost>
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b12: 5673740 KiB free (floor 3145728 KiB)
+exit 0: HM_ONLY=<the 9 targets of batch b12> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b12 <linuxhost>
+exit 0: ssh -n <linuxhost> df -Pk $HOME before batch b13: 5673376 KiB free (floor 3145728 KiB)
+exit 0: HM_ONLY=<the 8 targets of batch b13> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh <artifacts_root>/linux-b13 <linuxhost>

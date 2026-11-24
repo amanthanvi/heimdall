@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SupportBundleManifest",
+  "description": "⟨H1⟩ `manifest.json` of a support bundle (ADR-0014 §5.1): every other file's name, size\nand digest, the withheld counts, the pseudonym counts and whether identifiers were\nincluded. It holds codes and counts only, never free text. Its SHA-256 is the bundle's\ndigest. (The writer is `crates/support`; this type is the published shape.)",
+  "type": "object",
+  "properties": {
+    "files": {
+      "description": "Every file after the manifest, in order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BundleFile"
+      }
+    },
+    "format": {
+      "description": "[`SUPPORT_BUNDLE_FORMAT`].",
+      "type": "string"
+    },
+    "format_version": {
+      "description": "[`SUPPORT_BUNDLE_FORMAT_VERSION`].",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "identifiers": {
+      "description": "`pseudonymized`, or `included` with `--include-identifiers`.",
+      "$ref": "#/$defs/BundleIdentifiers"
+    },
+    "pseudonyms": {
+      "description": "Pseudonyms assigned per kind (`user`, `host`, `alias`, `label`, `path`, `fp`,\n`comment`, `id`).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      },
+      "default": {}
+    },
+    "withheld": {
+      "description": "Withheld values per field path.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      },
+      "default": {}
+    },
+    "withheld_by_reason": {
+      "description": "Withheld values per reason (`free_text`, `secret`, `malformed`,\n`failed_secret_check`).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      },
+      "default": {}
+    },
+    "withheld_total": {
+      "description": "Every withheld value.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "format",
+    "format_version",
+    "identifiers",
+    "files",
+    "withheld_total"
+  ],
+  "$defs": {
+    "BundleFile": {
+      "description": "One file of a support bundle.",
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Its length in bytes.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "name": {
+          "description": "The file's name.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "Its SHA-256, lowercase hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "bytes",
+        "sha256"
+      ]
+    },
+    "BundleIdentifiers": {
+      "description": "Whether a bundle's identifiers are pseudonyms or the values.",
+      "oneOf": [
+        {
+          "description": "Every identifier is a pseudonym; the inverse map stays on the machine.",
+          "type": "string",
+          "const": "pseudonymized"
+        },
+        {
+          "description": "Identifiers typed as public were written as they are.",
+          "type": "string",
+          "const": "included"
+        }
+      ]
+    }
+  }
+}

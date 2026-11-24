@@ -24,7 +24,13 @@
 //! * `uncertain-time`: the runner is restarted with an unsynchronized clock before the
 //!   route comes back: the reconnect still delivers both narrowings and they apply;
 //! * `fresh-work-refused`: a fresh work ID after the reconciled pause and cutoff is refused
-//!   by the runner (`POLICY_PAUSED`); nothing is issued for it.
+//!   by the runner; nothing is issued for it. (With the pause also in force and the runner's
+//!   clock unsynchronized, this step shows a refusal only, not which narrowing caused it.)
+//! * ⟨M06 exit⟩ `cutoff-refused`: the cutoff alone, with time certain. The runner restarts
+//!   with a synchronized clock; its own owner lifts the delivered pause (`access resume
+//!   runner-pol`, approved on the runner's terminal), so only the delivered, acknowledged and
+//!   past cutoff is in force; a fresh work ID is then refused `POLICY_CUTOFF`, and nothing is
+//!   issued for it.
 //!
 //! **Not driven here** (`NOT-COVERED.md`): a revoke racing an issuance in flight (model);
 //! the separate runner host. ⟨`w5f`⟩ Namespaced acknowledgements between two producers are
@@ -37,6 +43,7 @@ use heimdall_contract::ids::GrantId;
 use heimdall_domain::time::Clock as _;
 use serde_json::Value;
 
+use super::lift::at_runner;
 use super::m06::{blocked, forwarded_ensure, logs, observe, runner_json};
 use super::world::{HOUR, journey as start, listed_identities, onward_login};
 
@@ -295,6 +302,45 @@ pub(crate) fn journey() {
     assert!(
         after.get("last_known_readiness").is_none(),
         "nothing was issued: {after}"
+    );
+
+    // cutoff-refused: the cutoff alone, after acknowledgement, with time certain.
+    j.runner.runtime_stop();
+    j.runner.time_sync = "synchronized";
+    j.runner.start();
+    j.controller
+        .wait_for(&environment, "the controller did not reconnect", |e| {
+            e["connectivity"]["state"] == "connected"
+        });
+    let asked = runner_json(
+        &j.runner,
+        &["--non-interactive", "access", "resume", "runner-pol"],
+    );
+    assert_eq!(asked["code"], "INTERACTION_REQUIRED", "{asked}");
+    let decision = asked["next"]["decision_ref"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no decision: {asked}"))
+        .to_owned();
+    let (exit, lifted) = at_runner(&j, &["decision", "approve", &decision]);
+    assert_eq!(lifted["code"], "OK", "exit {exit}: {lifted}");
+    let only_cutoff = policy_of(&j);
+    assert!(!set(&only_cutoff, "paused_since"), "{only_cutoff}");
+    assert!(set(&only_cutoff, "cutoff_at"), "{only_cutoff}");
+    let (cut_only, _) = forwarded_ensure(&j, "job-a07-cutoff", "a07-fwd-4", "30m");
+    assert_eq!(cut_only["code"], "POLICY_CUTOFF", "{cut_only}");
+    let after = j.controller.status(&environment);
+    assert!(
+        after.get("last_known_readiness").is_none(),
+        "nothing was issued: {after}"
+    );
+    observe(
+        CASE,
+        "cutoff-refused",
+        format!(
+            "runner_time=synchronized remote_pending=0 policy_paused=lifted_at_runner \
+             policy_cutoff=in_force fresh_work_id={} issued=nothing",
+            cut_only["code"].as_str().unwrap_or("none")
+        ),
     );
     drop(j);
 }

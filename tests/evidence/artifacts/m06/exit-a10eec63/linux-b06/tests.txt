@@ -1,0 +1,611 @@
+### integration_projection_managed
+
+running 19 tests
+test an_existing_access_alias_with_routes_stays_native_and_the_preview_says_so ... ok
+test apply_preview_discloses_slot_free_ordinary_ssh ... ok
+test deadline_wording_follows_identity_selection ... ok
+test a_user_setting_that_defeats_the_pin_is_reported_and_the_helper_is_not_rendered ... ok
+test an_undetermined_pin_setting_keeps_the_helper_and_the_plan_says_undetermined ... ok
+test existing_access_aliases_render_byte_identical_to_m02 ... ok
+test identity_agent_references_follow_client_include_behaviour ... ok
+test inherited_identityfile_makes_selection_not_exclusive_and_noninteractive_refused ... ok
+test managed_selection_follows_identity_form ... ok
+test absent_slot_fails_closed ... ok
+test p_renders_managed_alias_with_slot_paths_and_control_none ... ok
+test p_renders_owned_master_control_path_when_enabled ... ok
+test projection_pending_until_setup_apply ... ok
+test slot_paths_refuse_unsafe_destination_ids ... ok
+test windows_environment_pipe_renders_installation_token ... ok
+test route_helper_changes_only_the_alias_with_routes_and_shows_it_first ... ok
+test writing_projection_config_without_state_dir_refused ... ok
+test ordinary_ssh_through_p_uses_environment_endpoint ... ok
+test git_scp_sftp_through_managed_alias ... ok
+
+successes:
+
+successes:
+    a_user_setting_that_defeats_the_pin_is_reported_and_the_helper_is_not_rendered
+    absent_slot_fails_closed
+    an_existing_access_alias_with_routes_stays_native_and_the_preview_says_so
+    an_undetermined_pin_setting_keeps_the_helper_and_the_plan_says_undetermined
+    apply_preview_discloses_slot_free_ordinary_ssh
+    deadline_wording_follows_identity_selection
+    existing_access_aliases_render_byte_identical_to_m02
+    git_scp_sftp_through_managed_alias
+    identity_agent_references_follow_client_include_behaviour
+    inherited_identityfile_makes_selection_not_exclusive_and_noninteractive_refused
+    managed_selection_follows_identity_form
+    ordinary_ssh_through_p_uses_environment_endpoint
+    p_renders_managed_alias_with_slot_paths_and_control_none
+    p_renders_owned_master_control_path_when_enabled
+    projection_pending_until_setup_apply
+    route_helper_changes_only_the_alias_with_routes_and_shows_it_first
+    slot_paths_refuse_unsafe_destination_ids
+    windows_environment_pipe_renders_installation_token
+    writing_projection_config_without_state_dir_refused
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+
+### integration_projection_managed exit=0
+### integration_projection_recovery_rows
+
+running 1 test
+test recovery_table_rows_each_have_a_test_vector ... ok
+
+successes:
+
+---- recovery_table_rows_each_have_a_test_vector stdout ----
+80 rows; 134 step and item vectors, 11 cleaner vectors
+
+
+successes:
+    recovery_table_rows_each_have_a_test_vector
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.27s
+
+### integration_projection_recovery_rows exit=0
+### integration_projection_replace
+
+running 29 tests
+test dir_handle_refuses_symlink_foreign_mode_and_files ... ok
+test exchange_supported_on_target_fs ... ok
+test create_is_no_replace_and_never_overwrites ... ok
+test materialize_absent_base_is_insert_only ... ok
+test materialize_checks_both_digests_from_the_step ... ok
+test materialize_refuses_shapes_that_do_not_fit_the_role ... ok
+test file_identity_birth_recorded_on_target_fs ... ok
+test observe_fingerprint_records_digests_and_metadata_only ... ok
+test own_sources_never_remove_outside_the_quarantine ... ok
+test edit_after_restore_check_is_kept_in_quarantine_never_deleted ... ok
+test quarantine_validation_owner_mode_symlink_mount ... ok
+test lock_name_without_birth_time_is_foreign ... ok
+test observe_step_classifies_each_name ... ok
+test race_in_place_write_before_exchange_is_restored ... ok
+test private_key_files_never_opened ... ok
+test race_symlink_substitution_at_boundary_is_held ... ok
+test race_rename_replace_before_exchange_is_restored_never_overwritten ... ok
+test range::materialize_range_arithmetic_is_checked ... ok
+test remove_verified_hook_marks_the_residual_window ... ok
+test remove_verified_rechecks_the_name_before_removal ... ok
+test remove_verified_identity_and_content_mismatch_outcomes ... ok
+test restore_with_names_in_a_fresh_handle ... ok
+test restore_holds_on_modified_active_entry_or_third_writer_and_moves_nothing ... ok
+test range::materialize_range_corners ... ok
+test stage_keeps_the_original_permission_bits ... ok
+test stage_names_its_target_only_through_learn_step ... ok
+test unrecorded_entry_at_staged_name_is_s_by_digest_never_at_lock_name ... ok
+test settle_outcomes_missing_foreign_occupied_modified ... ok
+test validate_refuses_unmanageable_and_changed_bases ... ok
+
+successes:
+
+---- exchange_supported_on_target_fs stdout ----
+observation: exchange_supported_on_target_fs os=linux supported=true
+
+---- file_identity_birth_recorded_on_target_fs stdout ----
+observation: file_identity_birth_recorded_on_target_fs os=linux birth_recorded=true inode_reused=true
+
+---- range::materialize_range_arithmetic_is_checked stdout ----
+proptest: Failed to find absolute path of source file '"crates/localenv/../../tests/integration/projection_replace.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+
+successes:
+    create_is_no_replace_and_never_overwrites
+    dir_handle_refuses_symlink_foreign_mode_and_files
+    edit_after_restore_check_is_kept_in_quarantine_never_deleted
+    exchange_supported_on_target_fs
+    file_identity_birth_recorded_on_target_fs
+    lock_name_without_birth_time_is_foreign
+    materialize_absent_base_is_insert_only
+    materialize_checks_both_digests_from_the_step
+    materialize_refuses_shapes_that_do_not_fit_the_role
+    observe_fingerprint_records_digests_and_metadata_only
+    observe_step_classifies_each_name
+    own_sources_never_remove_outside_the_quarantine
+    private_key_files_never_opened
+    quarantine_validation_owner_mode_symlink_mount
+    race_in_place_write_before_exchange_is_restored
+    race_rename_replace_before_exchange_is_restored_never_overwritten
+    race_symlink_substitution_at_boundary_is_held
+    range::materialize_range_arithmetic_is_checked
+    range::materialize_range_corners
+    remove_verified_hook_marks_the_residual_window
+    remove_verified_identity_and_content_mismatch_outcomes
+    remove_verified_rechecks_the_name_before_removal
+    restore_holds_on_modified_active_entry_or_third_writer_and_moves_nothing
+    restore_with_names_in_a_fresh_handle
+    settle_outcomes_missing_foreign_occupied_modified
+    stage_keeps_the_original_permission_bits
+    stage_names_its_target_only_through_learn_step
+    unrecorded_entry_at_staged_name_is_s_by_digest_never_at_lock_name
+    validate_refuses_unmanageable_and_changed_bases
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+### integration_projection_replace exit=0
+### integration_projection_state_dir_guard
+
+running 6 tests
+test a_literal_needs_a_state_directory_that_is_not_none ... ok
+test a_new_without_a_state_directory_is_a_violation_and_with_one_is_not ... ok
+test a_passive_entry_is_held_to_its_word ... ok
+test tests_comments_strings_and_other_functions_are_not_constructions ... ok
+test taking_the_state_directory_out_of_a_real_constructor_is_caught ... ok
+test every_production_projection_config_sets_its_state_directory ... ok
+
+successes:
+
+successes:
+    a_literal_needs_a_state_directory_that_is_not_none
+    a_new_without_a_state_directory_is_a_violation_and_with_one_is_not
+    a_passive_entry_is_held_to_its_word
+    every_production_projection_config_sets_its_state_directory
+    taking_the_state_directory_out_of_a_real_constructor_is_caught
+    tests_comments_strings_and_other_functions_are_not_constructions
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+### integration_projection_state_dir_guard exit=0
+### integration_remote_env_mgmt_m06
+
+running 3 tests
+test isolated_config_is_effective_at_every_hop ... ok
+test bootstrap_refuses_an_unverified_host_key_and_never_scans ... ok
+test k_mgmt_authenticates_only_through_its_session_agent ... ok
+
+successes:
+
+successes:
+    bootstrap_refuses_an_unverified_host_key_and_never_scans
+    isolated_config_is_effective_at_every_hop
+    k_mgmt_authenticates_only_through_its_session_agent
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+### integration_remote_env_mgmt_m06 exit=0
+### integration_remote_runtime_m06
+
+running 15 tests
+test enroll_owner_is_attended_idempotent_and_never_replaces_an_endpoint ... ok
+test a_joins_probe_observation_is_checked_before_the_commit ... ok
+test a_refused_joins_downgrade_commits_with_the_refusal_or_not_at_all ... ok
+test only_a_runner_accepts_a_paired_client_and_only_a_resolved_one ... ok
+test paired_frames_are_checked_and_revocation_ends_the_clients_sessions ... ok
+test decision_backed_replay_after_a_store_restart_answers_each_record_state ... ok
+test paired_runner_forms_reach_the_runner_runtime_and_other_runtimes_refuse_them ... ok
+test runner_local_decisions_are_the_attended_local_owners_only ... ok
+test sshd_t_alone_does_not_lift_the_downgrade ... ok
+test pending_sessions_reach_only_the_probe_and_join ... ok
+test the_dispatcher_names_local_owner_required_for_a_paired_callers_attended_only_form ... ok
+test the_owner_only_downgrade_lifts_only_on_fresh_agreeing_evidence_attended ... ok
+test transport_widening_runs_only_its_exact_delta_and_revocation_narrows_admission ... ok
+test paired_widening_is_confirmed_runner_locally_and_replays_its_result ... ok
+test the_runner_marker_decides_what_a_started_runtime_serves ... ok
+
+successes:
+
+successes:
+    a_joins_probe_observation_is_checked_before_the_commit
+    a_refused_joins_downgrade_commits_with_the_refusal_or_not_at_all
+    decision_backed_replay_after_a_store_restart_answers_each_record_state
+    enroll_owner_is_attended_idempotent_and_never_replaces_an_endpoint
+    only_a_runner_accepts_a_paired_client_and_only_a_resolved_one
+    paired_frames_are_checked_and_revocation_ends_the_clients_sessions
+    paired_runner_forms_reach_the_runner_runtime_and_other_runtimes_refuse_them
+    paired_widening_is_confirmed_runner_locally_and_replays_its_result
+    pending_sessions_reach_only_the_probe_and_join
+    runner_local_decisions_are_the_attended_local_owners_only
+    sshd_t_alone_does_not_lift_the_downgrade
+    the_dispatcher_names_local_owner_required_for_a_paired_callers_attended_only_form
+    the_owner_only_downgrade_lifts_only_on_fresh_agreeing_evidence_attended
+    the_runner_marker_decides_what_a_started_runtime_serves
+    transport_widening_runs_only_its_exact_delta_and_revocation_narrows_admission
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+### integration_remote_runtime_m06 exit=0
+### integration_route_enroll_m06
+
+running 1 test
+test a_jump_verification_with_a_changed_final_key_is_held ... ok
+
+successes:
+
+successes:
+    a_jump_verification_with_a_changed_final_key_is_held
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+
+### integration_route_enroll_m06 exit=0
+### integration_route_m06
+
+running 6 tests
+test a_server_sending_pre_identification_lines_works ... ok
+test a_client_first_server_times_out_as_identification_timeout_and_the_next_route_is_used ... ok
+test a_late_failure_after_the_forwarding_boundary_is_terminal_and_recorded ... ok
+test concurrent_grants_never_borrow_a_jump_pair_and_an_ambiguous_endpoint_is_refused ... ok
+test each_host_pin_defeated_combination_is_refused_by_ssh_g ... ok
+test helper_alias_two_hop_substitution_fails_before_authentication ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.94s
+
+### integration_route_m06 exit=0
+### integration_runner_effects_m06
+
+running 22 tests
+test a_delivered_pause_of_a_policy_the_runner_does_not_hold_is_lifted_by_resume ... ok
+test a_cutoff_delivered_after_the_decision_was_issued_makes_its_approval_stale ... ok
+test a_changed_host_key_gives_held_with_no_reset ... ok
+test a_paired_policy_remove_does_not_lift_another_controllers_all_cutoff ... ok
+test a_paired_sessions_request_that_would_lift_a_delivered_effect_is_refused_with_no_record ... ok
+test a_policy_added_after_an_all_cutoff_does_not_keep_the_cutoff_in_force ... ok
+test a_paired_policy_remove_does_not_lift_another_controllers_profile_cutoff ... ok
+test a_policy_less_runner_is_lifted_by_its_owners_clear_cutoff_and_the_ack ... ok
+test a_record_made_before_the_delivered_pause_does_not_lift_it_unnamed ... ok
+test an_effect_whose_policies_were_all_removed_is_lifted_by_the_local_clear ... ok
+test paired_runner_requests_reach_the_sync_service ... ok
+test t06_a_second_owner_joins_once_and_the_invitation_cannot_be_replayed ... ok
+test clear_cutoff_of_a_policy_names_a_cutoff_delivered_for_its_profile ... ok
+test reconnect_with_uncertain_time_still_applies_tombstones_and_policy_revisions ... ok
+test resume_of_a_held_policy_names_the_delivered_pause_and_binds_it_to_the_approval ... ok
+test t06_another_controllers_lifted_cutoff_does_not_block_the_second_controller ... ok
+test t06_renewal_without_an_issuer_is_capability_unavailable ... ok
+test t06_an_untrusted_issuer_is_refused_until_trusted_runner_locally ... ok
+test t06_route_substitution_is_held ... ok
+test t06_wrong_role_delivers_nothing ... ok
+test the_runner_owners_own_policy_remove_does_not_lift_a_delivered_cutoff ... ok
+test the_issuing_controller_reconnects_after_the_other_revoked_its_grant ... ok
+
+successes:
+
+successes:
+    a_changed_host_key_gives_held_with_no_reset
+    a_cutoff_delivered_after_the_decision_was_issued_makes_its_approval_stale
+    a_delivered_pause_of_a_policy_the_runner_does_not_hold_is_lifted_by_resume
+    a_paired_policy_remove_does_not_lift_another_controllers_all_cutoff
+    a_paired_policy_remove_does_not_lift_another_controllers_profile_cutoff
+    a_paired_sessions_request_that_would_lift_a_delivered_effect_is_refused_with_no_record
+    a_policy_added_after_an_all_cutoff_does_not_keep_the_cutoff_in_force
+    a_policy_less_runner_is_lifted_by_its_owners_clear_cutoff_and_the_ack
+    a_record_made_before_the_delivered_pause_does_not_lift_it_unnamed
+    an_effect_whose_policies_were_all_removed_is_lifted_by_the_local_clear
+    clear_cutoff_of_a_policy_names_a_cutoff_delivered_for_its_profile
+    paired_runner_requests_reach_the_sync_service
+    reconnect_with_uncertain_time_still_applies_tombstones_and_policy_revisions
+    resume_of_a_held_policy_names_the_delivered_pause_and_binds_it_to_the_approval
+    t06_a_second_owner_joins_once_and_the_invitation_cannot_be_replayed
+    t06_an_untrusted_issuer_is_refused_until_trusted_runner_locally
+    t06_another_controllers_lifted_cutoff_does_not_block_the_second_controller
+    t06_renewal_without_an_issuer_is_capability_unavailable
+    t06_route_substitution_is_held
+    t06_wrong_role_delivers_nothing
+    the_issuing_controller_reconnects_after_the_other_revoked_its_grant
+    the_runner_owners_own_policy_remove_does_not_lift_a_delivered_cutoff
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+
+### integration_runner_effects_m06 exit=0
+### integration_runner_runtime_m06
+
+running 11 tests
+test a24_a_controller_dependent_signer_behind_an_ordinary_local_path_is_unknown ... ok
+test a_sample_is_fresh_nonce_bound_and_rtt_bounded ... ok
+test a_sample_from_a_non_designated_client_is_refused ... ok
+test a_runner_grants_binding_endpoint_lists_its_k_env_identity_only ... ok
+test a_sample_never_extends_and_never_confirms_time ... ok
+test a_tombstone_refuses_installation_and_grant_end_destroys_the_key ... ok
+test only_a_paired_controller_is_served ... ok
+test readiness_reports_the_earliest_bound_and_the_residuals ... ok
+test the_runner_binding_endpoint_serves_only_runner_owned_keys ... ok
+test time_uncertain_without_a_qualifying_sample ... ok
+test issuance_is_pinned_to_its_issuer_with_the_install_checks ... ok
+
+successes:
+
+successes:
+    a24_a_controller_dependent_signer_behind_an_ordinary_local_path_is_unknown
+    a_runner_grants_binding_endpoint_lists_its_k_env_identity_only
+    a_sample_from_a_non_designated_client_is_refused
+    a_sample_is_fresh_nonce_bound_and_rtt_bounded
+    a_sample_never_extends_and_never_confirms_time
+    a_tombstone_refuses_installation_and_grant_end_destroys_the_key
+    issuance_is_pinned_to_its_issuer_with_the_install_checks
+    only_a_paired_controller_is_served
+    readiness_reports_the_earliest_bound_and_the_residuals
+    the_runner_binding_endpoint_serves_only_runner_owned_keys
+    time_uncertain_without_a_qualifying_sample
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+### integration_runner_runtime_m06 exit=0
+### integration_runtime
+
+running 62 tests
+test config_defaults_and_max_window ... ok
+test config_rejects_authority_widening_keys ... ok
+test config_errors_never_echo_values ... ok
+test config_rejects_trusted_true ... ok
+test config_rejects_trusted_in_every_place ... ok
+test config_rejects_bad_versions_and_durations ... ok
+test config_schema_export_matches_checked_in_file ... ok
+test fd_hygiene::detached_spawn_probe ... ignored, child-process entry for the descriptor test; runs only when re-executed by it
+test config_unknown_ordinary_keys_rejected_outside_x_and_tolerated_inside ... ok
+test instance_valid_when_process_and_endpoints_are_live ... ok
+test instance_insecure_files_are_refused ... ok
+test jitter_props::fixed_unit_one_is_the_unjittered_schedule ... ok
+test fd_hygiene::detached_child_receives_only_null_standard_descriptors ... ok
+test jitter_props::random_jitter_is_in_range_and_varies ... ok
+test jitter_props::jittered_retry_delays_stay_within_the_bounded_backoff ... ok
+test log_file_sink_needs_a_directory ... ok
+test paths_heimdall_home_layout_is_owner_only ... ok
+test log_file_sink_redacts_every_line ... ok
+test paths_refuse_relative_or_empty_heimdall_home ... ok
+test paths_platform_defaults_follow_xdg ... ok
+test process_start_time_identifies_this_process ... ok
+test process_start_time_treats_an_unreaped_exited_child_as_gone ... ok
+test paths_tighten_existing_permissive_dirs_and_refuse_symlinks ... ok
+test redact_keeps_ordinary_diagnostics ... ok
+test redact_bounds_length ... ok
+test redact_removes_canaries_wherever_they_appear ... ok
+test redact_removes_home_paths ... ok
+test redact_removes_key_like_runs_without_prefix_lists ... ok
+test redact_removes_private_key_blocks ... ok
+test system_clock_boot_id_is_stable_across_reads ... ok
+test instance_write_is_atomic_and_owner_only ... ok
+test system_clock_probes_on_this_host ... ok
+test system_time_sync_is_unknown_in_m01 ... ok
+test u8b::caller_is_built_from_the_session_only ... ok
+test instance_stale_records_are_ignored ... ok
+test system_clock_continuous_is_monotonic_and_tracks_elapsed_time ... ok
+test redact_random_key_material_never_survives ... ok
+test u8b::cleanup_retries_are_pruned_when_the_resource_is_replaced_or_reconciled ... ok
+test u8b::cleanup_retries_use_bounded_backoff_with_injected_jitter ... ok
+test u8b::launcher_child_service ... ignored, child-process entry for the launcher test; runs only when re-executed by it
+test u8b::environment_identity_is_created_once_and_never_changes ... ok
+test u8b::dispatcher_rechecks_attendance_and_renders_application_results ... ok
+test u8b::restart_never_revives_a_paused_policy_or_changes_identity ... ok
+test u8b::launcher_eight_concurrent_clients_start_exactly_one_child ... ok
+test u8b::restart_recovery_reconciles_an_attempted_receipt_without_preparing_again ... ok
+test u8b::scheduler_expires_at_the_continuous_budget_end_with_the_wall_clock_lagging ... ok
+test u8b::scheduler_expires_exactly_at_the_persisted_bound_across_a_same_boot_restart ... ok
+test u8b::scheduler_expires_at_the_same_bound_after_a_reboot_with_sync ... ok
+test u8b::control_socket_round_trip_against_a_real_service ... ok
+test u8b::service_ignores_and_replaces_a_stale_instance_json ... ok
+test u8b::service_second_start_is_already_running ... ok
+test u8b::shutdown_from_the_owner_drains_and_removes_the_advertisement_and_endpoints ... ok
+test u8b::shutdown_refused_for_a_limited_consumer_and_idempotent_for_the_owner ... ok
+test u8b::start_up_refuses_over_an_interrupted_purge_and_keeps_the_log ... ok
+test u8b::supervisor_resume_check_interval_is_bounded ... ok
+test u8b::supervisor_delivers_held_back_events_without_a_new_commit ... ok
+test u8b::supervisor_run_loop_expires_due_grants_on_its_own ... ok
+test u8b::shutdown_lets_an_in_flight_durable_step_complete_before_exit ... ok
+test u8b::time_guard_refuses_a_rollback_and_ensure_is_time_uncertain ... ok
+test u8b::time_guard_refuses_an_unsynchronized_reboot_and_ensure_is_time_uncertain ... ok
+test u8b::unavailable_prepare_is_answered_once_and_never_retried_by_the_supervisor_or_a_restart ... ok
+test u8b::supervisor_detects_a_sleep_across_a_deadline_within_the_resume_bound ... ok
+
+successes:
+
+---- jitter_props::jittered_retry_delays_stay_within_the_bounded_backoff stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/integration/runtime.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    config_defaults_and_max_window
+    config_errors_never_echo_values
+    config_rejects_authority_widening_keys
+    config_rejects_bad_versions_and_durations
+    config_rejects_trusted_in_every_place
+    config_rejects_trusted_true
+    config_schema_export_matches_checked_in_file
+    config_unknown_ordinary_keys_rejected_outside_x_and_tolerated_inside
+    fd_hygiene::detached_child_receives_only_null_standard_descriptors
+    instance_insecure_files_are_refused
+    instance_stale_records_are_ignored
+    instance_valid_when_process_and_endpoints_are_live
+    instance_write_is_atomic_and_owner_only
+    jitter_props::fixed_unit_one_is_the_unjittered_schedule
+    jitter_props::jittered_retry_delays_stay_within_the_bounded_backoff
+    jitter_props::random_jitter_is_in_range_and_varies
+    log_file_sink_needs_a_directory
+    log_file_sink_redacts_every_line
+    paths_heimdall_home_layout_is_owner_only
+    paths_platform_defaults_follow_xdg
+    paths_refuse_relative_or_empty_heimdall_home
+    paths_tighten_existing_permissive_dirs_and_refuse_symlinks
+    process_start_time_identifies_this_process
+    process_start_time_treats_an_unreaped_exited_child_as_gone
+    redact_bounds_length
+    redact_keeps_ordinary_diagnostics
+    redact_random_key_material_never_survives
+    redact_removes_canaries_wherever_they_appear
+    redact_removes_home_paths
+    redact_removes_key_like_runs_without_prefix_lists
+    redact_removes_private_key_blocks
+    system_clock_boot_id_is_stable_across_reads
+    system_clock_continuous_is_monotonic_and_tracks_elapsed_time
+    system_clock_probes_on_this_host
+    system_time_sync_is_unknown_in_m01
+    u8b::caller_is_built_from_the_session_only
+    u8b::cleanup_retries_are_pruned_when_the_resource_is_replaced_or_reconciled
+    u8b::cleanup_retries_use_bounded_backoff_with_injected_jitter
+    u8b::control_socket_round_trip_against_a_real_service
+    u8b::dispatcher_rechecks_attendance_and_renders_application_results
+    u8b::environment_identity_is_created_once_and_never_changes
+    u8b::launcher_eight_concurrent_clients_start_exactly_one_child
+    u8b::restart_never_revives_a_paused_policy_or_changes_identity
+    u8b::restart_recovery_reconciles_an_attempted_receipt_without_preparing_again
+    u8b::scheduler_expires_at_the_continuous_budget_end_with_the_wall_clock_lagging
+    u8b::scheduler_expires_at_the_same_bound_after_a_reboot_with_sync
+    u8b::scheduler_expires_exactly_at_the_persisted_bound_across_a_same_boot_restart
+    u8b::service_ignores_and_replaces_a_stale_instance_json
+    u8b::service_second_start_is_already_running
+    u8b::shutdown_from_the_owner_drains_and_removes_the_advertisement_and_endpoints
+    u8b::shutdown_lets_an_in_flight_durable_step_complete_before_exit
+    u8b::shutdown_refused_for_a_limited_consumer_and_idempotent_for_the_owner
+    u8b::start_up_refuses_over_an_interrupted_purge_and_keeps_the_log
+    u8b::supervisor_delivers_held_back_events_without_a_new_commit
+    u8b::supervisor_detects_a_sleep_across_a_deadline_within_the_resume_bound
+    u8b::supervisor_resume_check_interval_is_bounded
+    u8b::supervisor_run_loop_expires_due_grants_on_its_own
+    u8b::time_guard_refuses_a_rollback_and_ensure_is_time_uncertain
+    u8b::time_guard_refuses_an_unsynchronized_reboot_and_ensure_is_time_uncertain
+    u8b::unavailable_prepare_is_answered_once_and_never_retried_by_the_supervisor_or_a_restart
+
+test result: ok. 60 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 4.76s
+
+### integration_runtime exit=0
+### integration_runtime_m03
+
+running 60 tests
+test bounded_obligation_completes_after_measured_bound_on_safe_time ... ok
+test bounded_obligation_never_moves_on_uncertain_time ... ok
+test config_refuses_lock_behavior_and_registry_path ... ok
+test bounded_complete_only_record_removed ... ok
+test bounded_obligation_consumes_no_attempt ... ok
+test inspect_destinations_carries_pair_preference ... ok
+test capabilities_offered_after_activation ... ok
+test installed_instances_become_lost_at_restart ... ok
+test issuer_crash::bind_endpoint_r3::existing_access_bind_result_unchanged_by_endpoint_wiring ... ok
+test issuer_endpoint_kind_reserved_never_bound ... ok
+test kept_cleanup_intents_retried_with_bounded_jittered_backoff ... ok
+test issuer_crash::bind_endpoint_r3::managed_bind_result_names_live_binding_endpoint ... ok
+test lost_instance_grant_degraded_credential_reissue_pending ... ok
+test issuer_crash::refused_activation_carries_issuer_store_reason ... ok
+test mixed_obligations_revoke_with_the_last_confirmation ... ok
+test platform_start_time_uses_shared_parser_semantics_unchanged ... ok
+test procstat_comm_with_spaces_parentheses_and_newline ... ok
+test issuer_crash::issuer_crash_blocks_reissue_not_signing ... ok
+test round2::managed_report_selection_follows_alias_classification ... ok
+test nominally_expired_obligation_keeps_record_grant_still_revoked ... ok
+test pending_instances_destroyed_at_restart_entries_still_counted ... ok
+test retirement_resumes_at_start_from_each_state ... ok
+test round2::windows_pipe_token_stable_across_runtime_restart ... ok
+test setup_switch::r2f_r3::manual_mode_apply_counts_as_applied_with_diagnostic ... ok
+test setup_switch::r2f_r3::removed_destination_preference_returns_to_pending ... ok
+test setup_switch::r2f_r3::existing_preference_recorded_applied_when_its_rendering_commits ... ok
+test setup_switch::stale_preview_cannot_mark_pair_applied ... ok
+test setup_switch::setup_apply_managed_rendering_marks_only_that_pair_applied ... ok
+test step_and_reconcile_refused_for_non_owner_role ... ok
+test umask_anchors::production_anchors_are_owner_only_under_umask_002 ... ok
+test umask_anchors::umask_child_entry ... ok
+test setup_switch::r2f_r3::unchanged_apply_still_commits_generation_and_preference ... ok
+test setup_switch::setup_rollback_or_existing_rendering_never_marks_managed_applied ... ok
+test w0_m03_requests_fail_closed_before_any_record ... ok
+test timed_out_remote_effect_intent_retried_after_backoff ... ok
+test unmeasured_obligation_becomes_nominally_expired_never_cleared ... ok
+test w0_new_decision_kinds_refused_not_consumed ... ok
+test w0_revision_5_requests_fail_closed_before_any_record ... ok
+test w0_open_enrollment_operations_stay_unresolved_at_restart ... ok
+test wave4::a_forward_wall_step_past_a_cutoff_ends_its_grant_at_the_next_poll ... ok
+test wave4::a_policy_cutoff_ends_its_grant_and_closes_its_connection_at_the_cutoff ... ok
+test wave4::a_preparing_grant_crossing_its_bound_after_the_tick_is_rechecked_and_ends ... ok
+test wave4::connections_close_routed_for_owner_only_with_event ... ok
+test wave4::inspect_connections_lists_owned_rows_owner_only ... ok
+test w0_no_reachable_todo ... ok
+test wave4::ended_grant_held_slot_cleared_by_its_generation ... ok
+test wave4::released_binding_held_slot_cleared_after_grant_ends ... ok
+test wave4::runtime_start_without_ca_starts_no_issuer ... ok
+test wave4::runtime_start_order_issuer_before_listen ... ok
+test wave4::small_forward_wall_steps_past_a_cutoff_end_its_grant_at_the_next_poll ... ok
+test wave4::sweep_closes_ended_grants_connections_with_reason_once ... ok
+test wave4::service_stop_via_signal_fallback_still_zeroizes ... ok
+test wave4::shutdown_zeroizes_vault_and_stops_issuer ... ok
+test wave4::teardown_r3::dropped_started_service_stops_issuer_and_releases_vault ... ok
+test wave4::w4_issuer_child_entry ... ok
+test wave4::teardown_r3::failed_start_after_issuer_unwinds_and_stops_it ... ok
+test wave4::teardown_r3::failed_start_after_managed_start_unwinds_and_stops_issuer ... ok
+test wave5_r2::inspect_capabilities_reports_lock_behavior_disclosure_and_acknowledgement ... ok
+test wave5_r2::inspect_destinations_preference_connection_policy_uses_runtime_wording ... ok
+test wave4::a_slow_pass_never_runs_the_next_pass_straight_after_it ... ok
+
+successes:
+
+successes:
+    bounded_complete_only_record_removed
+    bounded_obligation_completes_after_measured_bound_on_safe_time
+    bounded_obligation_consumes_no_attempt
+    bounded_obligation_never_moves_on_uncertain_time
+    capabilities_offered_after_activation
+    config_refuses_lock_behavior_and_registry_path
+    inspect_destinations_carries_pair_preference
+    installed_instances_become_lost_at_restart
+    issuer_crash::bind_endpoint_r3::existing_access_bind_result_unchanged_by_endpoint_wiring
+    issuer_crash::bind_endpoint_r3::managed_bind_result_names_live_binding_endpoint
+    issuer_crash::issuer_crash_blocks_reissue_not_signing
+    issuer_crash::refused_activation_carries_issuer_store_reason
+    issuer_endpoint_kind_reserved_never_bound
+    kept_cleanup_intents_retried_with_bounded_jittered_backoff
+    lost_instance_grant_degraded_credential_reissue_pending
+    mixed_obligations_revoke_with_the_last_confirmation
+    nominally_expired_obligation_keeps_record_grant_still_revoked
+    pending_instances_destroyed_at_restart_entries_still_counted
+    platform_start_time_uses_shared_parser_semantics_unchanged
+    procstat_comm_with_spaces_parentheses_and_newline
+    retirement_resumes_at_start_from_each_state
+    round2::managed_report_selection_follows_alias_classification
+    round2::windows_pipe_token_stable_across_runtime_restart
+    setup_switch::r2f_r3::existing_preference_recorded_applied_when_its_rendering_commits
+    setup_switch::r2f_r3::manual_mode_apply_counts_as_applied_with_diagnostic
+    setup_switch::r2f_r3::removed_destination_preference_returns_to_pending
+    setup_switch::r2f_r3::unchanged_apply_still_commits_generation_and_preference
+    setup_switch::setup_apply_managed_rendering_marks_only_that_pair_applied
+    setup_switch::setup_rollback_or_existing_rendering_never_marks_managed_applied
+    setup_switch::stale_preview_cannot_mark_pair_applied
+    step_and_reconcile_refused_for_non_owner_role
+    timed_out_remote_effect_intent_retried_after_backoff
+    umask_anchors::production_anchors_are_owner_only_under_umask_002
+    umask_anchors::umask_child_entry
+    unmeasured_obligation_becomes_nominally_expired_never_cleared
+    w0_m03_requests_fail_closed_before_any_record
+    w0_new_decision_kinds_refused_not_consumed
+    w0_no_reachable_todo
+    w0_open_enrollment_operations_stay_unresolved_at_restart
+    w0_revision_5_requests_fail_closed_before_any_record
+    wave4::a_forward_wall_step_past_a_cutoff_ends_its_grant_at_the_next_poll
+    wave4::a_policy_cutoff_ends_its_grant_and_closes_its_connection_at_the_cutoff
+    wave4::a_preparing_grant_crossing_its_bound_after_the_tick_is_rechecked_and_ends
+    wave4::a_slow_pass_never_runs_the_next_pass_straight_after_it
+    wave4::connections_close_routed_for_owner_only_with_event
+    wave4::ended_grant_held_slot_cleared_by_its_generation
+    wave4::inspect_connections_lists_owned_rows_owner_only
+    wave4::released_binding_held_slot_cleared_after_grant_ends
+    wave4::runtime_start_order_issuer_before_listen
+    wave4::runtime_start_without_ca_starts_no_issuer
+    wave4::service_stop_via_signal_fallback_still_zeroizes
+    wave4::shutdown_zeroizes_vault_and_stops_issuer
+    wave4::small_forward_wall_steps_past_a_cutoff_end_its_grant_at_the_next_poll
+    wave4::sweep_closes_ended_grants_connections_with_reason_once
+    wave4::teardown_r3::dropped_started_service_stops_issuer_and_releases_vault
+    wave4::teardown_r3::failed_start_after_issuer_unwinds_and_stops_it
+    wave4::teardown_r3::failed_start_after_managed_start_unwinds_and_stops_issuer
+    wave4::w4_issuer_child_entry
+    wave5_r2::inspect_capabilities_reports_lock_behavior_disclosure_and_acknowledgement
+    wave5_r2::inspect_destinations_preference_connection_policy_uses_runtime_wording
+
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.46s
+
+### integration_runtime_m03 exit=0
+all-tests-exit=0

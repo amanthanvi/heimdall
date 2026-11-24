@@ -145,7 +145,11 @@ hm2_start_time() {
 # restrict). MAXAUTHTRIES defaults to 6; the Windows local runner's strict sshd passes 3
 # (HM_FIXTURE_SSHD_STRICT_*; ADR-0007 §12.47 item 8, WU-0). REGISTRY (M03 wave 4,
 # W4-N01), when given, is a second AuthorizedKeysFile: the enrollment registry on the
-# target's own file system (HM_FIXTURE_SSHD_REGISTRY*).
+# target's own file system (HM_FIXTURE_SSHD_REGISTRY*). Sessions get HOME and ZDOTDIR =
+# DIR/session-home (hm2_sshd_start creates it) and an empty BASH_ENV: sshd runs every command
+# through the account's login shell, which would otherwise read the account's own startup files
+# (zsh: $ZDOTDIR/.zshenv even for -c). sshd keeps only its first SetEnv line, so a caller adds
+# no other.
 hm2_sshd_config() {
     local akf="\"$3\""
     [ -n "${6:-}" ] && akf="$akf \"$6\""
@@ -172,6 +176,7 @@ UseDNS no
 MaxAuthTries ${5:-6}
 LogLevel VERBOSE
 Subsystem sftp internal-sftp
+SetEnv HOME="$2/session-home" ZDOTDIR="$2/session-home" BASH_ENV=
 EOF
     [ "$4" = 1 ] && echo "PerSourcePenalties no"
 }
@@ -191,6 +196,7 @@ hm2_sshd_start() {
     sshd=$(hm2_sshd_bin) || { HM2_SSHD_WHY="sshd is not installed"; return 1; }
     [ "$(id -u)" != 0 ] || { HM2_SSHD_WHY="refusing to run the fixture sshd as root"; return 1; }
     mkdir -m 700 -- "$dir" 2>/dev/null || { HM2_SSHD_WHY="fixture directory exists or cannot be created"; return 1; }
+    mkdir -m 700 -- "$dir/session-home" || { HM2_SSHD_WHY="session home cannot be created"; return 1; }
     ssh-keygen -q -t ed25519 -N '' -C hm-m02-fixture-host -f "$dir/host_ed25519" </dev/null >/dev/null 2>&1 ||
         { HM2_SSHD_WHY="ssh-keygen failed"; return 1; }
     [ -e "$ak" ] || : >"$ak"

@@ -181,6 +181,23 @@ mod fx {
             host_key.write_private(&key_file).unwrap();
             let log = dir.join("sshd.log");
             let config = dir.join("sshd_config");
+            // The sessions' scratch HOME and ZDOTDIR (the testkit fixture's `SetEnv` line):
+            // sshd keeps only its first `SetEnv` line, so a caller's `SetEnv PATH=` joins it.
+            let session_home = heimdall_testkit::sshd::create_session_home(&dir).unwrap();
+            let mut session_path = None;
+            let mut extra_lines = String::new();
+            for line in extra.lines() {
+                match line.strip_prefix("SetEnv PATH=") {
+                    Some(path) => session_path = Some(path.to_owned()),
+                    None => {
+                        extra_lines.push_str(line);
+                        extra_lines.push('\n');
+                    }
+                }
+            }
+            assert!(!extra_lines.contains("SetEnv"), "one SetEnv line only");
+            let setenv =
+                heimdall_testkit::sshd::session_setenv(&session_home, session_path.as_deref());
             // `PerSourcePenalties` exists only from OpenSSH 9.8 (the devbox runs 9.6p1):
             // as the testkit's `LoopbackSshd` does, it is offered first and dropped only
             // when `sshd -t` names it (wave-1 native run, item B1).
@@ -195,7 +212,7 @@ mod fx {
                          PubkeyAuthentication yes\nAuthenticationMethods publickey\n\
                          PermitRootLogin no\nPermitUserRC no\nPermitUserEnvironment no\n\
                          AllowAgentForwarding no\nAllowTcpForwarding no\nX11Forwarding no\n\
-                         UseDNS no\nMaxAuthTries 6\nLogLevel VERBOSE\n{}{extra}",
+                         UseDNS no\nMaxAuthTries 6\nLogLevel VERBOSE\n{}{setenv}{extra_lines}",
                         key_file.display(),
                         registry.display(),
                         if penalties {
