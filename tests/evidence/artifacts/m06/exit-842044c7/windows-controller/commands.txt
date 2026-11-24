@@ -1,0 +1,1 @@
+exit 0: pwsh -NoProfile -File tests/native/m06/run-windows-controller.ps1 (the Windows controller journey, through record-windows-controller.ps1)

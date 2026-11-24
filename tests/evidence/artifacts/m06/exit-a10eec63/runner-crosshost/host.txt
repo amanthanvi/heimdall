@@ -1,0 +1,15 @@
+controller-host=macOS 27.2.1 arm64
+controller-ssh=OpenSSH_10.5p1, LibreSSL 3.3.6
+controller-k-mgmt-store=fixture-file (HEIMDALL_TEST_MGMT_STORE, per controller home, in the run directory)
+controller-k-iroh-store=fixture directory (HEIMDALL_TEST_IROH_KEY_STORE, per controller home, in the run directory)
+management-route=ssh -N -L 127.0.0.1:<port>:127.0.0.1:<port> over the owner's alias (ControlMaster=no, ControlPath=none), to an unprivileged fixture sshd on the runner host's loopback
+journeys=a24 a07 t06 a25
+a24-lifetime-s=240
+runner-kernel=Linux 6.8.0-147-generic
+runner-ssh_version=OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024
+runner-sshd_version=OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024
+runner-python=3.12.3
+runner-free-gib=6
+login-keychain-heimdall-items=absent
+login-keychain-service-names-checked=9
+cleanup=clean

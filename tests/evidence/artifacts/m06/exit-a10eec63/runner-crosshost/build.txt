@@ -1,0 +1,7 @@
+rustc: rustc 1.99.1 (58cf8f9c3 2026-10-13)
+zig: 0.17.1
+commit: a10eec638c2b1531de5c81c7c51510ed0dad5be1 (worktree 1 changed paths)
+heimdall (macOS controller, debug) sha256: 3b3c1f85b453f603e6a5abf8a14369479a6b5a312b3600c11fa30720fa865d1c
+e2e_windows_controller_m06 (macOS fixture driver) sha256: a77e91b264835a6c1da402a50f83b7d7cecb02e3a3a298c82e95b76ddc9eb1d3
+heimdall (x86_64-unknown-linux-gnu runner, native-test profile: debug assertions on) sha256: b27e51bdddccdb2d247d21d8657b9a4d6f08d050f48b33ecfb6282d609f98e47
+e2e_windows_controller_m06 (x86_64-unknown-linux-gnu fixture driver) sha256: c1d45c6aea9cc9a30fdff54269c21df3e7d6f2753a8fc29c9d6de9d54a36520f

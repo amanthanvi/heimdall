@@ -1,0 +1,298 @@
+### e2e_setup_dispatch
+
+running 9 tests
+test e2e_inspect_destinations_lists_the_catalog_through_the_dispatcher ... ok
+test e2e_declaration_validity_days_come_from_the_configuration ... ok
+test e2e_catalog_then_ensure_bind_carry_pairs_and_selection ... ok
+test e2e_setup_attended_apply_inspect_rollback_through_dispatcher ... ok
+test e2e_setup_without_capability_is_schema_unsupported ... ok
+test e2e_setup_preview_apply_decide_restart_through_dispatcher ... ok
+test e2e_supervisor_cleaner_deletes_after_rollback_through_the_service ... ok
+test declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher ... ok
+test simultaneous_setup_admissions_admit_exactly_one ... ok
+
+successes:
+
+successes:
+    declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher
+    e2e_catalog_then_ensure_bind_carry_pairs_and_selection
+    e2e_declaration_validity_days_come_from_the_configuration
+    e2e_inspect_destinations_lists_the_catalog_through_the_dispatcher
+    e2e_setup_attended_apply_inspect_rollback_through_dispatcher
+    e2e_setup_preview_apply_decide_restart_through_dispatcher
+    e2e_setup_without_capability_is_schema_unsupported
+    e2e_supervisor_cleaner_deletes_after_rollback_through_the_service
+    simultaneous_setup_admissions_admit_exactly_one
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.82s
+
+### e2e_setup_dispatch exit=0
+### e2e_stop_m05
+
+running 8 tests
+test a_targeted_widenings_decision_view_lists_its_policies ... ok
+test ensure_then_run_same_work_id_reuses_the_grant ... ok
+test a05_expiry_reentry_and_hard_cutoff ... ok
+test a05_stop_profile_revokes_and_blocks_until_resume ... ok
+test shared_work_stop_fails_a_child_still_preparing ... ok
+test targeted_actions_resolve_their_set_in_the_applying_transaction ... ok
+test targeted_results_decode_into_the_typed_result ... ok
+test stop_one_job_leaves_the_other ... ok
+
+successes:
+
+successes:
+    a05_expiry_reentry_and_hard_cutoff
+    a05_stop_profile_revokes_and_blocks_until_resume
+    a_targeted_widenings_decision_view_lists_its_policies
+    ensure_then_run_same_work_id_reuses_the_grant
+    shared_work_stop_fails_a_child_still_preparing
+    stop_one_job_leaves_the_other
+    targeted_actions_resolve_their_set_in_the_applying_transaction
+    targeted_results_decode_into_the_typed_result
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+
+### e2e_stop_m05 exit=0
+### e2e_tui_m02
+
+running 18 tests
+test pty::bare_heimdall_on_a_terminal_opens_the_tui ... ok
+test pty::bare_heimdall_without_a_terminal_or_with_json_is_status ... ok
+test pty::connect_handoff_restores_terminal_after_exit_and_after_child_signal ... ok
+test pty::decision_end_key_shows_the_last_rows_and_then_a_yes_is_accepted ... ok
+test pty::apply_projection_decision_diff_is_readable_in_full_and_gates_yes ... ok
+test pty::config_commands_authorization_requires_typed_yes ... ok
+test pty::decision_yes_is_refused_at_40x12_until_the_end_has_been_shown ... ok
+test pty::decision_modal_requires_typed_yes_default_no ... ok
+test pty::first_frame_latency_measured_and_recorded ... ok
+test pty::hangup_watchdog_exits ... ok
+test pty::panic_restores_terminal ... ok
+test pty::pty_child ... ignored, child-mode entry of the pty tests, started by them
+test pty::inventory_of_15_constructs_is_shown_whole_at_120x40 ... ok
+test pty::inventory_of_15_constructs_is_reachable_and_gates_yes_at_40x12 ... ok
+test tui_refuses_json_non_interactive_and_a_non_terminal_before_touching_anything ... ok
+test pty::search_never_probes ... ok
+test pty::no_cursor_position_query_emitted ... ok
+test pty::tui_handoff_ctrl_z_stops_and_fg_resumes_as_one_job ... ok
+
+successes:
+
+---- pty::first_frame_latency_measured_and_recorded stdout ----
+M02-U10 tui first-frame latency (debug build, spawn to frame, 5 samples): first frame ms [20, 20, 20, 20, 21] (p50 20), with the runtime listing ms [120, 120, 120, 122, 122] (p50 120); spec §15.1 budget 750 ms P95, not gated in M02
+
+
+successes:
+    pty::apply_projection_decision_diff_is_readable_in_full_and_gates_yes
+    pty::bare_heimdall_on_a_terminal_opens_the_tui
+    pty::bare_heimdall_without_a_terminal_or_with_json_is_status
+    pty::config_commands_authorization_requires_typed_yes
+    pty::connect_handoff_restores_terminal_after_exit_and_after_child_signal
+    pty::decision_end_key_shows_the_last_rows_and_then_a_yes_is_accepted
+    pty::decision_modal_requires_typed_yes_default_no
+    pty::decision_yes_is_refused_at_40x12_until_the_end_has_been_shown
+    pty::first_frame_latency_measured_and_recorded
+    pty::hangup_watchdog_exits
+    pty::inventory_of_15_constructs_is_reachable_and_gates_yes_at_40x12
+    pty::inventory_of_15_constructs_is_shown_whole_at_120x40
+    pty::no_cursor_position_query_emitted
+    pty::panic_restores_terminal
+    pty::search_never_probes
+    pty::tui_handoff_ctrl_z_stops_and_fg_resumes_as_one_job
+    tui_refuses_json_non_interactive_and_a_non_terminal_before_touching_anything
+
+test result: ok. 17 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 5.32s
+
+### e2e_tui_m02 exit=0
+### e2e_tui_m03
+
+running 6 tests
+test pty::pty_child ... ignored, child-mode entry of the pty tests, started by them
+test pty::enrollment_states_rendered ... ok
+test tui_refuses_a_non_terminal_with_m03_state_present ... ok
+test pty::tui_search_never_contacts_issuer_or_remote ... ok
+test pty::tui_restores_terminal_after_enroll_decision ... ok
+test pty::time_confirmation_chore_shown_after_reboot ... ok
+
+successes:
+
+---- pty::tui_restores_terminal_after_enroll_decision stdout ----
+the runtime's answer: decision dec_09090909090909090909090909090909: the request changed after you reviewed it, so nothing was approved; its new version appears h
+
+
+successes:
+    pty::enrollment_states_rendered
+    pty::time_confirmation_chore_shown_after_reboot
+    pty::tui_restores_terminal_after_enroll_decision
+    pty::tui_search_never_contacts_issuer_or_remote
+    tui_refuses_a_non_terminal_with_m03_state_present
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 9.67s
+
+### e2e_tui_m03 exit=0
+### e2e_tui_m07
+
+running 13 tests
+test pty::a20_key_latency ... ok
+test pty::a20_key_latency_settings_and_activity ... ok
+test diagnostic_redacts_mixed_case_windows_identifiers ... ok
+test pty::pty_child ... ignored, child-mode entry of the pty tests, started by them
+test pty::resize_then_yes_before_redraw_stops_nothing ... ok
+test pty::a_stopped_runtime_is_shown_as_stale_not_ready ... ok
+test pty::roundtrip_resize_before_redraw_triggers_nothing::network_probe_enter ... ok
+test pty::roundtrip_resize_before_redraw_triggers_nothing::settings_pause_yes ... ok
+test pty::roundtrip_resize_before_redraw_triggers_nothing::stop_menu_yes ... ok
+test pty::a20_keyboard_walkthrough ... ok
+test pty::tui_standalone_access_and_stop ... ok
+test pty::roundtrip_resize_before_redraw_triggers_nothing::operation_cancel_x ... ok
+test pty::idle_tui_writes_nothing_between_minute_ticks ... ok
+
+successes:
+
+---- pty::a20_key_latency stdout ----
+M07 A20 key latency (debug build, completed frame showing the key's effect, 5000 destinations, a live slow operation): key Tab: samples 40, timeouts at 2 s 0, p50 3.3 ms, p95 4.4 ms, max 4.4 ms; host Linux 6.8.0-147-generic x86_64
+  Tab samples (ms, sorted): [3.2, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.4, 3.4, 3.4, 3.4, 3.4, 3.4, 3.4, 3.4, 4.4, 4.4, 4.4, 4.4, 4.4]
+M07 A20 key latency (debug build, completed frame showing the key's effect, 5000 destinations, a live slow operation): key PageDown: samples 40, timeouts at 2 s 0, p50 4.4 ms, p95 4.5 ms, max 4.5 ms; host Linux 6.8.0-147-generic x86_64
+  PageDown samples (ms, sorted): [4.3, 4.3, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5]
+M07 A20 key latency (debug build, completed frame showing the key's effect, 5000 destinations, a live slow operation): key search keystroke: samples 40, timeouts at 2 s 0, p50 5.5 ms, p95 5.6 ms, max 6.6 ms; host Linux 6.8.0-147-generic x86_64
+  search keystroke samples (ms, sorted): [4.4, 5.4, 5.4, 5.4, 5.4, 5.4, 5.4, 5.4, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.6, 5.6, 5.6, 5.6, 5.6, 6.6]
+
+---- pty::a20_key_latency_settings_and_activity stdout ----
+M07 A20 key latency (debug build, completed frame showing the key's effect, 4000 managed destinations, 1000 enrollment records): key PageDown on Settings: samples 40, timeouts at 2 s 0, p50 4.4 ms, p95 4.5 ms, max 4.5 ms; host Linux 6.8.0-147-generic x86_64
+  PageDown on Settings samples (ms, sorted): [4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5]
+M07 A20 key latency (debug build, completed frame showing the key's effect, 4000 managed destinations, 1000 enrollment records): key PageDown on Activity: samples 40, timeouts at 2 s 0, p50 4.5 ms, p95 4.5 ms, max 4.6 ms; host Linux 6.8.0-147-generic x86_64
+  PageDown on Activity samples (ms, sorted): [4.3, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.4, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.6]
+
+---- pty::roundtrip_resize_before_redraw_triggers_nothing::network_probe_enter stdout ----
+M07-W2-R01 roundtrip resize (stopped; 120x40 -> 40x5 -> 5 ms -> 120x40; keys; continued): the probe menu's Enter on network: 20 of 20 attempts triggered nothing; the same keys to a drawn frame then worked once
+
+---- pty::roundtrip_resize_before_redraw_triggers_nothing::settings_pause_yes stdout ----
+M07-W2-R01 roundtrip resize (stopped; 120x40 -> 40x5 -> 5 ms -> 120x40; keys; continued): the Settings Pause yes: 20 of 20 attempts triggered nothing; the same keys to a drawn frame then worked once
+
+---- pty::roundtrip_resize_before_redraw_triggers_nothing::stop_menu_yes stdout ----
+M07-W2-R01 roundtrip resize (stopped; 120x40 -> 40x5 -> 5 ms -> 120x40; keys; continued): the stop menu's yes: 20 of 20 attempts triggered nothing; the same keys to a drawn frame then worked once
+
+---- pty::a20_keyboard_walkthrough stdout ----
+M07 walkthrough: after x the operation is "cancelled"
+
+---- pty::roundtrip_resize_before_redraw_triggers_nothing::operation_cancel_x stdout ----
+M07-W2-R01 roundtrip resize (stopped; 120x40 -> 40x5 -> 5 ms -> 120x40; keys; continued): the operation detail's x: 20 of 20 attempts triggered nothing; the same keys to a drawn frame then worked once
+
+---- pty::idle_tui_writes_nothing_between_minute_ticks stdout ----
+M07-U1 idle: 0 bytes written in 12 s between minute ticks (120x40, 100 destinations; host Linux 6.8.0-147-generic x86_64)
+
+
+successes:
+    diagnostic_redacts_mixed_case_windows_identifiers
+    pty::a20_key_latency
+    pty::a20_key_latency_settings_and_activity
+    pty::a20_keyboard_walkthrough
+    pty::a_stopped_runtime_is_shown_as_stale_not_ready
+    pty::idle_tui_writes_nothing_between_minute_ticks
+    pty::resize_then_yes_before_redraw_stops_nothing
+    pty::roundtrip_resize_before_redraw_triggers_nothing::network_probe_enter
+    pty::roundtrip_resize_before_redraw_triggers_nothing::operation_cancel_x
+    pty::roundtrip_resize_before_redraw_triggers_nothing::settings_pause_yes
+    pty::roundtrip_resize_before_redraw_triggers_nothing::stop_menu_yes
+    pty::tui_standalone_access_and_stop
+
+test result: ok. 12 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 39.60s
+
+### e2e_tui_m07 exit=0
+### e2e_windows_controller_m06
+
+running 8 tests
+test environment_add ... ignored, run by tests/native/m06/run-windows-controller.ps1 with its HM_M06J_* inputs
+test seed_controller ... ignored, run by tests/native/m06/run-windows-controller.ps1 with its HM_M06J_* inputs
+test seed_runner ... ignored, run inside the journey's distribution with its HM_M06J_* inputs
+test host_key_lines_are_one_ed25519_key_without_its_comment ... ok
+test facts_are_sorted_single_lines_and_a_missing_input_is_named ... ok
+test the_answer_is_the_last_envelope_of_the_transcript ... ok
+test the_bootstrap_sessions_runtime_statement_is_read_across_line_breaks ... ok
+test the_driver_names_a_missing_fixture_key_store_before_starting_anything ... ok
+
+successes:
+
+---- facts_are_sorted_single_lines_and_a_missing_input_is_named stdout ----
+
+thread 'facts_are_sorted_single_lines_and_a_missing_input_is_named' (1358724) panicked at crates/heimdall/../../tests/e2e/windows_controller_m06.rs:81:28:
+the journey driver needs HM_M06J_HOME
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- the_driver_names_a_missing_fixture_key_store_before_starting_anything stdout ----
+
+thread 'the_driver_names_a_missing_fixture_key_store_before_starting_anything' (1358728) panicked at crates/heimdall/../../tests/e2e/windows_controller_m06.rs:81:28:
+the journey driver needs HM_M06J_IROH_FIXTURE
+
+thread 'the_driver_names_a_missing_fixture_key_store_before_starting_anything' (1358728) panicked at crates/heimdall/../../tests/e2e/windows_controller_m06.rs:81:28:
+the journey driver needs HM_M06J_MGMT_FIXTURE
+
+thread 'the_driver_names_a_missing_fixture_key_store_before_starting_anything' (1358728) panicked at crates/heimdall/../../tests/e2e/windows_controller_m06.rs:466:9:
+the journey driver needs an absolute HM_M06J_IROH_FIXTURE
+
+
+successes:
+    facts_are_sorted_single_lines_and_a_missing_input_is_named
+    host_key_lines_are_one_ed25519_key_without_its_comment
+    the_answer_is_the_last_envelope_of_the_transcript
+    the_bootstrap_sessions_runtime_statement_is_read_across_line_breaks
+    the_driver_names_a_missing_fixture_key_store_before_starting_anything
+
+test result: ok. 5 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### e2e_windows_controller_m06 exit=0
+### e2e_wrapper_m07
+
+running 9 tests
+test covered_ensure_replay_and_conflict ... ok
+test event_checkpoint_survives_disconnect_and_resumes_the_same_filter ... ok
+test hello_inspect_and_version_skew ... ok
+test lost_reply_is_observed_and_reconciled_without_resending_ensure ... ok
+test missing_rule_four_home_or_store_prevents_process_launch ... ok
+test expired_history_recovers_with_one_subscription_and_replacement_snapshot ... ok
+test wider_scope_needs_real_terminal_approval ... ok
+test materialize_log_in_and_release_through_the_wrapper ... ok
+test bounded_wait_and_backpressure_leave_the_operation_running_until_cancelled ... ok
+
+successes:
+
+---- missing_rule_four_home_or_store_prevents_process_launch stdout ----
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1359020) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:222:22:
+missing rule-4 key
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1359020) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:222:22:
+missing rule-4 key
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1359020) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:222:22:
+missing rule-4 key
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1359020) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:248:18:
+missing or malformed fixture store path
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1359020) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:248:18:
+missing or malformed fixture store path
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1359020) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:254:29:
+redirected fixture store HEIMDALL_TEST_MGMT_STORE
+
+thread 'missing_rule_four_home_or_store_prevents_process_launch' (1359020) panicked at crates/heimdall/../../tests/e2e/wrapper_m07.rs:254:29:
+redirected fixture store HEIMDALL_TEST_IROH_KEY_STORE
+
+
+successes:
+    bounded_wait_and_backpressure_leave_the_operation_running_until_cancelled
+    covered_ensure_replay_and_conflict
+    event_checkpoint_survives_disconnect_and_resumes_the_same_filter
+    expired_history_recovers_with_one_subscription_and_replacement_snapshot
+    hello_inspect_and_version_skew
+    lost_reply_is_observed_and_reconciled_without_resending_ensure
+    materialize_log_in_and_release_through_the_wrapper
+    missing_rule_four_home_or_store_prevents_process_launch
+    wider_scope_needs_real_terminal_approval
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.32s
+
+### e2e_wrapper_m07 exit=0
+all-tests-exit=0

@@ -1,0 +1,133 @@
+exit 0: cargo test -p heimdall --test e2e_windows_controller_m06 --no-run --locked (the macOS debug heimdall and the fixture driver)
+exit 0: cargo test --target x86_64-unknown-linux-gnu --profile native-test -p heimdall --test e2e_windows_controller_m06 --no-run --locked (zig cc, glibc 2.31 floor)
+exit 0: ssh <runnerhost> uname -m
+exit 0: ssh <runnerhost> df (free space in the account's home, GiB: 6)
+exit 0: ssh <runnerhost> mkdir the run's staging directory (plain mkdir: refused when it exists)
+exit 0: tar | ssh <runnerhost> tar -x (the runner binary, the fixture driver, the runner scripts)
+exit 0: ssh <runnerhost> crosshost-runner.sh prepare <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh authorize <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:a24>
+exit 0: e2e_windows_controller_m06 --ignored --exact seed_controller
+exit 0: ssh <runnerhost> crosshost-runner.sh trust-ca <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-offered-stop <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh seed <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-start-with <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh ensure <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh identities <root:a24>
+exit 0: ssh <runnerhost> (a session forwarding the disposable fixture agent) crosshost-runner.sh work <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-log <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh identities <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh onward <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh sockets <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh identities <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh processes <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh sockets <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-log <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh onward <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh cleanup <root:a24>
+exit 0: ssh <runnerhost> crosshost-runner.sh prepare <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh authorize <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:a07>
+exit 0: e2e_windows_controller_m06 --ignored --exact seed_controller
+exit 0: ssh <runnerhost> crosshost-runner.sh trust-ca <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-offered-stop <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh seed <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-start-with <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh ensure <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh identities <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh onward <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh identities <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh onward <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh identities <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh onward <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh identities <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh policy <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-stop <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-start-with <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh policy <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-stop <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-start-with <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh json <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh attended <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh policy <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh cleanup <root:a07>
+exit 0: ssh <runnerhost> crosshost-runner.sh prepare <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh authorize <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:t06>
+exit 0: e2e_windows_controller_m06 --ignored --exact seed_controller
+exit 0: ssh <runnerhost> crosshost-runner.sh trust-ca <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-offered-stop <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh seed <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-start-with <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh ensure <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh identities <root:t06>
+exit 0: e2e_windows_controller_m06 --ignored --exact seed_controller
+exit 0: ssh <runnerhost> crosshost-runner.sh attended <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh identities <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh issuer-trust <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh ensure <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh identities <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh identities <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh onward <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh trust-ca <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh onward <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh cleanup <root:t06>
+exit 0: ssh <runnerhost> crosshost-runner.sh prepare <root:a25>
+exit 0: ssh <runnerhost> crosshost-runner.sh authorize <root:a25>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:a25>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:a25>
+exit 0: e2e_windows_controller_m06 --ignored --exact seed_controller
+exit 0: ssh <runnerhost> crosshost-runner.sh trust-ca <root:a25>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-offered-stop <root:a25>
+exit 0: ssh <runnerhost> crosshost-runner.sh seed <root:a25>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-start-with <root:a25>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-check <root:a25>
+exit 0: ssh <runnerhost> crosshost-runner.sh attended <root:a25>
+exit 0: ssh <runnerhost> crosshost-runner.sh prepare <root:a25kc>
+exit 0: ssh <runnerhost> crosshost-runner.sh authorize <root:a25kc>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:a25kc>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:a25kc>
+exit 0: ssh <runnerhost> crosshost-runner.sh policy-config <root:a25kc>
+exit 0: e2e_windows_controller_m06 --ignored --exact seed_controller
+exit 0: ssh <runnerhost> crosshost-runner.sh trust-ca <root:a25kc>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-offered-stop <root:a25kc>
+exit 0: ssh <runnerhost> crosshost-runner.sh seed <root:a25kc>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-start-with <root:a25kc>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-check <root:a25kc>
+exit 0: ssh <runnerhost> crosshost-runner.sh attended <root:a25kc>
+exit 0: ssh <runnerhost> crosshost-runner.sh cleanup <root:a25kc>
+exit 0: ssh <runnerhost> crosshost-runner.sh prepare <root:a25fc>
+exit 0: ssh <runnerhost> crosshost-runner.sh authorize <root:a25fc>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:a25fc>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:a25fc>
+exit 0: ssh <runnerhost> crosshost-runner.sh policy-config <root:a25fc>
+exit 0: e2e_windows_controller_m06 --ignored --exact seed_controller
+exit 0: ssh <runnerhost> crosshost-runner.sh trust-ca <root:a25fc>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-offered-stop <root:a25fc>
+exit 0: ssh <runnerhost> crosshost-runner.sh seed <root:a25fc>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-start-with <root:a25fc>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-check <root:a25fc>
+exit 0: ssh <runnerhost> crosshost-runner.sh attended <root:a25fc>
+exit 0: ssh <runnerhost> crosshost-runner.sh cleanup <root:a25fc>
+exit 0: ssh <runnerhost> crosshost-runner.sh prepare <root:a25ae>
+exit 0: ssh <runnerhost> crosshost-runner.sh authorize <root:a25ae>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:a25ae>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-start <root:a25ae>
+exit 0: ssh <runnerhost> crosshost-runner.sh policy-config <root:a25ae>
+exit 0: e2e_windows_controller_m06 --ignored --exact seed_controller
+exit 0: ssh <runnerhost> crosshost-runner.sh trust-ca <root:a25ae>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-offered-stop <root:a25ae>
+exit 0: ssh <runnerhost> crosshost-runner.sh seed <root:a25ae>
+exit 0: ssh <runnerhost> crosshost-runner.sh runtime-start-with <root:a25ae>
+exit 0: ssh <runnerhost> crosshost-runner.sh sshd-check <root:a25ae>
+exit 0: ssh <runnerhost> crosshost-runner.sh attended <root:a25ae>
+exit 0: ssh <runnerhost> crosshost-runner.sh cleanup <root:a25ae>
+exit 0: ssh <runnerhost> crosshost-runner.sh cleanup <root:a25>
+exit 0: ssh <runnerhost> crosshost-runner.sh cleanup <root:a25kc>
+exit 0: ssh <runnerhost> crosshost-runner.sh cleanup <root:a25fc>
+exit 0: ssh <runnerhost> crosshost-runner.sh cleanup <root:a25ae>
+exit 0: ssh <runnerhost> rm -rf the run's staging directory, then check it is absent
+exit 0: security find-generic-password -s <each of 9 service names: crates/credential/src/lib.rs MACOS_KEYCHAIN_SERVICES, and the issuer prefix with each CA fingerprint of this run> (by service name only; attributes and secrets never printed): absent
