@@ -143,8 +143,39 @@ if command -v pwsh >/dev/null 2>&1; then
 else
     skip m06_controller_journey_selftest_passes "pwsh absent"
 fi
+# ⟨M06 exit⟩ The journey's recorder (record-windows-controller.ps1): its helpers, then a run
+# against a stub journey beside a copy of it (the stub fails with trailer exit=1): commands.txt
+# is the stub's real exit code in the line import-windows-controller.py reads, build.txt carries
+# a sha256 per input, and a non-empty -Out is refused before anything starts.
+if command -v pwsh >/dev/null 2>&1; then
+    (cd "$T" && pwsh -NoProfile -NonInteractive -File "$here/record-windows-controller.ps1" -SelfTest) >"$T/rwc.log" 2>&1 </dev/null
+    check "m06_controller_recorder_selftest_passes ($(tail -n 1 "$T/rwc.log"))" \
+        bash -c '[ "$1" = 0 ] && grep -q "^record-windows-controller selftest: [1-9][0-9]* passed, 0 failed$" "$2"' _ "$?" "$T/rwc.log"
+    mkdir -p "$T/rwc/bin"
+    cp "$here/record-windows-controller.ps1" "$T/rwc/"
+    cat >"$T/rwc/run-windows-controller.ps1" <<'PS1'
+param([string]$ScratchRoot, [string]$HeimdallExe, [string]$DriverExe, [string]$LinuxHeimdall, [string]$LinuxDriver, [string]$WslDistro, [string]$Out)
+[void](New-Item -ItemType Directory -Path $Out -Force)
+[System.IO.File]::WriteAllText((Join-Path $Out 'tests.txt'), "### windows-controller-journey`n`nrunning 1 tests`ntest a24_pair ... FAILED`n### windows-controller-journey exit=1`n")
+[System.IO.File]::WriteAllText((Join-Path $Out 'host.txt'), "os=stub`nwsl-distro-arg=$WslDistro`n")
+exit 1
+PS1
+    printf 'heimdall' >"$T/rwc/bin/h"
+    (cd "$T" && pwsh -NoProfile -NonInteractive -File "$T/rwc/record-windows-controller.ps1" -ScratchRoot "$T" -HeimdallExe "$T/rwc/bin/h" \
+        -DriverExe "$T/rwc/bin/absent" -WslDistro Stub -Out "$T/rwc/out") >"$T/rwc-run.log" 2>&1 </dev/null
+    check "m06_controller_recorder_writes_the_journeys_real_exit_code_and_the_inputs_sha256" \
+        bash -c '[ "$1" = 1 ] && [ "$(cat "$2/commands.txt")" = "exit 1: $3" ] && grep -qx "wsl-distro-arg=Stub" "$2/host.txt" &&
+            grep -qx "heimdall.exe sha256: $(shasum -a 256 "$4" | cut -d" " -f1)" "$2/build.txt" && grep -qx "e2e_windows_controller_m06.exe absent" "$2/build.txt" &&
+            grep -q "^run-windows-controller.ps1 sha256: [0-9a-f]\{64\}$" "$2/build.txt" && grep -q "^commit=" "$2/build.txt" && ! grep -qF "$5" "$2/build.txt" "$2/commands.txt"' \
+        _ "$?" "$T/rwc/out" "$(python3 -I -c 'import importlib.util as u, sys; s = u.spec_from_file_location("i", sys.argv[1]); m = u.module_from_spec(s); s.loader.exec_module(m); print(m.COMMAND)' "$here/import-windows-controller.py")" "$T/rwc/bin/h" "$T"
+    (cd "$T" && pwsh -NoProfile -NonInteractive -File "$T/rwc/record-windows-controller.ps1" -Out "$T/rwc/out") >"$T/rwc-again.log" 2>&1 </dev/null
+    check "m06_controller_recorder_refuses_a_non_empty_out_before_the_journey_starts (exit 2)" \
+        bash -c '[ "$1" = 2 ] && grep -q "^refused: -Out exists and is not empty" "$2" && [ "$(cat "$3/commands.txt")" != "" ] && grep -q "exit 1:" "$3/commands.txt"' _ "$?" "$T/rwc-again.log" "$T/rwc/out"
+else
+    skip m06_controller_recorder_selftest_passes "pwsh absent"
+fi
 if command -v shellcheck >/dev/null 2>&1; then
-    check "m06_scripts_pass_shellcheck" shellcheck -x "$here/run-linux.sh" "$here/run-macos.sh" "$here/refresh-inventory.sh" "$here/selftest.sh"
+    check "m06_scripts_pass_shellcheck" shellcheck -x "$here/run-linux.sh" "$here/run-macos.sh" "$here/refresh-inventory.sh" "$here/selftest.sh" "$here/run-linux-batches.sh"
 else
     skip m06_scripts_pass_shellcheck "shellcheck absent"
 fi
@@ -535,6 +566,68 @@ extra_env=(HM_BUILD_ONLY=1 HM_ST_FEATURE_FAIL=pkg-cli)
 harness "$here/run-linux.sh" "$O"
 check "m06_linux_build_only_reports_a_blocked_iroh_build_with_exit_6" \
     bash -c '[ "$1" = 6 ] && grep -q "^feature-blocked-iroh_cli=the iroh-feature build of pkg-cli failed (cargo exit 101): " "$2/build.txt"' _ "$rc" "$O"
+
+# ⟨M06 exit⟩ run-linux-batches.sh in the fake world: the list read on fd 3, ssh -n for the
+# free-space check, the 3 GiB floor, the coverage check against the build-only plan, and
+# run-linux.sh's HM_STAGE_MAX_KB cap (exit 7 before anything is copied).
+batch_world() {
+    new_world "$1"
+    cat >"$B/df" <<'DF'
+#!/usr/bin/env bash
+# df stub: `df -Pk DIR` answers HM_ST_DF_KB KiB available; anything else is the real df.
+if [ "${1:-}" = -Pk ]; then
+    echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+    echo "stub 99999999 1 ${HM_ST_DF_KB:-9999999} 1% /"
+    exit 0
+fi
+exec /bin/df "$@"
+DF
+    chmod +x "$B/df"
+    printf '# a comment\nb1 plain_rt heimdall_testkit-unit   # trailing comment\n\nb2 iroh_rt iroh_cli heimdall_transport_iroh-unit\n' >"$S/batches.txt"
+}
+batch_world linux-batches
+harness "$here/run-linux-batches.sh" "$O" "$HOST" "$S/batches.txt"
+check "m06_batches_run_every_batch_into_its_own_directory_and_exit_0" \
+    bash -c '[ "$1" = 0 ] && grep -qx "### plain_rt exit=0" "$2/linux-b1/tests.txt" && grep -qx "### iroh_cli exit=0" "$2/linux-b2/tests.txt" &&
+        ! grep -q "^### iroh_rt" "$2/linux-b1/tests.txt" && ! grep -q "^### plain_rt" "$2/linux-b2/tests.txt"' _ "$rc" "$O"
+check "m06_batches_record_each_floor_check_and_batch_exit_as_a_commands_log_the_generator_reads" \
+    bash -c '[ "$(grep -c "^exit 0: ssh -n <linuxhost> df -Pk \$HOME before batch b[12]: 9999999 KiB free" "$1")" = 2 ] &&
+        grep -q "^exit 0: HM_ONLY=<the 2 targets of batch b1> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh" "$1" &&
+        grep -q "^exit 0: HM_ONLY=<the 3 targets of batch b2> " "$1" && grep -q "^exit 0: staged set [0-9]* KiB (HM_STAGE_MAX_KB cap 1572864 KiB)$" "$2/linux-b1/commands.txt"' _ "$O/linux-batches.txt" "$O"
+check "m06_batches_every_free_space_ssh_has_-n_and_no_scratch_directory_is_left" \
+    bash -c '[ "$(grep -c "^ssh -n -o BatchMode=yes .* df -Pk" "$1")" = 2 ] && ! grep "df -Pk" "$1" | grep -qv "^ssh -n " && [ -z "$(ls -A "$2")" ]' _ "$L" "$H"
+check "m06_batches_print_the_linux_platform_entries_for_the_exit_configuration" \
+    bash -c 'grep -qF "\"logs\": [\"linux-b1/tests.txt\", \"linux-b2/tests.txt\"]," "$1" && grep -qF "\"commands_logs\": [\"linux-batches.txt\", \"linux-b1/commands.txt\", \"linux-b2/commands.txt\"]," "$1"' _ "$S/harness.log"
+
+batch_world linux-batches-cover
+printf 'b1 plain_rt heimdall_testkit-unit\nb2 iroh_rt iroh_cli\n' >"$S/batches.txt"
+harness "$here/run-linux-batches.sh" "$O" "$HOST" "$S/batches.txt"
+check "m06_batches_refuse_a_list_that_misses_a_planned_target_before_any_host_is_contacted (exit 2)" \
+    bash -c '[ "$1" = 2 ] && grep -q "planned targets in no batch .*heimdall_transport_iroh-unit" "$2" && ! grep -q "^ssh " "$3" && [ ! -e "$4/linux-batches.txt" ]' _ "$rc" "$S/harness.log" "$L" "$O"
+printf 'b1 plain_rt heimdall_testkit-unit no_such_target\nb2 iroh_rt iroh_cli heimdall_transport_iroh-unit plain_rt\n' >"$S/batches.txt"
+rm -rf "$O"
+harness "$here/run-linux-batches.sh" "$O" "$HOST" "$S/batches.txt"
+check "m06_batches_refuse_a_target_in_two_batches_or_one_the_build_does_not_plan (exit 2)" \
+    bash -c '[ "$1" = 2 ] && grep -q "targets in more than one batch: plain_rt" "$2" && ! grep -q "^ssh " "$3"' _ "$rc" "$S/harness.log" "$L"
+
+batch_world linux-batches-floor
+extra_env=(HM_ST_DF_KB=3145727)
+harness "$here/run-linux-batches.sh" "$O" "$HOST" "$S/batches.txt"
+check "m06_batches_stop_below_the_3_GiB_floor_blocked_with_nothing_staged (exit 3)" \
+    bash -c '[ "$1" = 3 ] && grep -q "^exit 3: ssh -n <linuxhost> df -Pk \$HOME before batch b1: 3145727 KiB free, below the 3145728 KiB floor (blocked)$" "$2/linux-batches.txt" &&
+        [ ! -e "$2/linux-b1" ] && ! grep -q "mkdir" "$3"' _ "$rc" "$O" "$L"
+extra_env=(HM_BATCH_FLOOR_KB=1048576)
+rm -rf "$O"
+harness "$here/run-linux-batches.sh" "$O" "$HOST" "$S/batches.txt"
+check "m06_batches_refuse_a_floor_below_3_GiB (exit 2)" bash -c '[ "$1" = 2 ] && grep -q "below 3 GiB is refused" "$2"' _ "$rc" "$S/harness.log"
+
+batch_world linux-batches-cap
+extra_env=(HM_BATCH_STAGE_MAX_KB=1)
+harness "$here/run-linux-batches.sh" "$O" "$HOST" "$S/batches.txt"
+check "m06_batches_a_staged_set_over_the_cap_is_exit_7_before_the_tar_stream_and_stops_the_run" \
+    bash -c '[ "$1" = 7 ] && grep -q "^exit 7: staged set [0-9]* KiB, over the HM_STAGE_MAX_KB cap of 1 KiB: nothing copied$" "$2/linux-b1/commands.txt" &&
+        ! grep -q "tar stream" "$2/linux-b1/commands.txt" && [ ! -e "$2/linux-b2" ] && grep -q "^exit 7: HM_ONLY=<the 2 targets of batch b1>" "$2/linux-batches.txt" &&
+        [ -z "$(ls -A "$3")" ]' _ "$rc" "$O" "$H"
 
 # --- run-macos.sh against a fake repository root ------------------------------------------------------
 

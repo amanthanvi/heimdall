@@ -11,9 +11,11 @@
   "commands": [
     "tests/native/m06/refresh-inventory.sh (regenerates tests/native/m06/required-inventory.json at the exit commit, with the Linux scan including the iroh-feature targets and the Windows scan)",
     "tests/native/m06/run-macos.sh <artifacts_root> (check.sh: every workspace test, the observation pass, then the iroh-feature targets with --show-output)",
-    "tests/native/m06/run-linux.sh <artifacts_root>/linux <linuxhost> (the workspace test binaries and the iroh-feature targets, cross-built and run natively)",
+    "tests/native/m06/run-linux-batches.sh <artifacts_root> <linuxhost> (the devbox row in the HM_ONLY batches of tests/native/m06/linux-batches.txt: each batch through tests/native/m06/run-linux.sh into <artifacts_root>/linux-<batch>, a 3 GiB free-space floor on the devbox before each batch and a 1.5 GiB cap on each staged set; linux-batches.txt holds each batch's exit code)",
     "tests/native/m06/run-crosshost.sh <artifacts_root>/runner-crosshost <linuxhost> (the cross-host journey: the Mac as controller, the devbox as runner; builds both sides, or takes HM_XH_* prebuilt inputs)",
     "on the PC, by a T3 agent at Medium integrity: pwsh -NoProfile -File tests/native/m06/run-windows-local.ps1 -Commit <exit commit> -ScratchRoot <scratch root>; then on the build host: python3 -I tests/native/m02/import-windows-bundle.py --bundle <report> --label <artifacts_root name> --commit <exit commit> --artifacts-root tests/evidence/artifacts/m06 --config <artifacts_root>/runs.json",
+    "on the PC, from a checkout of the exit commit: pwsh -NoProfile -File tests/native/m06/record-windows-controller.ps1 -ScratchRoot <scratch> -HeimdallExe <debug heimdall.exe> -DriverExe <e2e_windows_controller_m06.exe> -LinuxHeimdall <path> -LinuxDriver <path> -WslDistro <the existing distribution> -Out <dir> (the Windows controller journey, its real exit code and its inputs' sha256 recorded); then on the build host: python3 -I tests/native/m06/import-windows-controller.py --from <the copied directory> --artifacts-dir <artifacts_root> --commit <exit commit> --config <artifacts_root>/runs.json",
+    "python3 -I tests/native/m06/fill-run-facts.py --config <artifacts_root>/runs.json --started-at <RFC 3339> --commit <exit commit> --bin macos:<name>=<path>... (build_commit, started_at, environment and the artifact digests from real inputs; writes <artifacts_root>/digests.txt)",
     "python3 -I tests/native/m06/m06-evidence.py --config <artifacts_root>/runs.json --write",
     "python3 -I tools/validation/validate-records.py"
   ],
@@ -30,6 +32,12 @@
     "tests/native/m06/crosshost-runner.sh",
     "tests/native/m06/crosshost-tool.py",
     "tests/native/m06/windows-controller-runner.sh",
+    "tests/native/m06/run-linux-batches.sh",
+    "tests/native/m06/linux-batches.txt",
+    "tests/native/m06/run-windows-controller.ps1",
+    "tests/native/m06/record-windows-controller.ps1",
+    "tests/native/m06/import-windows-controller.py",
+    "tests/native/m06/fill-run-facts.py",
     "tests/native/m06/selftest.sh",
     "tests/native/m05/m05-evidence.py",
     "tests/native/m02/run-macos.sh",
@@ -99,7 +107,9 @@
       "logs": [
         "windows-controller/tests.txt"
       ],
-      "commands_logs": [],
+      "commands_logs": [
+        "windows-controller/commands.txt"
+      ],
       "facts": [
         "windows-controller/host.txt"
       ],
@@ -131,7 +141,7 @@
       "summary": "A paired remote Linux runner continues approved onward SSH while the controller is gone: readiness with its earliest bound, conditions and residuals; new onward SSH to a managed pair and a fixed pair; managed access fails at the predicted bound once the issuer is stopped and the route blocked; a forwarded agent is never inherited; no silent controller socket (R-EN-05, R-AU-08).",
       "limitations": [
         "Blocked: the arm64 runner row and the runner lifecycle rows (m06-plan §7).",
-        "The Windows controller row needs the runner on another host (the runner is Unix-only in V1)."
+        "The Windows controller row is the windows-controller journey: heimdall.exe on the PC driving a fixture Linux runner in a scratch directory of the PC's existing WSL distribution (the runner is Unix-only in V1)."
       ]
     },
     "A25": {
@@ -173,8 +183,7 @@
       ],
       "summary": "Control from a second enrolled controller while the first is gone: typed narrowing from either owner, issuance only for the issuing controller's own grants on destinations that trust its CA, and explicit refusals for a wrong role, an invitation replay, a route substitution, an untrusted issuer and a renewal without an issuer.",
       "limitations": [
-        "Blocked: the arm64 runner row.",
-        "The Windows controller row needs the runner on another host (the runner is Unix-only in V1)."
+        "Blocked: the arm64 runner row; the Windows controller row, on owner input B2 (a second Windows account for the second controller)."
       ]
     },
     "A07": {
