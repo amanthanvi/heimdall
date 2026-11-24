@@ -1163,6 +1163,85 @@ class Records(unittest.TestCase):
             self.assertNotEqual(row_status(summary, "G1", "linux"), "verified", drop)
             self.assertNotEqual(summary["exit_claims"]["claim"]["status"], "verified", drop)
 
+    # ⟨M06 exit, ruling 2026-11-24⟩ blocked_commands: a recorded failure blocked on an owner input.
+    BLOCKED = {"the required command": {"owner_input": "B19", "reason": "owner attribution of a synthetic change"}}
+
+    def test_a_blocked_command_lowers_a_failed_command_row_to_blocked_naming_the_input(self):
+        s = Scratch(self, platforms={"macos": {"blocked_commands": self.BLOCKED}})
+        (s.dir / "macos.commands").write_text("exit 1: the required command\n")
+        rc, summary, err = s.run("--write")
+        self.assertEqual(rc, 0, err)
+        rows = [r for r in summary["groups"]["G2"]["rows"] if r["platform"].startswith("macos")]
+        self.assertEqual([r["status"] for r in rows], ["blocked"])
+        r = rows[0]
+        self.assertIn("owner input B19", r["blocked_on"])
+        self.assertIn("owner attribution of a synthetic change", r["blocked_on"])
+        self.assertIn("exited 1", r["blocked_on"])
+        # The failure is never hidden: the observed exit stays on the row.
+        self.assertEqual(r["exit_codes"]["the required command"], 1)
+        self.assertIn("the required command", r["failed_commands_blocked_on"])
+        self.assertNotIn("failed_commands", r)
+        self.assertIn("owner input B19", s.records()["G2"]["blocked_on"])
+        # The other platforms are unaffected.
+        self.assertEqual(row_status(summary, "G2", "linux"), "verified")
+
+    def test_a_blocked_command_that_exited_zero_or_did_not_run_is_refused_and_nothing_is_written(self):
+        for log, why in (("exit 0: the required command\n", "exited 0"),
+                         ("exit 0: another command\n", "no commands log")):
+            s = Scratch(self, platforms={"macos": {"blocked_commands": self.BLOCKED}})
+            (s.dir / "macos.commands").write_text(log)
+            rc, summary, err = s.run("--write")
+            self.assertEqual(rc, 2, (why, err))
+            self.assertIn(why, err)
+            self.assertIsNone(summary, "no summary is written from a refused configuration")
+            self.assertEqual(s.records(), {})
+
+    def test_a_malformed_or_unavailable_platform_blocked_command_is_refused(self):
+        for entries, extra in (({"the required command": "B19"}, {}),
+                               ({"the required command": {"owner_input": "B19", "reason": " "}}, {}),
+                               ({"the required command": {"owner_input": "B19", "reason": "r", "x": 1}}, {}),
+                               ({}, {}),
+                               (self.BLOCKED, {"unavailable": "no host (synthetic)"})):
+            s = Scratch(self, platforms={"macos": {"blocked_commands": entries, **extra}})
+            (s.dir / "macos.commands").write_text("exit 1: the required command\n")
+            rc, summary, err = s.run("--write")
+            self.assertEqual(rc, 2, (entries, extra, err))
+            self.assertIn("blocked_commands", err)
+            self.assertEqual(s.records(), {})
+
+    def test_a_blocked_command_never_yields_verified_and_never_hides_another_failure(self):
+        # Another failed command, a failed test and a missing test each keep the row in_progress.
+        s = Scratch(self, platforms={"macos": {"blocked_commands": self.BLOCKED}})
+        (s.dir / "macos.commands").write_text("exit 1: the required command\nexit 2: another command\n")
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(row_status(summary, "G2", "macos"), "in_progress")
+        r = [r for r in summary["groups"]["G2"]["rows"] if r["platform"].startswith("macos")][0]
+        self.assertEqual(r["failed_commands"], ["another command"])
+        self.assertIn("the required command", r["failed_commands_blocked_on"])
+        logs = full_logs()
+        logs["t_wild"]["w1"] = "FAILED"
+        s = Scratch(self, logs=logs, platforms={"macos": {"blocked_commands": self.BLOCKED}})
+        (s.dir / "macos.commands").write_text("exit 1: the required command\n")
+        rc, summary, err = s.run()
+        self.assertEqual(row_status(summary, "G1", "macos"), "in_progress")
+        # Never verified, in any section, on the platform that names it.
+        for kind in ("groups", "exit_claims"):
+            for sid, sec in summary[kind].items():
+                for row in sec["rows"]:
+                    if row["platform"].startswith("macos"):
+                        self.assertNotEqual(row["status"], "verified", (sid, row))
+
+    def test_a_config_without_blocked_commands_is_unchanged(self):
+        s = Scratch(self)
+        (s.dir / "macos.commands").write_text("exit 1: the required command\n")
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(row_status(summary, "G2", "macos"), "in_progress")
+        r = [r for r in summary["groups"]["G2"]["rows"] if r["platform"].startswith("macos")][0]
+        self.assertEqual(r["failed_commands"], ["the required command"])
+        self.assertNotIn("failed_commands_blocked_on", r)
+
     def test_a_new_test_outside_the_inventory_needs_regeneration(self):
         logs = full_logs()
         logs["t_wild"]["w4"] = "ok"

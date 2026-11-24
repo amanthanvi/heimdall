@@ -13,11 +13,16 @@ tests pick their subjects from the inventory.
 
 What is pinned:
   * a run in which every required test passes: every platform row of every case is verified, the
-    owner-input rows of m06-plan §7 keep their cases blocked with the input named, the container,
-    persistence and capture rows are not_started, §5's deferred row never counts, and the records
-    the generator writes validate against tests/evidence/record.schema.json;
+    owner-input rows of m06-plan §7 keep their cases blocked with the input named, ⟨ruling E1⟩ the
+    container mechanism and capture rows are deferred_with_decision on ADR-0015, the persistence
+    journey is blocked on B3 and the n0-public capture on the owner's authorization, the deferred
+    rows never count, and the records the generator writes validate against
+    tests/evidence/record.schema.json;
   * the lowest-row rule: with the owner-input rows taken away, a case with a not_started row is
     not_started, never verified;
+  * ⟨M06 exit⟩ blocked_commands: a failed macOS command named there blocks the macOS rows on owner
+    input B19 (a failed test still outranks it), one that exited 0 is refused, and the committed
+    runs template names none;
   * a failed test: only that platform's row is in_progress, never blocked and never verified;
   * a platform that did not run: its rows are blocked with the exact missing platform named;
   * a required test missing from a platform that ran: in_progress (incomplete_run), never blocked;
@@ -46,6 +51,9 @@ What is pinned:
   * ⟨M06 exit⟩ --write refuses unfilled identity fields; fill-run-facts.py fills them from its
     inputs (git and the toolchain stubbed) and refuses a dirty checkout, another commit, a malformed
     or too-late start time, a platform output naming another commit and a platform with no digest.
+  * ⟨M06 exit C10b⟩ a platform's run_commit (scratch git repository): outputs must name it, it must
+    be an ancestor of HEAD, a run_commit other than HEAD needs a reason, product drift outside
+    run_commit_drift_allow is refused, allowed drift reaches the label, and no run_commit is HEAD.
 """
 
 import copy
@@ -58,6 +66,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -308,21 +317,34 @@ class CleanRun(unittest.TestCase):
         self.assertIn("firewall", on["A26"])
         self.assertEqual(summary["exit_claims"][EXIT_KEY]["status"], "blocked")
 
-    def test_the_container_persistence_and_capture_rows_are_not_started_and_the_deferred_row_never_counts(self):
+    def test_the_e1_rows_container_rows_are_deferred_on_adr_0015_and_persistence_and_capture_are_blocked(self):
+        """⟨M06 exit, ruling E1⟩ A26's container mechanism and capture rows are
+        deferred_with_decision citing ADR-0015 and never count; the persistence journey is
+        blocked on owner input B3 and the n0-public capture on the owner's authorization; A25
+        has no container row (its limit, "not in a container", is the record's); nothing is
+        not_started."""
         s = Scratch(self)
         rc, summary, err = s.run()
         self.assertEqual(rc, 0, err)
         a26 = rows(summary, "groups", "A26")
-        not_started = [r for r in a26 if r["status"] == "not_started"]
-        self.assertEqual(len(not_started), 3, [r["platform"] for r in not_started])
-        self.assertTrue(any("n0-public" in r["platform"] for r in not_started))
+        self.assertFalse([r for r in a26 if r["status"] == "not_started"], a26)
         deferred = [r for r in a26 if r["status"] == "deferred_with_decision"]
-        self.assertEqual(len(deferred), 1)
-        self.assertIn("§5", deferred[0]["decision"])
-        self.assertTrue(any(r["status"] == "not_started" and "limited management client" in r["platform"]
-                            for r in rows(summary, "groups", "A25")))
+        self.assertEqual(len(deferred), 2, deferred)
+        self.assertTrue(any("ADR-0015" in r["decision"] and "containers" in r["platform"] for r in deferred))
+        self.assertTrue(any("§5" in r["decision"] for r in deferred))
+        blocked = {r["platform"]: r["blocked_on"] for r in a26 if r["status"] == "blocked" and "Keychain" in r["platform"] + r.get("blocked_on", "")}
+        self.assertEqual(len(blocked), 1, blocked)
+        self.assertIn("owner input B3", next(iter(blocked.values())))
+        capture = [r for r in a26 if "n0-public" in r["platform"]]
+        self.assertEqual([r["status"] for r in capture], ["blocked"], capture)
+        self.assertIn("authorization", capture[0]["blocked_on"])
+        a25 = rows(summary, "groups", "A25")
+        self.assertFalse([r for r in a25 if r["status"] == "not_started" or "container" in r["platform"]], a25)
+        self.assertTrue(any("not in a container" in x.lower() for x in RUNS["records"]["A25"]["limitations"]))
+        for sid in GROUPS:
+            self.assertFalse([r for r in rows(summary, "groups", sid) if r["status"] == "not_started"], sid)
 
-    def test_without_the_owner_input_rows_a_case_with_a_not_started_row_is_not_started_never_verified(self):
+    def test_without_the_owner_input_rows_the_deferred_rows_never_count_and_a_not_started_row_still_lowers(self):
         # ⟨M06 W5g⟩ A07 declares the cross-host row too, so "every row ran" needs that journey's
         # steps resolved and passed (the committed inventory may predate the scenario).
         index, inv = crosshost_fixture()
@@ -331,11 +353,56 @@ class CleanRun(unittest.TestCase):
         s = Scratch(self, index=index, inv=inv)
         rc, summary, err = s.run()
         self.assertEqual(rc, 0, err)
+        # ⟨ruling E1⟩ A26's remaining rows are deferred, so they never count; A25 has none left.
+        self.assertEqual(summary["groups"]["A26"]["status"], "verified")
+        self.assertEqual(summary["groups"]["A25"]["status"], "verified")
+        self.assertEqual(summary["groups"]["A07"]["status"], "verified")
+        # The lowest-row rule: one not_started row keeps its case, and the claim, not_started.
+        index["groups"]["A26"]["blocked_rows"].append(
+            {"platform": "a synthetic row with no run", "status": "not_started", "not_configured": "synthetic"})
+        rc, summary, err = Scratch(self, index=index, inv=inv).run()
+        self.assertEqual(rc, 0, err)
         self.assertEqual(summary["groups"]["A26"]["status"], "not_started")
-        self.assertEqual(summary["groups"]["A25"]["status"], "not_started")
-        # Cases whose every row ran are verified, and the claim still is not.
         self.assertEqual(summary["groups"]["A07"]["status"], "verified")
         self.assertEqual(summary["exit_claims"][EXIT_KEY]["status"], "not_started")
+
+    # ⟨M06 exit, ruling 2026-11-24⟩ blocked_commands (tests/native/m02/m02-evidence.py): the macOS
+    # owner-metadata step, failed for want of owner input B19, lowers macOS's rows to blocked on it.
+    B19 = {"the required command": {"owner_input": "B19", "reason": "owner attribution of the ~/.ssh metadata change"}}
+
+    def test_a_blocked_command_blocks_the_macos_rows_on_b19_and_hides_no_failure(self):
+        s = Scratch(self, platforms={"macos": {"blocked_commands": self.B19}})
+        (s.dir / "macos.commands").write_text("exit 1: the required command\n")
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        for sid in GROUPS:
+            r = row(summary, sid, "macos")
+            self.assertEqual(r["status"], "blocked", (sid, r))
+            self.assertIn("owner input B19", r["blocked_on"])
+            self.assertIn("~/.ssh metadata change", r["blocked_on"])
+            self.assertEqual(r["exit_codes"]["the required command"], 1)
+            self.assertIn("the required command", r["failed_commands_blocked_on"])
+            self.assertEqual(row(summary, sid, "linux")["status"], "verified", sid)
+        # A failed test on macOS still outranks it.
+        logs = passing_logs(s.index, s.inv)
+        target, name = a_test(s.index, "A24", "macos")
+        logs["macos"][target][name] = "FAILED"
+        s = Scratch(self, logs=logs, platforms={"macos": {"blocked_commands": self.B19}})
+        (s.dir / "macos.commands").write_text("exit 1: the required command\n")
+        rc, summary, err = s.run()
+        self.assertEqual(row(summary, "A24", "macos")["status"], "in_progress")
+
+    def test_a_blocked_command_that_exited_zero_is_refused_and_nothing_is_written(self):
+        s = Scratch(self, platforms={"macos": {"blocked_commands": self.B19}})
+        rc, summary, err = s.run("--write")
+        self.assertEqual(rc, 2, err)
+        self.assertIn("exited 0", err)
+        self.assertEqual(s.records(), {})
+
+    def test_the_committed_runs_template_names_no_blocked_command(self):
+        # Whether macOS uses B19 is ruled later; the integrator adds it to the exit config.
+        for pname, p in RUNS["platforms"].items():
+            self.assertNotIn("blocked_commands", p, pname)
 
     def test_the_written_records_validate_and_carry_the_owner_inputs(self):
         s = Scratch(self)
@@ -1130,6 +1197,124 @@ class FillRunFacts(unittest.TestCase):
         self.f.run = lambda *cmd, cwd=None: " M tracked.rs" if cmd[:2] == ("git", "status") else self.HEAD
         with self.assertRaises(self.f.Refused):
             self.fill()
+
+
+class FillRunFactsRunCommit(unittest.TestCase):
+    """⟨M06 exit C10b⟩ fill-run-facts.py's per-platform run_commit, against a scratch git
+    repository (never this repository's history); only the toolchain is stubbed."""
+
+    def git(self, *args):
+        return subprocess.run(("git", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+                               "-c", "commit.gpgsign=false", *args), cwd=self.repo, capture_output=True, text=True,
+                              check=True).stdout.strip()
+
+    def commit(self, files, msg):
+        for rel, text in files.items():
+            (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / rel).write_text(text)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", msg)
+        return self.git("rev-parse", "HEAD")
+
+    def setUp(self):
+        env = mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+        env.start()
+        self.addCleanup(env.stop)
+        self.f = load_filler()
+        real = self.f.run
+        stub = {("uname",): "Synthetic 1.0 arm64", ("rustc",): "rustc 1.0.0", ("cargo",): "cargo 1.0.0", ("zig",): "0.0.0"}
+        self.f.run = lambda *cmd, cwd=None: real(*cmd, cwd=cwd) if cmd[0] == "git" else stub[cmd[:1]]
+        t = tempfile.TemporaryDirectory(prefix="m06runcommit")
+        self.addCleanup(t.cleanup)
+        self.repo = Path(t.name) / "repo"
+        self.repo.mkdir()
+        self.git("init", "-q", "-b", "main")
+        self.base = self.commit({"crates/app/src/lib.rs": "a\n", "crates/testkit/src/lib.rs": "t\n", "tests/x.rs": "x\n"}, "base")
+        self.git("checkout", "-q", "-b", "side")
+        self.side = self.commit({"crates/app/src/side.rs": "s\n"}, "side")
+        self.git("checkout", "-q", "main")
+        # testkit and tests only: no product drift from here to HEAD.
+        self.quiet = self.commit({"crates/testkit/src/lib.rs": "t2\n", "tests/x.rs": "x2\n"}, "tests only")
+        self.head = self.commit({"crates/app/src/lib.rs": "a2\n"}, "product")
+        self.art = Path(t.name) / "art"
+        (self.art / "windows-controller").mkdir(parents=True)
+        (self.art / "windows-controller" / "tests.txt").write_text("### x\n")
+        self.cfg = {"artifacts_root": str(self.art), "build_commit": None, "artifact_digest": None, "started_at": None,
+                    "environment": {}, "evidence_paths": [], "platforms": {
+                        "windows-controller": {"label": "wc", "logs": ["windows-controller/tests.txt"], "artifact_digest": None}}}
+
+    def names(self, commit):
+        (self.art / "windows-controller" / "build.txt").write_text(f"commit={commit}\nheimdall.exe sha256: {'2' * 64}\n")
+
+    def plat(self, **kw):
+        self.cfg["platforms"]["windows-controller"].update(kw)
+
+    def fill(self):
+        return self.f.fill(self.cfg, str(self.art / "runs.json"), "2000-01-01T00:00:00Z", repo=self.repo)
+
+    def refused(self, needle):
+        with self.assertRaises(self.f.Refused) as cm:
+            self.fill()
+        self.assertIn(needle, str(cm.exception))
+
+    def test_default_without_run_commit_the_outputs_name_head(self):
+        self.names(self.head)
+        new, _, _ = self.fill()
+        self.assertEqual(new["build_commit"], self.head)
+        self.assertEqual(new["platforms"]["windows-controller"]["label"], "wc")
+        self.assertNotIn("run_commit_drift", new["platforms"]["windows-controller"])
+        self.names(self.quiet)
+        self.refused(f"not HEAD {self.head}")
+
+    def test_an_output_naming_another_commit_than_run_commit_is_refused(self):
+        self.names(self.head)
+        self.plat(run_commit=self.quiet, run_commit_reason="built before the product commit",
+                  run_commit_drift_allow=["crates/app/src/lib.rs"])
+        self.refused(f"not its run_commit {self.quiet}")
+
+    def test_a_run_commit_that_is_not_an_ancestor_of_head_is_refused(self):
+        self.names(self.side)
+        self.plat(run_commit=self.side, run_commit_reason="a side branch")
+        self.refused("is not an ancestor of HEAD")
+
+    def test_a_run_commit_other_than_head_needs_a_reason(self):
+        self.names(self.quiet)
+        self.plat(run_commit=self.quiet)
+        self.refused("run_commit_reason is missing or empty")
+        self.plat(run_commit_reason="  ")
+        self.refused("run_commit_reason is missing or empty")
+
+    def test_product_drift_not_allowed_is_refused_and_testkit_and_tests_never_count(self):
+        self.names(self.base)
+        self.plat(run_commit=self.base, run_commit_reason="the PC ran the earlier build")
+        self.refused("not in run_commit_drift_allow: crates/app/src/lib.rs")
+        self.plat(run_commit_drift_allow=["crates/app/src/lib.rs", "crates/app/src/other.rs"])
+        self.refused("did not change")
+
+    def test_allowed_drift_passes_and_reaches_the_label(self):
+        self.names(self.base)
+        self.plat(run_commit=self.base, run_commit_reason="the PC ran the earlier build",
+                  run_commit_drift_allow=["crates/app/src/lib.rs"])
+        new, _, _ = self.fill()
+        p = new["platforms"]["windows-controller"]
+        self.assertEqual(p["run_commit_drift"], {"range": f"{self.base}..{self.head}", "count": 1, "files": ["crates/app/src/lib.rs"]})
+        want = f"wc; ran at {self.base[:8]} (the PC ran the earlier build; product drift 1 files {self.base[:8]}..{self.head[:8]})"
+        self.assertEqual(p["label"], want)
+        self.assertEqual(new["environment"]["platforms"]["windows-controller"], want)
+        self.assertEqual(new["build_commit"], self.head)
+        again, _, _ = self.f.fill(new, str(self.art / "runs.json"), "2000-01-01T00:00:00Z", repo=self.repo)
+        self.assertEqual(again["platforms"]["windows-controller"]["label"], want, "a second fill does not repeat the suffix")
+
+    def test_a_platform_whose_outputs_name_no_commit_still_gets_the_checks(self):
+        (self.art / "windows-controller" / "build.txt").write_text(f"heimdall.exe sha256: {'2' * 64}\n")
+        self.plat(run_commit=self.quiet)
+        self.refused("run_commit_reason is missing or empty")
+        self.plat(run_commit_reason="tests-only commits since")
+        self.head = self.commit({"tests/x.rs": "x3\n"}, "tests only again")
+        self.plat(run_commit=self.git("rev-parse", "HEAD~1"))
+        new, _, _ = self.fill()
+        self.assertEqual(new["platforms"]["windows-controller"]["run_commit_drift"]["count"], 0)
+        self.assertIn("product drift 0 files", new["platforms"]["windows-controller"]["label"])
 
 
 class SkipTargetsAndFiles(unittest.TestCase):
