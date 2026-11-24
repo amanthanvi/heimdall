@@ -1,0 +1,1 @@
+{"host_started_at":"2026-11-24T00:05:39Z","container":"hm-m08-soak-w2rehearsal6h","image":"hm-m08-soak:1","limits":"network none, 2 CPUs, 2 GiB, 512 pids","host_os":"Darwin arm64"}

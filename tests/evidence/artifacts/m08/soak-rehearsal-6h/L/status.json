@@ -1,0 +1,26 @@
+{
+ "lane": "L",
+ "state": "DONE",
+ "reason": null,
+ "started_at": "2026-11-24T00:05:40Z",
+ "heartbeat_at": "2026-11-24T06:05:41Z",
+ "elapsed_s": 21601.3,
+ "planned_s": 21600,
+ "seed": 1,
+ "tick_s": 60,
+ "totals": {
+  "ticks": 360,
+  "logins_ok": 297,
+  "logins_failed_expected": 63,
+  "logins_failed_unexpected": 0,
+  "connects_ok": 297,
+  "connects_failed": 63,
+  "faults": 42,
+  "unrequested_attempts": 0,
+  "min_attempt_gap_s": 0.003,
+  "recoveries_on_demand": 21,
+  "recoveries_by_explicit_start": 0
+ },
+ "last_sample": null,
+ "not_covered": "grants and expiry, stops, managed and runner lanes, update and rollback, full-volume and damaged-file faults, idle TUI, canaries"
+}

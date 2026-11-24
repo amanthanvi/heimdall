@@ -1,0 +1,18 @@
+lane S: pass | REHEARSAL (not an A34 result), 5.98 h, 360 samples | totals {"ticks": 360, "logins_ok": 270, "logins_failed_expected": 90, "logins_failed_unexpected": 0, "connects_ok": 270, "connects_failed": 90, "faults": 30, "unrequested_attempts": 0, "min_attempt_gap_s": 0.003, "recoveries_on_demand": 0, "recoveries_by_explicit_start": 0}
+  note: resident memory peak 21.6 MiB over 360 samples
+  note: resident memory median early 21.6 MiB, final 21.6 MiB
+  note: memory slope 0.005 MiB/h over 4.99 h
+  note: backups: 114 -> 114 bytes, peak 114, slope 0.0 KiB/h, ceiling reached
+  note: db: 4096 -> 684032 bytes, peak 684032, slope 31.5 KiB/h, ceiling reached
+  note: log: 2105 -> 2105 bytes, peak 2105, slope 0.0 KiB/h, ceiling reached
+  note: other: 5584 -> 5584 bytes, peak 5584, slope 0.0 KiB/h, ceiling reached
+  note: shm: 32768 -> 32768 bytes, peak 32768, slope 0.0 KiB/h, ceiling reached
+  note: wal: 1668632 -> 4120032 bytes, peak 4120032, slope 59.5 KiB/h, ceiling reached
+lane L: pass | REHEARSAL (not an A34 result), 5.98 h, 360 samples | totals {"ticks": 360, "logins_ok": 297, "logins_failed_expected": 63, "logins_failed_unexpected": 0, "connects_ok": 297, "connects_failed": 63, "faults": 42, "unrequested_attempts": 0, "min_attempt_gap_s": 0.003, "recoveries_on_demand": 21, "recoveries_by_explicit_start": 0}
+  note: resident memory peak 21.4 MiB over 339 samples
+  note: backups: 114 -> 114 bytes, peak 114, slope 0.0 KiB/h, ceiling reached
+  note: db: 4096 -> 692224 bytes, peak 692224, slope 29.7 KiB/h, ceiling reached
+  note: log: 2105 -> 16518 bytes, peak 16518, slope 2.3 KiB/h, ceiling reached
+  note: other: 5584 -> 5586 bytes, peak 5586, slope 0.0 KiB/h, ceiling reached
+  note: shm: 32768 -> 32768 bytes, peak 32768, slope 0.0 KiB/h, ceiling reached
+  note: wal: 1668632 -> 601552 bytes, peak 4120032, slope 48.3 KiB/h, ceiling reached
