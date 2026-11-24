@@ -3315,6 +3315,12 @@ mod windows_console {
             "the wrapper's identity check passed on the fixture's agent: {:?}",
             super::diagnostic_tail(console.as_bytes(), root)
         );
+        #[allow(clippy::print_stdout)] // a fact for the native run's report (M07-W9-R02)
+        {
+            println!(
+                "tui standalone console: hm-pinned-ssh: checked: identity agent fixture pipe; refused: none"
+            );
+        }
         assert!(
             console.contains(LOGIN),
             "the fixture command ran on the fixture sshd: {:?}",

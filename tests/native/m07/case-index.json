@@ -227,7 +227,7 @@
           ]
         }
       },
-      "note": "Windows (ConPTY variant): windows_console::windows_tui_standalone_access_and_stop covers the whole journey, the connect handoff (c) included, through the debug pinned-client redirect (HEIMDALL_TEST_PINNED_CLIENT, testkit's hm-pinned-ssh with its argument record) against the harness fixture sshd (HM_FIXTURE_SSHD_*). Observation limit: the console capture does not carry the wrapper's stderr, so its `checked:` line and ssh's exit line are not in the Windows log; the test's own assertions (the argument record, the login count, `tui standalone console: other keys offered: 0`) carry the row (PC job 56 at d3d7afde)."
+      "note": "Windows (ConPTY variant): windows_console::windows_tui_standalone_access_and_stop covers the whole journey, the connect handoff (c) included, through the debug pinned-client redirect (HEIMDALL_TEST_PINNED_CLIENT, testkit's hm-pinned-ssh with its argument record) against the harness fixture sshd (HM_FIXTURE_SSHD_*). The test asserts the wrapper's `hm-pinned-ssh: checked: identity agent fixture pipe` line and the absence of any `refused:` line on the ConPTY capture, and ssh's `exited with status 0` on the drawn frame; PC job 56 at d3d7afde passed it. Job 56's log does not echo those lines (the test printed only `tui standalone console: other keys offered: 0`); since W9's review (M07-W9-R02) the test also prints the `checked:` verdict it found."
     }
   },
   "exit_claims": {}

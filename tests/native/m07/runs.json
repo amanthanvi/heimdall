@@ -132,7 +132,7 @@
       ],
       "summary": "TUI standalone: access and stop through the TUI only; the Windows row on a pseudoconsole (R-UX-05).",
       "limitations": [
-        "Blocked: the Windows TUI's connect handoff and the fixture sshd's login (the TUI starts the in-box ssh.exe directly; the debug pinned-client redirect is honoured only by heimdall connect)."
+        "Windows: the connect handoff (c) runs through the debug pinned-client redirect (HEIMDALL_TEST_PINNED_CLIENT, testkit's hm-pinned-ssh), not the product's pinned in-box ssh.exe directly; the test asserts the wrapper's `checked:` verdict and no `refused:` line on the ConPTY capture, and ssh's exit status 0 on the drawn frame."
       ]
     },
     "A30": {

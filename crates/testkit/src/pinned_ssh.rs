@@ -183,6 +183,14 @@
 //! client opens it, so a server that replaced the runtime's pipe in between would not be
 //! seen; the runtime is the test's own process and outlives the client.
 //!
+//! **A stated test limit (M07 W9 review):** a declared runtime must be the test's own; the
+//! wrapper trusts the declaration. A real Heimdall runtime's `-signing` endpoint passes the
+//! name rule, and the wrapper cannot tell a scratch runtime from a real one: it checks only
+//! that the pipe's server is the process the sidecar names. The test that writes the
+//! declaration makes the difference (A32's driver requires the binding's `SSH_AUTH_SOCK` to
+//! be the lab agent's endpoint and `service status`'s PID to be the test process's own
+//! before it declares anything).
+//!
 //! A passed check writes one line to stderr, `hm-pinned-ssh: checked: identity agent
 //! <kind>`, `<kind>` being `none`, `scratch path`, `fixture pipe` or ⟨M07 W9e⟩ `declared
 //! pipe` (never the value), then starts the client.
