@@ -86,15 +86,16 @@ $replaceHelper = -not $helperOk
     $want = @($d.Fails | Where-Object { $_ -match "W1-F1: a rollback with an incomplete .previous pair refuses" })
     if ($d.Code -eq 0 -or $want.Count -ne 1) { Write-Host "REVERT PROOF FAILED for W1-F1's rollback check: the incomplete-pair case did not fail without it"; $failed = 1 }
 
-    # W2-R04 reverted: the interrupted update decided from which files exist (the W1 rule).
+    # W2-R04 reverted to W2's rule: the interrupted update decided from a leftover staged
+    # executable instead of the marker (review M08-W2-R01).
     $r04 = Between $text "# W2-R04-BEGIN" "# W2-R04-END" @'
-$finishMove = (Kind $cur) -eq 'absent' -and (Kind $prev) -eq 'file' -and (Kind $curH) -eq 'dir' -and (Kind $prevH) -eq 'absent'
+$interruptedUpdate = ((Kind $cur) -eq 'absent') -and ((Kind $new) -eq 'file') -and ((Kind $prev) -eq 'file') -and ((Kind $curH) -eq 'dir') -and ((Kind $prevH) -eq 'absent')
 '@
     $f5 = Join-Path $T "install-r04-reverted.ps1"; [System.IO.File]::WriteAllText($f5, $r04)
     $e = Run $f5
     Write-Host "W2-R04 reverted: exit $($e.Code); failing cases:"; $e.Fails | ForEach-Object { Write-Host "   $_" }
-    $want = @($e.Fails | Where-Object { $_ -match "W2-R04: and a rollback then refuses" })
-    if ($e.Code -eq 0 -or $want.Count -ne 1) { Write-Host "REVERT PROOF FAILED for W2-R04: the mixed-pair rollback did not fail without the fix"; $failed = 1 }
+    $want = @($e.Fails | Where-Object { $_ -match "W2.1-R01: a rerun after a stop at staging is not finished" })
+    if ($e.Code -eq 0 -or $want.Count -ne 1) { Write-Host "REVERT PROOF FAILED for W2-R04/W2.1-R01: the stop-at-staging case did not fail without the marker"; $failed = 1 }
 
     # W2-R07 reverted: the staged helper is not re-checked.
     $r07 = Between $text "# W2-R07-BEGIN" "# W2-R07-END" ""

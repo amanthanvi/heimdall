@@ -21,11 +21,12 @@
 # It needs no administrator rights, edits no PATH, profile or %USERPROFILE%\.ssh, starts
 # nothing and contacts nothing.
 #
-# WHAT IT WILL AND WILL NOT TOUCH. It writes eight names in the prefix: heimdall.exe,
-# heimdall.previous.exe, .heimdall.new.exe, .heimdall.swap.exe, and the WSL helper
+# WHAT IT WILL AND WILL NOT TOUCH. It writes nine names in the prefix: heimdall.exe,
+# heimdall.previous.exe, .heimdall.new.exe, .heimdall.swap.exe, .heimdall.updating, and the WSL helper
 # directories linux-x86_64, linux-x86_64.previous, .linux-x86_64.new, .linux-x86_64.swap.
 # Before any write, each must be absent or exactly what the script expects: a regular file
-# for the four executables, a real directory for the four helper directories. A directory
+# for the four executables and the update marker, a real directory for the four helper
+# directories. A directory
 # where a file belongs, a file where a directory belongs, or a junction, symbolic link or
 # other reparse point at any of them is REFUSED, and nothing is changed (review
 # M08-W01-R01). It never deletes recursively: from a helper directory it removes only the
@@ -77,6 +78,9 @@ $curH = Join-Path $Prefix $helperName
 $prevH = Join-Path $Prefix "$helperName.previous"
 $newH = Join-Path $Prefix ".$helperName.new"
 $swapH = Join-Path $Prefix ".$helperName.swap"
+# Written just before rename 3a and removed after 4b (review M08-W2-R01): the only evidence
+# that an update stopped between its renames. It holds the staged executable's digest.
+$mark = Join-Path $Prefix ".heimdall.updating"
 
 # 'absent', 'file', 'dir' or 'link' (any reparse point: junction, symbolic link, mount point;
 # a dangling link too). Nothing is followed.
@@ -95,7 +99,7 @@ function Kind([string]$p) {
 function Assert-Names {
     $pk = Kind $Prefix
     if ($pk -ne 'absent' -and $pk -ne 'dir') { Die "$Prefix is a $pk, not a directory. Nothing was changed." }
-    foreach ($p in $cur, $prev, $new, $swap) {
+    foreach ($p in $cur, $prev, $new, $swap, $mark) {
         $k = Kind $p
         if ($k -ne 'absent' -and $k -ne 'file') { Die "$p is a $k where this script keeps a file. It was left untouched; remove or move it yourself and run this again. Nothing was changed." }
     }
@@ -385,10 +389,13 @@ $script:helperFiles = @($wantHelper.Keys | Sort-Object)
 Settle-InterruptedRollback
 # An update stopped between the executable's rename (3a) and the helper's (3b) leaves: no
 # current executable, the previous executable, the old helper still at the current name, no
-# .previous helper, and the run's own staged executable. That last one is what tells it from
-# a lost executable beside an older .previous one (review M08-W1-R04), so it is decided here,
-# before the leftovers are cleared.
-$interruptedUpdate = ((Kind $cur) -eq 'absent') -and ((Kind $new) -eq 'file') -and ((Kind $prev) -eq 'file') -and ((Kind $curH) -eq 'dir') -and ((Kind $prevH) -eq 'absent')
+# .previous helper, and its own marker file. Only the marker tells it from a lost executable
+# beside an older .previous one: a staged .heimdall.new.exe does not, because a run stopped
+# after staging (or one whose cleanup could not delete it) leaves one too (review M08-W2-R01,
+# reopening W1-R04).
+# W2-R04-BEGIN (the revert proof replaces the marker with the leftover staged file)
+$interruptedUpdate = ((Kind $mark) -eq 'file') -and ((Kind $cur) -eq 'absent') -and ((Kind $prev) -eq 'file') -and ((Kind $curH) -eq 'dir') -and ((Kind $prevH) -eq 'absent')
+# W2-R04-END
 # Leftovers of an interrupted install: a staged file is removed as a file; a staged helper
 # directory only through Remove-OwnedHelper.
 if ((Kind $new) -eq 'file') { [System.IO.File]::Delete($new); Say "removed a leftover staged file from an interrupted run" }
@@ -414,13 +421,13 @@ if ($exeOk -and $helperOk) { Say "this version is already installed at $cur"; ex
 # after the executable's rename and before the helper's leaves the old helper at the current
 # name, with no current executable and no .previous helper. Finish that rename first, so the
 # old pair is complete under the .previous names (M08-W1-F1).
-# W2-R04-BEGIN (the revert proof replaces the recorded evidence with file presence alone)
-$finishMove = $interruptedUpdate
-# W2-R04-END
-if (-not $exeOk -and $finishMove) {
+if (-not $exeOk -and $interruptedUpdate) {
     [System.IO.Directory]::Move($curH, $prevH)
     Say "finished an interrupted update: the previous pair is complete under the .previous names"
 }
+# A marker that no longer describes an interrupted update (its run finished or was undone) is
+# removed; it is this script's own file.
+if ((Kind $mark) -eq 'file') { [System.IO.File]::Delete($mark) }
 
 # M08-W1-F1. Two kinds of run, never mixed:
 #   update  the executable is not this version. The whole current pair moves to the
@@ -483,6 +490,7 @@ try {
         # the revert proof can take the pair rule out by its marker block alone.)
         if ($replaceHelper) { Remove-OwnedHelper $prevH }
         if ((Kind $prev) -eq 'file') { [System.IO.File]::Delete($prev) }
+        [System.IO.File]::WriteAllText($mark, "$wantExe`n")
         Move-Recorded $cur $prev "3a"
         if ($replaceHelper -and (Kind $curH) -ne 'absent') { Move-Recorded $curH $prevH "3b" }
     } elseif ($replaceHelper) {
@@ -491,9 +499,11 @@ try {
     # 4. Put the staged halves in place.
     if ($stageExe) { Move-Recorded $new $cur "4a" }
     if ($stageHelper) { Move-Recorded $newH $curH "4b" }
+    if ((Kind $mark) -eq 'file') { [System.IO.File]::Delete($mark) }
 } catch {
     $why = $_.Exception.Message
     Undo-Recorded
+    if ((Kind $mark) -eq 'file') { [System.IO.File]::Delete($mark) }
     if ((Kind $new) -eq 'file') { [System.IO.File]::Delete($new) }
     Remove-OwnedHelper $newH
     if (-not $update) { Die "the helper repair failed: $why. The executable is unchanged; the helper may now be missing. Run this script again to repair it." }

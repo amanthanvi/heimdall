@@ -255,6 +255,27 @@ try {
     $r = Install $a2 $LP
     Check "W2 (PC job 47): with a complete pair under .previous, the install says -Rollback puts it back" (($r.Out -match "previous pair is kept under the .previous names") -and ($r.Out -notmatch "will refuse it"))
 
+    # --- W2.1 (review M08-W2-R01): the same state, then a run stopped after staging. Its leftover
+    # .heimdall.new.exe must not be read as an update interrupted between its renames.
+    $L4b = Join-Path $T "prefix-w2r01"; [void](Install $a2 $L4b)
+    [System.IO.File]::WriteAllText((Join-Path $L4b "heimdall.previous.exe"), "fake heimdall 1.0.0-nohelper")
+    [System.IO.File]::Delete((Join-Path $L4b "heimdall.exe"))
+    [void](Install $a2 $L4b @() @{ HM_INSTALL_TEST_STOP_AFTER = "1" })
+    Check "W2.1-R01: (a run stopped after staging leaves .heimdall.new.exe)" (Test-Path -LiteralPath (Join-Path $L4b ".heimdall.new.exe"))
+    $r = Install $a2 $L4b
+    Check "W2.1-R01: a rerun after a stop at staging is not finished as an interrupted update" (($r.Code -eq 0) -and ($r.Out -notmatch "finished an interrupted update") -and ((PrevHelper $L4b) -eq "") -and ((Pair $L4b) -eq (V "2.0.0")))
+    $r = Install $a2 $L4b @("-Rollback")
+    Check "W2.1-R01: and the rollback that follows refuses, pairing nothing" (($r.Code -eq 1) -and ((Pair $L4b) -eq (V "2.0.0")) -and -not (Test-Path -LiteralPath (Join-Path $L4b ".heimdall.updating")))
+    $L4c = Join-Path $T "prefix-w2r01-marker"; [void](Install $a1 $L4c)
+    [void](Install $a2 $L4c @() @{ HM_INSTALL_TEST_STOP_AFTER = "3a" })
+    Check "W2.1-R01: an update stopped after rename 3a leaves its marker" (Test-Path -LiteralPath (Join-Path $L4c ".heimdall.updating"))
+    $r = Install $a2 $L4c
+    Check "W2.1-R01: and the rerun finishes it and removes the marker" (($r.Code -eq 0) -and ($r.Out -match "finished an interrupted update") -and ((Pair $L4c) -eq (V "2.0.0")) -and ((PrevPair $L4c) -eq (V "1.0.0")) -and -not (Test-Path -LiteralPath (Join-Path $L4c ".heimdall.updating")))
+    $D7 = Join-Path $T "prefix-markdir"; [void](Install $a1 $D7)
+    [void][System.IO.Directory]::CreateDirectory((Join-Path $D7 ".heimdall.updating"))
+    $r = Install $a2 $D7
+    Check "W2.1-R01: a directory at the marker's name is refused and nothing changes" (($r.Code -eq 1) -and ($r.Out -match "left untouched") -and ((Pair $D7) -eq (V "1.0.0")))
+
     # --- W2 (review M08-W1-R05): a repair whose last rename fails says what it left.
     $L5 = Join-Path $T "prefix-r05"; [void](Install $a2 $L5)
     [System.IO.File]::WriteAllText((P $L5 @("linux-x86_64", "heimdall")), "damaged helper")

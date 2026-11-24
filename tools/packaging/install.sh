@@ -88,13 +88,24 @@ runtime_state() {
 # relative --prefix, a prefix through a symbolic link, or a process started through a link
 # to the installed file all match. Each of the first two words of a process's command line
 # (the executable, or the interpreter and its script) that is an absolute path is checked.
+# The names are also compared as strings, as given and with the directory resolved (review
+# M08-W2-R04): when the installed file has been moved or deleted, `-ef` has no file to
+# compare, but a process started from it still shows its path. Both sides have their
+# directory resolved, so a relative or linked prefix still matches.
 # Not covered, and said: a process started through a relative path or by name from PATH
 # shows no absolute path, and is caught only by the runtime query that follows.
 live_from_cur() {
+    curabs=$(cd -P -- "$(dirname -- "$cur")" 2>/dev/null && pwd -P) && curabs=$curabs/heimdall || curabs=$cur
     ps -u "$(id -u)" -o pid= -o args= 2>/dev/null | while read -r pid w1 w2 rest; do
         [ "$pid" != "$$" ] || continue
         for w in "$w1" "$w2"; do
-            case "$w" in /*) if [ "$w" -ef "$cur" ]; then echo "$pid"; break; fi ;; esac
+            case "$w" in /*) ;; *) continue ;; esac
+            if [ "$w" = "$cur" ] || [ "$w" = "$curabs" ] || [ "$w" -ef "$cur" ]; then echo "$pid"; break; fi
+            # A path through a linked directory: resolve its directory too (only for a word
+            # naming `heimdall`, so the process list costs one subshell per candidate).
+            [ "${w##*/}" = heimdall ] || continue
+            wabs=$(cd -P -- "${w%/*}/" 2>/dev/null && pwd -P) || continue
+            if [ "$wabs/heimdall" = "$curabs" ]; then echo "$pid"; break; fi
         done
     done
 }
