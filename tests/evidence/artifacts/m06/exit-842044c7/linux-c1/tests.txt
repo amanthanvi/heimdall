@@ -1,0 +1,1143 @@
+### integration_connections
+
+running 43 tests
+test closing_matrix_is_the_d8_table ... ok
+test unix::descendant_walk_never_admits_a_child_under_a_reused_parent ... ok
+test unix::enabling_masters_needs_decision_and_setup_apply ... ok
+test unix::forward_through_master_refused_without_permit_port_forwarding ... ok
+test unix::concurrent_starts_of_one_slot_are_serialized ... ok
+test unix::foreign_master_at_stable_path_never_serves_after_revocation ... ok
+test unix::master_socket_removed_only_if_same_inode ... ok
+test unix::no_leftover_processes ... ok
+test unix::master_start_failure_retried_bounded_jittered_and_clients_connect_directly ... ok
+test unix::owned_connections_rows_cleared_on_exit ... ok
+test unix::ordinary_client_uses_owned_master_when_present_direct_otherwise ... ok
+test unix::owned_master_admits_sessions_before_deadline ... ok
+test unix::owned_master_closed_at_deadline_new_mux_session_refused ... ok
+test unix::owned_master_pins_fork_after_authentication_no ... ok
+test unix::owned_row_invariant_checked_at_insertion ... ok
+test unix::panic_with_store_failure_leaks_no_process ... ok
+test unix::pass_discovery_failures_are_explicit ... ok
+test unix::preaccepted_control_connection_closed_with_master ... ok
+test unix::process_that_execs_another_image_during_grace_is_not_killed ... ok
+test unix::remote_command_stalled_after_its_pidfile_leaves_no_process ... ok
+test unix::remote_process_survives_close_reported_not_terminated ... ok
+test unix::remote_command_stalled_before_its_pidfile_leaves_no_process ... ok
+test unix::restart_without_accepted_time_closes_masters ... ok
+test unix::revocation_closes_dedicated_under_both_policies ... ok
+test unix::run_of_non_ssh_program_reports_existing_connections_not_controlled ... ok
+test unix::runtime_restart_closes_masters_of_ended_grants_first ... ok
+test unix::slot_transfer_during_spawn_leaves_no_recorded_master ... ok
+test unix::o_stop_and_o_exit_behaviour_recorded_per_client ... ok
+test unix::start_master_refused_for_non_holder ... ok
+test unix::graceful_keeps_dedicated_connection_after_deadline_and_new_auth_refused ... ok
+test unix::strict_close_races_child_exit_cleanly ... ok
+test unix::strict_closes_dedicated_connection_at_deadline ... ok
+test unix::time_uncertain_closes_masters_keeps_graceful_dedicated ... ok
+test unix::two_successive_bindings_share_the_slot_mux_path_through_ordinary_ssh ... ok
+test unix::unix_failed_exec_is_not_an_owned_connection ... ok
+test unix::unix_connection_row_is_holder_pid_with_verified_image ... ok
+test unix::unix_revoke_between_bind_and_exec_not_signalled_then_closed_after_exec ... ok
+test unix::unmanaged_alias_master_reported_not_controlled ... ok
+test unix::unsafe_mux_directory_refuses_the_start_unrepaired ... ok
+test unix::unverifiable_holder_never_signalled ... ok
+test unix::user_controlmaster_ignored_for_managed_alias ... ok
+test unix::restart_closes_master_whose_deadline_passed_while_absent ... ok
+test unix::stale_close_never_controls_a_replacement_listener ... ok
+
+successes:
+
+---- unix::forward_through_master_refused_without_permit_port_forwarding stdout ----
+m03 observation: forward_through_master control_exit=Some(0) listener=true banner_through_forward=false
+m03 observation: forward_through_master server_lines=0
+
+---- unix::foreign_master_at_stable_path_never_serves_after_revocation stdout ----
+m03 observation: foreign_master_after_revocation ordinary_exit=Some(0) new_auth=true
+
+---- unix::panic_with_store_failure_leaks_no_process stdout ----
+
+thread '<unnamed>' (1428496) panicked at crates/runtime/../../tests/integration/connections.rs:2856:13:
+forced panic with the master up and the store failing
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- unix::remote_command_stalled_after_its_pidfile_leaves_no_process stdout ----
+m03 observation: stalled_remote_command stall=AfterPidfile pid=1428591 token=2e7a23db-b46c-4752-9061-22fcf4233b6e:329868724
+
+---- unix::remote_process_survives_close_reported_not_terminated stdout ----
+m03 observation: remote_process_after_close alive=true reported=NotTerminated
+
+---- unix::remote_command_stalled_before_its_pidfile_leaves_no_process stdout ----
+m03 observation: stalled_remote_command stall=BeforePidfile pid=1428621 token=2e7a23db-b46c-4752-9061-22fcf4233b6e:329868775
+
+---- unix::run_of_non_ssh_program_reports_existing_connections_not_controlled stdout ----
+m03 observation: run_non_ssh existing_connections=NotControlled
+
+---- unix::o_stop_and_o_exit_behaviour_recorded_per_client stdout ----
+m03 observation: o_stop client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" exit=Some(0) master_alive=true preaccepted_alive=true socket_left=false new_session_exit=Some(0) new_session_new_auth=true o_exit_after_stop_exit=Some(255)
+m03 observation: o_exit client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" exit=Some(0) master_gone=true preaccepted_ended=true socket_left=false
+
+---- unix::unmanaged_alias_master_reported_not_controlled stdout ----
+m03 observation: unmanaged_alias_master owned=false reported=NotControlled
+
+
+successes:
+    closing_matrix_is_the_d8_table
+    unix::concurrent_starts_of_one_slot_are_serialized
+    unix::descendant_walk_never_admits_a_child_under_a_reused_parent
+    unix::enabling_masters_needs_decision_and_setup_apply
+    unix::foreign_master_at_stable_path_never_serves_after_revocation
+    unix::forward_through_master_refused_without_permit_port_forwarding
+    unix::graceful_keeps_dedicated_connection_after_deadline_and_new_auth_refused
+    unix::master_socket_removed_only_if_same_inode
+    unix::master_start_failure_retried_bounded_jittered_and_clients_connect_directly
+    unix::no_leftover_processes
+    unix::o_stop_and_o_exit_behaviour_recorded_per_client
+    unix::ordinary_client_uses_owned_master_when_present_direct_otherwise
+    unix::owned_connections_rows_cleared_on_exit
+    unix::owned_master_admits_sessions_before_deadline
+    unix::owned_master_closed_at_deadline_new_mux_session_refused
+    unix::owned_master_pins_fork_after_authentication_no
+    unix::owned_row_invariant_checked_at_insertion
+    unix::panic_with_store_failure_leaks_no_process
+    unix::pass_discovery_failures_are_explicit
+    unix::preaccepted_control_connection_closed_with_master
+    unix::process_that_execs_another_image_during_grace_is_not_killed
+    unix::remote_command_stalled_after_its_pidfile_leaves_no_process
+    unix::remote_command_stalled_before_its_pidfile_leaves_no_process
+    unix::remote_process_survives_close_reported_not_terminated
+    unix::restart_closes_master_whose_deadline_passed_while_absent
+    unix::restart_without_accepted_time_closes_masters
+    unix::revocation_closes_dedicated_under_both_policies
+    unix::run_of_non_ssh_program_reports_existing_connections_not_controlled
+    unix::runtime_restart_closes_masters_of_ended_grants_first
+    unix::slot_transfer_during_spawn_leaves_no_recorded_master
+    unix::stale_close_never_controls_a_replacement_listener
+    unix::start_master_refused_for_non_holder
+    unix::strict_close_races_child_exit_cleanly
+    unix::strict_closes_dedicated_connection_at_deadline
+    unix::time_uncertain_closes_masters_keeps_graceful_dedicated
+    unix::two_successive_bindings_share_the_slot_mux_path_through_ordinary_ssh
+    unix::unix_connection_row_is_holder_pid_with_verified_image
+    unix::unix_failed_exec_is_not_an_owned_connection
+    unix::unix_revoke_between_bind_and_exec_not_signalled_then_closed_after_exec
+    unix::unmanaged_alias_master_reported_not_controlled
+    unix::unsafe_mux_directory_refuses_the_start_unrepaired
+    unix::unverifiable_holder_never_signalled
+    unix::user_controlmaster_ignored_for_managed_alias
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.20s
+
+### integration_connections exit=0
+### integration_credential_cert
+
+running 17 tests
+test bound_session_requires_matching_session_and_host_key ... ok
+test certificate_profile_matches_adr_0005_3_4 ... ok
+test key_blob_not_grant_key_refused ... ok
+test non_userauth_message_refused ... ok
+test plain_k_env_key_refused_certificate_required ... ok
+test rsa_sha1_flag_on_ed25519_refused ... ok
+test certificate_identity_file_selection_observed_per_client ... ok
+test session_bind_bad_signature_refused ... ok
+test session_bind_forwarding_flag_reported ... ok
+test sshsig_request_refused ... ok
+test trailing_bytes_refused ... ok
+test certificate_accepted_by_fixture_sshd ... ok
+test user_must_match_presented_certificates_pair ... ok
+test wrong_user_refused ... ok
+test cert_validator_refuses_each_deviation ... ok
+test userauth_parsed_for_publickey_and_hostbound ... ok
+test session_bind_verified_for_each_host_key_type ... ok
+
+successes:
+
+---- certificate_identity_file_selection_observed_per_client stdout ----
+m03 observation: identity_file_selection client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" case=a_kenv_file_cert_only exit=Some(255) signed=none
+m03 observation: identity_file_selection client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" case=b_kenv_file_cert_and_plain exit=Some(0) signed=plain
+m03 observation: identity_file_selection client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" case=control_decoy_file_cert_only exit=Some(0) signed=cert
+
+
+successes:
+    bound_session_requires_matching_session_and_host_key
+    cert_validator_refuses_each_deviation
+    certificate_accepted_by_fixture_sshd
+    certificate_identity_file_selection_observed_per_client
+    certificate_profile_matches_adr_0005_3_4
+    key_blob_not_grant_key_refused
+    non_userauth_message_refused
+    plain_k_env_key_refused_certificate_required
+    rsa_sha1_flag_on_ed25519_refused
+    session_bind_bad_signature_refused
+    session_bind_forwarding_flag_reported
+    session_bind_verified_for_each_host_key_type
+    sshsig_request_refused
+    trailing_bytes_refused
+    user_must_match_presented_certificates_pair
+    userauth_parsed_for_publickey_and_hostbound
+    wrong_user_refused
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.26s
+
+### integration_credential_cert exit=0
+### integration_doctor
+
+running 25 tests
+test a21_agent_level_sends_only_request_identities ... ok
+test a21_change_then_revert_is_undetected_and_inventory_never_complete ... ok
+test a21_evaluate_authorized_runs_hooks_and_claims_no_exclusion ... ok
+test a21_authentication_level_single_identity_fixture_signs_exactly_once ... ok
+test a21_evaluate_declined_without_allow_config_commands ... ok
+test a21_default_doctor_runs_no_exec_no_agent_no_network_no_mutation ... ok
+test a21_fifo_include_does_not_block ... ok
+test a21_host_verification_requires_authorization_with_or_without_constructs ... ok
+test a21_host_verification_offers_nothing_to_sign ... ok
+test a21_inert_config_still_requires_allow_config_commands ... ok
+test a21_match_exec_inserted_after_static_pass_never_runs_unauthorized ... ok
+test a21_network_level_reads_banner_only ... ok
+test a21_new_glob_member_after_static_pass_is_reported_and_never_listed ... ok
+test a21_local_queries_listed_and_off_with_no_local_exec ... ok
+test a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity ... ok
+test a21_agent_that_never_replies_times_out ... ok
+test doctor_lists_config_files_and_include_failures_as_written ... ok
+test a21_unreadable_include_declines_even_with_authorization ... ok
+test doctor_reports_identity_selection_not_exclusive_with_remedy ... ok
+test doctor_shows_a_file_outside_the_home_as_written ... ok
+test doctor_reads_localuser_from_the_account_database ... ok
+test doctor_says_when_an_existing_access_aliass_routes_are_not_used_by_ordinary_ssh ... ok
+test home_resolution_matches_ssh_g ... ok
+test home_mismatch_makes_a_home_relative_include_not_fully_readable ... ok
+test a21_hanging_match_exec_killed_with_group_at_timeout ... ok
+
+successes:
+
+---- home_resolution_matches_ssh_g stdout ----
+observation test=home_resolution_matches_ssh_g percent_d_is_account_home=true include_tilde_follows_HOME=true
+
+
+successes:
+    a21_agent_level_sends_only_request_identities
+    a21_agent_that_never_replies_times_out
+    a21_authentication_level_single_identity_fixture_signs_exactly_once
+    a21_change_then_revert_is_undetected_and_inventory_never_complete
+    a21_default_doctor_runs_no_exec_no_agent_no_network_no_mutation
+    a21_evaluate_authorized_runs_hooks_and_claims_no_exclusion
+    a21_evaluate_declined_without_allow_config_commands
+    a21_fifo_include_does_not_block
+    a21_hanging_match_exec_killed_with_group_at_timeout
+    a21_host_verification_offers_nothing_to_sign
+    a21_host_verification_requires_authorization_with_or_without_constructs
+    a21_inert_config_still_requires_allow_config_commands
+    a21_local_queries_listed_and_off_with_no_local_exec
+    a21_match_exec_inserted_after_static_pass_never_runs_unauthorized
+    a21_network_level_reads_banner_only
+    a21_new_glob_member_after_static_pass_is_reported_and_never_listed
+    a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity
+    a21_unreadable_include_declines_even_with_authorization
+    doctor_lists_config_files_and_include_failures_as_written
+    doctor_reads_localuser_from_the_account_database
+    doctor_reports_identity_selection_not_exclusive_with_remedy
+    doctor_says_when_an_existing_access_aliass_routes_are_not_used_by_ordinary_ssh
+    doctor_shows_a_file_outside_the_home_as_written
+    home_mismatch_makes_a_home_relative_include_not_fully_readable
+    home_resolution_matches_ssh_g
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.09s
+
+### integration_doctor exit=0
+### integration_enroll_registry
+
+running 247 tests
+test docker_bash_sh::admin_append_between_inspect_and_append_preserved ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::admin_append_without_newline_in_append_window_detected_damaged ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::admin_edit_before_final_check_remove_restarts ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::admin_edit_inside_remove_window_is_lost ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::append_creates_registry_exclusively_mode_0600 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::append_idempotent_by_marker_exit_10 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::append_newline_decided_at_append_time ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::bootstrap_missing_parent_exit_33_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::bootstrap_refuses_symlink_or_foreign_owner ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::busy_lock_changes_nothing_exit_40 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::fence_decision_ignores_diagnostics_uses_exit_status ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::foreign_owned_registry_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::group_probe_and_listing_disagreement_is_unproven ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::group_probe_and_listing_per_target_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::group_probe_permission_failure_is_unproven ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::group_probe_syntax_error_is_unproven ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::group_writable_dir_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::hardlinked_registry_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::holder_is_process_group_leader_per_target ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::inspect_reports_metadata_and_content ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::late_write_residual_cleared_only_by_inspect_after_not_after ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::leader_absent_live_mutation_child_never_gone_per_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::listing_without_own_group_is_unproven ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::lock_lost_changes_nothing_exit_42 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::lock_records_holder_pid_start_and_boot_identity ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::lock_symlink_is_exclusive_per_target ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::missing_registry_dir_is_exit_32_not_busy ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::non_ascii_registry_bytes_per_target_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::non_posix_or_noisy_login_refused_as_registry_unsupported ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::not_after_passed_changes_nothing_exit_41 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::other_enrollments_lock_is_busy_never_broken ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::procstat_fixtures_rust_and_awk_agree ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::procstat_live_comm_fixtures_per_linux_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::registry_dir_bootstrap_journaled_shown_in_plan_then_locked ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::registry_protocol_on_target_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::registry_too_large_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::remote_clock_reading_per_target ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::remove_compare_then_rename_preserves_unrelated_bytes ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::retry_after_lost_reply_never_appends_twice ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::reused_pid_with_empty_group_is_gone_by_agreement ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::reused_pid_with_live_foreign_group_is_unproven_never_signalled ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::rotation_add_preserves_admin_edit ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::script_started_after_not_after_writes_nothing_exit_41 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::shell_table_matches_round4_observed_rows ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::ssh_killed_before_append_reconciled_not_applied ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::stale_lock_broken_only_after_holder_proven_gone ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::start_identity_per_target_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::stopped_holder_ended_by_kill ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::symlinked_registry_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::terminate_then_unproven_reports_signals_sent_exit_44 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::three_compare_failures_give_registry_changed ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::truncated_script_does_nothing_at_every_truncation_point ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::unprovable_holder_held_for_manual_recovery_never_redispatched ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_bash_sh::writer_paused_just_before_write_no_duplicate_no_loss ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::admin_append_between_inspect_and_append_preserved ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::admin_append_without_newline_in_append_window_detected_damaged ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::admin_edit_before_final_check_remove_restarts ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::admin_edit_inside_remove_window_is_lost ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::append_creates_registry_exclusively_mode_0600 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::append_idempotent_by_marker_exit_10 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::append_newline_decided_at_append_time ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::bootstrap_missing_parent_exit_33_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::bootstrap_refuses_symlink_or_foreign_owner ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::busy_lock_changes_nothing_exit_40 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::busybox_append_and_remove_run_with_proc_process_group ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::busybox_fence_always_unproven_manual_recovery ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::fence_decision_ignores_diagnostics_uses_exit_status ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::foreign_owned_registry_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::group_probe_and_listing_disagreement_is_unproven ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::group_probe_and_listing_per_target_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::group_probe_permission_failure_is_unproven ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::group_probe_syntax_error_is_unproven ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::group_writable_dir_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::hardlinked_registry_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::holder_is_process_group_leader_per_target ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::inspect_reports_metadata_and_content ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::late_write_residual_cleared_only_by_inspect_after_not_after ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::leader_absent_live_mutation_child_never_gone_per_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::listing_without_own_group_is_unproven ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::lock_lost_changes_nothing_exit_42 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::lock_records_holder_pid_start_and_boot_identity ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::lock_symlink_is_exclusive_per_target ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::missing_registry_dir_is_exit_32_not_busy ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::non_ascii_registry_bytes_per_target_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::non_posix_or_noisy_login_refused_as_registry_unsupported ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::not_after_passed_changes_nothing_exit_41 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::other_enrollments_lock_is_busy_never_broken ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::procstat_fixtures_rust_and_awk_agree ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::procstat_live_comm_fixtures_per_linux_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::registry_dir_bootstrap_journaled_shown_in_plan_then_locked ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::registry_protocol_on_target_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::registry_too_large_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::remote_clock_reading_per_target ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::remove_compare_then_rename_preserves_unrelated_bytes ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::retry_after_lost_reply_never_appends_twice ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::reused_pid_with_empty_group_is_gone_by_agreement ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::reused_pid_with_live_foreign_group_is_unproven_never_signalled ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::rotation_add_preserves_admin_edit ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::script_started_after_not_after_writes_nothing_exit_41 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::shell_table_matches_round4_observed_rows ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::ssh_killed_before_append_reconciled_not_applied ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::stale_lock_broken_only_after_holder_proven_gone ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::start_identity_per_target_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::stopped_holder_ended_by_kill ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::symlinked_registry_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::terminate_then_unproven_reports_signals_sent_exit_44 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::three_compare_failures_give_registry_changed ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::truncated_script_does_nothing_at_every_truncation_point ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::unprovable_holder_held_for_manual_recovery_never_redispatched ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_busybox::writer_paused_just_before_write_no_duplicate_no_loss ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::admin_append_between_inspect_and_append_preserved ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::admin_append_without_newline_in_append_window_detected_damaged ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::admin_edit_before_final_check_remove_restarts ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::admin_edit_inside_remove_window_is_lost ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::append_creates_registry_exclusively_mode_0600 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::append_idempotent_by_marker_exit_10 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::append_newline_decided_at_append_time ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::bootstrap_missing_parent_exit_33_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::bootstrap_refuses_symlink_or_foreign_owner ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::busy_lock_changes_nothing_exit_40 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::fence_decision_ignores_diagnostics_uses_exit_status ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::foreign_owned_registry_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::group_probe_and_listing_disagreement_is_unproven ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::group_probe_and_listing_per_target_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::group_probe_permission_failure_is_unproven ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::group_probe_syntax_error_is_unproven ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::group_writable_dir_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::hardlinked_registry_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::holder_is_process_group_leader_per_target ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::inspect_reports_metadata_and_content ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::late_write_residual_cleared_only_by_inspect_after_not_after ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::leader_absent_live_mutation_child_never_gone_per_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::listing_without_own_group_is_unproven ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::lock_lost_changes_nothing_exit_42 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::lock_records_holder_pid_start_and_boot_identity ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::lock_symlink_is_exclusive_per_target ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::missing_registry_dir_is_exit_32_not_busy ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::non_ascii_registry_bytes_per_target_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::non_posix_or_noisy_login_refused_as_registry_unsupported ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::not_after_passed_changes_nothing_exit_41 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::other_enrollments_lock_is_busy_never_broken ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::procstat_fixtures_rust_and_awk_agree ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::procstat_live_comm_fixtures_per_linux_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::registry_dir_bootstrap_journaled_shown_in_plan_then_locked ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::registry_protocol_on_target_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::registry_too_large_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::remote_clock_reading_per_target ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::remove_compare_then_rename_preserves_unrelated_bytes ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::retry_after_lost_reply_never_appends_twice ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::reused_pid_with_empty_group_is_gone_by_agreement ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::reused_pid_with_live_foreign_group_is_unproven_never_signalled ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::rotation_add_preserves_admin_edit ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::script_started_after_not_after_writes_nothing_exit_41 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::shell_table_matches_round4_observed_rows ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::ssh_killed_before_append_reconciled_not_applied ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::stale_lock_broken_only_after_holder_proven_gone ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::start_identity_per_target_shell ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::stopped_holder_ended_by_kill ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::symlinked_registry_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::terminate_then_unproven_reports_signals_sent_exit_44 ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::three_compare_failures_give_registry_changed ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::truncated_script_does_nothing_at_every_truncation_point ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::unprovable_holder_held_for_manual_recovery_never_redispatched ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_dash::writer_paused_just_before_write_no_duplicate_no_loss ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_debian_dash::acl_indicator_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test docker_debian_dash::foreign_owned_registry_refused ... ignored, docker: run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored
+test golden::release_scripts_match_golden_and_have_no_pause_points ... ok
+test native_sh::admin_edit_inside_remove_window_is_lost ... ok
+test native_sh::admin_append_without_newline_in_append_window_detected_damaged ... ok
+test native_sh::admin_append_between_inspect_and_append_preserved ... ok
+test native_sh::admin_edit_before_final_check_remove_restarts ... ok
+test native_sh::bootstrap_missing_parent_exit_33_refused ... ok
+test native_sh::append_creates_registry_exclusively_mode_0600 ... ok
+test native_sh::append_idempotent_by_marker_exit_10 ... ok
+test native_sh::busy_lock_changes_nothing_exit_40 ... ok
+test native_sh::bootstrap_refuses_symlink_or_foreign_owner ... ok
+test native_sh::append_newline_decided_at_append_time ... ok
+test native_sh::fence_decision_ignores_diagnostics_uses_exit_status ... ok
+test native_sh::group_probe_and_listing_per_target_shell ... ok
+test native_sh::group_writable_dir_refused ... ok
+test native_sh::hardlinked_registry_refused ... ok
+test native_sh::group_probe_and_listing_disagreement_is_unproven ... ok
+test native_sh::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss ... ok
+test native_sh::holder_is_process_group_leader_per_target ... ok
+test native_sh::group_probe_syntax_error_is_unproven ... ok
+test native_sh::inspect_reports_metadata_and_content ... ok
+test native_sh::listing_without_own_group_is_unproven ... ok
+test native_sh::lock_lost_changes_nothing_exit_42 ... ok
+test native_sh::lock_records_holder_pid_start_and_boot_identity ... ok
+test native_sh::lock_symlink_is_exclusive_per_target ... ok
+test native_sh::missing_registry_dir_is_exit_32_not_busy ... ok
+test native_sh::non_ascii_registry_bytes_per_target_shell ... ok
+test native_sh::non_posix_or_noisy_login_refused_as_registry_unsupported ... ok
+test native_sh::not_after_passed_changes_nothing_exit_41 ... ok
+test native_sh::leader_absent_live_mutation_child_never_gone_per_shell ... ok
+test native_sh::procstat_fixtures_rust_and_awk_agree ... ok
+test native_sh::procstat_live_comm_fixtures_per_linux_shell ... ok
+test native_sh::registry_dir_bootstrap_journaled_shown_in_plan_then_locked ... ok
+test native_sh::registry_protocol_on_target_shell ... ok
+test native_sh::registry_too_large_refused ... ok
+test native_sh::remote_clock_reading_per_target ... ok
+test native_sh::remove_compare_then_rename_preserves_unrelated_bytes ... ok
+test native_sh::retry_after_lost_reply_never_appends_twice ... ok
+test native_sh::reused_pid_with_empty_group_is_gone_by_agreement ... ok
+test native_sh::reused_pid_with_live_foreign_group_is_unproven_never_signalled ... ok
+test native_sh::rotation_add_preserves_admin_edit ... ok
+test native_sh::script_started_after_not_after_writes_nothing_exit_41 ... ok
+test native_sh::shell_table_matches_round4_observed_rows ... ok
+test native_sh::ssh_killed_before_append_reconciled_not_applied ... ok
+test native_sh::stale_lock_broken_only_after_holder_proven_gone ... ok
+test native_sh::start_identity_per_target_shell ... ok
+test native_sh::late_write_residual_cleared_only_by_inspect_after_not_after ... ok
+test native_sh::other_enrollments_lock_is_busy_never_broken ... ok
+test native_sh::symlinked_registry_refused ... ok
+test native_sh::three_compare_failures_give_registry_changed ... ok
+test native_sh::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone ... ok
+test native_sh::terminate_then_unproven_reports_signals_sent_exit_44 ... ok
+test native_sh::truncated_script_does_nothing_at_every_truncation_point ... ok
+test native_sh::unprovable_holder_held_for_manual_recovery_never_redispatched ... ok
+test native_sshd::append_creates_registry_exclusively_mode_0600 ... ok
+test native_sshd::append_idempotent_by_marker_exit_10 ... ok
+test native_sshd::bootstrap_missing_parent_exit_33_refused ... ok
+test native_sshd::append_newline_decided_at_append_time ... ok
+test native_sh::stopped_holder_ended_by_kill ... ok
+test native_sshd::bootstrap_refuses_symlink_or_foreign_owner ... ok
+test native_sshd::holder_is_process_group_leader_per_target ... ok
+test native_sshd::hardlinked_registry_refused ... ok
+test native_sshd::group_writable_dir_refused ... ok
+test native_sshd::inspect_reports_metadata_and_content ... ok
+test native_sshd::lock_symlink_is_exclusive_per_target ... ok
+test native_sshd::missing_registry_dir_is_exit_32_not_busy ... ok
+test native_sshd::non_ascii_registry_bytes_per_target_shell ... ok
+test native_sshd::non_posix_or_noisy_login_refused_as_registry_unsupported ... ok
+test native_sshd::registry_dir_bootstrap_journaled_shown_in_plan_then_locked ... ok
+test native_sshd::remote_clock_reading_per_target ... ok
+test native_sshd::remove_compare_then_rename_preserves_unrelated_bytes ... ok
+test native_sshd::registry_protocol_on_target_shell ... ok
+test native_sshd::registry_too_large_refused ... ok
+test native_sshd::start_identity_per_target_shell ... ok
+test native_sshd::symlinked_registry_refused ... ok
+test native_sh::writer_paused_just_before_write_no_duplicate_no_loss ... ok
+
+successes:
+
+---- native_sh::admin_edit_inside_remove_window_is_lost stdout ----
+admin_edit_inside_remove_window_is_lost: shell=Native: DISCLOSED LIMITATION reproduced (the write between cmp and mv is lost)
+
+---- native_sh::group_probe_and_listing_per_target_shell stdout ----
+group_probe_and_listing_per_target_shell: shell=Native live: C=0 K=0 listed=yes fence=alive | empty: C=0 K=1 listed=no fence=gone
+
+---- native_sh::procstat_live_comm_fixtures_per_linux_shell stdout ----
+procstat_live_comm_fixtures_per_linux_shell: shell=Native comm="plain" pid=1433902 parser=1433902 329871722 naive_$5="1433902"
+procstat_live_comm_fixtures_per_linux_shell: shell=Native comm="has space" pid=1433921 parser=1433921 329871723 naive_$5="1"
+procstat_live_comm_fixtures_per_linux_shell: shell=Native comm="a ) b ( c" pid=1433940 parser=1433940 329871724 naive_$5="("
+procstat_live_comm_fixtures_per_linux_shell: shell=Native comm=")(" pid=1433959 parser=1433959 329871725 naive_$5="1433959"
+procstat_live_comm_fixtures_per_linux_shell: shell=Native comm="nl\nname" pid=1433978 parser=1433978 329871726 naive_$5="1433978"
+
+---- native_sh::remote_clock_reading_per_target stdout ----
+remote_clock_reading_per_target: shell=Native remote_now=1795530361 local=[1795530361,1795530361] awk_srand_raw=1795530361 (M-F23 reading; U5S-Q1)
+
+---- native_sh::shell_table_matches_round4_observed_rows stdout ----
+shell_table_matches_round4_observed_rows: dash [0.5.12-6ubuntu5]: live child 0/0/0, empty group 0/1/0, invalid syntax 2/2/0 (with `--`: 2/2/0)
+m03 observation: shell_table_row family=dash version="0.5.12-6ubuntu5" control_probe_listing live=0/0/0 empty=0/1/0 invalid=2/2/0 invalid_dashdash=2/2/0 recorded_row=0.5.12-12 matches_recorded_row=true
+
+---- native_sh::start_identity_per_target_shell stdout ----
+start_identity_per_target_shell: shell=Native start="329871828" (token 20 after the last ')' of /proc/$$/stat, clock ticks since boot) boot="2e7a23db-b46c-4752-9061-22fcf4233b6e" (/proc/sys/kernel/random/boot_id)
+
+---- native_sh::truncated_script_does_nothing_at_every_truncation_point stdout ----
+truncated_script_does_nothing_at_every_truncation_point: shell=Native: 48714 prefixes, none ran
+
+---- native_sshd::remote_clock_reading_per_target stdout ----
+remote_clock_reading_per_target: shell=Native remote_now=1795530376 local=[1795530375,1795530376] awk_srand_raw=1795530376 (M-F23 reading; U5S-Q1)
+
+---- native_sshd::start_identity_per_target_shell stdout ----
+start_identity_per_target_shell: shell=Native start="329873286" (token 20 after the last ')' of /proc/$$/stat, clock ticks since boot) boot="2e7a23db-b46c-4752-9061-22fcf4233b6e" (/proc/sys/kernel/random/boot_id)
+
+
+successes:
+    golden::release_scripts_match_golden_and_have_no_pause_points
+    native_sh::admin_append_between_inspect_and_append_preserved
+    native_sh::admin_append_without_newline_in_append_window_detected_damaged
+    native_sh::admin_edit_before_final_check_remove_restarts
+    native_sh::admin_edit_inside_remove_window_is_lost
+    native_sh::append_creates_registry_exclusively_mode_0600
+    native_sh::append_idempotent_by_marker_exit_10
+    native_sh::append_newline_decided_at_append_time
+    native_sh::bootstrap_missing_parent_exit_33_refused
+    native_sh::bootstrap_refuses_symlink_or_foreign_owner
+    native_sh::busy_lock_changes_nothing_exit_40
+    native_sh::fence_decision_ignores_diagnostics_uses_exit_status
+    native_sh::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss
+    native_sh::group_probe_and_listing_disagreement_is_unproven
+    native_sh::group_probe_and_listing_per_target_shell
+    native_sh::group_probe_syntax_error_is_unproven
+    native_sh::group_writable_dir_refused
+    native_sh::hardlinked_registry_refused
+    native_sh::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone
+    native_sh::holder_is_process_group_leader_per_target
+    native_sh::inspect_reports_metadata_and_content
+    native_sh::late_write_residual_cleared_only_by_inspect_after_not_after
+    native_sh::leader_absent_live_mutation_child_never_gone_per_shell
+    native_sh::listing_without_own_group_is_unproven
+    native_sh::lock_lost_changes_nothing_exit_42
+    native_sh::lock_records_holder_pid_start_and_boot_identity
+    native_sh::lock_symlink_is_exclusive_per_target
+    native_sh::missing_registry_dir_is_exit_32_not_busy
+    native_sh::non_ascii_registry_bytes_per_target_shell
+    native_sh::non_posix_or_noisy_login_refused_as_registry_unsupported
+    native_sh::not_after_passed_changes_nothing_exit_41
+    native_sh::other_enrollments_lock_is_busy_never_broken
+    native_sh::procstat_fixtures_rust_and_awk_agree
+    native_sh::procstat_live_comm_fixtures_per_linux_shell
+    native_sh::registry_dir_bootstrap_journaled_shown_in_plan_then_locked
+    native_sh::registry_protocol_on_target_shell
+    native_sh::registry_too_large_refused
+    native_sh::remote_clock_reading_per_target
+    native_sh::remove_compare_then_rename_preserves_unrelated_bytes
+    native_sh::retry_after_lost_reply_never_appends_twice
+    native_sh::reused_pid_with_empty_group_is_gone_by_agreement
+    native_sh::reused_pid_with_live_foreign_group_is_unproven_never_signalled
+    native_sh::rotation_add_preserves_admin_edit
+    native_sh::script_started_after_not_after_writes_nothing_exit_41
+    native_sh::shell_table_matches_round4_observed_rows
+    native_sh::ssh_killed_before_append_reconciled_not_applied
+    native_sh::stale_lock_broken_only_after_holder_proven_gone
+    native_sh::start_identity_per_target_shell
+    native_sh::stopped_holder_ended_by_kill
+    native_sh::symlinked_registry_refused
+    native_sh::terminate_then_unproven_reports_signals_sent_exit_44
+    native_sh::three_compare_failures_give_registry_changed
+    native_sh::truncated_script_does_nothing_at_every_truncation_point
+    native_sh::unprovable_holder_held_for_manual_recovery_never_redispatched
+    native_sh::writer_paused_just_before_write_no_duplicate_no_loss
+    native_sshd::append_creates_registry_exclusively_mode_0600
+    native_sshd::append_idempotent_by_marker_exit_10
+    native_sshd::append_newline_decided_at_append_time
+    native_sshd::bootstrap_missing_parent_exit_33_refused
+    native_sshd::bootstrap_refuses_symlink_or_foreign_owner
+    native_sshd::group_writable_dir_refused
+    native_sshd::hardlinked_registry_refused
+    native_sshd::holder_is_process_group_leader_per_target
+    native_sshd::inspect_reports_metadata_and_content
+    native_sshd::lock_symlink_is_exclusive_per_target
+    native_sshd::missing_registry_dir_is_exit_32_not_busy
+    native_sshd::non_ascii_registry_bytes_per_target_shell
+    native_sshd::non_posix_or_noisy_login_refused_as_registry_unsupported
+    native_sshd::registry_dir_bootstrap_journaled_shown_in_plan_then_locked
+    native_sshd::registry_protocol_on_target_shell
+    native_sshd::registry_too_large_refused
+    native_sshd::remote_clock_reading_per_target
+    native_sshd::remove_compare_then_rename_preserves_unrelated_bytes
+    native_sshd::start_identity_per_target_shell
+    native_sshd::symlinked_registry_refused
+
+test result: ok. 75 passed; 0 failed; 172 ignored; 0 measured; 0 filtered out; finished in 32.51s
+
+### integration_enroll_registry exit=0
+### integration_enroll_verify
+
+running 52 tests
+test cli_child_entry ... ok
+test cli_killed_before_ready_never_sends_script ... ok
+test certificate_file_none_behaviour_recorded_per_client ... ok
+test effective_config_has_every_trust_pin ... ok
+test cli_death_ends_ssh_step_process ... ok
+test bare_cert_authority_line_is_verification_failed ... ok
+test existing_access_endpoint_change_refuses_step ... ok
+test gssapi_key_exchange_pinned_off_where_client_knows_it ... ok
+test existing_access_endpoint_from_catalog_never_ssh_auth_sock ... ok
+test destination_clock_skew_beyond_allowance_inconclusive_no_rollback ... ok
+test heimdall_endpoint_refused_as_existing_access ... ok
+test existing_identity_pin_used_after_projection_switch ... ok
+test host_key_mismatch_is_host_trust_changed_nothing_written ... ok
+test known_host_key_changed_after_approval_refused ... ok
+test known_hosts_command_none_is_a_keyword_per_client ... ok
+test log_attestation_reported_unavailable ... ok
+test maintenance_inside_managed_run_context_zero_managed_signatures ... ok
+test registry_guard_refuses_non_scratch_target ... ok
+test principals_not_enforced_detected_and_rolled_back ... ok
+test maintenance_invocation_never_contacts_heimdall_signer ... ok
+test principals_not_enforced_system_form_via_echoing_principals_command ... ok
+test retry_after_lost_reply_never_appends_twice ... ok
+test runner_refuses_without_spawning ... ok
+test reverification_failure_holds_never_removes ... ok
+test reverification_inconclusive_keeps_verified_with_finding ... ok
+test ssh_killed_before_append_reconciled_not_applied ... ok
+test remote_clock_measurement_bounds_lag ... ok
+test trace_patterns_keyed_by_release_family ... ok
+test step_pins_hostname_port_user_and_host_key ... ok
+test unrecorded_client_family_doctor_finding_names_version ... ok
+test unreachable_after_append_stays_unknown ... ok
+test ssh_killed_after_append_is_uncertain_then_reconciled_applied ... ok
+test user_config_hostname_change_cannot_redirect_append ... ok
+test strict_host_key_checking_overrides_user_accept_new ... ok
+test user_config_proxycommand_added_after_approval_refused ... ok
+test verification_inconclusive_leaves_applied_unverified ... ok
+test verification_known_host_ambiguous_refused ... ok
+test verification_host_key_mismatch_holds_no_rollback ... ok
+test verification_failed_when_server_reads_another_registry ... ok
+test verify_negative_inconclusive_when_port_closed_between_attempts ... ok
+test verify_negative_inconclusive_on_maxstartups_between_attempts ... ok
+test verify_negative_inconclusive_on_maxstartups_during_negative ... ok
+test verify_negative_inconclusive_on_reset ... ok
+test verify_on_account_without_log_access ... ignored, docker: the M00-T03 fixtures (tests/fixtures/ssh/up.sh); run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored verify_on_account_without_log_access
+test verify_negative_inconclusive_when_sshd_stopped_between_attempts ... ok
+test verify_unrecorded_client_trace_is_inconclusive ... ok
+test verify_negative_records_zero_signatures ... ok
+test verify_never_reads_user_config ... ok
+test verify_positive_one_signature_negative_zero ... ok
+test wrong_key_with_inherited_known_hosts_command_refused_before_mutation ... ok
+test wrong_key_with_inherited_no_host_authentication_for_localhost_refused ... ok
+test wrong_key_with_inherited_known_hosts_file_refused_before_mutation ... ok
+
+successes:
+
+---- certificate_file_none_behaviour_recorded_per_client stdout ----
+§17.3 item 2 row: client 9.6p1 — ssh -G certificatefile entries with the pin and an inherited managed file: ["none", "<managed>"]
+
+---- gssapi_key_exchange_pinned_off_where_client_knows_it stdout ----
+Q23 row: client 9.6p1 lists gssapikeyexchange: true
+
+---- known_hosts_command_none_is_a_keyword_per_client stdout ----
+Q22 row: client 9.6p1 — KnownHostsCommand=none is a keyword (PATH program never ran)
+
+---- remote_clock_measurement_bounds_lag stdout ----
+clock row: lag 90 s measured behind_upper_ms 91072 rtt_ms 200
+
+---- verify_positive_one_signature_negative_zero stdout ----
+M-F1 row: client 9.6p1 — positive 1 signature, negative 0, session-binds 2
+
+
+successes:
+    bare_cert_authority_line_is_verification_failed
+    certificate_file_none_behaviour_recorded_per_client
+    cli_child_entry
+    cli_death_ends_ssh_step_process
+    cli_killed_before_ready_never_sends_script
+    destination_clock_skew_beyond_allowance_inconclusive_no_rollback
+    effective_config_has_every_trust_pin
+    existing_access_endpoint_change_refuses_step
+    existing_access_endpoint_from_catalog_never_ssh_auth_sock
+    existing_identity_pin_used_after_projection_switch
+    gssapi_key_exchange_pinned_off_where_client_knows_it
+    heimdall_endpoint_refused_as_existing_access
+    host_key_mismatch_is_host_trust_changed_nothing_written
+    known_host_key_changed_after_approval_refused
+    known_hosts_command_none_is_a_keyword_per_client
+    log_attestation_reported_unavailable
+    maintenance_inside_managed_run_context_zero_managed_signatures
+    maintenance_invocation_never_contacts_heimdall_signer
+    principals_not_enforced_detected_and_rolled_back
+    principals_not_enforced_system_form_via_echoing_principals_command
+    registry_guard_refuses_non_scratch_target
+    remote_clock_measurement_bounds_lag
+    retry_after_lost_reply_never_appends_twice
+    reverification_failure_holds_never_removes
+    reverification_inconclusive_keeps_verified_with_finding
+    runner_refuses_without_spawning
+    ssh_killed_after_append_is_uncertain_then_reconciled_applied
+    ssh_killed_before_append_reconciled_not_applied
+    step_pins_hostname_port_user_and_host_key
+    strict_host_key_checking_overrides_user_accept_new
+    trace_patterns_keyed_by_release_family
+    unreachable_after_append_stays_unknown
+    unrecorded_client_family_doctor_finding_names_version
+    user_config_hostname_change_cannot_redirect_append
+    user_config_proxycommand_added_after_approval_refused
+    verification_failed_when_server_reads_another_registry
+    verification_host_key_mismatch_holds_no_rollback
+    verification_inconclusive_leaves_applied_unverified
+    verification_known_host_ambiguous_refused
+    verify_negative_inconclusive_on_maxstartups_between_attempts
+    verify_negative_inconclusive_on_maxstartups_during_negative
+    verify_negative_inconclusive_on_reset
+    verify_negative_inconclusive_when_port_closed_between_attempts
+    verify_negative_inconclusive_when_sshd_stopped_between_attempts
+    verify_negative_records_zero_signatures
+    verify_never_reads_user_config
+    verify_positive_one_signature_negative_zero
+    verify_unrecorded_client_trace_is_inconclusive
+    wrong_key_with_inherited_known_hosts_command_refused_before_mutation
+    wrong_key_with_inherited_known_hosts_file_refused_before_mutation
+    wrong_key_with_inherited_no_host_authentication_for_localhost_refused
+
+test result: ok. 51 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.86s
+
+### integration_enroll_verify exit=0
+### integration_managed_identity_forms
+
+running 1 test
+test managed_identity_forms_observed_per_client ... ok
+
+successes:
+
+---- managed_identity_forms_observed_per_client stdout ----
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=control exit=Some(0) signed=cert sign_requests=1 accepted_cert_logins=1
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=d10_as_written exit=Some(255) signed=none sign_requests=0 accepted_cert_logins=0
+m03 observation: managed_identity_form_detail form=d10_as_written stderr_tail="@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ | @         WARNING: UNPROTECTED PRIVATE KEY FILE!          @ | @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ | Permissions 0664 for '<scratch>/managed/hm-intq10-dest/key.pub' are too open. | It is required that your private key files are NOT accessible by others. | This private key will be ignored. | Load key \"<scratch>/managed/hm-intq10-dest/key.pub\": bad permissions | <user>@127.0.0.1: Permission denied (publickey)."
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=certificate_as_identity_file exit=Some(0) signed=cert sign_requests=1 accepted_cert_logins=1
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=certificate_as_identity_file_and_certificate_file exit=Some(0) signed=cert sign_requests=1 accepted_cert_logins=1
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=key_stem_with_certificate_only exit=Some(0) signed=cert sign_requests=1 accepted_cert_logins=1
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=decoy_identity_file_and_certificate_file exit=Some(255) signed=none sign_requests=0 accepted_cert_logins=0
+m03 observation: managed_identity_form_detail form=decoy_identity_file_and_certificate_file stderr_tail="@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ | @         WARNING: UNPROTECTED PRIVATE KEY FILE!          @ | @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ | Permissions 0664 for '<scratch>/managed/hm-intq10-dest/cert.pub' are too open. | It is required that your private key files are NOT accessible by others. | This private key will be ignored. | Load key \"<scratch>/managed/hm-intq10-dest/cert.pub\": bad permissions | <user>@127.0.0.1: Permission denied (publickey)."
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=context_d10_as_written_owner_only_files exit=Some(255) signed=none sign_requests=0 accepted_cert_logins=0
+m03 observation: managed_identity_form_detail form=context_d10_as_written_owner_only_files stderr_tail="Load key \"<scratch>/managed-private/hm-intq10-dest/key.pub\": error in libcrypto | <user>@127.0.0.1: Permission denied (publickey)."
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=context_verification_shape_key_and_certificate_listed exit=Some(0) signed=plain sign_requests=1 accepted_cert_logins=1
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=rendered_p_certificate_as_identity_file exit=Some(0) signed=cert sign_requests=1 accepted_cert_logins=1
+
+
+successes:
+    managed_identity_forms_observed_per_client
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.79s
+
+### integration_managed_identity_forms exit=0
+### integration_managed_signer
+
+running 40 tests
+test authorization_timeout_refuses ... ok
+test binding_endpoint_removed_by_generation ... ok
+test add_remove_lock_unlock_smartcard_extension_refused_on_real_signer ... ok
+test binding_endpoint_lists_only_its_grant ... ok
+test crash_after_install_makes_instance_lost_at_restart ... ok
+test deadline_crossed_between_capacity_and_release_check_refused ... ok
+test endpoint_refuses_other_principal_cross_account_linux ... ignored, blocked: B8 (a second Linux account on the <linuxhost>)
+test deadline_crossed_while_enqueue_blocked_nothing_released ... ok
+test endpoint_refuses_other_principal ... ok
+test environment_endpoint_requires_the_pairs_held_slot_in_the_store ... ok
+test environment_endpoint_lists_only_materialized_bindings ... ok
+test forwarded_session_refused_without_agent_forwarding ... ok
+test destroyed_key_makes_installed_certificate_unusable ... ok
+test fresh_login_through_environment_endpoint ... ok
+test no_signature_enqueued_after_revocation_acknowledged ... ok
+test precheck_before_mark_then_gate_after_mark_refused ... ok
+test release_check_refuses_when_mark_set_after_admission ... ok
+test sign_budget_overrun_expires_permit_nothing_released ... ok
+test sign_crossing_deadline_after_fresh_read_not_released ... ok
+test session_bind_observed_per_client ... ok
+test sign_paused_after_precheck_then_revoke_is_refused ... ok
+test one_signature_per_login ... ok
+test sign_paused_inside_gate_delays_revoke_and_is_enqueued_before_commit ... ok
+test signature_refused_after_deadline ... ok
+test signature_refused_after_tombstone_commit ... ok
+test signature_refused_for_mechanism_unavailable ... ok
+test signature_refused_for_revoke_on_lock_unless_unlocked ... ok
+test signature_refused_on_time_uncertain ... ok
+test signature_refused_when_wall_clock_steps_back_after_the_time_assessment ... ok
+test signer_holder_bounded_by_signing_holder_max ... ok
+test signer_overlapping_narrowings_countermodel_within_derived_bound ... ok
+test stuck_enqueue_is_cancelled_within_bound_and_revoke_proceeds ... ok
+test unix_endpoint_dirs_0700_sockets_0600 ... ok
+test signer_multi_root_countermodel_within_derived_bound ... ok
+test verification_endpoint_lists_k_verify_and_installs_two_certificates ... ok
+test verification_session_opens_and_closes_its_operation_gate ... ok
+test verification_install_refuses_another_ca_or_another_pair ... ok
+test verification_signature_refused_by_production_operations ... ok
+test identities_capped_at_64 ... ok
+test sign_during_revoke_is_linearized has been running for over 60 seconds
+test sign_during_revoke_is_linearized ... ok
+
+successes:
+
+---- session_bind_observed_per_client stdout ----
+m03 observation: session_bind client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" exit=Some(0) sent=yes accepted=1 refused=0 signs_bound=1 signs_unbound=0
+
+
+successes:
+    add_remove_lock_unlock_smartcard_extension_refused_on_real_signer
+    authorization_timeout_refuses
+    binding_endpoint_lists_only_its_grant
+    binding_endpoint_removed_by_generation
+    crash_after_install_makes_instance_lost_at_restart
+    deadline_crossed_between_capacity_and_release_check_refused
+    deadline_crossed_while_enqueue_blocked_nothing_released
+    destroyed_key_makes_installed_certificate_unusable
+    endpoint_refuses_other_principal
+    environment_endpoint_lists_only_materialized_bindings
+    environment_endpoint_requires_the_pairs_held_slot_in_the_store
+    forwarded_session_refused_without_agent_forwarding
+    fresh_login_through_environment_endpoint
+    identities_capped_at_64
+    no_signature_enqueued_after_revocation_acknowledged
+    one_signature_per_login
+    precheck_before_mark_then_gate_after_mark_refused
+    release_check_refuses_when_mark_set_after_admission
+    session_bind_observed_per_client
+    sign_budget_overrun_expires_permit_nothing_released
+    sign_crossing_deadline_after_fresh_read_not_released
+    sign_during_revoke_is_linearized
+    sign_paused_after_precheck_then_revoke_is_refused
+    sign_paused_inside_gate_delays_revoke_and_is_enqueued_before_commit
+    signature_refused_after_deadline
+    signature_refused_after_tombstone_commit
+    signature_refused_for_mechanism_unavailable
+    signature_refused_for_revoke_on_lock_unless_unlocked
+    signature_refused_on_time_uncertain
+    signature_refused_when_wall_clock_steps_back_after_the_time_assessment
+    signer_holder_bounded_by_signing_holder_max
+    signer_multi_root_countermodel_within_derived_bound
+    signer_overlapping_narrowings_countermodel_within_derived_bound
+    stuck_enqueue_is_cancelled_within_bound_and_revoke_proceeds
+    unix_endpoint_dirs_0700_sockets_0600
+    verification_endpoint_lists_k_verify_and_installs_two_certificates
+    verification_install_refuses_another_ca_or_another_pair
+    verification_session_opens_and_closes_its_operation_gate
+    verification_signature_refused_by_production_operations
+
+test result: ok. 39 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 100.23s
+
+### integration_managed_signer exit=0
+### integration_projection_git
+
+running 46 tests
+test distribution_git_apply_and_rollback_leave_ssh_untouched ... ok
+test fresh_writer_creates_absent_global_git_config ... ok
+test git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win ... ok
+test git_apply_records_the_file_b_git_was_written_into ... ok
+test git_check_failure_with_edited_p_git_is_held_and_keeps_k ... ok
+test git_consent_apply_decided_rollback_to_consented_state_waived ... ok
+test git_apply_releases_k_with_and_without_birth_time ... ok
+test git_editor_write_after_final_check_is_restored ... ok
+test git_existing_core_sshcommand_in_system_or_global_makes_item_not_applicable ... ok
+test git_crash_with_lock_holding_staged_or_displaced_reconciles ... ok
+test git_first_adoption_previews_reproduce_their_plan_digest ... ok
+test git_global_file_in_an_owner_only_directory_is_applicable_under_any_umask ... ok
+test git_include_applied_under_lock_and_rollback_restores_bytes ... ok
+test git_item_not_offered_without_bundled_msys_default ... ok
+test git_lock_held_by_git_is_git_config_locked_nothing_written ... ok
+test git_global_file_or_directory_the_writer_would_refuse_is_not_applicable_and_ssh_still_applies ... ok
+test git_doctor_after_apply_reports_no_present_value_for_heimdalls_own ... ok
+test git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed ... ok
+test git_lock_occupied_by_holder_until_settlement ... ok
+test git_p_git_edited_or_not_linked_by_b_git_is_never_taken_for_heimdalls_own ... ok
+test git_parse_check_failure_aborts_before_the_commit_point ... ok
+test git_parse_check_that_cannot_run_aborts_as_verified_client_unavailable ... ok
+test git_reapply_after_apply_plans_an_update_instead_of_git_ssh_command_present ... ok
+test git_lock_lost_before_b_git_exchange_aborts_and_writes_nothing ... ok
+test git_reapply_finds_b_git_in_the_recorded_file_after_an_xdg_file_appears ... ok
+test git_reapply_with_a_user_value_in_either_global_file_stays_not_applicable ... ok
+test git_reapply_trusts_the_recorded_file_and_follows_a_block_the_owner_moved ... ok
+test git_reapply_without_a_recorded_file_searches_both_global_files ... ok
+test git_release_of_k_after_hand_over_happens_at_restart_never_earlier ... ok
+test git_restart_keeps_the_recovery_classifier_for_k ... ok
+test git_rollback_after_edit_inside_block_is_marker_edited ... ok
+test git_rollback_after_user_added_value_keeps_user_value ... ok
+test git_rollback_finds_b_git_in_the_file_its_step_wrote_after_an_xdg_file_appears ... ok
+test git_rollback_over_a_global_file_the_writer_would_refuse_plans_nothing_for_git ... ok
+test git_rollback_trusts_the_recorded_file_over_what_else_the_global_files_hold ... ok
+test git_rollback_in_the_shadowed_case_needs_a_decision ... ok
+test git_user_set_after_include_wins ... ok
+test git_preview_digest_is_stable_under_a_slow_git ... ok
+test git_writer_during_heimdall_lock_fails_cleanly_nothing_lost ... ok
+test git_user_value_added_after_apply_still_makes_the_item_not_applicable ... ok
+test git_rollback_without_a_recorded_file_searches_both_global_files ... ok
+test native_writer_refuses_a_distribution_intent ... ok
+test git_xdg_created_after_apply_shadowed_value_reported ... ok
+test the_git_snapshot_follows_the_same_rules_as_the_ssh_one ... ok
+test git_name_transitions_crash_at_every_point_reconciles ... ok
+test lock_claim_order::git_lock_claimed_only_after_staged_receipt ... ok
+
+successes:
+
+---- lock_claim_order::git_lock_claimed_only_after_staged_receipt stdout ----
+proptest: Failed to find absolute path of source file '"crates/localenv/../../tests/integration/projection_git.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    distribution_git_apply_and_rollback_leave_ssh_untouched
+    fresh_writer_creates_absent_global_git_config
+    git_apply_records_the_file_b_git_was_written_into
+    git_apply_releases_k_with_and_without_birth_time
+    git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win
+    git_check_failure_with_edited_p_git_is_held_and_keeps_k
+    git_consent_apply_decided_rollback_to_consented_state_waived
+    git_crash_with_lock_holding_staged_or_displaced_reconciles
+    git_doctor_after_apply_reports_no_present_value_for_heimdalls_own
+    git_editor_write_after_final_check_is_restored
+    git_existing_core_sshcommand_in_system_or_global_makes_item_not_applicable
+    git_first_adoption_previews_reproduce_their_plan_digest
+    git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed
+    git_global_file_in_an_owner_only_directory_is_applicable_under_any_umask
+    git_global_file_or_directory_the_writer_would_refuse_is_not_applicable_and_ssh_still_applies
+    git_include_applied_under_lock_and_rollback_restores_bytes
+    git_item_not_offered_without_bundled_msys_default
+    git_lock_held_by_git_is_git_config_locked_nothing_written
+    git_lock_lost_before_b_git_exchange_aborts_and_writes_nothing
+    git_lock_occupied_by_holder_until_settlement
+    git_name_transitions_crash_at_every_point_reconciles
+    git_p_git_edited_or_not_linked_by_b_git_is_never_taken_for_heimdalls_own
+    git_parse_check_failure_aborts_before_the_commit_point
+    git_parse_check_that_cannot_run_aborts_as_verified_client_unavailable
+    git_preview_digest_is_stable_under_a_slow_git
+    git_reapply_after_apply_plans_an_update_instead_of_git_ssh_command_present
+    git_reapply_finds_b_git_in_the_recorded_file_after_an_xdg_file_appears
+    git_reapply_trusts_the_recorded_file_and_follows_a_block_the_owner_moved
+    git_reapply_with_a_user_value_in_either_global_file_stays_not_applicable
+    git_reapply_without_a_recorded_file_searches_both_global_files
+    git_release_of_k_after_hand_over_happens_at_restart_never_earlier
+    git_restart_keeps_the_recovery_classifier_for_k
+    git_rollback_after_edit_inside_block_is_marker_edited
+    git_rollback_after_user_added_value_keeps_user_value
+    git_rollback_finds_b_git_in_the_file_its_step_wrote_after_an_xdg_file_appears
+    git_rollback_in_the_shadowed_case_needs_a_decision
+    git_rollback_over_a_global_file_the_writer_would_refuse_plans_nothing_for_git
+    git_rollback_trusts_the_recorded_file_over_what_else_the_global_files_hold
+    git_rollback_without_a_recorded_file_searches_both_global_files
+    git_user_set_after_include_wins
+    git_user_value_added_after_apply_still_makes_the_item_not_applicable
+    git_writer_during_heimdall_lock_fails_cleanly_nothing_lost
+    git_xdg_created_after_apply_shadowed_value_reported
+    lock_claim_order::git_lock_claimed_only_after_staged_receipt
+    native_writer_refuses_a_distribution_intent
+    the_git_snapshot_follows_the_same_rules_as_the_ssh_one
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.58s
+
+### integration_projection_git exit=0
+### integration_projection_managed
+
+running 19 tests
+test an_existing_access_alias_with_routes_stays_native_and_the_preview_says_so ... ok
+test apply_preview_discloses_slot_free_ordinary_ssh ... ok
+test deadline_wording_follows_identity_selection ... ok
+test an_undetermined_pin_setting_keeps_the_helper_and_the_plan_says_undetermined ... ok
+test a_user_setting_that_defeats_the_pin_is_reported_and_the_helper_is_not_rendered ... ok
+test existing_access_aliases_render_byte_identical_to_m02 ... ok
+test identity_agent_references_follow_client_include_behaviour ... ok
+test inherited_identityfile_makes_selection_not_exclusive_and_noninteractive_refused ... ok
+test absent_slot_fails_closed ... ok
+test p_renders_managed_alias_with_slot_paths_and_control_none ... ok
+test p_renders_owned_master_control_path_when_enabled ... ok
+test managed_selection_follows_identity_form ... ok
+test projection_pending_until_setup_apply ... ok
+test slot_paths_refuse_unsafe_destination_ids ... ok
+test windows_environment_pipe_renders_installation_token ... ok
+test route_helper_changes_only_the_alias_with_routes_and_shows_it_first ... ok
+test writing_projection_config_without_state_dir_refused ... ok
+test ordinary_ssh_through_p_uses_environment_endpoint ... ok
+test git_scp_sftp_through_managed_alias ... ok
+
+successes:
+
+successes:
+    a_user_setting_that_defeats_the_pin_is_reported_and_the_helper_is_not_rendered
+    absent_slot_fails_closed
+    an_existing_access_alias_with_routes_stays_native_and_the_preview_says_so
+    an_undetermined_pin_setting_keeps_the_helper_and_the_plan_says_undetermined
+    apply_preview_discloses_slot_free_ordinary_ssh
+    deadline_wording_follows_identity_selection
+    existing_access_aliases_render_byte_identical_to_m02
+    git_scp_sftp_through_managed_alias
+    identity_agent_references_follow_client_include_behaviour
+    inherited_identityfile_makes_selection_not_exclusive_and_noninteractive_refused
+    managed_selection_follows_identity_form
+    ordinary_ssh_through_p_uses_environment_endpoint
+    p_renders_managed_alias_with_slot_paths_and_control_none
+    p_renders_owned_master_control_path_when_enabled
+    projection_pending_until_setup_apply
+    route_helper_changes_only_the_alias_with_routes_and_shows_it_first
+    slot_paths_refuse_unsafe_destination_ids
+    windows_environment_pipe_renders_installation_token
+    writing_projection_config_without_state_dir_refused
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+
+### integration_projection_managed exit=0
+### integration_testkit_fixtures
+
+running 19 tests
+test counting_proxy_counts_frames ... ok
+test client_command_never_adds_selection_options ... ok
+test default_identity_guard_covers_every_invocation_and_session_type ... ok
+test counting_proxy_in_front_of_a_disposable_ssh_agent ... ok
+test default_identity_guard_refuses_alias_without_scratch_identities ... ok
+test disposable_agent_runs_with_scratch_home ... ok
+test fake_agent_signatures_verify_with_ssh_keygen ... ok
+test f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed ... ok
+test fixture_sshd_session_has_a_scratch_home_and_no_account_startup_files ... ok
+test fake_agent_modes_behave_as_documented ... ok
+test hook_modes_behave_as_documented ... ok
+test nothing_listens_beyond_loopback ... ok
+test fake_agent_stall_points_hold_the_connection_until_the_peer_closes ... ok
+test properties::identities_answer_round_trips_and_prefixes_never_parse ... ok
+test properties::scratch_path_rule ... ok
+test scratch_home_cleans_up ... ok
+test many_keys_exhaust_max_auth_tries_without_identities_only ... ok
+test fake_agent_round_trip_with_real_ssh_login ... ok
+test parallel_fixtures_keep_their_own_keys_and_logins ... ok
+
+successes:
+
+---- fixture_sshd_session_has_a_scratch_home_and_no_account_startup_files stdout ----
+m06 observation: fixture-sshd-env home=scratch zdotdir=scratch bash_env=empty login_shell=bash
+
+---- properties::identities_answer_round_trips_and_prefixes_never_parse stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/testkit_fixtures.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- properties::scratch_path_rule stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/testkit_fixtures.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- scratch_home_cleans_up stdout ----
+
+thread 'scratch_home_cleans_up' (1499273) panicked at crates/testkit/../../tests/integration/testkit_fixtures.rs:119:9:
+a test failure inside a fixture
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+successes:
+    client_command_never_adds_selection_options
+    counting_proxy_counts_frames
+    counting_proxy_in_front_of_a_disposable_ssh_agent
+    default_identity_guard_covers_every_invocation_and_session_type
+    default_identity_guard_refuses_alias_without_scratch_identities
+    disposable_agent_runs_with_scratch_home
+    f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed
+    fake_agent_modes_behave_as_documented
+    fake_agent_round_trip_with_real_ssh_login
+    fake_agent_signatures_verify_with_ssh_keygen
+    fake_agent_stall_points_hold_the_connection_until_the_peer_closes
+    fixture_sshd_session_has_a_scratch_home_and_no_account_startup_files
+    hook_modes_behave_as_documented
+    many_keys_exhaust_max_auth_tries_without_identities_only
+    nothing_listens_beyond_loopback
+    parallel_fixtures_keep_their_own_keys_and_logins
+    properties::identities_answer_round_trips_and_prefixes_never_parse
+    properties::scratch_path_rule
+    scratch_home_cleans_up
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s
+
+### integration_testkit_fixtures exit=0
+### integration_testkit_m03
+
+running 19 tests
+test docker_ca_hook_is_container_internal_only ... ignored, docker: the M00-T03 ca1/ca2 fixtures after a clean up.sh; run with HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ca_hook_is_container_internal_only
+test docker_enrollable2_seeded_like_enrollable ... ignored, docker: the M00-T03 fixtures after a clean up.sh; run with HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_enrollable2_seeded_like_enrollable
+test fake_lock_source_pauses_consumer_and_latches ... ok
+test managed_run_context_sets_binding_endpoint ... ok
+test owner_digest_detects_change ... ok
+test lagging_clock_fixture_reports_offset_and_changes_no_clock ... ok
+test loopback_system_form_accepts_test_ca_certificate ... ok
+test pause_hook_blocks_and_releases ... ok
+test probe_shims_produce_syntax_error_and_disagreement ... ok
+test procstat_fixtures_cover_spaces_parentheses_and_newline ... ok
+test registry_guard_refuses_non_scratch_paths ... ok
+test second_installation_has_distinct_catalog_and_ids ... ok
+test shell_containers_run_each_shell_as_group_leader ... ignored, docker: disposable shell containers (pinned debian and alpine); run with HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored shell_containers_run_each_shell_as_group_leader
+test faults_each_produce_the_intended_transport_failure ... ok
+test principals_not_enforced_fixture_accepts_both_principals ... ok
+test pause_hooks_stop_and_continue_exact_group ... ok
+test three_hosts_key_ids_attributed_per_host ... ok
+test two_hosts_have_distinct_principals ... ok
+test wrong_key_fixture_variants_each_present_the_wrong_key ... ok
+
+successes:
+
+---- owner_digest_detects_change stdout ----
+
+thread 'owner_digest_detects_change' (1499411) panicked at crates/testkit/src/owner_digest.rs:282:9:
+owner material changed: ssh_tree 3b6d7642e760c8d41abbb8660298655cb02b809a92167476cd6e0aeb935a08bb -> ad1874349319d22f738c4fe6b71ae3f5aac40c8f1e1171e9ffe6007451840983; owner material changed: git_global e388802d4e293825018dc6e6cb2d29478bbc30182f07fd55d8c235a414f7079c -> 0d71195a3ace40a0998f90a67a667c866861fc767e1cbfd4a329d13db5ec4641
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+successes:
+    fake_lock_source_pauses_consumer_and_latches
+    faults_each_produce_the_intended_transport_failure
+    lagging_clock_fixture_reports_offset_and_changes_no_clock
+    loopback_system_form_accepts_test_ca_certificate
+    managed_run_context_sets_binding_endpoint
+    owner_digest_detects_change
+    pause_hook_blocks_and_releases
+    pause_hooks_stop_and_continue_exact_group
+    principals_not_enforced_fixture_accepts_both_principals
+    probe_shims_produce_syntax_error_and_disagreement
+    procstat_fixtures_cover_spaces_parentheses_and_newline
+    registry_guard_refuses_non_scratch_paths
+    second_installation_has_distinct_catalog_and_ids
+    three_hosts_key_ids_attributed_per_host
+    two_hosts_have_distinct_principals
+    wrong_key_fixture_variants_each_present_the_wrong_key
+
+test result: ok. 16 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 3.41s
+
+### integration_testkit_m03 exit=0
+all-tests-exit=0

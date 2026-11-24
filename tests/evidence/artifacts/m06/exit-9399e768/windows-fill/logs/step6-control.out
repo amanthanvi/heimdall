@@ -1,0 +1,11 @@
+﻿m06 observation: a24 pair: controller=environment_add_on_terminal runner=remote_init_confirmed_on_terminal owner_enrolled=true issuer_trusted=true controller_record=written_by_environment_add runtime_offer=declined_next_step_named first_pass=DESTINATION_UNREACHABLE runner_runtime=started_on_the_runner repair=runtime_stated_running k_mgmt_store=dpapi_under_scratch_home session_agent=named_pipe run=windows
+m06 observation: a24 approve: admitted_by=runner_standing_policy mechanism=managed_certificate issued_by=controller_issuer_child
+m06 observation: a07 issued: grant=issued onward_login=ok
+m06 observation: a07 disconnected: connectivity=not_connected issuance=awaiting_resync
+m06 observation: a07 revoke-pending: local_applied=false remote_pending=1 target=grant_revoke residual=stated acknowledged=false
+m06 observation: a07 reconnect: remote_pending=0 residual_acknowledged=true runner_endpoint_identities=0 onward_login=refused
+m06 observation: a07 barrier: while_disconnected=awaiting_resync after_resync=reconciled
+m06 observation: a24 controller-leaves: controller_runtime=stopped issuer_child=stopped management_route=blocked
+m06 observation: a24 onward-managed: login=ok credential=runner_k_env_certificate signed_by=controller_ca controller=stopped route=blocked
+m06 observation: a24 no-controller-socket: endpoint=under_runner_home identities=1 identity=runner_k_env_certificate runner_started_with_ssh_auth_sock=unknown
+### windows-controller-journey exit=0 (10 of 10 steps passed; cleanup clean)

@@ -48,6 +48,12 @@ docker run -d --init --name "$name" --network none --cpus 2 --memory 2g --pids-l
     -v "$repo":/src:ro -v "$stage":/a:ro -v "$out":/out \
     "$image" bash /src/tools/benchmarks/m08/entry.sh "$seconds" "$seed" "$tick" "$lanes" >/dev/null
 echo "run-soak: started $name; output in target/m08-soak/$id"
+# The Mac is shared: the host's load is sampled every 30 s beside the soak, detached, for as long
+# as the container runs (ruled 2026-11-23).
+( while docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null | grep -q true; do
+      printf '{"at":"%s","load":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$( (sysctl -n vm.loadavg 2>/dev/null || cat /proc/loadavg) | tr -d '{}')" >>"$out/host-load.ndjson"
+      sleep 30
+  done ) </dev/null >/dev/null 2>&1 &
 [ "$block" = yes ] || exit 0
 code=$(docker wait "$name")
 printf '{"host_stopped_at":"%s","container_exit":%s}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$code" >"$out/host-end.json"

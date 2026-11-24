@@ -1,0 +1,42 @@
+### call 5: & '<R>\a1\install.ps1' -Prefix '<R>\p7b' -AssumeStopped ; 'exit ' + $LASTEXITCODE
+install: -AssumeStopped: not asking the installed executable whether a runtime is running
+install: installed <R>\p7b\heimdall.exe
+install: to run it as 'heimdall', add this directory to your PATH yourself: <R>\p7b
+install: next: heimdall setup    (it shows every change to your SSH configuration and asks first)
+exit 
+### prefix after call 5:
+5152a7a7c05f513a4d230d908aba371b655000f99c6824c474ceb336bf2b5068    31539200  heimdall.exe
+dir   linux-x86_64
+e6ba25f7a926bdbbed0e60e953237facd67100b681d9f5e85d185f7e36072445    25396768  linux-x86_64\heimdall
+
+### call 6: $env:HM_INSTALL_TEST_STOP_AFTER='3a'; & '<R>\a2\install.ps1' -Prefix '<R>\p7b' -AssumeStopped ; 'exit ' + $LASTEXITCODE
+install: updating: the current pair will be kept under the .previous names
+install: -AssumeStopped: not asking the installed executable whether a runtime is running
+install: stopped after 3a (test)
+exit 1
+### prefix after call 6:
+12dbfbf78dc1b346800ee7a3aceb2c1e37e3caa2ef5d1ca051783daa7bb17c93    31539201  .heimdall.new.exe
+79da5e4fd1e2467cf0657d65456b32533151296184c3846177fb1ff0cb2b53e6          65  .heimdall.updating
+dir   .linux-x86_64.new
+03afaf0e74280d86ed705dc2eae6248ce2bd84874e535c413fa3e7228bd256bd    25396769  .linux-x86_64.new\heimdall
+5152a7a7c05f513a4d230d908aba371b655000f99c6824c474ceb336bf2b5068    31539200  heimdall.previous.exe
+dir   linux-x86_64
+e6ba25f7a926bdbbed0e60e953237facd67100b681d9f5e85d185f7e36072445    25396768  linux-x86_64\heimdall
+
+### call 7: & '<R>\a2\install.ps1' -Prefix '<R>\p7b' -AssumeStopped ; 'exit ' + $LASTEXITCODE
+install: removed a leftover staged file from an interrupted run
+install: finished an interrupted update: the previous pair is complete under the .previous names
+install: -AssumeStopped: not asking the installed executable whether a runtime is running
+install: installed <R>\p7b\heimdall.exe
+install: the previous pair is kept under the .previous names (install.ps1 -Rollback puts it back)
+install: to run it as 'heimdall', add this directory to your PATH yourself: <R>\p7b
+install: next: heimdall setup    (it shows every change to your SSH configuration and asks first)
+exit 
+### prefix after call 7:
+12dbfbf78dc1b346800ee7a3aceb2c1e37e3caa2ef5d1ca051783daa7bb17c93    31539201  heimdall.exe
+5152a7a7c05f513a4d230d908aba371b655000f99c6824c474ceb336bf2b5068    31539200  heimdall.previous.exe
+dir   linux-x86_64
+dir   linux-x86_64.previous
+e6ba25f7a926bdbbed0e60e953237facd67100b681d9f5e85d185f7e36072445    25396768  linux-x86_64.previous\heimdall
+03afaf0e74280d86ed705dc2eae6248ce2bd84874e535c413fa3e7228bd256bd    25396769  linux-x86_64\heimdall
+

@@ -50,7 +50,9 @@
 #       standard harness's way; a held `wsl.exe` on the PC). mgmt reads
 #       ROOT/acct/.ssh/authorized_keys (where the runner's `remote init` writes its line, through
 #       `SetEnv HEIMDALL_TEST_SSH_HOME=ROOT/acct`, so no real ~/.ssh is read or written); dest
-#       trusts only ROOT/dest/ca.pub for the principals in ROOT/dest/principals/<account>.
+#       trusts only ROOT/dest/ca.pub for the principals in ROOT/dest/principals/<account>. Both
+#       set the sessions' HOME and ZDOTDIR to ROOT/acct and BASH_ENV empty (sshd's one SetEnv
+#       line), so the account's login shell reads none of the account's own startup files.
 #       Facts: port, then ready=1 once it listens.
 #   sshd-start ROOT mgmt|dest
 #       the same sshd, detached (`nohup`), for a caller that does not hold a session (the
@@ -268,11 +270,12 @@ EOF
     if [ "$1" = mgmt ]; then
         cat <<EOF
 AuthorizedKeysFile "$acct/.ssh/authorized_keys"
-SetEnv HEIMDALL_TEST_SSH_HOME="$acct" HEIMDALL_TEST_TIME_SYNC=synchronized HEIMDALL_TEST_SECRET_STORE=scratch HEIMDALL_TEST_MGMT_STORE="$mgmt_store" HEIMDALL_TEST_IROH_KEY_STORE="$iroh_store"
+SetEnv HOME="$acct" ZDOTDIR="$acct" BASH_ENV= HEIMDALL_TEST_SSH_HOME="$acct" HEIMDALL_TEST_TIME_SYNC=synchronized HEIMDALL_TEST_SECRET_STORE=scratch HEIMDALL_TEST_MGMT_STORE="$mgmt_store" HEIMDALL_TEST_IROH_KEY_STORE="$iroh_store"
 EOF
     else
         cat <<EOF
 AuthorizedKeysFile none
+SetEnv HOME="$acct" ZDOTDIR="$acct" BASH_ENV= HEIMDALL_TEST_SECRET_STORE=scratch HEIMDALL_TEST_MGMT_STORE="$mgmt_store" HEIMDALL_TEST_IROH_KEY_STORE="$iroh_store"
 TrustedUserCAKeys "$d/ca.pub"
 AuthorizedPrincipalsFile "$d/principals/%u"
 EOF

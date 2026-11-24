@@ -42,10 +42,16 @@ while [ $# -gt 0 ]; do
         --features) [ $# -ge 2 ] || usage; features=$2; shift 2 ;;
         --allow-dirty) allow_dirty=yes; shift ;;
         --offline) offline=(--offline); shift ;;
+        --all-features) echo "build-release: --all-features is refused: release artifacts are built without the iroh feature" >&2; exit 2 ;;
         -*) usage ;;
         *) [ -z "$target" ] || usage; target=$1; shift ;;
     esac
 done
+# Release artifacts ship without the Iroh transport (ruling E2, option c): it is a preview,
+# built from source with --features iroh, with no support label.
+# The feature list is judged by `provenance.py check-features` below, the one authoritative
+# check (review M08-W2-RC06): it splits the list as cargo does, refuses any iroh spelling, and
+# refuses a selected graph holding the iroh crate. `build-record` checks what was compiled.
 [ -n "$target" ] || usage
 
 zig_target=""
@@ -94,8 +100,17 @@ remap=(
     "--remap-path-prefix=$cargo_home=/cargo"
     "--remap-path-prefix=$repo=/heimdall"
 )
-encoded=$(IFS=$sep; echo "${remap[*]}")
 flags_text="--remap-path-prefix=<home>=/builder --remap-path-prefix=<rustup-home>=/rustup --remap-path-prefix=<cargo-home>=/cargo --remap-path-prefix=<checkout>=/heimdall"
+# macOS (W2-6): ld64 derives LC_UUID from a hash of the output it writes, before rustc strips
+# it (`strip = true`). That output still holds the debug map, whose object paths name the
+# checkout and rustc's temporary directory, so two checkouts got two UUIDs. `-S` tells the
+# linker to write no debug information at all; the stripped result is the same without it.
+case "$target" in
+    *-apple-darwin)
+        remap+=("-Clink-arg=-Wl,-S")
+        flags_text="$flags_text -Clink-arg=-Wl,-S" ;;
+esac
+encoded=$(IFS=$sep; echo "${remap[*]}")
 cflags="-ffile-prefix-map=$HOME=/builder -ffile-prefix-map=$rustup_home=/rustup -ffile-prefix-map=$cargo_home=/cargo -ffile-prefix-map=$repo=/heimdall"
 t_env=$(echo "$target" | tr '-' '_')
 t_ENV=$(echo "$t_env" | tr '[:lower:]' '[:upper:]')
@@ -133,6 +148,12 @@ EOF
     )
 fi
 
+py() { python3 -I "$here/provenance.py" "$@"; }
+feat_opt=()
+[ -z "$features" ] || feat_opt=(--features "$features")
+py check-features --target "$target" ${feat_opt[@]+"${feat_opt[@]}"} ${offline[@]+"${offline[@]}"} \
+    || { echo "build-release: refused before the build; nothing was built" >&2; exit 2; }
+
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 started=$(now)
 feature_args=()
@@ -151,7 +172,9 @@ out="$repo/target/release-artifacts"
 stage="$out/$name"
 case "$stage" in "$repo"/target/release-artifacts/heimdall-*) rm -rf -- "$stage" ;; esac
 mkdir -p "$stage"
-install -m 0755 "target/$target/release/heimdall" "$stage/heimdall"
+# Exactly the executable this build produced, by the path cargo reported (review M08-W2-RC02).
+py stage-exe --target "$target" ${offline[@]+"${offline[@]}"} --build-messages "$messages" \
+    --expect "$repo/target/$target/release/heimdall" --out "$stage/heimdall" || exit 1
 
 # Release documents that exist in the tree are packaged; the candidate build (m08-plan U3b)
 # makes the list mandatory.
@@ -166,16 +189,13 @@ if [ "$target" = aarch64-apple-darwin ]; then
     signature="ad-hoc (linker-signed); not notarized"
 fi
 
-feat_opt=()
-[ -z "$features" ] || feat_opt=(--features "$features")
-py() { python3 -I "$here/provenance.py" "$@"; }
 py sbom --target "$target" ${feat_opt[@]+"${feat_opt[@]}"} ${offline[@]+"${offline[@]}"} \
     --commit "$commit" --time "$commit_time" --tool "$sbom_tool" --build-messages "$messages" \
     --out "$stage/heimdall-$target.cdx.json" || exit 1
 py notices --target "$target" ${feat_opt[@]+"${feat_opt[@]}"} ${offline[@]+"${offline[@]}"} \
     --out "$stage/THIRD-PARTY-NOTICES.txt" || exit 1
 py build-record --target "$target" ${feat_opt[@]+"${feat_opt[@]}"} --commit "$commit" --time "$commit_time" \
-    --clean "$clean" --flags "$flags_text" --started "$started" --finished "$finished" \
+    --clean "$clean" --flags "$flags_text" --build-messages "$messages" ${offline[@]+"${offline[@]}"} \
     --signature "$signature" --stage "$stage" --out "$stage/BUILD-RECORD.json" || exit 1
 py manifest --stage "$stage" || exit 1
 rm -f -- "$messages"
@@ -205,7 +225,10 @@ verify "$archive" || { rm -f -- "$archive"; echo "build-release: the archive fai
 
 # --- external records and the index ---------------------------------------------------
 install -m 0644 "$stage/heimdall-$target.cdx.json" "$out/$name.cdx.json"
-install -m 0644 "$stage/BUILD-RECORD.json" "$out/$name.build-record.json"
+# The external copy adds the build's wall-clock start and finish; the packed record has
+# none, so two builds of one commit pack the same record (W2-6).
+py external-record --record "$stage/BUILD-RECORD.json" --started "$started" --finished "$finished" \
+    --out "$out/$name.build-record.json" || exit 1
 py index --dir "$out" || exit 1
 python3 -I "$here/verify_artifact.py" "$archive" --target "$target" --forbid-file "$forbid" --allow-exact "$label" --index "$out/SHA256SUMS" >/dev/null ||
     { echo "build-release: the archive does not match the external index" >&2; exit 1; }

@@ -1,0 +1,14 @@
+## step 0
+
+[32;1mAlgorithm : [0mSHA256
+[32;1mHash      : [0mE6BA25F7A926BDBBED0E60E953237FACD67100B681D9F5E85D185F7E36072445
+[32;1mPath      : [0mC:\Users\<user>\AppData\Local\hm-m08-w2pc\in\heimdall
+
+exit=0
+7.6.10
+exit=0
+## step 0 versions
+pwsh 7.6.10
+exit=0
+powershell 5.1.26100.10068
+exit=0

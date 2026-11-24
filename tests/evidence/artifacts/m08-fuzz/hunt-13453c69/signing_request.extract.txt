@@ -1,0 +1,11 @@
+#23	INITED cov: 96 ft: 97 corp: 21/224b exec/s: 0 rss: 51Mb
+#268435456	pulse  cov: 96 ft: 97 corp: 21/224b lim: 266240 exec/s: 1078054 rss: 563Mb
+#536870912	pulse  cov: 96 ft: 97 corp: 21/224b lim: 266240 exec/s: 1003497 rss: 563Mb
+#1073741824	pulse  cov: 96 ft: 97 corp: 21/224b lim: 266240 exec/s: 982380 rss: 563Mb
+#1706040053	DONE   cov: 96 ft: 97 corp: 21/224b lim: 266240 exec/s: 947273 rss: 563Mb
+Done 1706040053 runs in 1801 second(s)
+stat::number_of_executed_units: 1706040053
+stat::average_exec_per_sec:     947273
+stat::new_units_added:          0
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              563

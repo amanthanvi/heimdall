@@ -1,0 +1,9 @@
+<R>\c1\tools\packaging\build-release.ps1 : Cannot process argument transformation 
+on parameter 'Features'. Cannot convert value to type System.String.
+At line:1 char:411
++ ... AppData\Local\hm-m08-w2pc\in\heimdall' -Features default,iroh; 'exit  ...
++                                                      ~~~~~~~~~~~~
+    + CategoryInfo          : InvalidData: (:) [build-release.ps1], ParameterBindingArgumentTransformationException
+    + FullyQualifiedErrorId : ParameterArgumentTransformationError,build-release.ps1
+ 
+exit 

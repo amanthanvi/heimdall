@@ -170,8 +170,11 @@ class Scratch:
             summary_out=str(d / "summary.json"),
             artifacts_root=str(d),
             build_commit="0" * 40,
-            artifact_digest="n/a",
+            artifact_digest="a" * 64,
             started_at="2026-11-24T00:00:00+00:00",
+            # ⟨M06 exit⟩ The generator refuses a run whose identity is not filled
+            # (tests/native/m06/fill-run-facts.py): a sha256 digest and a non-empty environment.
+            environment={"build_host": {"uname": "synthetic"}},
             commands=["synthetic"],
             evidence_paths=["synthetic"],
         )
@@ -182,7 +185,7 @@ class Scratch:
             (d / f"{pname}.facts").write_text("os=synthetic\nsecret-thing=must not be kept\n")
             cfg["platforms"][pname].update(
                 logs=[f"{pname}.log"], commands_logs=[f"{pname}.commands"], facts=[f"{pname}.facts"],
-                artifact_digest="n/a",
+                artifact_digest="b" * 64,
             )
         for pname, upd in (platforms or {}).items():
             cfg["platforms"][pname].update(upd)
@@ -401,6 +404,20 @@ class CleanRun(unittest.TestCase):
         self.assertEqual([r["status"] for r in g["rows"]], ["blocked"])
         self.assertIn("B14", g["rows"][0]["blocked_on"])
         self.assertIn("B7", g["rows"][0]["blocked_on"])
+
+    def test_a_run_whose_identity_is_not_filled_writes_nothing(self):
+        # ⟨M06 exit⟩ M06's identity check reaches M07's generator: no record without the run's
+        # sha256 digests and its environment.
+        index, inv = completed(reduced_index(), INV)
+        s = Scratch(self, index=index, inv=inv, platforms={"linux": {"artifact_digest": None}})
+        cfg = json.loads((s.dir / "runs.json").read_text())
+        cfg["environment"] = {}
+        (s.dir / "runs.json").write_text(json.dumps(cfg))
+        rc, _summary, err = s.run("--write")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("environment is empty", err)
+        self.assertIn("platforms.linux.artifact_digest", err)
+        self.assertEqual(s.written(), [])
 
     def test_the_written_records_validate_and_land_only_where_runs_json_points(self):
         index, inv = completed(reduced_index(), INV)

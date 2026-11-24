@@ -1,0 +1,165 @@
+{
+ "activate_covered": {
+  "conditions": "end to end including process start: the trusted project's hook, covered by its standing authority",
+  "errors": 0,
+  "max_ms": 83.45,
+  "min_ms": 19.9,
+  "p50_ms": 32.69,
+  "p95_ms": 55.37,
+  "samples": 200
+ },
+ "background_ensures": {
+  "count": 615,
+  "errors": [],
+  "min_ms": 5.25,
+  "p50_ms": 10.28,
+  "succeeded": 615
+ },
+ "cli_inspect": {
+  "conditions": "end to end including process start; for information, not the budget",
+  "errors": 0,
+  "max_ms": 11.26,
+  "min_ms": 4.58,
+  "p50_ms": 6.34,
+  "p95_ms": 9.14,
+  "samples": 50
+ },
+ "cli_status": {
+  "conditions": "end to end including process start; for information, not the budget",
+  "errors": 0,
+  "max_ms": 32.85,
+  "min_ms": 18.13,
+  "p50_ms": 21.8,
+  "p95_ms": 29.99,
+  "samples": 50
+ },
+ "destinations": 100,
+ "ensure_replay": {
+  "conditions": "one open control session; the approved request ID replayed (answered from its record); 20 warm-up requests first",
+  "errors": 0,
+  "max_ms": 10.11,
+  "min_ms": 2.52,
+  "p50_ms": 4.68,
+  "p95_ms": 7.15,
+  "samples": 200
+ },
+ "ensure_warm": {
+  "conditions": "THE spec 15.1 row: one open control session; the profile covered by a standing personal policy (access allow); a new request ID each time; 20 warm-up requests first",
+  "errors": 0,
+  "max_ms": 32.04,
+  "min_ms": 10.62,
+  "p50_ms": 15.14,
+  "p95_ms": 26.17,
+  "samples": 200
+ },
+ "finished_at": "2026-11-24T00:04:38Z",
+ "idle": {
+  "cpu_method": "utime+stime ticks of the runtime process over the window",
+  "memory_method": "VmRSS of the runtime process (/proc/<pid>/status)",
+  "settle_s": 600,
+  "windows": [
+   {
+    "cpu_percent_of_one_core": 0.227,
+    "rss_mib": 26.5,
+    "seconds": 300.0,
+    "threads": 4
+   },
+   {
+    "cpu_percent_of_one_core": 0.2,
+    "rss_mib": 26.5,
+    "seconds": 300.0,
+    "threads": 4
+   },
+   {
+    "cpu_percent_of_one_core": 0.203,
+    "rss_mib": 26.5,
+    "seconds": 300.0,
+    "threads": 4
+   }
+  ]
+ },
+ "inspect_first": {
+  "conditions": "the first wrapper request after the world was built, on a new session (one sample)",
+  "errors": 0,
+  "max_ms": 2.92,
+  "min_ms": 2.92,
+  "p50_ms": 2.92,
+  "p95_ms": 2.92,
+  "samples": 1
+ },
+ "inspect_session": {
+  "conditions": "a new control session per sample (connect, hello, request); the runtime warm",
+  "errors": 0,
+  "max_ms": 5.89,
+  "min_ms": 1.73,
+  "p50_ms": 2.32,
+  "p95_ms": 3.53,
+  "samples": 200
+ },
+ "inspect_warm": {
+  "conditions": "one open control session, 20 warm-up requests first; process start excluded",
+  "errors": 0,
+  "max_ms": 3.87,
+  "min_ms": 1.48,
+  "p50_ms": 2.09,
+  "p95_ms": 3.11,
+  "samples": 200
+ },
+ "key_to_first_byte": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn; measured under FAST CONCURRENT OPERATIONS: policy-covered ensures of profile 'slow' kept in flight on a second session (they do not contact the provider, so the 500 ms delaying proxy is not in their path); NOT measured under slow provider work (ruled 2026-11-23: that case is the candidate's benchmark of record, with the managed recipe)",
+  "errors": 0,
+  "max_ms": 3.42,
+  "min_ms": 0.3,
+  "p50_ms": 0.44,
+  "p95_ms": 0.95,
+  "samples": 200
+ },
+ "key_to_first_byte_quiet": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn; no background work (for comparison)",
+  "errors": 0,
+  "max_ms": 2.97,
+  "min_ms": 0.43,
+  "p50_ms": 0.83,
+  "p95_ms": 1.13,
+  "samples": 200
+ },
+ "key_to_frame": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn; measured under FAST CONCURRENT OPERATIONS: policy-covered ensures of profile 'slow' kept in flight on a second session (they do not contact the provider, so the 500 ms delaying proxy is not in their path); NOT measured under slow provider work (ruled 2026-11-23: that case is the candidate's benchmark of record, with the managed recipe); the frame ends at the last byte before 20 ms of quiet",
+  "errors": 0,
+  "max_ms": 4.41,
+  "min_ms": 0.39,
+  "p50_ms": 0.54,
+  "p95_ms": 0.98,
+  "samples": 200
+ },
+ "key_to_frame_quiet": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn; no background work (for comparison); the frame ends at the last byte before 20 ms of quiet",
+  "errors": 0,
+  "max_ms": 3.25,
+  "min_ms": 0.53,
+  "p50_ms": 1.0,
+  "p95_ms": 1.41,
+  "samples": 200
+ },
+ "sample_floor": 200,
+ "schema": "heimdall-m08-bench/1",
+ "started_at": "2026-11-23T23:38:08Z",
+ "tui_first_runtime_frame": {
+  "conditions": "informational: spawn to the first screen showing 'listings read'; 120x40 pty; the screen reconstructed",
+  "errors": 0,
+  "max_ms": 111.28,
+  "min_ms": 102.66,
+  "p50_ms": 106.69,
+  "p95_ms": 109.91,
+  "samples": 200
+ },
+ "tui_first_useful_frame": {
+  "conditions": "THE spec row: spawn to the first screen showing the catalog counts ('<N> destinations,'); 120x40 pty; the screen reconstructed",
+  "errors": 0,
+  "max_ms": 216.42,
+  "min_ms": 203.89,
+  "p50_ms": 210.39,
+  "p95_ms": 214.23,
+  "samples": 200
+ }
+}

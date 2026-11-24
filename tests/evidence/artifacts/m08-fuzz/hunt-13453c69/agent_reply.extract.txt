@@ -1,0 +1,11 @@
+#1575	INITED cov: 1260 ft: 3219 corp: 351/46Kb exec/s: 0 rss: 75Mb
+#281577942	REDUCE cov: 1260 ft: 3230 corp: 356/46Kb lim: 266240 exec/s: 161455 rss: 295Mb L: 199/1296 MS: 2 ChangeBinInt-EraseBytes-
+#282229828	REDUCE cov: 1260 ft: 3230 corp: 356/46Kb lim: 266240 exec/s: 161551 rss: 295Mb L: 198/1296 MS: 1 EraseBytes-
+#283387290	REDUCE cov: 1260 ft: 3230 corp: 356/46Kb lim: 266240 exec/s: 161750 rss: 295Mb L: 194/1296 MS: 1 EraseBytes-
+#293702106	DONE   cov: 1260 ft: 3230 corp: 356/46Kb lim: 266240 exec/s: 163077 rss: 295Mb
+Done 293702106 runs in 1801 second(s)
+stat::number_of_executed_units: 293702106
+stat::average_exec_per_sec:     163077
+stat::new_units_added:          145
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              295

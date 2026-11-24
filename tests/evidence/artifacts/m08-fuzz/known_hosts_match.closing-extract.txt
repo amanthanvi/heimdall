@@ -1,0 +1,11 @@
+#2594	INITED cov: 129 ft: 646 corp: 204/39Kb exec/s: 0 rss: 96Mb
+#330359626	REDUCE cov: 129 ft: 647 corp: 205/39Kb lim: 70000 exec/s: 193418 rss: 563Mb L: 1619/5323 MS: 2 ShuffleBytes-EraseBytes-
+#344611474	REDUCE cov: 129 ft: 647 corp: 205/39Kb lim: 70000 exec/s: 194256 rss: 563Mb L: 1056/5323 MS: 3 PersAutoDict-ShuffleBytes-EraseBytes- DE: "\000\000\000\000\000\000\000\002"-
+#348926304	DONE   cov: 129 ft: 647 corp: 205/39Kb lim: 70000 exec/s: 193740 rss: 563Mb
+#348926304	DONE   cov: 129 ft: 647 corp: 205/39Kb lim: 70000 exec/s: 193740 rss: 563Mb
+Done 348926304 runs in 1801 second(s)
+stat::number_of_executed_units: 348926304
+stat::average_exec_per_sec:     193740
+stat::new_units_added:          67
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              563

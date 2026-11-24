@@ -1,0 +1,1 @@
+Set-Location '<R>\c1'; Copy-Item target\x86_64-pc-windows-msvc\release\heimdall.exe '<R>\heimdall-step4.exe'; [IO.File]::WriteAllText('target\x86_64-pc-windows-msvc\release\heimdall.exe', 'stale binary planted by step 6')

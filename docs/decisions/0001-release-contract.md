@@ -1,7 +1,8 @@
 # ADR-0001 — Initial release contract (G01 draft)
 
-**Status:** proposed — draft frozen as the M00 working baseline; version floors and
-the baseline worksheet are `blocked` (see §5, §6). Owner confirmation is needed
+**Status:** proposed — draft frozen as the M00 working baseline; version floors are
+provisional with their confirmation `blocked` (§5, amended 2026-11-23), and the baseline
+worksheet is `blocked` (§6). Owner confirmation is needed
 only where marked.
 **Date:** 2026-10-02 · **Gate:** G01 · **Task:** M00-T06
 **Affects:** R-QU-01, R-QU-07, R-DI-08 and, through scope, every requirement.
@@ -78,19 +79,26 @@ Gated technical choices that are **not** settled: language/TUI (G02, owner
 decision), session-default number, storage engine, OS floors, managed credential
 recipe (G04), local IPC (G08), remote control transport (G07).
 
-## 5. Platform and version floors — blocked
+## 5. Platform and version floors — provisional; confirmation blocked
 
 Initial validation targets (spec §3.2): Windows x86-64, WSL2 Linux x86-64,
 macOS arm64, Linux x86-64 and arm64. Floors are chosen only from clean-machine
-tests (plan §3 G01), so none are declared yet.
+tests (plan §3 G01).
 
-| Target | Floor | Status | Blocked on |
+**Amendment (2026-11-23, M08 W2; the M09 pre-audit's contradiction).** ADR-0004 §4 set
+the floors **provisionally**, from the platforms actually tested, to be re-confirmed on
+clean machines in M08. This table now states those provisional floors. None is confirmed:
+each row's status stays `blocked` until its clean-machine run exists, and §9 still keeps
+every platform at `not-tested` until §5 and §6 close.
+
+| Target | Floor (provisional, ADR-0004 §4) | Status | Confirmed only by |
 |---|---|---|---|
-| macOS arm64 | TBD | blocked | clean-machine install test of a selected-stack build; current dev host observed: macOS 27.0, OpenSSH 10.3p1 (observation, not a floor) |
-| Linux x86-64 / arm64 | TBD (distribution list TBD) | blocked | real Linux desktop/user-session and headless hosts; container runs are supplementary only |
-| Windows x86-64 | TBD (Windows build + Win32-OpenSSH version) | blocked | G01 clean-machine tests (the owner's Windows 11 PC, available since 2026-10-06, is not a clean machine) |
-| WSL2 x86-64 | TBD (WSL version + distributions) | blocked | G01 clean-machine tests (the owner's Windows 11 PC with WSL2, available since 2026-10-06, is not a clean machine) |
-| 1Password SSH agent | TBD | blocked | owner-authorized test account/vault with disposable keys on each OS |
+| macOS arm64 | macOS 27 | blocked | a clean macOS VM (B15). Current dev host observed: macOS 27.0, OpenSSH 10.3p1 (observation, not a floor) |
+| Linux x86-64 | Ubuntu 24.04 and Debian 13 | blocked | the clean-machine row of m08-plan §4.2: a disposable WSL2 distribution imported from the stock root file system, Debian 13 as a container inside it (awaiting the owner's decision to allow one); container runs elsewhere are supplementary only |
+| Linux arm64 | pending a native host | blocked | a native Linux arm64 host (B9) |
+| Windows x86-64 | Windows 11 26H2 x64 with the in-box OpenSSH | blocked | a clean Windows VM or Windows Sandbox (B15). The owner's Windows 11 PC is not a clean machine |
+| WSL2 x86-64 | WSL2 with Ubuntu 24.04 | blocked | the same disposable WSL2 distribution as Linux x86-64 |
+| 1Password SSH agent | none set | blocked | an owner-authorized disposable account and vault with disposable keys on each OS (B1) |
 
 ## 6. Baseline-friction worksheet — blocked on owner input
 

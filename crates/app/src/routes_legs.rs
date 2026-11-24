@@ -1,6 +1,9 @@
 //! ⟨M06 U5a⟩ The direct and jump legs of the route helper (ADR-0012 §5.4, §5.5; ADR-0010 §5
 //! items 1–4). [`TokioLegDialer`] refuses the Iroh leg; ⟨M06 U56⟩ [`RouteLegDialer`] adds it
 //! through an [`IrohLegDialer`] port (the runtime's, over `heimdall-transport-iroh`).
+//! ⟨M06 exit, Q-B⟩ In a build without the `iroh` feature [`RouteLegDialer`] reports the Iroh
+//! leg as [`DialFailure::DriverUnavailable`] (failed over; a destination whose every leg is
+//! Iroh is refused `driver_unavailable` by `heimdall_app::routes::route_connect`).
 //!
 //! * **Direct:** a TCP connect to the route's `host:port`, bounded by the connect timeout.
 //! * **Jump:** `ssh -F none <the jump's catalog pin and access> -W <final host>:<port> <jump
@@ -234,15 +237,25 @@ pub trait IrohLegDialer: Send + Sync {
 }
 
 /// The helper's dialer: the direct and jump legs through `base` (normally
-/// [`TokioLegDialer`]), the Iroh leg through `iroh`. Without an Iroh dialer (no driver in
-/// the build, no verified key store) an Iroh route is refused and failed over; direct and
-/// jump routes are unaffected (ADR-0012 §2.4 item 3).
+/// [`TokioLegDialer`]), the Iroh leg through `iroh`. Without an Iroh dialer an Iroh route is
+/// failed over: [`DialFailure::DriverUnavailable`] when the build has no Iroh driver
+/// (`iroh_in_build` false), [`DialFailure::Refused`] when it has one but no verified key
+/// store. Direct and jump routes are unaffected (ADR-0012 §2.4 item 3).
 #[derive(Clone)]
 pub struct RouteLegDialer<D> {
     /// The direct and jump legs.
     pub base: D,
     /// The Iroh leg.
     pub iroh: Option<Arc<dyn IrohLegDialer>>,
+    /// ⟨M06 exit, Q-B⟩ This build has the Iroh driver (the `iroh` feature;
+    /// `heimdall_runtime::supervise_transport::ROUTE_IROH_IN_BUILD`).
+    pub iroh_in_build: bool,
+}
+
+impl<D> RouteLegDialer<D> {
+    fn iroh_driver_missing(&self, route: &PlannedRoute) -> bool {
+        matches!(route.leg, LegPlan::Iroh { .. }) && self.iroh.is_none() && !self.iroh_in_build
+    }
 }
 
 impl<D: std::fmt::Debug> std::fmt::Debug for RouteLegDialer<D> {
@@ -250,6 +263,7 @@ impl<D: std::fmt::Debug> std::fmt::Debug for RouteLegDialer<D> {
         f.debug_struct("RouteLegDialer")
             .field("base", &self.base)
             .field("iroh", &self.iroh.is_some())
+            .field("iroh_in_build", &self.iroh_in_build)
             .finish()
     }
 }
@@ -282,8 +296,18 @@ impl<D: LegDialer> LegDialer for RouteLegDialer<D> {
                 )
                 .await
             }
+            (LegPlan::Iroh { .. }, None) if self.iroh_driver_missing(route) => {
+                Err(DialFailure::DriverUnavailable)
+            }
             (LegPlan::Iroh { .. }, None) => Err(DialFailure::Refused),
             _ => self.base.dial(route, connect_timeout).await,
+        }
+    }
+
+    fn driver_unavailable(&self, route: &PlannedRoute) -> bool {
+        match route.leg {
+            LegPlan::Iroh { .. } => self.iroh_driver_missing(route),
+            _ => self.base.driver_unavailable(route),
         }
     }
 }

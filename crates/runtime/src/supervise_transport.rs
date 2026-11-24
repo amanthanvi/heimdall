@@ -936,7 +936,13 @@ impl TransportSupervisor {
                         ),
                     ));
                 }
-                Err(fail(token, "the serve child refused to start"))
+                // ⟨M06 exit, ruling E2⟩ A child built without the transport names the preview.
+                let message = if token == reason::DRIVER_UNAVAILABLE {
+                    heimdall_app::transport::IROH_PREVIEW_UNAVAILABLE
+                } else {
+                    "the serve child refused to start"
+                };
+                Err(fail(token, message))
             }
             _ => {
                 drop(running.kill(self.config.stop_bound).await);
@@ -1286,9 +1292,14 @@ pub fn held_endpoint(state: &Store, keys: &dyn IrohKeyStore) -> Option<IrohEndpo
     keys.load(&key.endpoint).ok().map(|_| key.endpoint)
 }
 
+/// ⟨M06 exit, Q-B⟩ Whether this build has the route helper's Iroh driver (the `iroh`
+/// feature): `heimdall_app::routes::legs::RouteLegDialer::iroh_in_build`.
+pub const ROUTE_IROH_IN_BUILD: bool = cfg!(feature = "iroh");
+
 /// ⟨M06 W3⟩ The route helper's Iroh leg with this installation's active K_iroh in `keys`, or
 /// `None` (no active key, another store kind, or a build without the `iroh` feature): every
-/// Iroh route is then refused and failed over, and direct and jump routes are unaffected.
+/// Iroh route is then failed over (`driver_unavailable` without the feature, refused
+/// otherwise: [`ROUTE_IROH_IN_BUILD`]), and direct and jump routes are unaffected.
 #[must_use]
 pub fn route_iroh_leg(
     state: &Store,

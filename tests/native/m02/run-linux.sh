@@ -8,6 +8,10 @@
 #   HM_BUILD_ONLY  1 = cross-build, plan and record the binaries' hashes, then stop (no ssh)
 #   HM_ONLY        optional space-separated list of test target names to run (default: all)
 #   HM_TIMEOUT_S   per-binary timeout in seconds (default 1800)
+#   ⟨M06 exit⟩ HM_STAGE_MAX_KB optional cap (KiB) on the staged set (the binaries, both CLIs,
+#                  hm-fixture-hook and the repository files, links dereferenced): measured with
+#                  `du -skL` before the tar stream; over it, exit 7 and nothing is copied
+#                  (tests/native/m06/run-linux-batches.sh sets it per batch). Unset: no cap.
 #   ⟨M03 wave 6⟩ The milestone's harness (tests/native/m03/run-linux.sh sets these):
 #   HM_HARNESS_DIR the directory holding case-index.json and the evidence generator
 #                  (default: this directory)
@@ -85,6 +89,8 @@ if [ "$build_only" != 1 ]; then
     m02_valid_alias "$host" || { echo "bad host alias" >&2; exit 2; }
 fi
 timeout_s=${HM_TIMEOUT_S:-1800}
+stage_max_kb=${HM_STAGE_MAX_KB:-}
+case "$stage_max_kb" in *[!0-9]*) echo "bad HM_STAGE_MAX_KB" >&2; exit 2 ;; esac
 case "$timeout_s" in '' | *[!0-9]*) echo "bad HM_TIMEOUT_S" >&2; exit 2 ;; esac
 triple=x86_64-unknown-linux-gnu
 repo=$(cd "$here/../../.." && pwd)
@@ -217,6 +223,17 @@ rc=$?
 set -e
 m02_record "$commands" "stage the repository files the tests read (HM_REPO_ROOT: $nrepo files)" "$rc"
 [ "$rc" = 0 ] || exit 1
+if [ -n "$stage_max_kb" ]; then
+    # ⟨M06 exit⟩ The staged set's size (links dereferenced, as tar -h sends it), checked
+    # before anything is copied: over the cap, exit 7 with nothing sent.
+    staged_kb=$(du -skL "$shim/stage" | cut -f1)
+    if [ "$staged_kb" -gt "$stage_max_kb" ]; then
+        m02_record "$commands" "staged set ${staged_kb} KiB, over the HM_STAGE_MAX_KB cap of ${stage_max_kb} KiB: nothing copied" 7
+        echo "the staged set is ${staged_kb} KiB, over the HM_STAGE_MAX_KB cap of ${stage_max_kb} KiB" >&2
+        exit 7
+    fi
+    m02_record "$commands" "staged set ${staged_kb} KiB (HM_STAGE_MAX_KB cap ${stage_max_kb} KiB)" 0
+fi
 set +e
 tar -C "$shim/stage" -chf - . | gzip -1 | rssh "tar -xzf - -C \"\$HOME/$scratch\""
 rc=$?

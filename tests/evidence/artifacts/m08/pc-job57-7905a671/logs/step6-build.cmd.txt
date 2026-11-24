@@ -1,0 +1,1 @@
+$env:RUSTUP_HOME='<R>\rustup'; $env:CARGO_HOME='<R>\cargo'; $env:PATH='<R>\cargo\bin;'+$env:PATH; $env:CARGO_TARGET_DIR=(Join-Path $env:LOCALAPPDATA 'hm-w22-td'); Set-Location '<R>\c1'; .\tools\packaging\build-release.ps1 -LinuxHelper '<R>\in\heimdall'; 'exit ' + $LASTEXITCODE

@@ -1,0 +1,117 @@
+{"t": 0.0, "at": "2026-11-24T00:05:40Z", "event": "schedule", "faults": [{"start": 12, "end": 13, "fault": "runtime_kill"}, {"start": 16, "end": 17, "fault": "service_stop"}, {"start": 20, "end": 23, "fault": "sshd_down"}, {"start": 28, "end": 31, "fault": "agent_down"}, {"start": 45, "end": 46, "fault": "service_stop"}, {"start": 51, "end": 52, "fault": "runtime_kill"}, {"start": 56, "end": 59, "fault": "sshd_down"}, {"start": 64, "end": 67, "fault": "agent_down"}, {"start": 81, "end": 82, "fault": "service_stop"}, {"start": 85, "end": 88, "fault": "agent_down"}, {"start": 92, "end": 93, "fault": "runtime_kill"}, {"start": 98, "end": 101, "fault": "sshd_down"}, {"start": 115, "end": 116, "fault": "service_stop"}, {"start": 120, "end": 123, "fault": "agent_down"}, {"start": 127, "end": 128, "fault": "runtime_kill"}, {"start": 132, "end": 135, "fault": "sshd_down"}, {"start": 149, "end": 150, "fault": "service_stop"}, {"start": 154, "end": 155, "fault": "runtime_kill"}, {"start": 158, "end": 161, "fault": "sshd_down"}, {"start": 166, "end": 169, "fault": "agent_down"}, {"start": 184, "end": 187, "fault": "agent_down"}, {"start": 192, "end": 193, "fault": "service_stop"}, {"start": 196, "end": 197, "fault": "runtime_kill"}, {"start": 201, "end": 204, "fault": "sshd_down"}, {"start": 217, "end": 218, "fault": "runtime_kill"}, {"start": 223, "end": 226, "fault": "sshd_down"}, {"start": 229, "end": 232, "fault": "agent_down"}, {"start": 235, "end": 236, "fault": "service_stop"}, {"start": 249, "end": 250, "fault": "service_stop"}, {"start": 253, "end": 256, "fault": "sshd_down"}, {"start": 260, "end": 261, "fault": "runtime_kill"}, {"start": 264, "end": 267, "fault": "agent_down"}, {"start": 281, "end": 282, "fault": "service_stop"}, {"start": 286, "end": 289, "fault": "sshd_down"}, {"start": 293, "end": 294, "fault": "runtime_kill"}, {"start": 299, "end": 302, "fault": "agent_down"}, {"start": 316, "end": 317, "fault": "service_stop"}, {"start": 320, "end": 323, "fault": "agent_down"}, {"start": 326, "end": 327, "fault": "runtime_kill"}, {"start": 330, "end": 333, "fault": "sshd_down"}, {"start": 347, "end": 350, "fault": "sshd_down"}, {"start": 355, "end": 356, "fault": "service_stop"}]}
+{"t": 720.03, "at": "2026-11-24T00:17:40Z", "event": "fault_begin", "fault": "runtime_kill"}
+{"t": 780.03, "at": "2026-11-24T00:18:40Z", "event": "fault_end", "fault": "runtime_kill"}
+{"t": 780.04, "at": "2026-11-24T00:18:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 960.05, "at": "2026-11-24T00:21:40Z", "event": "fault_begin", "fault": "service_stop"}
+{"t": 1020.05, "at": "2026-11-24T00:22:40Z", "event": "fault_end", "fault": "service_stop"}
+{"t": 1020.05, "at": "2026-11-24T00:22:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 1200.06, "at": "2026-11-24T00:25:40Z", "event": "fault_begin", "fault": "sshd_down"}
+{"t": 1380.07, "at": "2026-11-24T00:28:40Z", "event": "fault_end", "fault": "sshd_down"}
+{"t": 1380.49, "at": "2026-11-24T00:28:40Z", "event": "sshd_outage_attempts", "total": 6, "own_probes": 6, "unrequested": 0, "min_gap_s": 0.005}
+{"t": 1680.08, "at": "2026-11-24T00:33:40Z", "event": "fault_begin", "fault": "agent_down"}
+{"t": 1860.09, "at": "2026-11-24T00:36:40Z", "event": "fault_end", "fault": "agent_down"}
+{"t": 2700.13, "at": "2026-11-24T00:50:40Z", "event": "fault_begin", "fault": "service_stop"}
+{"t": 2760.14, "at": "2026-11-24T00:51:40Z", "event": "fault_end", "fault": "service_stop"}
+{"t": 2760.14, "at": "2026-11-24T00:51:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 3060.15, "at": "2026-11-24T00:56:40Z", "event": "fault_begin", "fault": "runtime_kill"}
+{"t": 3120.15, "at": "2026-11-24T00:57:40Z", "event": "fault_end", "fault": "runtime_kill"}
+{"t": 3120.15, "at": "2026-11-24T00:57:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 3360.16, "at": "2026-11-24T01:01:40Z", "event": "fault_begin", "fault": "sshd_down"}
+{"t": 3540.17, "at": "2026-11-24T01:04:40Z", "event": "fault_end", "fault": "sshd_down"}
+{"t": 3540.61, "at": "2026-11-24T01:04:40Z", "event": "sshd_outage_attempts", "total": 6, "own_probes": 6, "unrequested": 0, "min_gap_s": 0.004}
+{"t": 3840.18, "at": "2026-11-24T01:09:40Z", "event": "fault_begin", "fault": "agent_down"}
+{"t": 4020.19, "at": "2026-11-24T01:12:40Z", "event": "fault_end", "fault": "agent_down"}
+{"t": 4860.24, "at": "2026-11-24T01:26:40Z", "event": "fault_begin", "fault": "service_stop"}
+{"t": 4920.24, "at": "2026-11-24T01:27:40Z", "event": "fault_end", "fault": "service_stop"}
+{"t": 4920.25, "at": "2026-11-24T01:27:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 5100.25, "at": "2026-11-24T01:30:40Z", "event": "fault_begin", "fault": "agent_down"}
+{"t": 5280.27, "at": "2026-11-24T01:33:40Z", "event": "fault_end", "fault": "agent_down"}
+{"t": 5520.28, "at": "2026-11-24T01:37:40Z", "event": "fault_begin", "fault": "runtime_kill"}
+{"t": 5580.28, "at": "2026-11-24T01:38:40Z", "event": "fault_end", "fault": "runtime_kill"}
+{"t": 5580.28, "at": "2026-11-24T01:38:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 5880.29, "at": "2026-11-24T01:43:40Z", "event": "fault_begin", "fault": "sshd_down"}
+{"t": 6060.31, "at": "2026-11-24T01:46:40Z", "event": "fault_end", "fault": "sshd_down"}
+{"t": 6060.74, "at": "2026-11-24T01:46:40Z", "event": "sshd_outage_attempts", "total": 6, "own_probes": 6, "unrequested": 0, "min_gap_s": 0.003}
+{"t": 6900.34, "at": "2026-11-24T02:00:40Z", "event": "fault_begin", "fault": "service_stop"}
+{"t": 6960.35, "at": "2026-11-24T02:01:40Z", "event": "fault_end", "fault": "service_stop"}
+{"t": 6960.36, "at": "2026-11-24T02:01:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 7200.36, "at": "2026-11-24T02:05:40Z", "event": "fault_begin", "fault": "agent_down"}
+{"t": 7380.37, "at": "2026-11-24T02:08:40Z", "event": "fault_end", "fault": "agent_down"}
+{"t": 7620.38, "at": "2026-11-24T02:12:40Z", "event": "fault_begin", "fault": "runtime_kill"}
+{"t": 7680.38, "at": "2026-11-24T02:13:40Z", "event": "fault_end", "fault": "runtime_kill"}
+{"t": 7680.38, "at": "2026-11-24T02:13:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 7920.38, "at": "2026-11-24T02:17:40Z", "event": "fault_begin", "fault": "sshd_down"}
+{"t": 8100.39, "at": "2026-11-24T02:20:40Z", "event": "fault_end", "fault": "sshd_down"}
+{"t": 8100.84, "at": "2026-11-24T02:20:41Z", "event": "sshd_outage_attempts", "total": 6, "own_probes": 6, "unrequested": 0, "min_gap_s": 0.004}
+{"t": 8940.43, "at": "2026-11-24T02:34:40Z", "event": "fault_begin", "fault": "service_stop"}
+{"t": 9000.43, "at": "2026-11-24T02:35:40Z", "event": "fault_end", "fault": "service_stop"}
+{"t": 9000.44, "at": "2026-11-24T02:35:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 9240.44, "at": "2026-11-24T02:39:40Z", "event": "fault_begin", "fault": "runtime_kill"}
+{"t": 9300.45, "at": "2026-11-24T02:40:40Z", "event": "fault_end", "fault": "runtime_kill"}
+{"t": 9300.45, "at": "2026-11-24T02:40:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 9480.46, "at": "2026-11-24T02:43:40Z", "event": "fault_begin", "fault": "sshd_down"}
+{"t": 9660.47, "at": "2026-11-24T02:46:40Z", "event": "fault_end", "fault": "sshd_down"}
+{"t": 9660.97, "at": "2026-11-24T02:46:41Z", "event": "sshd_outage_attempts", "total": 6, "own_probes": 6, "unrequested": 0, "min_gap_s": 0.004}
+{"t": 9960.48, "at": "2026-11-24T02:51:40Z", "event": "fault_begin", "fault": "agent_down"}
+{"t": 10140.5, "at": "2026-11-24T02:54:40Z", "event": "fault_end", "fault": "agent_down"}
+{"t": 11040.54, "at": "2026-11-24T03:09:40Z", "event": "fault_begin", "fault": "agent_down"}
+{"t": 11220.55, "at": "2026-11-24T03:12:40Z", "event": "fault_end", "fault": "agent_down"}
+{"t": 11520.56, "at": "2026-11-24T03:17:40Z", "event": "fault_begin", "fault": "service_stop"}
+{"t": 11580.56, "at": "2026-11-24T03:18:40Z", "event": "fault_end", "fault": "service_stop"}
+{"t": 11580.57, "at": "2026-11-24T03:18:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 11760.57, "at": "2026-11-24T03:21:40Z", "event": "fault_begin", "fault": "runtime_kill"}
+{"t": 11820.58, "at": "2026-11-24T03:22:40Z", "event": "fault_end", "fault": "runtime_kill"}
+{"t": 11820.58, "at": "2026-11-24T03:22:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 12060.58, "at": "2026-11-24T03:26:40Z", "event": "fault_begin", "fault": "sshd_down"}
+{"t": 12240.59, "at": "2026-11-24T03:29:40Z", "event": "fault_end", "fault": "sshd_down"}
+{"t": 12241.02, "at": "2026-11-24T03:29:41Z", "event": "sshd_outage_attempts", "total": 6, "own_probes": 6, "unrequested": 0, "min_gap_s": 0.004}
+{"t": 13020.63, "at": "2026-11-24T03:42:40Z", "event": "fault_begin", "fault": "runtime_kill"}
+{"t": 13080.64, "at": "2026-11-24T03:43:40Z", "event": "fault_end", "fault": "runtime_kill"}
+{"t": 13080.64, "at": "2026-11-24T03:43:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 13380.64, "at": "2026-11-24T03:48:40Z", "event": "fault_begin", "fault": "sshd_down"}
+{"t": 13560.65, "at": "2026-11-24T03:51:40Z", "event": "fault_end", "fault": "sshd_down"}
+{"t": 13561.08, "at": "2026-11-24T03:51:41Z", "event": "sshd_outage_attempts", "total": 6, "own_probes": 6, "unrequested": 0, "min_gap_s": 0.004}
+{"t": 13740.65, "at": "2026-11-24T03:54:40Z", "event": "fault_begin", "fault": "agent_down"}
+{"t": 13920.66, "at": "2026-11-24T03:57:40Z", "event": "fault_end", "fault": "agent_down"}
+{"t": 14100.67, "at": "2026-11-24T04:00:40Z", "event": "fault_begin", "fault": "service_stop"}
+{"t": 14160.67, "at": "2026-11-24T04:01:40Z", "event": "fault_end", "fault": "service_stop"}
+{"t": 14160.68, "at": "2026-11-24T04:01:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 14940.7, "at": "2026-11-24T04:14:40Z", "event": "fault_begin", "fault": "service_stop"}
+{"t": 15000.71, "at": "2026-11-24T04:15:40Z", "event": "fault_end", "fault": "service_stop"}
+{"t": 15000.71, "at": "2026-11-24T04:15:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 15180.72, "at": "2026-11-24T04:18:40Z", "event": "fault_begin", "fault": "sshd_down"}
+{"t": 15360.73, "at": "2026-11-24T04:21:40Z", "event": "fault_end", "fault": "sshd_down"}
+{"t": 15361.19, "at": "2026-11-24T04:21:41Z", "event": "sshd_outage_attempts", "total": 6, "own_probes": 6, "unrequested": 0, "min_gap_s": 0.005}
+{"t": 15600.74, "at": "2026-11-24T04:25:40Z", "event": "fault_begin", "fault": "runtime_kill"}
+{"t": 15660.75, "at": "2026-11-24T04:26:40Z", "event": "fault_end", "fault": "runtime_kill"}
+{"t": 15660.75, "at": "2026-11-24T04:26:40Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 15840.76, "at": "2026-11-24T04:29:40Z", "event": "fault_begin", "fault": "agent_down"}
+{"t": 16020.77, "at": "2026-11-24T04:32:41Z", "event": "fault_end", "fault": "agent_down"}
+{"t": 16860.81, "at": "2026-11-24T04:46:41Z", "event": "fault_begin", "fault": "service_stop"}
+{"t": 16920.81, "at": "2026-11-24T04:47:41Z", "event": "fault_end", "fault": "service_stop"}
+{"t": 16920.81, "at": "2026-11-24T04:47:41Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 17160.82, "at": "2026-11-24T04:51:41Z", "event": "fault_begin", "fault": "sshd_down"}
+{"t": 17340.83, "at": "2026-11-24T04:54:41Z", "event": "fault_end", "fault": "sshd_down"}
+{"t": 17341.27, "at": "2026-11-24T04:54:41Z", "event": "sshd_outage_attempts", "total": 6, "own_probes": 6, "unrequested": 0, "min_gap_s": 0.004}
+{"t": 17580.84, "at": "2026-11-24T04:58:41Z", "event": "fault_begin", "fault": "runtime_kill"}
+{"t": 17640.85, "at": "2026-11-24T04:59:41Z", "event": "fault_end", "fault": "runtime_kill"}
+{"t": 17640.85, "at": "2026-11-24T04:59:41Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 17940.86, "at": "2026-11-24T05:04:41Z", "event": "fault_begin", "fault": "agent_down"}
+{"t": 18120.87, "at": "2026-11-24T05:07:41Z", "event": "fault_end", "fault": "agent_down"}
+{"t": 18960.92, "at": "2026-11-24T05:21:41Z", "event": "fault_begin", "fault": "service_stop"}
+{"t": 19020.93, "at": "2026-11-24T05:22:41Z", "event": "fault_end", "fault": "service_stop"}
+{"t": 19020.93, "at": "2026-11-24T05:22:41Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 19200.93, "at": "2026-11-24T05:25:41Z", "event": "fault_begin", "fault": "agent_down"}
+{"t": 19380.94, "at": "2026-11-24T05:28:41Z", "event": "fault_end", "fault": "agent_down"}
+{"t": 19560.95, "at": "2026-11-24T05:31:41Z", "event": "fault_begin", "fault": "runtime_kill"}
+{"t": 19620.95, "at": "2026-11-24T05:32:41Z", "event": "fault_end", "fault": "runtime_kill"}
+{"t": 19620.96, "at": "2026-11-24T05:32:41Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}
+{"t": 19800.96, "at": "2026-11-24T05:35:41Z", "event": "fault_begin", "fault": "sshd_down"}
+{"t": 19980.98, "at": "2026-11-24T05:38:41Z", "event": "fault_end", "fault": "sshd_down"}
+{"t": 19981.45, "at": "2026-11-24T05:38:41Z", "event": "sshd_outage_attempts", "total": 6, "own_probes": 6, "unrequested": 0, "min_gap_s": 0.005}
+{"t": 20821.02, "at": "2026-11-24T05:52:41Z", "event": "fault_begin", "fault": "sshd_down"}
+{"t": 21001.03, "at": "2026-11-24T05:55:41Z", "event": "fault_end", "fault": "sshd_down"}
+{"t": 21001.49, "at": "2026-11-24T05:55:41Z", "event": "sshd_outage_attempts", "total": 6, "own_probes": 6, "unrequested": 0, "min_gap_s": 0.003}
+{"t": 21301.04, "at": "2026-11-24T06:00:41Z", "event": "fault_begin", "fault": "service_stop"}
+{"t": 21361.05, "at": "2026-11-24T06:01:41Z", "event": "fault_end", "fault": "service_stop"}
+{"t": 21361.05, "at": "2026-11-24T06:01:41Z", "event": "runtime_recovered", "by": "an earlier on-demand start (heimdall connect)"}

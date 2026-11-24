@@ -1,0 +1,11 @@
+#14820	INITED cov: 1799 ft: 5224 corp: 2014/203Kb exec/s: 0 rss: 246Mb
+#332656644	REDUCE cov: 1799 ft: 5231 corp: 2018/182Kb lim: 70000 exec/s: 184809 rss: 534Mb L: 204/11633 MS: 1 EraseBytes-
+#332659455	REDUCE cov: 1799 ft: 5231 corp: 2018/182Kb lim: 70000 exec/s: 184810 rss: 534Mb L: 456/11633 MS: 1 EraseBytes-
+#332768745	DONE   cov: 1799 ft: 5231 corp: 2018/182Kb lim: 70000 exec/s: 184768 rss: 534Mb
+#332768745	DONE   cov: 1799 ft: 5231 corp: 2018/182Kb lim: 70000 exec/s: 184768 rss: 534Mb
+Done 332768745 runs in 1801 second(s)
+stat::number_of_executed_units: 332768745
+stat::average_exec_per_sec:     184768
+stat::new_units_added:          1476
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              534

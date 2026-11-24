@@ -1,0 +1,6 @@
+﻿info: syncing channel updates for 1.99.1-x86_64-pc-windows-msvc
+info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+info: downloading 5 components
+info: the active toolchain `1.99.1-x86_64-pc-windows-msvc` has been installed
+info: it's active because: overridden by '<R>\c1\rust-toolchain.toml'
+info: checking for self-update (current version: 1.29.3)
