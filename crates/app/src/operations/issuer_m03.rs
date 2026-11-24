@@ -19,7 +19,8 @@
 //! never executes on dispatch. Approval, in the decide transaction: the `issuers` row
 //! (`active`, or `pending` for a rotation's new CA), the native environment's
 //! `managed_signing` and `issuer_access` permissions (which moves the authority
-//! generation, ADR-0006 §13.7 item 5) and, when the record disclosed it, the lock
+//! generation, ADR-0006 §13.7 item 5; ⟨M08-W3-F1⟩ on a fresh installation the approval
+//! creates the environment's record) and, when the record disclosed it, the lock
 //! disclosure's acknowledgement; after the commit the child is started or reloaded.
 //!
 //! **The registration's public key** and `backup_created_at` are part of the
@@ -92,7 +93,7 @@ use heimdall_domain::operation::OperationRecord;
 use heimdall_store::ext_m03::same_registration_facts;
 use heimdall_store::{IssuerRecord, StoreError, Txn};
 
-use super::{Emit, Operations, approval_needed, internal, plus};
+use super::{Emit, Operations, approval_needed, internal, plus, unenrolled};
 use crate::context::Caller;
 use crate::error::{Completed, OpError, OpResult};
 use crate::issuer::bundle::{EnrollmentEntry, Redaction, StoreView, export_with_foreign};
@@ -1321,9 +1322,13 @@ pub(super) fn decision_apply(
             let Some(env_id) = tx.self_environment()? else {
                 return Ok(Err(internal("this installation has no environment")));
             };
-            let Some(mut env) = tx.environment(&env_id)? else {
-                return Ok(Err(internal("this installation's environment is unknown")));
-            };
+            // ⟨M08-W3-F1⟩ On a fresh installation no owner operation has written the
+            // record yet: this approval creates it, unenrolled (nothing automatic), as a
+            // policy approval does (`trust_m05::allow_automatic_activation`). Refusing here
+            // would come after the ceremony wrote the backup and the store item.
+            let mut env = tx
+                .environment(&env_id)?
+                .unwrap_or_else(|| unenrolled(&env_id));
             if !(env.permissions.managed_signing && env.permissions.issuer_access) {
                 env.permissions.managed_signing = true;
                 env.permissions.issuer_access = true;
