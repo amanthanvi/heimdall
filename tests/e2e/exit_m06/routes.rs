@@ -76,13 +76,17 @@ pub(crate) fn ordinary_login(w: &World, alias: &str, work: &str, marker: &str) -
     /// its section's `IdentitiesOnly yes`. Not `ControlMaster`/`ControlPath`: `run` refuses
     /// them on the command line (`owned_connection_option_conflict`), and the section
     /// renders `ControlMaster no`/`ControlPath none`, which the helper checks.
-    const ALIAS_PINS: [&str; 8] = [
+    /// ⟨M06 exit c11, R05⟩ And its `CheckHostIP no`, so the client never looks the address
+    /// up in (or adds it to) any known-hosts file.
+    const ALIAS_PINS: [&str; 10] = [
         "-o",
         "GlobalKnownHostsFile=none",
         "-o",
         "StrictHostKeyChecking=yes",
         "-o",
         "UpdateHostKeys=no",
+        "-o",
+        "CheckHostIP=no",
         "-o",
         "IdentitiesOnly=yes",
     ];

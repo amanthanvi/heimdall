@@ -1407,6 +1407,81 @@ pub fn create_session_home(dir: &Path) -> io::Result<PathBuf> {
 /// The standard directories after a [`LaggingClock`]'s scratch directory.
 const STANDARD_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
 
+// --- ⟨M06 exit c11⟩ forwarded agents through the account's own sshd -------------------------
+
+/// Why a step that makes the fixture sshd really forward an agent does not run here
+/// ([`agent_forwarding_through_account_sshd_blocked`]).
+#[cfg(unix)]
+pub const FORWARDED_AGENT_BLOCKED_REASON: &str =
+    "sshd >= 10.1 places forwarded agent sockets under the account's real ~/.ssh/agent";
+
+/// The opt-in that runs such a step anyway: set only where the fixture sshd's account is a
+/// disposable scratch account (never the owner's).
+#[cfg(unix)]
+pub const FORWARDING_SCRATCH_ACCOUNT_ENV: &str = "HM_ROUTE_FORWARDING_SCRATCH_ACCOUNT";
+
+/// Whether the sshd a [`LoopbackSshd`] starts here would place a forwarded agent's
+/// listener under the authenticated account's `~/.ssh/agent/` (OpenSSH 10.1 and later; it
+/// takes the home from the account database, so `SetEnv HOME` cannot redirect it;
+/// ADR-0010 §10). Fail closed: `true` unless this is a local fixture sshd whose version
+/// reads as earlier than 10.1.
+///
+/// * A harness sshd (`HM_FIXTURE_SSHD_PORT` set; [`LoopbackSshd::start`] adopts it) is not
+///   a binary this process can ask: `true`.
+/// * Otherwise the program is resolved exactly as [`LoopbackSshd::start`]'s local start
+///   resolves it (`find_program("sshd")`), and its `sshd -V` banner is read. No sshd, no
+///   banner, or no readable `OpenSSH_<major>.<minor>`: `true`.
+#[cfg(unix)]
+#[must_use]
+pub fn forwarded_agent_lands_in_account_ssh_dir() -> bool {
+    if std::env::var_os("HM_FIXTURE_SSHD_PORT").is_some() {
+        return true;
+    }
+    let Some(sshd) = find_program("sshd") else {
+        return true;
+    };
+    let Ok(out) = Command::new(sshd)
+        .arg("-V")
+        .env_clear()
+        .stdin(Stdio::null())
+        .output()
+    else {
+        return true;
+    };
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    openssh_version_at_least_10_1(&text)
+}
+
+/// `true` unless `banner` names `OpenSSH_<major>.<minor>` earlier than 10.1 (unreadable:
+/// `true`).
+#[cfg(unix)]
+fn openssh_version_at_least_10_1(banner: &str) -> bool {
+    let Some(v) = banner.split("OpenSSH_").nth(1) else {
+        return true;
+    };
+    let mut parts = v.split(|c: char| !c.is_ascii_digit());
+    let mut number = || parts.next().and_then(|p| p.parse::<u32>().ok());
+    match (number(), number()) {
+        (Some(major), Some(minor)) => (major, minor) >= (10, 1),
+        _ => true,
+    }
+}
+
+/// Whether a step that makes the fixture sshd (running as this account) really forward an
+/// agent must not run here: [`forwarded_agent_lands_in_account_ssh_dir`], unless
+/// [`FORWARDING_SCRATCH_ACCOUNT_ENV`] says the account is a disposable one. The caller
+/// prints [`FORWARDED_AGENT_BLOCKED_REASON`] and skips the step.
+#[cfg(unix)]
+#[must_use]
+pub fn agent_forwarding_through_account_sshd_blocked() -> bool {
+    forwarded_agent_lands_in_account_ssh_dir()
+        && std::env::var_os(FORWARDING_SCRATCH_ACCOUNT_ENV).is_none()
+}
+
 // --- ⟨M03⟩ multi-host fixtures ------------------------------------------------------------
 
 /// A fresh destination ID for a fixture host: `hm-fx-<8 hex>-<n>` (a plain token).
@@ -2281,6 +2356,24 @@ impl PrincipalsNotEnforced {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ⟨M06 exit c11⟩ The forwarded-agent guard reads the banner fail-closed.
+    #[cfg(unix)]
+    #[test]
+    fn the_forwarding_guard_treats_10_1_and_unreadable_banners_as_blocking() {
+        for (banner, blocking) in [
+            ("OpenSSH_9.6p1 Ubuntu-3ubuntu13, OpenSSL 3.0.13", false),
+            ("OpenSSH_10.0p2, LibreSSL 3.3.6", false),
+            ("OpenSSH_10.1p1, OpenSSL 3.5.0", true),
+            ("OpenSSH_10.5p1, LibreSSL 3.3.6", true),
+            ("OpenSSH_11.0", true),
+            ("OpenSSH_10", true),
+            ("unknown option -- V", true),
+            ("", true),
+        ] {
+            assert_eq!(openssh_version_at_least_10_1(banner), blocking, "{banner}");
+        }
+    }
 
     #[test]
     fn config_binds_loopback_only_and_restricts_keys() {
