@@ -346,9 +346,12 @@ mod tests {
             // The fix is local to the command: this process's environment is unchanged.
             assert!(std::env::var_os("SystemDrive").is_none());
             assert!(std::env::var_os("ProgramData").is_none());
-            #[allow(clippy::print_stdout)] // the marker is the parent's evidence the child ran
+            // The marker is the parent's evidence the child ran. ⟨PC job 55⟩ Under `--nocapture`
+            // libtest has already printed `test <name> ... ` with no newline, so the marker starts
+            // its own line.
+            #[allow(clippy::print_stdout)]
             {
-                println!("{MARKER}");
+                println!("\n{MARKER}");
             }
             return;
         }
@@ -393,7 +396,7 @@ mod tests {
         let out = child.output().unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(
-            out.status.success() && stdout.lines().any(|l| l == MARKER),
+            out.status.success() && stdout.lines().any(|l| l.trim_end().ends_with(MARKER)),
             "child exit {:?}\n{stdout}\n{}",
             out.status.code(),
             String::from_utf8_lossy(&out.stderr)
