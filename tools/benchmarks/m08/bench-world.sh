@@ -12,6 +12,11 @@
 # Nothing leaves the container (--network none); every key is generated here and discarded.
 set -u
 case "${1:-}" in "" | -h | --help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;; esac
+# Refuse outside a container, and refuse any test variable (as lane.sh; review M08-W2-R06): this
+# starts an sshd and agents and runs a release build. Only run-bench.sh's container runs it.
+in_container() { [ -f /.dockerenv ] || [ -f /run/.containerenv ] || grep -qE '(docker|containerd|kubepods|libpod)' /proc/1/cgroup 2>/dev/null; }
+in_container || { echo "refused: this runs only inside the M08 container (no container was detected)" >&2; exit 2; }
+if env | grep -q '^HEIMDALL_TEST_'; then echo "refused: a HEIMDALL_TEST_* variable is set in the environment of a release run" >&2; exit 2; fi
 hm_src=$1; out=$2; dests=$3; samples=$4; settle=$5; window=$6; windows=$7
 lib=/src/tests/native/m02
 # shellcheck source=tests/native/m02/remote-lib.sh
@@ -63,14 +68,13 @@ mkdir -m 700 "$S/agent1-home"
 HOME="$S/agent1-home" ssh-agent -D -a "$S/agent1.sock" </dev/null >/dev/null 2>&1 &
 i=0; while [ $i -lt 100 ] && [ ! -S "$S/agent1.sock" ]; do sleep 0.1; i=$((i + 1)); done
 SSH_AUTH_SOCK="$S/agent1.sock" ssh-add -q "$S/k1" </dev/null >/dev/null 2>&1 || fail ssh-add1
-# The proxy relays only to this run's own fixture agent: its upstream must be inside the run's
-# scratch directory (never the owner's agent; the container and --network none also keep it out).
+# The proxy relays only to this run's own fixture agent (review M08-W2-R06): the agent at the
+# upstream must hold exactly the key generated above, and the proxy itself refuses an upstream
+# that is not a socket of this account inside the run's scratch directory.
 upstream="$S/agent1.sock"
-case "$(cd "$(dirname "$upstream")" && pwd -P)/$(basename "$upstream")" in
-    "$(cd "$S" && pwd -P)"/*) ;;
-    *) fail "the delaying proxy's upstream is not inside the run's scratch directory" ;;
-esac
-python3 -I /src/tools/benchmarks/m08/agent-delay.py "$S/slow.sock" "$upstream" "${BG_DELAY_MS:-500}" </dev/null >/dev/null 2>&1 &
+[ "$(SSH_AUTH_SOCK="$upstream" ssh-add -l 2>/dev/null | awk '{print $2}')" = "$(ssh-keygen -lf "$S/k1.pub" | awk '{print $2}')" ] \
+    || fail "the delaying proxy's upstream is not the agent this run started"
+python3 -I /src/tools/benchmarks/m08/agent-delay.py "$S/slow.sock" "$upstream" "${BG_DELAY_MS:-500}" "$S" </dev/null >"$S/agent-delay.err" 2>&1 &
 i=0; while [ $i -lt 100 ] && [ ! -S "$S/slow.sock" ]; do sleep 0.1; i=$((i + 1)); done
 [ -S "$S/slow.sock" ] || fail "the delaying proxy did not start"
 { printf 'restrict '; cat "$S/k0.pub"; printf 'restrict '; cat "$S/k1.pub"; } >"$S/authorized_keys"

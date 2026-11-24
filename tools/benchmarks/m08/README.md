@@ -113,19 +113,26 @@ memory, OS build and power source are recorded, and its load is sampled every 30
 | `cli_status`, `cli_inspect` | informational: the CLI end to end, including process start |
 | `tui_first_useful_frame` | **the spec row** (ruled): spawn of `heimdall tui` on a 120x40 pty to the first screen showing the catalog counts (`<N> destinations,`) |
 | `tui_first_runtime_frame` | informational: spawn to the first screen showing "listings read" |
+| `key_to_frame` | in one TUI, a view key (`2`, then `1`, in turn) to the last byte before 20 ms of quiet (ruled), timed only once the reconstructed screen shows the key's effect, the selected view's title in the header (`[2 Destinations]`, `[1 Overview]`; review M08-W2-R07): output that does not show it never ends a sample, and no effect within 2 s is an error; measured under **fast concurrent operations**: a second session keeps policy-covered ensures in flight for profile `slow`. They do not contact the provider (observed: P50 about 11 ms), so `agent-delay.py` is not in their path and this is **not** the slow-provider case. That case is the candidate's benchmark of record, with the managed recipe where the runtime itself signs and a slow component in its path (ruled 2026-11-23); until it exists, the go/no-go draft says "measured under fast concurrent operations; slow-provider case not measured" |
+| `key_to_frame_quiet` | the same with no background work, for comparison |
+| `idle` | after a settle (600 s), three 300 s windows: the runtime's CPU time as a share of one core, and its RSS. **The runtime process alone**, as the spec's rows say ("Idle runtime CPU \| < 0.5% of one logical core over a five-minute idle sample"; "Idle runtime memory \| Target ≤ 150 MiB RSS/working set; report platform measurement method", spec §15.1): its children at each window's end are named in the record (`children_not_measured`), not measured |
 
-Both TUI rows read a reconstructed screen (`Screen` in `bench.py`: cursor position and forward,
+The TUI and key rows read a reconstructed screen (`Screen` in `bench.py`: cursor position and forward,
 erase, CR, LF, text), never raw bytes: the TUI redraws only changed cells and moves the cursor
 over the rest, so a raw byte search misses whole words (`listings\x1b[3;30Hread`).
-| `key_to_frame` | in one TUI, a view key (`2`, then `1`, in turn) to the last byte before 20 ms of quiet (ruled), measured under **fast concurrent operations**: a second session keeps policy-covered ensures in flight for profile `slow`. They do not contact the provider (observed: P50 about 11 ms), so `agent-delay.py` is not in their path and this is **not** the slow-provider case. That case is the candidate's benchmark of record, with the managed recipe where the runtime itself signs and a slow component in its path (ruled 2026-11-23); until it exists, the go/no-go draft says "measured under fast concurrent operations; slow-provider case not measured" |
-| `key_to_frame_quiet` | the same with no background work, for comparison |
-| `idle` | after a settle (600 s), three 300 s windows: the runtime's CPU time as a share of one core, and its RSS |
 
-Every latency metric has at least 200 samples (a floor) and reports P50 and P95. A run on any
+Every latency metric has at least 200 samples (a floor) except the two informational CLI rows,
+`cli_status` and `cli_inspect`, which take 50. Each reports P50 and P95. A run on any
 build but the candidate's is a rehearsal and is labelled with its executable's digest.
 
 **The delaying proxy relays only to a fixture agent.** `agent-delay.py`'s upstream is a plain
 `ssh-agent` the run starts inside the container, holding a key generated for that run.
-`bench-world.sh` refuses to start the proxy unless the upstream socket is inside the run's scratch
-directory; the container boundary and `--network none` also keep the owner's agent unreachable.
+Before starting the proxy, `bench-world.sh` checks that the agent at the upstream holds exactly
+the key generated for this run. The proxy itself refuses an upstream that, with every link
+resolved, is not a socket of the calling account inside the directory named on its command line
+(the run's scratch directory; `agent-delay.py self-test` shows it refusing another directory's
+socket, a link out, a climb out, a sibling with the same prefix, a file and a missing path).
+`bench-world.sh` refuses outside a container and with any `HEIMDALL_TEST_*` variable set, as
+`lane.sh` does. The container boundary and `--network none` also keep the owner's agent
+unreachable.
 

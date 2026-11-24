@@ -33,8 +33,11 @@ What it measures, each with at least SAMPLES samples (a floor) and P50/P95:
                      the reconstructed screen (Screen), not raw bytes: the TUI moves the cursor
                      over unchanged cells, so a raw byte search misses whole words.
   key_to_frame       in one TUI, from writing a view key ("2" Destinations, "1" Overview, in
-                     turn) to the end of the frame it causes:
-                     the last byte before 20 ms of quiet (the quiet itself is not counted).
+                     turn) to the end of the frame it causes: the reconstructed screen must show
+                     the selected view's title ("[2 Destinations]", "[1 Overview]"), and the
+                     frame ends at the last byte before 20 ms of quiet after that (the quiet
+                     itself is not counted). Output that does not show the effect never ends a
+                     sample (review M08-W2-R07); no effect within 2 s is an error.
                      under FAST CONCURRENT OPERATIONS (ruled 2026-11-23, W2): a second session
                      keeps policy-covered ensures in flight for profile `slow`. Those ensures
                      do not contact the provider, so its delaying proxy is not in their path,
@@ -308,32 +311,54 @@ class Bench:
         stop, lat = threading.Event(), []
         bg = threading.Thread(target=self.background, args=(stop, lat), daemon=True) if loaded else None
         pid, fd = self.spawn_tui()
-        seen = b""
+        screen = Screen()
         deadline = time.monotonic() + 10
-        while b"listings read" not in seen and time.monotonic() < deadline:
-            seen += self.drain(fd, 0.5)
-        self.drain(fd, 0.5)
+        while "listings read" not in screen.text() and time.monotonic() < deadline:
+            screen.feed(self.drain(fd, 0.5))
+        screen.feed(self.drain(fd, 0.5))
         if bg:
             bg.start()
             time.sleep(2)  # background ensures are in flight before the first key
+            screen.feed(self.drain(fd, 0.2))
+        # A frame is timed only when the reconstructed screen shows the key's effect, the
+        # selected view's title in the header (review M08-W2-R07): output that does not show it
+        # (a background redraw) never ends a sample. The frame then ends at the last byte before
+        # 20 ms of quiet; a key whose effect does not appear within 2 s is an error.
         first, frame, errors = [], [], 0
         for i in range(WARMUP + self.a.samples):
-            key = b"2" if i % 2 == 0 else b"1"
+            key, title = (b"2", "[2 Destinations]") if i % 2 == 0 else (b"1", "[1 Overview]")
             t = time.perf_counter()
             os.write(fd, key)
-            r, _, _ = select.select([fd], [], [], 2)
-            if not r:
+            t_first = t_effect = None
+            limit = t + 2
+            while t_effect is None and time.perf_counter() < limit:
+                r, _, _ = select.select([fd], [], [], max(0.0, limit - time.perf_counter()))
+                if not r:
+                    break
+                b = os.read(fd, 65536)
+                if not b:
+                    break
+                if t_first is None:
+                    t_first = time.perf_counter()
+                screen.feed(b)
+                if title in screen.text():
+                    t_effect = time.perf_counter()
+            if t_effect is None:
                 errors += 0 if i < WARMUP else 1
+                if i >= WARMUP and errors == 1:
+                    with open(os.path.join(self.a.out, f"{name}-failure.txt"), "w", encoding="utf-8") as fh:
+                        fh.write(screen.text())
+                screen.feed(self.drain(fd, 0.2))
                 continue
-            t_first = time.perf_counter()
-            os.read(fd, 65536)
-            t_last = t_first
+            t_last = t_effect
             while True:
                 r, _, _ = select.select([fd], [], [], QUIET_S)
                 if not r:
                     break
-                if not os.read(fd, 65536):
+                b = os.read(fd, 65536)
+                if not b:
                     break
+                screen.feed(b)
                 t_last = time.perf_counter()
             if i >= WARMUP:
                 first.append((t_first - t) * 1000)
@@ -356,7 +381,7 @@ class Bench:
         else:
             cond = "one TUI on a 120x40 pty, view keys 2 and 1 in turn; no background work (for comparison)"
         self.result[name.replace("frame", "first_byte")] = summary(first, errors, cond)
-        self.result[name] = summary(frame, errors, cond + "; the frame ends at the last byte before 20 ms of quiet")
+        self.result[name] = summary(frame, errors, cond + "; timed only once the reconstructed screen shows the selected view's title; the frame ends at the last byte before 20 ms of quiet")
 
     # ---- idle
     def runtime_pid(self):
@@ -386,6 +411,25 @@ class Bench:
                     threads = int(line.split()[1])
         return int(f[11]) + int(f[12]), rss, threads
 
+    @staticmethod
+    def children(pid):
+        """The runtime's direct children, as (pid, name): named in the record, not measured."""
+        kids = []
+        try:
+            for tid in os.listdir(f"/proc/{pid}/task"):
+                with open(f"/proc/{pid}/task/{tid}/children", encoding="utf-8") as fh:
+                    kids += [int(k) for k in fh.read().split()]
+        except OSError:
+            return None
+        out = []
+        for k in sorted(set(kids)):
+            try:
+                with open(f"/proc/{k}/comm", encoding="utf-8") as fh:
+                    out.append([k, fh.read().strip()])
+            except OSError:
+                out.append([k, "?"])
+        return out
+
     def idle(self):
         pid = self.runtime_pid()
         if not pid:
@@ -402,10 +446,13 @@ class Bench:
             secs = time.monotonic() - t0
             windows.append({"cpu_percent_of_one_core": round((c1 - c0) / hz / secs * 100, 3),
                             "rss_mib": round(rss / 1024, 1) if rss else None, "threads": threads,
-                            "seconds": round(secs, 1)})
+                            "seconds": round(secs, 1),
+                            "children_not_measured": self.children(pid)})
         self.result["idle"] = {"settle_s": self.a.settle, "windows": windows,
+                               "scope": "the runtime process alone (spec section 15.1 'Idle runtime CPU' and 'Idle runtime memory'); "
+                                        "its children at each window's end are named, not measured",
                                "memory_method": "VmRSS of the runtime process (/proc/<pid>/status)",
-                               "cpu_method": "utime+stime ticks of the runtime process over the window"}
+                               "cpu_method": "utime+stime ticks of the runtime process over the window (a child's time is not included)"}
 
     def capture(self):
         """Diagnosis only (--capture): one TUI for 12 s, its raw output kept with arrival times,
