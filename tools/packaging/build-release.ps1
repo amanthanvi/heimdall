@@ -72,7 +72,10 @@ if (-not $version) { Fail 2 "no workspace version" }
 # characters a feature list uses.
 if ($Features -and ($Features -notmatch '^[A-Za-z0-9_,/-]+$')) { Fail 2 "-Features may hold only letters, digits, '_', '-', '/' and ','" }
 # Release artifacts ship without the Iroh transport (ruling E2, option c): a source-build preview.
-if ((",$Features," -split ',') -contains 'iroh' -or (",$Features," -split ',') -contains 'heimdall/iroh') { Fail 2 "release artifacts are built without the iroh feature (the Iroh transport is a source-build preview)" }
+# (The list holds no whitespace, by the check above. A feature that turns iroh on through
+# another one is caught by `check-features` before the build and by `build-record` after it,
+# review M08-W2-R02.)
+foreach ($f in ($Features -split ',')) { if (($f -split '/') -contains 'iroh') { Fail 2 "release artifacts are built without the iroh feature (the Iroh transport is a source-build preview)" } }
 
 # rustc applies the last matching --remap-path-prefix, so the general one comes first.
 $sep = [char]0x1f
@@ -100,6 +103,11 @@ $messages = Join-Path $out ".build-messages-$target.json"
 $cargoArgs = @("build", "--release", "--locked", "-p", "heimdall", "--target", $target, "--message-format=json-render-diagnostics")
 if ($Offline) { $cargoArgs += "--offline" }
 if ($Features) { $cargoArgs += @("--features", $Features) }
+$checkArgs = @("check-features", "--target", $target)
+if ($Features) { $checkArgs += @("--features", $Features) }
+if ($Offline) { $checkArgs += "--offline" }
+& python -I "$here\provenance.py" @checkArgs
+if ($LASTEXITCODE -ne 0) { Fail 2 "refused before the build; nothing was built" }
 $started = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 Write-Host "== build-release: $target at $($commit.Substring(0,12)) (tree clean: $clean)"
 # cargo's JSON goes to the file byte for byte (PC job 34). Piping `& cargo` through PowerShell
@@ -146,7 +154,7 @@ $feat = @(); if ($Features) { $feat = @("--features", $Features) }
 $off = @(); if ($Offline) { $off = @("--offline") }
 Py sbom --target $target @feat @off --commit $commit --time $commitTime --tool $sbomTool --build-messages $messages --out (Join-Path $stage "heimdall-$target.cdx.json")
 Py notices --target $target @feat @off --out (Join-Path $stage "THIRD-PARTY-NOTICES.txt")
-Py build-record --target $target @feat --commit $commit --time $commitTime --clean $clean --flags $flagsText --signature "none (unsigned)" --stage $stage --out (Join-Path $stage "BUILD-RECORD.json")
+Py build-record --target $target @feat @off --build-messages $messages --commit $commit --time $commitTime --clean $clean --flags $flagsText --signature "none (unsigned)" --stage $stage --out (Join-Path $stage "BUILD-RECORD.json")
 Py manifest --stage $stage
 Remove-Item -Force -LiteralPath $messages
 

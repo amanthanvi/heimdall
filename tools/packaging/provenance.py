@@ -5,9 +5,13 @@ Usage (`build-release.sh` calls these in this order):
     provenance.py sbom         --target T [--features F] --commit C --time ISO --tool PATH
                                [--build-messages FILE] --out FILE
     provenance.py notices      --target T [--features F] --out FILE
+    provenance.py check-features --target T [--features F]
+                               (before the build: no iroh feature is requested, and the graph
+                               cargo selects holds no iroh crate)
     provenance.py build-record --target T [--features F] --commit C --time ISO --clean yes|no
-                               --flags TEXT --stage DIR --out FILE
-                               (the record packed into the archive: deterministic inputs only)
+                               --flags TEXT --stage DIR --build-messages FILE --out FILE
+                               (the record packed into the archive: deterministic inputs only;
+                               refused when the build compiled an iroh crate)
     provenance.py external-record --record FILE --started ISO --finished ISO --out FILE
                                (the copy published beside the archive: the record plus the
                                build's wall-clock start and finish)
@@ -71,6 +75,32 @@ def run(cmd, cwd=None, env=None):
     if out.returncode != 0:
         raise Refused(f"{os.path.basename(cmd[0])} {cmd[1] if len(cmd) > 1 else ''} failed (exit {out.returncode})")
     return out.stdout
+
+
+# ------------------------------------------------------------------------ iroh refusal
+
+# Release artifacts ship without the Iroh transport (ruling E2, option c). The request is
+# refused before the build, and what the build compiled is checked after it (review
+# M08-W2-R02): a feature list is split as cargo splits it (on commas and whitespace), and a
+# feature that enables iroh through another feature is caught by the graph check, whatever
+# its name.
+IROH_CRATES = frozenset({"iroh"})
+
+
+def feature_tokens(features):
+    return [t for t in re.split(r"[\s,]+", features or "") if t]
+
+
+def refuse_iroh_request(features):
+    for t in feature_tokens(features):
+        if t in ("all-features", "--all-features") or any(part == "iroh" for part in re.split(r"[/:]", t)):
+            raise Refused("release artifacts are built without the iroh feature (the Iroh transport is a source-build preview)")
+
+
+def refuse_iroh_packages(names):
+    found = sorted(set(names) & IROH_CRATES)
+    if found:
+        raise Refused(f"the build graph holds the iroh crate ({', '.join(found)}); release artifacts are built without it")
 
 
 # ------------------------------------------------------------------------ selection
@@ -526,7 +556,7 @@ def toolchain_record(run=subprocess.run):
             "cargo": got["cargo"].strip().splitlines()[0]}
 
 
-def make_record(a):
+def make_record(a, compiled_names):
     """The build inputs and the digests of the executables only (ADR-0014 section 4.4): no
     digest of the record itself, of the manifest or of the archive. Deterministic: nothing
     in it depends on when the build ran, so two builds of one commit with the same inputs
@@ -539,11 +569,14 @@ def make_record(a):
     if not outputs:
         raise Refused("the stage holds no executable")
     toolchain = a.get("toolchain") or toolchain_record()
+    # The record says the transport is not built only once the compiled set shows it.
+    refuse_iroh_request(a.get("features"))
+    refuse_iroh_packages(compiled_names)
     return {
         "schema": "heimdall-build-record/1",
         "commit": a["commit"], "commit_time": a["time"], "tree_clean": a["clean"] == "yes",
         "target": a["target"], "profile": "release", "features": a.get("features") or "default",
-        # Ruling E2 (option c): release artifacts never carry the Iroh transport.
+        # Ruling E2 (option c), checked above against the packages the build compiled.
         "iroh_transport": "not built (release artifacts ship without the iroh feature; the Iroh transport is a source-build preview)",
         "rustflags": a["flags"],
         "toolchain": toolchain,
@@ -755,15 +788,44 @@ def self_test():
         stub = {"rustc": {"release": "0.0.0", "host": "stub"}, "cargo": "cargo 0.0.0 (stub)"}
         inputs = {"stage": stage, "commit": "0" * 40, "time": "2026-01-01T00:00:00Z", "clean": "yes",
                   "target": "t", "flags": "f", "toolchain": stub}
-        rec = make_record(inputs)
+        compiled_names = {"heimdall", "linked"}
+        rec = make_record(inputs, compiled_names)
         check("record lists executables only", [o["path"] for o in rec["outputs"]] == ["heimdall"])
         # W2-6: two records of the same inputs, built at different times, are byte-identical,
         # and the build times appear only in the external copy.
-        first = json.dumps(make_record(dict(inputs, started="2026-01-01T10:00:00Z", finished="2026-01-01T10:05:00Z")), indent=1, sort_keys=True)
-        second = json.dumps(make_record(dict(inputs, started="2026-02-02T20:00:00Z", finished="2026-02-02T20:09:00Z")), indent=1, sort_keys=True)
+        first = json.dumps(make_record(dict(inputs, started="2026-01-01T10:00:00Z", finished="2026-01-01T10:05:00Z"), compiled_names), indent=1, sort_keys=True)
+        second = json.dumps(make_record(dict(inputs, started="2026-02-02T20:00:00Z", finished="2026-02-02T20:09:00Z"), compiled_names), indent=1, sort_keys=True)
         check("records of the same inputs at different times are byte-identical", first == second)
         check("the packed record holds no build time", "started_at" not in rec and "finished_at" not in rec)
         check("the record says the Iroh transport is not built", rec["iroh_transport"].startswith("not built"))
+        # W2-R02: a record is refused when the build compiled the iroh crate, whatever
+        # feature turned it on, and when the request names iroh in any spelling cargo accepts.
+        for compiled_set, label in (({"heimdall", "iroh", "linked"}, "a compiled iroh crate"),):
+            try:
+                make_record(inputs, compiled_set)
+                check(f"W2-R02: the record is refused for {label}", False)
+            except Refused:
+                pass
+        for spelling in ("iroh", "iroh iroh", "default iroh", "a,\tiroh", "heimdall/iroh",
+                         "heimdall-runtime/iroh", "all-features", "--all-features"):
+            try:
+                refuse_iroh_request(spelling)
+                check(f"W2-R02: the request {spelling!r} is refused", False)
+            except Refused:
+                pass
+            try:
+                make_record(dict(inputs, features=spelling), compiled_names)
+                check(f"W2-R02: the record for {spelling!r} is refused", False)
+            except Refused:
+                pass
+        check("W2-R02: a feature list is split on commas and whitespace",
+              feature_tokens(" a, b\tc,,d ") == ["a", "b", "c", "d"])
+        try:
+            refuse_iroh_request("tracing, iroh-like-name-no")
+            refuse_iroh_request("")
+            refuse_iroh_packages({"heimdall", "iroh-base-not", "linked"})
+        except Refused:
+            check("W2-R02: a list without iroh, and a graph without the iroh crate, pass", False)
         ext = external_record(rec, "2026-01-01T10:00:00Z", "2026-01-01T10:05:00Z")
         check("the external record is the packed record plus the two times",
               {k: v for k, v in ext.items() if k not in ("started_at", "finished_at")} == rec
@@ -904,11 +966,19 @@ def main(argv):
                       f"{'yes' if compiled is not None else 'no'}")
             else:
                 text = make_notices(root, comps, target, features)
+        elif cmd == "check-features":
+            need(opts, "target")
+            refuse_iroh_request(opts.get("features"))
+            rows = parse_tree(tree(opts["target"], opts.get("features"), "normal,build", opts.get("offline")))
+            refuse_iroh_packages(name for _, name, _, _, _ in rows)
+            print(f"provenance: {opts['target']}: no iroh feature requested and no iroh crate in the selected graph")
+            return 0
         elif cmd == "build-record":
-            need(opts, "target", "commit", "time", "clean", "flags", "stage", "out")
-            if "iroh" in [f.strip().split("/")[-1] for f in (opts.get("features") or "").split(",")]:
-                raise Refused("release artifacts are built without the iroh feature")
-            text = json.dumps(make_record(opts), indent=1, sort_keys=True) + "\n"
+            need(opts, "target", "commit", "time", "clean", "flags", "stage", "build_messages", "out")
+            refuse_iroh_request(opts.get("features"))
+            meta = cargo_metadata(opts["target"], opts.get("features"), opts.get("offline"))
+            compiled = compiled_packages(opts["build_messages"], meta)
+            text = json.dumps(make_record(opts, {name for name, _ in compiled}), indent=1, sort_keys=True) + "\n"
         elif cmd == "external-record":
             need(opts, "record", "started", "finished", "out")
             with open(opts["record"], encoding="utf-8") as fh:

@@ -42,13 +42,21 @@ while [ $# -gt 0 ]; do
         --features) [ $# -ge 2 ] || usage; features=$2; shift 2 ;;
         --allow-dirty) allow_dirty=yes; shift ;;
         --offline) offline=(--offline); shift ;;
+        --all-features) echo "build-release: --all-features is refused: release artifacts are built without the iroh feature" >&2; exit 2 ;;
         -*) usage ;;
         *) [ -z "$target" ] || usage; target=$1; shift ;;
     esac
 done
 # Release artifacts ship without the Iroh transport (ruling E2, option c): it is a preview,
 # built from source with --features iroh, with no support label.
-case ",$features," in *,iroh,*|*,heimdall/iroh,*) echo "build-release: release artifacts are built without the iroh feature (the Iroh transport is a source-build preview)" >&2; exit 2 ;; esac
+# The list is split as cargo splits it, on commas and whitespace (review M08-W2-R02); a
+# feature that turns iroh on through another one is caught by `check-features` below, and
+# what the build compiled is checked again by `build-record`.
+set -f
+for f in $(printf '%s' "$features" | tr ',' ' '); do
+    case "/$f/" in */iroh/*|*:iroh/*) echo "build-release: release artifacts are built without the iroh feature (the Iroh transport is a source-build preview)" >&2; exit 2 ;; esac
+done
+set +f
 [ -n "$target" ] || usage
 
 zig_target=""
@@ -145,6 +153,12 @@ EOF
     )
 fi
 
+py() { python3 -I "$here/provenance.py" "$@"; }
+feat_opt=()
+[ -z "$features" ] || feat_opt=(--features "$features")
+py check-features --target "$target" ${feat_opt[@]+"${feat_opt[@]}"} ${offline[@]+"${offline[@]}"} \
+    || { echo "build-release: refused before the build; nothing was built" >&2; exit 2; }
+
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 started=$(now)
 feature_args=()
@@ -178,16 +192,13 @@ if [ "$target" = aarch64-apple-darwin ]; then
     signature="ad-hoc (linker-signed); not notarized"
 fi
 
-feat_opt=()
-[ -z "$features" ] || feat_opt=(--features "$features")
-py() { python3 -I "$here/provenance.py" "$@"; }
 py sbom --target "$target" ${feat_opt[@]+"${feat_opt[@]}"} ${offline[@]+"${offline[@]}"} \
     --commit "$commit" --time "$commit_time" --tool "$sbom_tool" --build-messages "$messages" \
     --out "$stage/heimdall-$target.cdx.json" || exit 1
 py notices --target "$target" ${feat_opt[@]+"${feat_opt[@]}"} ${offline[@]+"${offline[@]}"} \
     --out "$stage/THIRD-PARTY-NOTICES.txt" || exit 1
 py build-record --target "$target" ${feat_opt[@]+"${feat_opt[@]}"} --commit "$commit" --time "$commit_time" \
-    --clean "$clean" --flags "$flags_text" \
+    --clean "$clean" --flags "$flags_text" --build-messages "$messages" ${offline[@]+"${offline[@]}"} \
     --signature "$signature" --stage "$stage" --out "$stage/BUILD-RECORD.json" || exit 1
 py manifest --stage "$stage" || exit 1
 rm -f -- "$messages"
