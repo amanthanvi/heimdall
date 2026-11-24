@@ -3078,32 +3078,51 @@ mod windows_console {
     /// m07-plan U1 `tui_standalone_access_and_stop` on a Windows pseudoconsole (the TUI
     /// standalone row, "Windows (ConPTY variant)"; the Unix row is
     /// `pty::tui_standalone_access_and_stop`): with no CLI command in between, an observed
-    /// alias is opened in the TUI (Destinations, search, its detail, which offers `c
-    /// connect`), the profile's access is stopped from the stop menu (option 3, the profile
-    /// `dev`, a typed `yes`), the TUI answers `stop profile dev: OK`, and `q` leaves it
-    /// with exit 0, the console's input mode cooked again and the alternate screen left as
-    /// often as entered. Afterwards (not in between) every policy of the profile is paused.
-    /// Every key is typed only once the frame it acts on is drawn (the M07 reading guard).
+    /// alias served by the fixture sshd is opened in the TUI (Destinations, search, its
+    /// detail, which offers `c connect`), ⟨M07 W9d⟩ connected through the handoff (a
+    /// trivial command on the fixture), and after the return the profile's access is
+    /// stopped from the stop menu (option 3, the profile `dev`, a typed `yes`), the TUI
+    /// answers `stop profile dev: OK`, and `q` leaves it with exit 0, the console's input
+    /// mode cooked again and the alternate screen left as often as entered. Afterwards (not
+    /// in between) every policy of the profile is paused. Every key is typed only once the
+    /// frame it acts on is drawn (the M07 reading guard).
     ///
-    /// **Not here: the connect handoff.** The Unix row's `c` hands the alias to the
-    /// verified client and checks the fixture sshd's login. On Windows the TUI's handoff
-    /// (`crates/heimdall/src/tui/mod.rs`, `connect`) launches the pinned in-box
-    /// `%SystemRoot%\System32\OpenSSH\ssh.exe` with only the alias, and the debug
-    /// pinned-client redirect (`HEIMDALL_TEST_PINNED_CLIENT`, testkit's `hm-pinned-ssh`)
-    /// is honoured only by `heimdall connect` (`connect_cmd.rs`), not by the TUI. That
-    /// client finds the account's profile from its token, so it would read the owner's
-    /// real `~/.ssh` and the system agent pipe: this test never types `c`. The handoff leg
-    /// stays a blocked row of tests/native/m07/case-index.json until the TUI honours the
-    /// redirect.
+    /// **The connect handoff.** ⟨M07 W9d; ADR-0007 §12.52⟩ The TUI's `c` launches the
+    /// verified client with only the alias; on Windows that is the pinned in-box
+    /// `%SystemRoot%\System32\OpenSSH\ssh.exe`, which finds the account's profile from its
+    /// token, so here the debug pinned-client redirect (`HEIMDALL_TEST_PINNED_CLIENT`, which
+    /// the TUI honours as `heimdall connect` does) names a scratch copy of testkit's
+    /// `hm-pinned-ssh`. That wrapper adds `-F` the scratch configuration, the isolated
+    /// known-hosts options (and `StrictHostKeyChecking=yes`, `BatchMode=yes`,
+    /// `LogLevel=ERROR`), checks the effective identity configuration with `ssh -G`, records
+    /// its arguments (its argument record), and starts the real in-box client with the
+    /// remote `echo <LOGIN>`. The alias reaches the fixture sshd (on Windows the harness's,
+    /// `HM_FIXTURE_SSHD_*`, as A01 and A11 do) with a per-run key that only a fixture agent
+    /// on a `heimdall-hmtest-` pipe holds (`IdentityAgent` that pipe, `IdentityFile` its
+    /// public half, `IdentitiesOnly yes`). Asserted: the handoff ended `ssh <alias> exited
+    /// with status 0`; the argument record has one start whose caller words are only the
+    /// alias; the wrapper printed `hm-pinned-ssh: checked: identity agent fixture pipe` and
+    /// no `refused:` line; the session's output reached the console; and the fixture sshd
+    /// accepted exactly one login, with the per-run key, and refused no other key (printed
+    /// for the native run's report as `tui standalone console: other keys offered: <n>`).
     ///
     /// **Isolation.** As [`windows_tui_walkthrough`]'s ([`env`]): separate homes in one
-    /// `tempfile` root, the fixture stores in it, `PATH` only the system directory. The
-    /// alias's scratch configuration (`HEIMDALL_TEST_SSH_HOME`) names a reserved `.invalid`
-    /// host that nothing contacts. The runtime is this test's own `service run` there
-    /// ([`Runtime`]).
+    /// `tempfile` root, the fixture stores in it, `PATH` only the system directory,
+    /// `ProgramData` scratch (the in-box client's system configuration). The alias's scratch
+    /// configuration (`HEIMDALL_TEST_SSH_HOME`, also the wrapper's `-F`) names only the
+    /// loopback fixture and files inside the root. The runtime is this test's own `service
+    /// run` there ([`Runtime`]).
     #[test]
     fn windows_tui_standalone_access_and_stop() {
+        use heimdall_testkit::agent::{
+            AgentMode, Endpoint, FakeAgent, FakeAgentConfig, FixtureKey,
+        };
+        use heimdall_testkit::home::{Scratch, ssh_option_path};
+        use heimdall_testkit::pinned_ssh::{ArgumentRecord, WrapperConfig};
+        use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
+
         const ALIAS: &str = "hm-m07-fixture";
+        const LOGIN: &str = "HM-M07-FIXTURE-LOGIN";
         let _guard = super::parallel_test();
         let scratch = tempfile::tempdir().unwrap();
         let root = scratch.path();
@@ -3115,21 +3134,79 @@ mod windows_console {
             "sshhome/.ssh",
             "programdata",
             "temp",
+            "pinned",
         ] {
             std::fs::create_dir_all(root.join(d)).unwrap();
         }
-        std::fs::write(
-            root.join("sshhome/.ssh/config"),
-            format!("Host {ALIAS}\n    HostName {ALIAS}.invalid\n    Port 22\n"),
+        // The fixture sshd (the harness's on Windows) and a fixture agent holding the
+        // per-run key; the key's comment is not a canary (the client may print it).
+        let fixtures = Scratch::new().unwrap();
+        let user_key = FixtureKey::generate().with_comment("hm-m07-fixture-key");
+        let sshd = LoopbackSshd::start(
+            &fixtures,
+            SshdConfig {
+                authorized: vec![user_key.public().clone()],
+                ..SshdConfig::default()
+            },
         )
-        .unwrap();
+        .unwrap_or_else(|e| panic!("blocked: the fixture sshd is not available here: {e:?}"));
+        let agent = FakeAgent::start(
+            Endpoint::in_scratch(&fixtures, "agent").unwrap(),
+            FakeAgentConfig {
+                keys: vec![user_key.clone()],
+                mode: AgentMode::Normal,
+            },
+        );
+        let public = root.join("fixture_key.pub");
+        user_key.write_public(&public).unwrap();
+        let known = root.join("fixture_known_hosts");
+        std::fs::write(&known, format!("{}\n", sshd.host_key_line)).unwrap();
+        let global_known = root.join("empty_known_hosts");
+        std::fs::write(&global_known, b"").unwrap();
+        // The scratch configuration: the static pass's and the wrapper's `-F`.
+        let config = root.join("sshhome/.ssh/config");
+        let mut text = format!(
+            "Host {ALIAS}\n    HostName {}\n    Port {}\n    IdentityFile {}\n    IdentitiesOnly yes\n    IdentityAgent {}\n",
+            sshd.host,
+            sshd.port,
+            ssh_option_path(&public),
+            ssh_option_path(Path::new(&agent.endpoint().locator()))
+        );
+        // The harness sshd's account (`HM_FIXTURE_SSHD_USER`), last, as
+        // `ScratchHome::write_user_config` puts it; never on a command line.
+        if let Some(account) = sshd.account() {
+            text.push_str(&format!("Host *\n    User {account}\n"));
+        }
+        std::fs::write(&config, text).unwrap();
+        // The scratch wrapper the redirect names, with its argument record.
+        let record = root.join("pinned").join("args.ndjson");
+        let wrapper = WrapperConfig {
+            config: config.clone(),
+            scratch_root: root.to_path_buf(),
+            options: vec![
+                format!("UserKnownHostsFile={}", ssh_option_path(&known)),
+                format!("GlobalKnownHostsFile={}", ssh_option_path(&global_known)),
+                "StrictHostKeyChecking=yes".to_owned(),
+                "BatchMode=yes".to_owned(),
+                "LogLevel=ERROR".to_owned(),
+            ],
+            trailing: vec!["echo".to_owned(), LOGIN.to_owned()],
+            client: None,
+        }
+        .install_recording(&root.join("pinned"), &record)
+        .unwrap_or_else(|e| panic!("the pinned-client wrapper: {e}"));
         let screen = root.join("screen.txt");
-        let tui_vars = env(root, &screen);
+        let mut tui_vars = env(root, &screen);
         let vars: Vec<(String, String)> = tui_vars
             .iter()
             .filter(|(k, _)| k != "HEIMDALL_TEST_TUI_SCREEN")
             .cloned()
             .collect();
+        // The redirect for the TUI only (the runtime launches no client).
+        tui_vars.push((
+            "HEIMDALL_TEST_PINNED_CLIENT".to_owned(),
+            wrapper.to_string_lossy().into_owned(),
+        ));
         let rt = Runtime::start(&vars, root);
         let added = rt.json(&["--json", "destination", "add", ALIAS, "--observed"]);
         assert_eq!(added["code"], "OK", "{added}");
@@ -3196,8 +3273,75 @@ mod windows_console {
         wait_frame(&mut t, &screen, "its detail", |f| {
             f.contains(&detail) && footer(f).contains("c connect")
         });
-        // No `c` here (the doc comment's "Not here"). Stop the profile's access from the
-        // stop menu.
+        // ⟨M07 W9d⟩ Connect through the handoff; the TUI returns when the client exits.
+        let failed_before = sshd.failed_publickey_log().len();
+        t.send(b"c").unwrap();
+        let ended = format!("ssh {ALIAS} exited with status");
+        wait_frame(&mut t, &screen, "the handoff's end", |f| f.contains(&ended));
+        let after = frame(&screen);
+        // The console's reader may trail the frame dump by a moment: wait (bounded) for
+        // the wrapper's verdict and the session's output; the assertions below decide.
+        let _ = t.expect("hm-pinned-ssh: ", Duration::from_secs(10));
+        let _ = t.expect(LOGIN, Duration::from_secs(10));
+        let console = t.text().replace('\n', "");
+        assert!(
+            after.contains(&format!("ssh {ALIAS} exited with status 0")),
+            "frame tail: {:?}\nconsole tail: {:?}",
+            super::diagnostic_tail(after.as_bytes(), root),
+            super::diagnostic_tail(console.as_bytes(), root)
+        );
+        // The wrapper's argument record: one start, and the TUI passed only the alias.
+        let lines = std::fs::read_to_string(&record).unwrap_or_default();
+        let starts = ArgumentRecord::parse_all(&lines).unwrap_or_else(|e| panic!("{e}"));
+        let [start] = starts.as_slice() else {
+            panic!("one start of the wrapper: {} lines", starts.len());
+        };
+        assert_eq!(
+            start.caller,
+            [ALIAS],
+            "the TUI handed only the alias to the client"
+        );
+        assert_eq!(start.trailing, ["echo", LOGIN]);
+        assert_eq!(
+            start.added[..2],
+            ["-F".to_owned(), config.to_string_lossy().into_owned()],
+            "the wrapper added the scratch configuration first"
+        );
+        // The guard's verdict (ADR-0007 §12.52): the effective identity agent is the
+        // fixture's pipe, and nothing was refused.
+        assert!(
+            console.contains("hm-pinned-ssh: checked: identity agent fixture pipe")
+                && !console.contains("hm-pinned-ssh: refused:"),
+            "the wrapper's identity check passed on the fixture's agent: {:?}",
+            super::diagnostic_tail(console.as_bytes(), root)
+        );
+        assert!(
+            console.contains(LOGIN),
+            "the fixture command ran on the fixture sshd: {:?}",
+            super::diagnostic_tail(console.as_bytes(), root)
+        );
+        let offered = sshd.failed_publickey_log();
+        let other = offered[failed_before.min(offered.len())..]
+            .iter()
+            .filter(|k| k.fingerprint != user_key.fingerprint())
+            .count();
+        #[allow(clippy::print_stdout)] // a fact for the native run's report
+        {
+            println!("tui standalone console: other keys offered: {other}");
+        }
+        assert_eq!(other, 0, "only the per-run key was offered: {offered:?}");
+        let accepted = sshd.accepted_log();
+        assert!(
+            accepted.len() == 1 && accepted[0].fingerprint == user_key.fingerprint(),
+            "exactly one login, with the per-run key: {accepted:?}"
+        );
+        // Back in the TUI, on the same detail (the status line shows the handoff's result
+        // until the next key): stop the profile's access from the stop menu.
+        assert!(
+            after.contains(&detail),
+            "frame tail: {:?}",
+            super::diagnostic_tail(after.as_bytes(), root)
+        );
         t.send(b"s").unwrap();
         wait_frame(&mut t, &screen, "the stop menu", |f| {
             f.contains("Four different actions")
@@ -3283,5 +3427,7 @@ mod windows_console {
             "{policies}"
         );
         drop(rt);
+        drop(agent);
+        drop(sshd);
     }
 }

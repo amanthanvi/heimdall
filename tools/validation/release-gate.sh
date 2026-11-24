@@ -247,6 +247,11 @@ done
 for v in ${launch_vars}; do
     probe "${v}" "run -- true" run -- true
     probe "${v}" "connect x" connect x
+    # ⟨M07 W9⟩ The TUI reads the same launch variables (the pinned-client redirect among
+    # them) before any other check, so a release `tui` with no terminal refuses each with
+    # exit 2 and the refusal text; a build that ignored one would stop at the terminal check
+    # instead, without the refusal text, and the probe fails. The TUI never starts.
+    probe "${v}" "tui (no terminal)" tui
 done
 # The script pause directory is read CLI-side by `enroll` (U5's SshStepRunner), so a
 # release `enroll` must refuse it too (U0b row 16).

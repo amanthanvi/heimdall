@@ -180,13 +180,7 @@
           ]
         }
       },
-      "blocked_rows": [
-        {
-          "platform": "windows-11 TUI standalone (ConPTY variant): the connect handoff (c) and the fixture sshd's login",
-          "status": "blocked",
-          "blocked_on": "the TUI's handoff (crates/heimdall/src/tui/mod.rs, connect) launches the in-box %SystemRoot%\\System32\\OpenSSH\\ssh.exe directly; the debug pinned-client redirect (HEIMDALL_TEST_PINNED_CLIENT, testkit's hm-pinned-ssh) is honoured only by heimdall connect (connect_cmd.rs), so a test cannot type c on Windows without that client reading the account's real ~/.ssh and the system agent pipe. windows_console::windows_tui_standalone_access_and_stop covers the rest of the journey (open, stop from the stop menu, the store afterwards, the console restored)"
-        }
-      ]
+      "note": "Windows (ConPTY variant): windows_console::windows_tui_standalone_access_and_stop covers the whole journey, the connect handoff (c) included, through the debug pinned-client redirect (HEIMDALL_TEST_PINNED_CLIENT, testkit's hm-pinned-ssh with its argument record) against the harness fixture sshd (HM_FIXTURE_SSHD_*)."
     }
   }
 }

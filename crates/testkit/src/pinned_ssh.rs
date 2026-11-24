@@ -111,6 +111,23 @@
 //! than the client reads, never fewer. A routed row needs another design: each hop checked
 //! with its own `-G`.
 //!
+//! **The argument record.** ⟨M07 W9d⟩ The sidecar may name `record` (written by
+//! [`WrapperConfig::install_recording`]): an absolute path inside the scratch root (as
+//! above), whose parent directory exists, and which is not a directory, not the program,
+//! its sidecar or the `-F` file; anything else is a refusal before any run. Once the guard
+//! passed, and before the client starts, the program appends one JSON line to it:
+//!
+//! ```text
+//! {"caller":[<its own arguments>…],"added":[<the words it puts ahead of them>…],"trailing":[<the sidecar's trailing words>…]}
+//! ```
+//!
+//! `added` is `-F <config> -o IdentityAgent=<checked> -o ControlMaster=no -o
+//! ControlPath=none [-o <option>]…`, so `added`, then `caller`, then `trailing` are exactly
+//! the client's arguments. Only those words: never key material, never an environment
+//! value. A refusal records nothing; a record that cannot be written is a refusal (the
+//! client does not start). A test reads it to show what its caller (`connect`, the TUI)
+//! passed, for example only the alias.
+//!
 //! A passed check writes one line to stderr, `hm-pinned-ssh: checked: identity agent
 //! <kind>`, `<kind>` being `none`, `scratch path` or `fixture pipe` (never the value), then
 //! starts the client.
@@ -204,6 +221,13 @@ impl WrapperConfig {
     /// The sidecar's JSON text.
     #[must_use]
     pub fn to_json(&self) -> String {
+        self.sidecar_json(None)
+    }
+
+    /// ⟨M07 W9d⟩ The sidecar's JSON text, naming `record` as the argument record (module
+    /// docs) when given.
+    #[must_use]
+    pub fn sidecar_json(&self, record: Option<&Path>) -> String {
         let text = |p: &Path| serde_json::Value::String(p.to_string_lossy().into_owned());
         let mut v = serde_json::json!({
             "config": text(&self.config),
@@ -214,45 +238,19 @@ impl WrapperConfig {
         if let Some(client) = &self.client {
             v["client"] = text(client);
         }
+        if let Some(record) = record {
+            v["record"] = text(record);
+        }
         v.to_string()
     }
 
-    /// Parse a sidecar.
+    /// Parse a sidecar (an argument record it names is not part of the result; the
+    /// program reads it with the rest).
     ///
     /// # Errors
     /// Malformed JSON, or a field of the wrong shape (the reason names the field only).
     pub fn parse(text: &str) -> Result<WrapperConfig, String> {
-        let v: serde_json::Value =
-            serde_json::from_str(text).map_err(|_| "the sidecar is not JSON".to_owned())?;
-        let strings = |name: &str| -> Result<Vec<String>, String> {
-            match v.get(name) {
-                None => Ok(Vec::new()),
-                Some(serde_json::Value::Array(items)) => items
-                    .iter()
-                    .map(|i| {
-                        i.as_str()
-                            .map(str::to_owned)
-                            .ok_or_else(|| format!("{name}: expected strings"))
-                    })
-                    .collect(),
-                Some(_) => Err(format!("{name}: expected a list")),
-            }
-        };
-        let path = |name: &str| -> Result<Option<PathBuf>, String> {
-            match v.get(name) {
-                None => Ok(None),
-                Some(serde_json::Value::String(s)) => Ok(Some(PathBuf::from(s))),
-                Some(_) => Err(format!("{name}: expected a path")),
-            }
-        };
-        Ok(WrapperConfig {
-            config: path("config")?.ok_or_else(|| "no scratch config (-F) named".to_owned())?,
-            scratch_root: path("scratch_root")?
-                .ok_or_else(|| "no scratch root named".to_owned())?,
-            options: strings("options")?,
-            trailing: strings("trailing")?,
-            client: path("client")?,
-        })
+        parse_sidecar(text).map(|(config, _)| config)
     }
 
     /// Copy the built wrapper ([`locate`]) into `dir` and write its sidecar there: the
@@ -262,12 +260,109 @@ impl WrapperConfig {
     /// # Errors
     /// The program is not built, or a copy or write failed.
     pub fn install(&self, dir: &Path) -> io::Result<PathBuf> {
+        self.install_with(dir, None)
+    }
+
+    /// ⟨M07 W9d⟩ [`install`](Self::install), with the sidecar naming `record` as the
+    /// argument record (module docs): an absolute path inside `scratch_root`, or the
+    /// installed program refuses.
+    ///
+    /// # Errors
+    /// As [`install`](Self::install).
+    pub fn install_recording(&self, dir: &Path, record: &Path) -> io::Result<PathBuf> {
+        self.install_with(dir, Some(record))
+    }
+
+    fn install_with(&self, dir: &Path, record: Option<&Path>) -> io::Result<PathBuf> {
         let built = locate()?;
         let exe = dir.join(format!("{NAME}{}", std::env::consts::EXE_SUFFIX));
         std::fs::copy(&built, &exe)?;
-        std::fs::write(WrapperConfig::sidecar(&exe), self.to_json())?;
+        std::fs::write(WrapperConfig::sidecar(&exe), self.sidecar_json(record))?;
         Ok(exe)
     }
+}
+
+/// ⟨M07 W9d⟩ One argument record line (module docs, "The argument record"), parsed: what a
+/// test reads back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArgumentRecord {
+    /// The wrapper's own arguments, as its caller gave them.
+    pub caller: Vec<String>,
+    /// The words it put ahead of them.
+    pub added: Vec<String>,
+    /// The sidecar's trailing words, after them.
+    pub trailing: Vec<String>,
+}
+
+impl ArgumentRecord {
+    /// Every line of the record file's `text`, in order.
+    ///
+    /// # Errors
+    /// A line that is not a record (the reason names the line's number only).
+    pub fn parse_all(text: &str) -> Result<Vec<ArgumentRecord>, String> {
+        text.lines()
+            .enumerate()
+            .map(|(n, line)| {
+                let v: serde_json::Value = serde_json::from_str(line)
+                    .map_err(|_| format!("record line {}: not JSON", n + 1))?;
+                let words = |name: &str| -> Result<Vec<String>, String> {
+                    v.get(name)
+                        .and_then(serde_json::Value::as_array)
+                        .and_then(|items| {
+                            items
+                                .iter()
+                                .map(|i| i.as_str().map(str::to_owned))
+                                .collect::<Option<Vec<String>>>()
+                        })
+                        .ok_or_else(|| format!("record line {}: {name}: expected strings", n + 1))
+                };
+                let fields = v.as_object().map_or(0, serde_json::Map::len);
+                if fields != 3 {
+                    return Err(format!("record line {}: expected three fields", n + 1));
+                }
+                Ok(ArgumentRecord {
+                    caller: words("caller")?,
+                    added: words("added")?,
+                    trailing: words("trailing")?,
+                })
+            })
+            .collect()
+    }
+}
+
+/// A sidecar and the argument record it names, if any (module docs).
+fn parse_sidecar(text: &str) -> Result<(WrapperConfig, Option<PathBuf>), String> {
+    let v: serde_json::Value =
+        serde_json::from_str(text).map_err(|_| "the sidecar is not JSON".to_owned())?;
+    let strings = |name: &str| -> Result<Vec<String>, String> {
+        match v.get(name) {
+            None => Ok(Vec::new()),
+            Some(serde_json::Value::Array(items)) => items
+                .iter()
+                .map(|i| {
+                    i.as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| format!("{name}: expected strings"))
+                })
+                .collect(),
+            Some(_) => Err(format!("{name}: expected a list")),
+        }
+    };
+    let path = |name: &str| -> Result<Option<PathBuf>, String> {
+        match v.get(name) {
+            None => Ok(None),
+            Some(serde_json::Value::String(s)) => Ok(Some(PathBuf::from(s))),
+            Some(_) => Err(format!("{name}: expected a path")),
+        }
+    };
+    let config = WrapperConfig {
+        config: path("config")?.ok_or_else(|| "no scratch config (-F) named".to_owned())?,
+        scratch_root: path("scratch_root")?.ok_or_else(|| "no scratch root named".to_owned())?,
+        options: strings("options")?,
+        trailing: strings("trailing")?,
+        client: path("client")?,
+    };
+    Ok((config, path("record")?))
 }
 
 /// The built program: [`ENV_OVERRIDE`] when set, else next to the running test executable
@@ -606,6 +701,8 @@ pub struct Launch {
     args: Vec<OsString>,
     trailing: Vec<OsString>,
     root: Root,
+    /// ⟨M07 W9d⟩ The argument record (module docs), checked.
+    record: Option<PathBuf>,
 }
 
 impl Launch {
@@ -618,8 +715,9 @@ impl Launch {
         argv
     }
 
-    /// The client's arguments once the guard accepted `agent` (module docs).
-    fn client_argv(&self, agent: &Agent) -> Vec<OsString> {
+    /// The words the client gets ahead of the caller's arguments once the guard accepted
+    /// `agent` (module docs).
+    fn added(&self, agent: &Agent) -> Vec<OsString> {
         let mut argv: Vec<OsString> = vec![
             "-F".into(),
             self.config.clone(),
@@ -627,10 +725,69 @@ impl Launch {
             agent.option().into(),
         ];
         argv.extend(self.options.iter().cloned());
+        argv
+    }
+
+    /// The client's arguments once the guard accepted `agent` (module docs).
+    fn client_argv(&self, agent: &Agent) -> Vec<OsString> {
+        let mut argv = self.added(agent);
         argv.extend(self.args.iter().cloned());
         argv.extend(self.trailing.iter().cloned());
         argv
     }
+
+    /// ⟨M07 W9d⟩ The argument record's line for this start (module docs), without its
+    /// newline: only the caller's arguments, the added words and the trailing words.
+    fn record_line(&self, agent: &Agent) -> String {
+        let words = |w: &[OsString]| -> Vec<String> {
+            w.iter().map(|a| a.to_string_lossy().into_owned()).collect()
+        };
+        serde_json::json!({
+            "caller": words(&self.args),
+            "added": words(&self.added(agent)),
+            "trailing": words(&self.trailing),
+        })
+        .to_string()
+    }
+}
+
+/// ⟨M07 W9d⟩ The argument record `record` names, checked (module docs): an absolute path
+/// inside the root whose parent is a directory, and not a directory, a symbolic link, the
+/// program, its sidecar or the `-F` file.
+fn check_record(record: &Path, root: &Root, exe: &Path, config: &Path) -> Result<PathBuf, String> {
+    let text = record
+        .to_str()
+        .ok_or_else(|| "the argument record is not a text path".to_owned())?;
+    if !record.is_absolute() || !root.holds(text, cfg!(windows)) {
+        return Err("the argument record is not inside the scratch root".to_owned());
+    }
+    if !record.parent().is_some_and(Path::is_dir) {
+        return Err("the argument record's directory does not exist".to_owned());
+    }
+    if let Ok(meta) = std::fs::symlink_metadata(record) {
+        if !meta.file_type().is_file() {
+            return Err("the argument record is not a regular file".to_owned());
+        }
+        let same = |other: &Path| {
+            std::fs::canonicalize(other)
+                .ok()
+                .is_some_and(|o| std::fs::canonicalize(record).ok() == Some(o))
+        };
+        if same(exe) || same(&WrapperConfig::sidecar(exe)) || same(config) {
+            return Err("the argument record names one of the wrapper's own files".to_owned());
+        }
+    }
+    Ok(record.to_path_buf())
+}
+
+/// ⟨M07 W9d⟩ Append `line` and a newline to the argument record.
+fn append_record(record: &Path, line: &str) -> io::Result<()> {
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(record)?;
+    f.write_all(format!("{line}\n").as_bytes())?;
+    f.flush()
 }
 
 /// What the wrapper at `exe` would start for `args`, before the identity guard ([`Launch`]).
@@ -646,7 +803,7 @@ pub fn plan(
     let sidecar = WrapperConfig::sidecar(exe);
     let text = std::fs::read_to_string(&sidecar)
         .map_err(|_| "no sidecar: the scratch config (-F) is not named".to_owned())?;
-    let config = WrapperConfig::parse(&text)?;
+    let (config, record) = parse_sidecar(&text)?;
     if !config.config.is_absolute() || !config.config.is_file() {
         return Err("the scratch config (-F) is not an absolute path of a file".to_owned());
     }
@@ -695,6 +852,9 @@ pub fn plan(
     if args.iter().any(|a| a.to_string_lossy().starts_with("-F")) {
         return Err("the arguments name a configuration file (-F)".to_owned());
     }
+    let record = record
+        .map(|r| check_record(&r, &root, exe, &config.config))
+        .transpose()?;
     let client = client_of(&config, env)?;
     let mut options: Vec<OsString> = Vec::new();
     for option in ["ControlMaster=no", "ControlPath=none"]
@@ -711,27 +871,42 @@ pub fn plan(
         args: args.to_vec(),
         trailing: config.trailing.iter().map(OsString::from).collect(),
         root,
+        record,
     })
 }
 
 /// The guard's `-G` run: the client's standard output, or the refusal's reason.
 type CheckRun<'a> = &'a dyn Fn(&Path, &[OsString]) -> Result<Vec<u8>, String>;
 
+/// What [`prepare_with`] decided: the client, its arguments, the accepted agent's kind, and
+/// ⟨M07 W9d⟩ the argument record with its line for this start, when the sidecar names one.
+type Prepared = (
+    PathBuf,
+    Vec<OsString>,
+    &'static str,
+    Option<(PathBuf, String)>,
+);
+
 /// [`plan`], then the identity guard through `run` (module docs, "The test seam"): the client,
-/// its arguments, and the accepted agent's kind.
+/// its arguments, the accepted agent's kind, and the argument record's line ([`Prepared`]).
+/// Writes nothing.
 fn prepare_with(
     exe: &Path,
     args: &[OsString],
     env: &dyn Fn(&str) -> Option<OsString>,
     run: CheckRun<'_>,
-) -> Result<(PathBuf, Vec<OsString>, &'static str), String> {
+) -> Result<Prepared, String> {
     let launch = plan(exe, args, env)?;
     let out = run(&launch.client, &launch.check_argv())?;
     let text = String::from_utf8(out)
         .map_err(|_| "ssh -G printed something that is not text".to_owned())?;
     let agent = check_effective(&text, &launch.root, cfg!(windows))?;
     let argv = launch.client_argv(&agent);
-    Ok((launch.client, argv, agent.kind()))
+    let record = launch
+        .record
+        .clone()
+        .map(|r| (r, launch.record_line(&agent)));
+    Ok((launch.client, argv, agent.kind(), record))
 }
 
 /// The guard's real `-G` run (module docs): the client with `argv`, this process's
@@ -801,7 +976,13 @@ pub fn main() -> i32 {
     let run = |client: &Path, argv: &[OsString]| run_check(client, argv, CHECK_TIMEOUT);
     match prepare_with(&exe, &args, &|n| std::env::var_os(n), &run) {
         Err(reason) => refuse(&reason),
-        Ok((client, argv, kind)) => {
+        Ok((client, argv, kind, record)) => {
+            // ⟨M07 W9d⟩ The record first: one that cannot be written starts nothing.
+            if let Some((path, line)) = record
+                && append_record(&path, &line).is_err()
+            {
+                return refuse("the argument record could not be written");
+            }
             let mut err = io::stderr();
             let _ =
                 writeln!(err, "{NAME}: checked: identity agent {kind}").and_then(|()| err.flush());
@@ -1067,7 +1248,7 @@ mod tests {
                 .push((client.to_path_buf(), argv.to_vec()));
             Ok(g_output(d.path(), "none").into_bytes())
         };
-        let (client, argv, kind) = prepare_with(
+        let (client, argv, kind, record) = prepare_with(
             &exe,
             &["-o".into(), "X=y".into(), "alpha".into()],
             &env,
@@ -1075,6 +1256,7 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(kind, "none");
+        assert_eq!(record, None, "the sidecar names no argument record");
         if cfg!(windows) {
             assert!(client.ends_with(Path::new("System32/OpenSSH/ssh.exe")));
         } else {
@@ -1118,6 +1300,148 @@ mod tests {
         want.push("true".to_owned());
         assert_eq!(text(&argv), want);
         assert_eq!(WrapperConfig::parse(&config.to_json()).unwrap(), config);
+    }
+
+    /// ⟨M07 W9d⟩ The argument record (module docs): with a sidecar naming one inside the
+    /// scratch root, the wrapper's steps give its line, and the line holds exactly the
+    /// caller's words (here only the alias), the words added ahead of them and the trailing
+    /// words, which together are the client's arguments, and nothing else (three fields).
+    /// Deciding writes nothing; the sidecar still parses to the same configuration.
+    #[test]
+    fn the_argument_record_holds_only_the_callers_and_the_added_words() {
+        let d = scratch();
+        let env = env_with_inbox(d.path());
+        let config = good(d.path());
+        std::fs::create_dir(d.path().join("rec")).unwrap();
+        let record = d.path().join("rec").join("args.ndjson");
+        let exe = d
+            .path()
+            .join(format!("{NAME}{}", std::env::consts::EXE_SUFFIX));
+        std::fs::write(&exe, b"").unwrap();
+        std::fs::write(
+            WrapperConfig::sidecar(&exe),
+            config.sidecar_json(Some(&record)),
+        )
+        .unwrap();
+        let run = |_: &Path, _: &[OsString]| Ok(g_output(d.path(), "none").into_bytes());
+        let (_, argv, _, named) =
+            prepare_with(&exe, &["alpha".into()], &env, &run).unwrap_or_else(|e| panic!("{e}"));
+        let (path, line) = named.expect("the sidecar names an argument record");
+        assert_eq!(path, record);
+        assert!(!record.exists(), "deciding writes nothing");
+        let argv: Vec<String> = argv
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        let parsed = ArgumentRecord::parse_all(&line).unwrap_or_else(|e| panic!("{e}"));
+        let [one] = parsed.as_slice() else {
+            panic!("one line: {line}");
+        };
+        assert_eq!(one.caller, ["alpha"], "the caller passed only the alias");
+        assert_eq!(one.trailing, ["true"]);
+        assert_eq!(one.added, argv[..argv.len() - 2]);
+        assert_eq!(
+            [one.added.clone(), one.caller.clone(), one.trailing.clone()].concat(),
+            argv,
+            "the record's words are exactly the client's arguments"
+        );
+        assert_eq!(
+            one.added[..4],
+            [
+                "-F".to_owned(),
+                config.config.display().to_string(),
+                "-o".to_owned(),
+                "IdentityAgent=none".to_owned()
+            ]
+        );
+        assert_eq!(
+            WrapperConfig::parse(&config.sidecar_json(Some(&record))).unwrap(),
+            config
+        );
+        // A line with another field, or not JSON, is not a record.
+        assert!(
+            ArgumentRecord::parse_all(r#"{"caller":[],"added":[],"trailing":[],"env":[]}"#)
+                .is_err()
+        );
+        assert!(ArgumentRecord::parse_all("alpha").is_err());
+    }
+
+    /// ⟨M07 W9d⟩ An argument record the sidecar names is refused before any run unless it is
+    /// an absolute path inside the scratch root whose directory exists: outside the root, a
+    /// `..` way out, relative, a `%` token, in a missing directory, a directory, the `-F`
+    /// file, the program or its sidecar, (Unix) a symbolic link, and a field that is not a
+    /// path are each a refusal, and nothing is written outside the root.
+    #[test]
+    fn refuses_an_argument_record_outside_the_scratch_root() {
+        let d = scratch();
+        let outside = scratch();
+        let env = env_with_inbox(d.path());
+        let config = good(d.path());
+        let exe = d
+            .path()
+            .join(format!("{NAME}{}", std::env::consts::EXE_SUFFIX));
+        std::fs::write(&exe, b"").unwrap();
+        let far = outside.path().join("args.ndjson");
+        let base: Vec<(&str, PathBuf)> = vec![
+            ("outside", far.clone()),
+            (
+                "dot-dot",
+                d.path()
+                    .join("..")
+                    .join(outside.path().file_name().unwrap())
+                    .join("args.ndjson"),
+            ),
+            ("relative", PathBuf::from("args.ndjson")),
+            ("token", d.path().join("%d.ndjson")),
+            ("missing directory", d.path().join("absent").join("args")),
+            ("a directory", d.path().to_path_buf()),
+            ("the -F file", config.config.clone()),
+            ("the program", exe.clone()),
+            ("its sidecar", WrapperConfig::sidecar(&exe)),
+        ];
+        #[cfg(unix)]
+        let links: Vec<(&str, PathBuf)> = {
+            std::fs::write(outside.path().join("target"), b"").unwrap();
+            std::os::unix::fs::symlink(outside.path().join("target"), d.path().join("link"))
+                .unwrap();
+            std::fs::write(d.path().join("rec-file"), b"").unwrap();
+            std::os::unix::fs::symlink(d.path().join("rec-file"), d.path().join("link-in"))
+                .unwrap();
+            vec![
+                ("a symbolic link out", d.path().join("link")),
+                ("a symbolic link in", d.path().join("link-in")),
+            ]
+        };
+        #[cfg(not(unix))]
+        let links: Vec<(&str, PathBuf)> = Vec::new();
+        let cases = [base, links].concat();
+        for (what, record) in &cases {
+            std::fs::write(
+                WrapperConfig::sidecar(&exe),
+                config.sidecar_json(Some(record)),
+            )
+            .unwrap();
+            let err = plan(&exe, &["alpha".into()], &env).unwrap_err();
+            assert!(err.contains("argument record"), "{what}: {err}");
+            assert!(
+                !err.contains(&*d.path().to_string_lossy()),
+                "the reason names no path: {err}"
+            );
+        }
+        assert!(!far.exists(), "nothing written outside the root");
+        let mut v: serde_json::Value = serde_json::from_str(&config.to_json()).unwrap();
+        v["record"] = serde_json::json!(3);
+        std::fs::write(WrapperConfig::sidecar(&exe), v.to_string()).unwrap();
+        let err = plan(&exe, &["alpha".into()], &env).unwrap_err();
+        assert!(err.contains("record"), "{err}");
+        // The control: inside the root, in an existing directory.
+        let inside = d.path().join("args.ndjson");
+        std::fs::write(
+            WrapperConfig::sidecar(&exe),
+            config.sidecar_json(Some(&inside)),
+        )
+        .unwrap();
+        assert!(plan(&exe, &["alpha".into()], &env).is_ok());
     }
 
     /// ⟨M07 W7.1⟩ The guard refuses unless `-G` shows `identitiesonly yes` exactly once:
@@ -1372,7 +1696,7 @@ mod tests {
         let exe = write(d.path(), &good(d.path()));
         let value = if cfg!(windows) { pipe } else { socket.as_str() };
         let run = |_: &Path, _: &[OsString]| Ok(g_output(d.path(), value).into_bytes());
-        let (_, argv, kind) =
+        let (_, argv, kind, _) =
             prepare_with(&exe, &["alpha".into()], &env, &run).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(
             kind,
@@ -1779,7 +2103,11 @@ mod tests {
     /// starts the client with `-o IdentityAgent=none` right after `-F`: on Unix the script
     /// (the marker appears), on Windows the real in-box `ssh.exe` (the guard's `-G` and the
     /// client's own `-G alpha` print the effective configuration; no connection), whose
-    /// output shows `identityagent none`, never [`REFUSED`].
+    /// output shows `identityagent none`, never [`REFUSED`]. ⟨M07 W9d⟩ The argument record:
+    /// a sidecar naming one outside the scratch root is refused and nothing is written
+    /// there; named inside, the refusals record nothing and each start appends one line
+    /// holding exactly the caller's words, the added ones and the trailing ones (on Unix,
+    /// the words the script client was given).
     #[test]
     fn the_built_wrapper_refuses_to_run_without_the_scratch_config() {
         let built = locate().unwrap_or_else(|e| panic!("{e}"));
@@ -1846,7 +2174,31 @@ mod tests {
         };
         let out = run(&["alpha"]);
         assert!(refused(&out), "no sidecar: {out:?}");
-        std::fs::write(WrapperConfig::sidecar(&exe), config.to_json()).unwrap();
+        // ⟨M07 W9d⟩ An argument record outside the scratch root: refused, nothing written.
+        let elsewhere = scratch();
+        let far = elsewhere.path().join("args.ndjson");
+        std::fs::write(
+            WrapperConfig::sidecar(&exe),
+            config.sidecar_json(Some(&far)),
+        )
+        .unwrap();
+        let out = run(&["alpha"]);
+        assert!(refused(&out), "a record outside the root: {out:?}");
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("argument record"),
+            "{out:?}"
+        );
+        assert!(
+            !far.exists() && !marker.exists(),
+            "a refusal starts nothing"
+        );
+        // From here the sidecar names the argument record inside the root.
+        let record = d.path().join("args.ndjson");
+        std::fs::write(
+            WrapperConfig::sidecar(&exe),
+            config.sidecar_json(Some(&record)),
+        )
+        .unwrap();
         let bytes = std::fs::read(&config.config).unwrap();
         std::fs::remove_file(&config.config).unwrap();
         let out = run(&["alpha"]);
@@ -1864,6 +2216,23 @@ mod tests {
                 "{out:?}"
             );
             assert!(stdout.lines().any(|l| l == "identityagent none"), "{out:?}");
+            let lines = std::fs::read_to_string(&record).unwrap();
+            let parsed = ArgumentRecord::parse_all(&lines).unwrap_or_else(|e| panic!("{e}"));
+            let [one] = parsed.as_slice() else {
+                panic!("one start, one line: {lines}");
+            };
+            assert_eq!(one.caller, ["-G", "alpha"], "{lines}");
+            assert_eq!(one.trailing, ["true"], "{lines}");
+            assert_eq!(
+                one.added[..4],
+                [
+                    "-F".to_owned(),
+                    config.config.display().to_string(),
+                    "-o".to_owned(),
+                    "IdentityAgent=none".to_owned()
+                ],
+                "{lines}"
+            );
         } else {
             // `-G` reports the system pipe: refused, nothing started.
             std::fs::write(&g_file, g_output(d.path(), SYSTEM_PIPE)).unwrap();
@@ -1879,6 +2248,7 @@ mod tests {
             let out = run(&["alpha"]);
             assert!(refused(&out), "-G failed: {out:?}");
             assert!(!marker.exists(), "a refusal starts nothing");
+            assert!(!record.exists(), "a refusal records nothing");
             // The control: the client starts with the checked agent.
             std::fs::write(&g_file, g_output(d.path(), "none")).unwrap();
             let out = run(&["alpha"]);
@@ -1892,6 +2262,31 @@ mod tests {
             assert!(
                 seen.starts_with(&want_head) && seen.trim_end().ends_with("alpha true"),
                 "{seen}"
+            );
+            // ⟨M07 W9d⟩ The refusals recorded nothing; the start recorded one line, whose
+            // words are exactly what the client was given.
+            let lines = std::fs::read_to_string(&record).unwrap();
+            let parsed = ArgumentRecord::parse_all(&lines).unwrap_or_else(|e| panic!("{e}"));
+            let [one] = parsed.as_slice() else {
+                panic!("one start, one line: {lines}");
+            };
+            assert_eq!(one.caller, ["alpha"], "{lines}");
+            assert_eq!(one.trailing, ["true"], "{lines}");
+            assert_eq!(
+                [one.added.clone(), one.caller.clone(), one.trailing.clone()]
+                    .concat()
+                    .join(" "),
+                seen.trim_end(),
+                "the record holds exactly the client's words"
+            );
+            // A second start appends a second line.
+            let out = run(&["alpha"]);
+            assert_eq!(out.status.code(), Some(0), "{out:?}");
+            let lines = std::fs::read_to_string(&record).unwrap();
+            assert_eq!(
+                ArgumentRecord::parse_all(&lines).unwrap(),
+                [one.clone(), one.clone()],
+                "{lines}"
             );
         }
     }
