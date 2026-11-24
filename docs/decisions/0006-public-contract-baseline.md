@@ -2916,13 +2916,12 @@ dropped records retried without its epoch could run again).
 ### 19.9 The replay corpus
 
 Real prior-version rows (ADR-0013 §1.3): scratch stores written by the M02 (`e4f43f84`), M03
-(`2b79aac1`) and M04/M05 (`50dbc86b`) exit builds running one short fixed journey, kept as SQL
-text dumps under `tests/contracts/golden/replay/`, migrated forward by the production migrations
-and read back, every row of every table of the migrated schema, through its reader (the
-store's public readers, revision 7's typed payloads for events and controller pins; rows read
-must equal rows stored, U0-RC02), plus hand-authored rows (`hand/`) for the historical shapes no
-journey produces. The tables and `meta` keys with no reader are listed in the corpus README
-("Stored, not read"). **The M06 exit build's dump is not
-landed yet** (it follows M06's final exit SHA). Each build's genuineness (its `heimdall` build
-graph equals the crates cargo compiled; every binary's SHA-256 differs) is recorded in
+(`2b79aac1`), M04/M05 (`50dbc86b`) and M06 (`9399e768`) exit builds running one short fixed
+journey, kept as SQL text dumps under `tests/contracts/golden/replay/`, migrated forward by the
+production migrations and read back, every row of every table of the migrated schema, through its
+reader (the store's public readers, revision 7's typed payloads for events and controller pins;
+rows read must equal rows stored, U0-RC02), plus hand-authored rows (`hand/`) for the historical
+shapes no journey produces. The tables and `meta` keys with no reader are listed in the corpus
+README ("Stored, not read"). Each build's genuineness (its `heimdall` build graph equals the
+crates cargo compiled; every binary's SHA-256 differs) is recorded in
 `tests/contracts/golden/replay/README.md`. The recipe is `docs/architecture/u0-plan.md` §5.

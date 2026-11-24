@@ -339,7 +339,7 @@ before HEAD is rebuilt. Each build's genuineness is recorded in
 `tests/contracts/golden/replay/README.md`: the workspace crates of its `heimdall` build graph
 equal the crates cargo compiled, and every binary's SHA-256 differs.
 
-**Order:** M02, M03 and M04/M05 now; M06 when the contract owner sends its SHA.
+**Order:** M02, M03 and M04/M05 first; M06 after its exit SHA (`9399e768`, landed with its own gate; journey under the ssh guard and the `~/.ssh` write sandbox).
 
 ## 6. What looks live rather than preparatory
 
