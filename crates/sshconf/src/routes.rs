@@ -216,6 +216,96 @@ pub fn render_pin_file(pins: &[(String, String)]) -> Result<Vec<u8>, RenderError
     Ok(lines.concat().into_bytes())
 }
 
+/// ⟨M06 W5 `w5n`⟩ The static form of ADR-0012 §5.2's check for a helper alias, over an
+/// [`Evaluation`](crate::eval::Evaluation) of that alias (nothing executes): **every setting
+/// the catalog pin depends on must be exactly the one P's own helper section states**, that
+/// is, determined and read from P ([`SourceRole::Managed`](crate::include::SourceRole)).
+/// A value obtained earlier (a line before the include block, an earlier `Host` or `Match`
+/// block), or one that depends on something not evaluated statically (`Match exec`), is the
+/// defeat. Returns the first setting that does not hold, named as `ssh -G` prints it.
+///
+/// The settings, in [`helper_lines`]' terms: the proxy (`ProxyCommand`, with `ProxyJump`
+/// competing), `HostKeyAlias`, `UserKnownHostsFile`, `GlobalKnownHostsFile`,
+/// `KnownHostsCommand`, `StrictHostKeyChecking`, `VerifyHostKeyDNS`, `UpdateHostKeys`,
+/// `ControlMaster` and `ControlPath`. P is the only writer of its own section, so a value
+/// read from P is the rendered one; the `ssh -G` verification (`heimdall_registry::routes`)
+/// compares the values themselves.
+#[must_use]
+pub fn static_pin_defeat(evaluation: &crate::eval::Evaluation) -> Option<&'static str> {
+    match static_pin_status(evaluation) {
+        StaticPin::Holds => None,
+        StaticPin::Defeated(setting) | StaticPin::Undetermined(setting) => Some(setting),
+    }
+}
+
+/// ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩ "the pin check"⟩ What the static check can say
+/// about a helper alias's catalog pin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StaticPin {
+    /// Every pin setting is determined and read from P's own section.
+    Holds,
+    /// This setting is decided outside P's section (or P is not read for the alias): the
+    /// pin does not hold. The alias is not rendered through the helper.
+    Defeated(&'static str),
+    /// No setting is known to be defeated, but this one depends on something the static
+    /// check does not run (a `Match exec`, for example): it **cannot decide**. The alias is
+    /// rendered through the helper, whose own `ssh -G` check before any route attempt is
+    /// the backstop.
+    Undetermined(&'static str),
+}
+
+impl StaticPin {
+    /// The worse of two verdicts over the same alias (another invocation profile):
+    /// defeated, then undetermined, then holds; the first setting named is kept.
+    #[must_use]
+    pub fn worse(self, other: Self) -> Self {
+        match (self, other) {
+            (StaticPin::Defeated(s), _) | (_, StaticPin::Defeated(s)) => StaticPin::Defeated(s),
+            (StaticPin::Undetermined(s), _) | (_, StaticPin::Undetermined(s)) => {
+                StaticPin::Undetermined(s)
+            }
+            _ => StaticPin::Holds,
+        }
+    }
+}
+
+/// [`static_pin_defeat`] with the two ways a setting can fail to be P's kept apart: a
+/// setting **determined** to come from elsewhere (or unset) is a defeat; one whose value
+/// depends on an unevaluated condition is undetermined. A defeat anywhere outranks an
+/// undetermined setting.
+#[must_use]
+pub fn static_pin_status(evaluation: &crate::eval::Evaluation) -> StaticPin {
+    use crate::directive::KnownKeyword as K;
+    use crate::eval::Resolved;
+    use crate::include::SourceRole;
+    use crate::relevant::{Proxy, ProxyResolution, relevant};
+    let proxy = match relevant(evaluation).proxy {
+        ProxyResolution::Determined(Proxy::Command(v)) if v.role == SourceRole::Managed => {
+            StaticPin::Holds
+        }
+        ProxyResolution::Undetermined(_) => StaticPin::Undetermined("proxycommand"),
+        ProxyResolution::Determined(_) => StaticPin::Defeated("proxycommand"),
+    };
+    [
+        (K::HostKeyAlias, "hostkeyalias"),
+        (K::UserKnownHostsFile, "userknownhostsfile"),
+        (K::GlobalKnownHostsFile, "globalknownhostsfile"),
+        (K::KnownHostsCommand, "knownhostscommand"),
+        (K::StrictHostKeyChecking, "stricthostkeychecking"),
+        (K::VerifyHostKeyDns, "verifyhostkeydns"),
+        (K::UpdateHostKeys, "updatehostkeys"),
+        (K::ControlMaster, "controlmaster"),
+        (K::ControlPath, "controlpath"),
+    ]
+    .into_iter()
+    .map(|(keyword, setting)| match evaluation.values.get(&keyword) {
+        Some(Resolved::Determined(v)) if v.role == SourceRole::Managed => StaticPin::Holds,
+        Some(Resolved::Undetermined(_)) => StaticPin::Undetermined(setting),
+        _ => StaticPin::Defeated(setting),
+    })
+    .fold(proxy, StaticPin::worse)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -527,6 +617,174 @@ mod tests {
             render_sections(&[s], PathStyle::Unix, DEFAULT_MANAGED_IDENTITY_FORM),
             Err(RenderError::RefusedValue("jump"))
         );
+    }
+
+    /// ⟨M06 W5 `w5n`⟩ ADR-0012 §5.2, statically: P's helper section alone holds the pin; a
+    /// line before the include block, an earlier `Host` block or a `Match exec` that could
+    /// change a pin setting is the defeat, named; a block **after** P changes nothing.
+    /// ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ What the static check cannot decide is
+    /// `Undetermined`, not `Defeated`: a pin setting behind a `Match exec` (never run). A
+    /// setting determined to come from outside P is a defeat, and a defeat outranks an
+    /// undetermined setting wherever both occur.
+    #[test]
+    fn static_pin_status_keeps_undetermined_apart_from_defeated() {
+        use crate::eval::{Invocation, OpenSshVersion, Query, evaluate};
+        use crate::include::{ConfigSet, MemSource, Roots};
+        use crate::limits::Limits;
+        let p = render(
+            &[Section::Helper {
+                route: helper("lab"),
+                section: Box::new(Section::ManagedCertificate {
+                    alias: AliasName::parse("lab").unwrap(),
+                    hostname: HostName::parse("10.0.0.2").unwrap(),
+                    port: None,
+                    user: "deploy".into(),
+                    endpoint: RenderPath::unix(Path::new("/run/hm/env-signing.sock")).unwrap(),
+                    key_pub: RenderPath::unix(Path::new("/d/managed/lab/key.pub")).unwrap(),
+                    cert: RenderPath::unix(Path::new("/d/managed/lab/cert.pub")).unwrap(),
+                    control_path: None,
+                }),
+            }],
+            PathStyle::Unix,
+        );
+        let check = |before: &str, after: &str| {
+            let user = format!("{before}\nInclude \"/hm/ssh_config\"\n{after}\n");
+            let source = MemSource::new("/home/u", "/home/u/.ssh", "/etc/ssh")
+                .with_file("/home/u/.ssh/config", user)
+                .with_file("/hm/ssh_config", p.clone());
+            let roots =
+                Roots::new(Some("/home/u/.ssh/config".into()), None).with_managed("/hm/ssh_config");
+            let query = Query {
+                host: "lab".into(),
+                user: None,
+                local_user: Some("u".into()),
+                client_version: OpenSshVersion::MINIMUM,
+                invocation: Invocation::Shell,
+            };
+            let mut set = ConfigSet::new();
+            static_pin_status(&evaluate(
+                &mut set,
+                &source,
+                &roots,
+                &query,
+                &Limits::default(),
+            ))
+        };
+        assert_eq!(check("", ""), StaticPin::Holds);
+        assert_eq!(
+            check(
+                "Match exec \"test -e /x\"\n    StrictHostKeyChecking no\nHost *",
+                ""
+            ),
+            StaticPin::Undetermined("stricthostkeychecking")
+        );
+        assert_eq!(
+            check(
+                "Match exec \"test -e /x\"\n    UserKnownHostsFile /home/u/kh\nHost *",
+                ""
+            ),
+            StaticPin::Undetermined("userknownhostsfile")
+        );
+        // The include itself behind the condition: whether P is read at all is undecided.
+        assert_eq!(
+            check("Match exec \"test -e /x\"", ""),
+            StaticPin::Undetermined("proxycommand")
+        );
+        assert_eq!(
+            check("StrictHostKeyChecking no", ""),
+            StaticPin::Defeated("stricthostkeychecking")
+        );
+        assert_eq!(
+            check(
+                "Match exec \"test -e /x\"\n    UserKnownHostsFile /home/u/kh\nHost *\n    UpdateHostKeys yes",
+                ""
+            ),
+            StaticPin::Defeated("updatehostkeys"),
+            "a defeat outranks an undetermined setting"
+        );
+        // The wrapper names the setting either way (the doctor's and the old gate's use).
+        assert_eq!(
+            StaticPin::Holds
+                .worse(StaticPin::Undetermined("controlpath"))
+                .worse(StaticPin::Holds),
+            StaticPin::Undetermined("controlpath")
+        );
+    }
+
+    #[test]
+    fn static_pin_check_requires_every_pin_setting_to_come_from_p() {
+        use crate::eval::{Invocation, OpenSshVersion, Query, evaluate};
+        use crate::include::{ConfigSet, MemSource, Roots};
+        use crate::limits::Limits;
+        let p = render(
+            &[Section::Helper {
+                route: helper("lab"),
+                section: Box::new(Section::ManagedCertificate {
+                    alias: AliasName::parse("lab").unwrap(),
+                    hostname: HostName::parse("10.0.0.2").unwrap(),
+                    port: None,
+                    user: "deploy".into(),
+                    endpoint: RenderPath::unix(Path::new("/run/hm/env-signing.sock")).unwrap(),
+                    key_pub: RenderPath::unix(Path::new("/d/managed/lab/key.pub")).unwrap(),
+                    cert: RenderPath::unix(Path::new("/d/managed/lab/cert.pub")).unwrap(),
+                    control_path: None,
+                }),
+            }],
+            PathStyle::Unix,
+        );
+        let check = |before: &str, after: &str| {
+            let user = format!("{before}\nInclude \"/hm/ssh_config\"\n{after}\n");
+            let source = MemSource::new("/home/u", "/home/u/.ssh", "/etc/ssh")
+                .with_file("/home/u/.ssh/config", user)
+                .with_file("/hm/ssh_config", p.clone());
+            let roots =
+                Roots::new(Some("/home/u/.ssh/config".into()), None).with_managed("/hm/ssh_config");
+            let query = Query {
+                host: "lab".into(),
+                user: None,
+                local_user: Some("u".into()),
+                client_version: OpenSshVersion::MINIMUM,
+                invocation: Invocation::Shell,
+            };
+            let mut set = ConfigSet::new();
+            static_pin_defeat(&evaluate(
+                &mut set,
+                &source,
+                &roots,
+                &query,
+                &Limits::default(),
+            ))
+        };
+        assert_eq!(check("", ""), None, "P alone holds the pin");
+        assert_eq!(
+            check(
+                "",
+                "Host *\n    StrictHostKeyChecking no\n    UserKnownHostsFile /x\n"
+            ),
+            None,
+            "settings after P change nothing"
+        );
+        for (before, setting) in [
+            ("StrictHostKeyChecking no", "stricthostkeychecking"),
+            ("StrictHostKeyChecking accept-new", "stricthostkeychecking"),
+            ("UserKnownHostsFile /home/u/kh", "userknownhostsfile"),
+            (
+                "GlobalKnownHostsFile /etc/ssh/ssh_known_hosts",
+                "globalknownhostsfile",
+            ),
+            ("KnownHostsCommand /bin/kh %H", "knownhostscommand"),
+            ("VerifyHostKeyDNS yes", "verifyhostkeydns"),
+            ("UpdateHostKeys yes", "updatehostkeys"),
+            ("HostKeyAlias someone-else", "hostkeyalias"),
+            ("ControlMaster auto", "controlmaster"),
+            ("ControlPath /tmp/m-%C", "controlpath"),
+            ("ProxyCommand nc %h %p", "proxycommand"),
+            ("ProxyJump elsewhere", "proxycommand"),
+            // The same value as P's is still not P's own line: refused (fail closed).
+            ("StrictHostKeyChecking yes", "stricthostkeychecking"),
+        ] {
+            assert_eq!(check(before, ""), Some(setting), "{before}");
+        }
     }
 
     #[test]

@@ -4,6 +4,18 @@
 # digest of the sources it was generated from, and m02-evidence.py refuses any other).
 #
 # Usage (from anywhere): tests/native/m02/refresh-inventory.sh
+#   ⟨M06 W5⟩ HM_FEATURE (a Cargo feature; tests/native/m06/refresh-inventory.sh sets `iroh`):
+#   the Linux cross-build also builds the test targets that require it (lib.sh
+#   m02_feature_build) and they are scanned with the rest. The Windows scan is a
+#   x86_64-pc-windows-gnu cross-build, which is not attempted with the feature (the Windows
+#   row builds it natively with msvc on the PC): those targets are absent from the Windows
+#   scan, so the inventory treats their tests as applying there, and a test `#[cfg]` removes
+#   on Windows needs a case-index platform_only entry with its rationale.
+#   ⟨M06 W5c⟩ HM_FEATURE_UNIT (comma-separated package names, with HM_FEATURE): the Linux
+#   cross-build also builds those packages' unit tests with the feature, and that build is the
+#   one scanned as `<crate>-unit`. The Windows scan's default-feature build of the same unit
+#   target is left out of its scan, as the feature targets are: scanned, it would report every
+#   test that exists only under the feature as absent on Windows.
 #   ⟨M03 wave 6⟩ HM_HARNESS_DIR (the directory holding runs.json and the generator) and
 #   HM_EVIDENCE (the generator's name there) select another milestone's inventory;
 #   tests/native/m03/refresh-inventory.sh sets them. Default: this directory, m02-evidence.py.
@@ -49,6 +61,21 @@ for spec in linux:x86_64-unknown-linux-gnu windows:x86_64-pc-windows-gnu; do
         tail -n 20 "$shim/build-$plat.log" >&2
         exit 1
     }
+    if [ -n "${HM_FEATURE:-}" ] && [ "$plat" = linux ]; then
+        m02_artifacts "$shim" || true
+        M02_FEATURE_SKIP=${HM_SKIP_TARGETS:-} M02_FEATURE_UNIT=${HM_FEATURE_UNIT:-} m02_feature_build "$triple" "$shim" "$shim/build-$plat.log" "$HM_FEATURE" || {
+            echo "the $HM_FEATURE-feature cross-build for $triple failed or is incomplete:" >&2
+            cat "$shim/feature-blocked.tsv" >&2
+            exit 1
+        }
+        cat "$shim/feature.json" >>"$shim/build.json"
+    elif [ -n "${HM_FEATURE:-}" ] && [ -n "${HM_FEATURE_UNIT:-}" ]; then
+        case "$HM_FEATURE_UNIT" in *[!a-z0-9,-]*) echo "bad HM_FEATURE_UNIT" >&2; exit 2 ;; esac
+        jq -c --arg units "$(printf '%s' "$HM_FEATURE_UNIT" | tr '-' '_')" '
+            select(((.reason == "compiler-artifact" and .profile.test == true and (.target.kind | index("lib")) != null
+                     and (($units | split(",")) | index(.target.name)) != null)) | not)' \
+            "$shim/build.json" >"$shim/build.kept" && mv -f -- "$shim/build.kept" "$shim/build.json"
+    fi
     python3 -I "$here/platform-tests.py" --build-json "$shim/build.json" --listed-from "$shim/listed" \
         --out "$shim/scan-$plat.json"
     scans+=(--scan "$plat=$shim/scan-$plat.json")

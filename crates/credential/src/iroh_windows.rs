@@ -339,11 +339,13 @@ mod tests {
         let via = scratch.path().join("via");
         std::fs::create_dir(&via).unwrap();
         if file_symlink(&real.join(&blob_name), &via.join(&blob_name)) {
+            let mark = cases.failures();
             cases.check(
                 "a file symlink at the blob's name is corrupt, never followed",
                 &load(&via),
                 &Err(IrohStoreError::Corrupt),
             );
+            cases.ran(mark, "iroh", "file-symlink");
         } else {
             skipped(
                 TEST,
@@ -355,6 +357,7 @@ mod tests {
         // A directory symlink, and a junction, at the store directory's path.
         let linked = scratch.path().join("linked");
         if dir_symlink(&real, &linked) {
+            let mark = cases.failures();
             let store = WindowsDpapiIroh::in_dir(&linked, &environment());
             cases.check(
                 "a directory symlink is refused",
@@ -371,6 +374,7 @@ mod tests {
                 &store.ensure_dir(),
                 &Err(IrohStoreError::Failed),
             );
+            cases.ran(mark, "iroh", "directory-symlink");
         } else {
             skipped(
                 TEST,
@@ -380,6 +384,7 @@ mod tests {
         }
         let joined = scratch.path().join("joined");
         if junction(&real, &joined) {
+            let mark = cases.failures();
             let store = WindowsDpapiIroh::in_dir(&joined, &environment());
             cases.check(
                 "a junction is refused",
@@ -396,6 +401,7 @@ mod tests {
                 &store.ensure_dir(),
                 &Err(IrohStoreError::Failed),
             );
+            cases.ran(mark, "iroh", "junction");
         } else {
             skipped(
                 TEST,

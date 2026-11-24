@@ -38,10 +38,19 @@
 #   6. The observation targets of the case index run once more with --show-output
 #      (observations.txt): check.sh's own run discards what passing tests print.
 #
+#   7. ⟨M06 W5⟩ HM_FEATURE=<Cargo feature> (tests/native/m06/run-macos.sh sets `iroh`): the
+#      test targets whose required-features name it, which neither check.sh's workspace
+#      test nor step 6 builds, are built and run per package (`cargo test -p <package>
+#      --features <feature> --test <target>... -- --show-output`), their output kept as
+#      features.txt. A package whose feature build fails is recorded as
+#      `feature-blocked-<target>=<reason>` in host.txt (the evidence row is blocked on it),
+#      never as passed or skipped. Unset: nothing changes.
+#
 # No CARGO_TARGET_DIR override (AGENTS.md). Output: check.txt, observations.txt, host.txt,
-# build.txt (build only), commands.txt, canary-scan.txt. Exit: check.sh's exit when it
-# fails, 1 when a canary, a leak or a changed ~/.ssh or Git configuration is found, else
-# the observation pass's exit.
+# build.txt (build only), commands.txt, canary-scan.txt, features.txt (HM_FEATURE). Exit:
+# check.sh's exit when it fails, 1 when a canary, a leak or a changed ~/.ssh or Git
+# configuration is found, else the observation pass's exit, else the feature pass's (6 when
+# its tests passed but a feature target did not build).
 
 set -euo pipefail
 
@@ -54,9 +63,11 @@ repo=$(cd "$here/../../.." && pwd)
 # ⟨M03 wave 6⟩ The milestone's case index (its observation_targets): tests/native/m03/run-macos.sh
 # sets HM_HARNESS_DIR; default this directory.
 hdir=${HM_HARNESS_DIR:-$here}
+feature=${HM_FEATURE:-}
+case "$feature" in *[!a-z0-9-]*) echo "bad HM_FEATURE" >&2; exit 2 ;; esac
 # The milestone variables configure this harness only: check.sh (its native-harness
 # self-test runs these harnesses against a fake world) must not inherit them.
-unset HM_HARNESS_DIR HM_EVIDENCE HM_RUN_PREFIX HM_EXTRA_REMOTE HM_SCENARIO HM_SCENARIO_FILES HM_ROOT_PHASES
+unset HM_HARNESS_DIR HM_EVIDENCE HM_RUN_PREFIX HM_EXTRA_REMOTE HM_SCENARIO HM_SCENARIO_FILES HM_ROOT_PHASES HM_FEATURE
 owner_lock="$repo/tests/fixtures/ssh/runtime.owner.lock"
 # shellcheck source=tests/native/m02/lib.sh
 . "$here/lib.sh"
@@ -105,11 +116,28 @@ if [ "$build_only" = 1 ]; then
     m02_redact "$out/build.txt" "$out/build.txt" "$scratch" "<scratch>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" "$(id -un)" "<user>"
     [ "$rc" = 0 ] || exit "$rc"
     m02_artifacts "$scratch" || { echo "the heimdall or hm-fixture-hook binary was not built" >&2; exit 5; }
+    frc=0
+    if [ -n "$feature" ]; then
+        set +e
+        m02_feature_build host "$scratch" "$scratch/feature.log" "$feature"
+        frc=$?
+        set -e
+        m02_record "$commands" "cargo test -p <package> --features $feature --test <each target that requires it> --no-run --locked (0: all built; 6: some recorded as blocked)" "$frc"
+        m02_redact "$scratch/feature.log" "$scratch/feature.red" "$scratch" "<scratch>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" "$(id -un)" "<user>"
+        cat "$scratch/feature.red" >>"$out/build.txt"
+        case "$frc" in 0 | 6) ;; *) exit "$frc" ;; esac
+        m02_feature_facts "$scratch" "$feature" >"$scratch/feature-facts.raw"
+        m02_redact "$scratch/feature-facts.raw" "$scratch/feature-facts.txt" "$scratch" "<scratch>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" "$(id -un)" "<user>"
+        cat "$scratch/feature-facts.txt" >>"$out/build.txt"
+    fi
     cp "$scratch/all.tsv" "$scratch/run.tsv"
     m02_hashes "$scratch" "$out" ""
+    if [ -s "$scratch/feature-cli.txt" ]; then
+        echo "heimdall ($feature feature; the CLI of the targets that require it) sha256: $(shasum -a 256 "$(cat "$scratch/feature-cli.txt")" | cut -d' ' -f1)" >>"$out/build.txt"
+    fi
     echo "toolchain: $(rustc --version); host $(uname -m)" >>"$out/build.txt"
     echo "test binaries: $(wc -l <"$scratch/run.tsv" | tr -d ' ')"
-    exit 0
+    exit "$frc"
 fi
 
 facts="$scratch/host.raw"
@@ -190,7 +218,57 @@ orc=$?
 set -e
 m02_record "$commands" "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)" "$orc"
 
+# ⟨M06 W5⟩ The feature targets (HM_FEATURE): built, then run, package by package. A build
+# that fails is a blocked fact per target; a test that fails is the pass's exit code.
+frc=0
+fblocked=0
+: >"$scratch/feature.facts"
+if [ -n "$feature" ]; then
+    set +e
+    m02_feature_targets "$feature" >"$scratch/feature-targets.tsv"
+    trc=$?
+    set -e
+    if [ "$trc" != 0 ] || [ ! -s "$scratch/feature-targets.tsv" ]; then
+        m02_record "$commands" "list the test targets that require feature $feature (none, or unusable)" 2
+        echo "no test target requires feature $feature" >&2
+        exit 2
+    fi
+    : >"$scratch/feature.raw"
+    built=""
+    # shellcheck disable=SC2013  # package and target names are [A-Za-z0-9_-] (m02_feature_targets)
+    for pkg in $(cut -f1 "$scratch/feature-targets.tsv" | LC_ALL=C sort -u); do
+        fsel=()
+        names=""
+        for t in $(awk -F'\t' -v p="$pkg" '$1 == p { print $2 }' "$scratch/feature-targets.tsv"); do
+            fsel+=(--test "$t")
+            names="$names $t"
+        done
+        set +e
+        cargo test --locked -p "$pkg" --features "$feature" "${fsel[@]}" --no-run >"$scratch/feature-build.log" 2>&1
+        brc=$?
+        set -e
+        if [ "$brc" != 0 ]; then
+            first=$(grep -m1 -E '^error' "$scratch/feature-build.log" | tr '\t\r' '  ' | cut -c1-240)
+            for t in $names; do
+                echo "feature-blocked-$t=the $feature-feature build of $pkg failed (cargo exit $brc): ${first:-no error line in the build log}" >>"$scratch/feature.facts"
+            done
+            fblocked=1
+            m02_record "$commands" "record the $feature-feature targets of $pkg that did not build as blocked (host.txt feature-blocked-<target> keeps cargo's exit code and first error)" 0
+            continue
+        fi
+        built="$built$names"
+        set +e
+        TMPDIR="$scratch/tmp" cargo test --locked --no-fail-fast -p "$pkg" --features "$feature" "${fsel[@]}" -- --show-output >>"$scratch/feature.raw" 2>&1
+        prc=$?
+        set -e
+        m02_record "$commands" "cargo test --locked --no-fail-fast -p $pkg --features $feature <its targets that require the feature> -- --show-output (TMPDIR in scratch)" "$prc"
+        [ "$prc" = 0 ] || frc=$prc
+    done
+    echo "feature-targets=$feature:$built" >>"$scratch/feature.facts"
+fi
+
 {
+    cat "$scratch/feature.facts"
     n=0
     while IFS= read -r p; do
         case "$p" in '' | *[!0-9]*) continue ;; esac
@@ -212,6 +290,11 @@ m02_redact "$scratch/check.raw" "$out/check.txt" "$scratch" "<scratch>" "${TMPDI
 m02_redact "$scratch/obs.raw" "$out/observations.txt" "$scratch" "<scratch>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" \
     --word "$lhost" "<host>" --word "$lshort" "<host>" "$(id -un)" "<user>"
 
+if [ -n "$feature" ]; then
+    m02_redact "$scratch/feature.raw" "$out/features.txt" "$scratch" "<scratch>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" \
+        --word "$lhost" "<host>" --word "$lshort" "<host>" "$(id -un)" "<user>"
+fi
+
 before=$(sed -n 's/^owner-ssh-before=//p;s/^owner-git-before=//p;s/^keychain-list-before=//p' "$out/host.txt" | tr '\n' ' ')
 after=$(sed -n 's/^owner-ssh-after=//p;s/^owner-git-after=//p;s/^keychain-list-after=//p' "$out/host.txt" | tr '\n' ' ')
 same=1
@@ -228,4 +311,8 @@ cat "$out/host.txt"
 grep -E '^== ' "$out/check.txt" || true
 [ "$hits" = 0 ] && [ "$lrc" = 0 ] && [ "$same" = 1 ] || exit 1
 [ "$rc" = 0 ] || exit "$rc"
-exit "$orc"
+[ "$orc" = 0 ] || exit "$orc"
+[ "$frc" = 0 ] || exit "$frc"
+# ⟨M06 W5⟩ 6: everything that ran passed, but a feature target did not build (blocked).
+[ "$fblocked" = 0 ] || exit 6
+exit 0

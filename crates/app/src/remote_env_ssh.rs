@@ -50,6 +50,13 @@ pub const STDERR_MAX: usize = 64 * 1024;
 /// integrator; its argument shape is DONE question U2-Q4).
 pub const REMOTE_INIT: [&str; 2] = ["remote", "init"];
 
+/// ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ The flag the bootstrap session appends to
+/// the runner's `remote init` ([`bootstrap_args_for`]): after the enrollment the runner says
+/// plainly whether its runtime is running and, when it is not, offers to start it in the
+/// same attended terminal session with a typed `yes`. A `remote init` the runner's owner
+/// runs by hand does not carry it.
+pub const OFFER_RUNTIME_START: &str = "--offer-runtime-start";
+
 /// Key types that can be the only trust source of a pin.
 const PINNABLE: &[&str] = &[
     "ssh-ed25519",
@@ -373,7 +380,12 @@ pub fn bootstrap_args_for(
     args.push(plan.access.route.runner.account.as_str().into());
     args.push("--".into());
     args.push(plan.access.alias.as_str().into());
-    args.push(remote_init_command_for(plan, issuer_ca, iroh_endpoint)?.into());
+    // ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ The bootstrap is attended on this
+    // terminal: the runner says whether its runtime runs and offers to start it there.
+    let mut command = remote_init_command_for(plan, issuer_ca, iroh_endpoint)?;
+    command.push(' ');
+    command.push_str(OFFER_RUNTIME_START);
+    args.push(command.into());
     Ok(args)
 }
 
@@ -384,11 +396,145 @@ pub enum PreflightVerdict {
     HostVerified,
     /// The runner's key is not pinned (changed, or a different host).
     HostKeyMismatch,
-    /// Anything else (no connection, a refused name, a timeout).
-    Unreachable,
+    /// The runner was not reached, and why ([`UnreachableCause`]).
+    Unreachable(UnreachableCause),
 }
 
-/// Classify the preflight's standard error. Only OpenSSH's own markers are read.
+/// ⟨M06 W5 `w5v`; ADR-0006 §18.9⟩ Why an `ssh` this controller ran did not reach the runner,
+/// from what that `ssh` actually did ([`unreachable_cause`]). Each is one reason
+/// ([`UnreachableCause::reason`]) under the code the placement rule gives it
+/// ([`UnreachableCause::code`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnreachableCause {
+    /// The client did not start (it could not be spawned, or it ended with a status no
+    /// OpenSSH client uses and said nothing).
+    ClientNotStarted,
+    /// The client refused its own options or configuration before connecting.
+    ClientRejected,
+    /// The connection was refused.
+    ConnectionRefused,
+    /// The connection, or its banner exchange, timed out.
+    ConnectionTimedOut,
+    /// The host name did not resolve.
+    NameNotResolved,
+    /// Anything else (or nothing said).
+    Other,
+}
+
+impl UnreachableCause {
+    /// Its reason (`heimdall_contract::envelope::reason`).
+    #[must_use]
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::ClientNotStarted => reason::SSH_CLIENT_NOT_STARTED,
+            Self::ClientRejected => reason::SSH_CLIENT_CONFIG_REJECTED,
+            Self::ConnectionRefused => reason::SSH_CONNECTION_REFUSED,
+            Self::ConnectionTimedOut => reason::SSH_CONNECTION_TIMED_OUT,
+            Self::NameNotResolved => reason::SSH_NAME_NOT_RESOLVED,
+            Self::Other => reason::SSH_UNREACHABLE_OTHER,
+        }
+    }
+
+    /// Its code: the client's own failures, which an unchanged retry cannot fix, are
+    /// `CAPABILITY_UNAVAILABLE`; the network outcomes stay `DESTINATION_UNREACHABLE`.
+    #[must_use]
+    pub fn code(self) -> Code {
+        match self {
+            Self::ClientNotStarted | Self::ClientRejected => Code::CapabilityUnavailable,
+            Self::ConnectionRefused
+            | Self::ConnectionTimedOut
+            | Self::NameNotResolved
+            | Self::Other => Code::DestinationUnreachable,
+        }
+    }
+
+    /// The error for this cause; `leg` says which `ssh` it was ("over the existing access",
+    /// "for a management session"). No path and no address. `Other` keeps the message an
+    /// unreached runner always had.
+    #[must_use]
+    pub fn error(self, leg: &str) -> OpError {
+        let message = match self {
+            Self::ClientNotStarted => format!(
+                "this controller's OpenSSH client did not start, so the runner was not \
+                 reached {leg}: nothing was sent"
+            ),
+            Self::ClientRejected => format!(
+                "this controller's OpenSSH client refused its own options or configuration \
+                 (a bad option, or a configuration file it could not open or whose owner or \
+                 permissions it does not accept), so the runner was not reached {leg}: \
+                 nothing was sent"
+            ),
+            Self::ConnectionRefused => {
+                format!("the runner's address refused the connection {leg}")
+            }
+            Self::ConnectionTimedOut => format!("the connection to the runner timed out {leg}"),
+            Self::NameNotResolved => {
+                format!("the runner's host name could not be resolved {leg}")
+            }
+            Self::Other => format!("the runner could not be reached {leg}"),
+        };
+        OpError::new(self.code(), message).with_reason(self.reason())
+    }
+}
+
+/// ⟨`w5v`⟩ What the client prints when it refuses its own options or configuration before
+/// connecting. The same text in POSIX OpenSSH and Win32-OpenSSH (PowerShell/openssh-portable
+/// v9.5.0.0 shares the portable sources): `readconf.c` `"%s: line %d: Bad configuration
+/// option: %s"` and `"%s line %d: …"` with the file name `command-line` for a `-o` option
+/// (`ssh.c` case `'o'`: then `exit(255)`); `"%s: terminating, %d bad configuration options"`;
+/// `"Bad owner or permissions on %s"` (both builds; on Windows
+/// `check_secure_file_permission`); `ssh.c` `"Can't open user config file %.100s: %.100s"`;
+/// the usage text `"usage: ssh [-46AaCfGgKkMNnqsTtVvXxYy] …"`; `log.c` `"Couldn't open
+/// logfile %s: %s"` (`-E`).
+const CLIENT_REJECTED: &[&str] = &[
+    "command-line line 0:",
+    "command-line: line 0:",
+    "Bad configuration option",
+    "bad configuration options",
+    "Bad owner or permissions on",
+    "Can't open user config file",
+    "usage: ssh",
+    "Couldn't open logfile",
+];
+
+/// `ssh.c` `resolve_host`: `"%s: Could not resolve hostname %.100s: %s"`; `"Could not resolve
+/// host \"%s\""` (both builds).
+const NAME_NOT_RESOLVED: &[&str] = &["Could not resolve host"];
+
+/// `sshconnect.c` `"ssh: connect to host %s port %s: %s"` with `strerror(ECONNREFUSED)`:
+/// glibc, macOS and Win32-OpenSSH's `_sys_errlist_ext` (`contrib/win32/win32compat/misc.c`)
+/// all say "Connection refused".
+const CONNECTION_REFUSED: &[&str] = &["Connection refused"];
+
+/// `strerror(ETIMEDOUT)`: "Connection timed out" (glibc; Win32-OpenSSH's `_sys_errlist_ext`),
+/// "Operation timed out" (macOS and the BSDs); `kex.c` "Connection timed out during banner
+/// exchange".
+const CONNECTION_TIMED_OUT: &[&str] = &["Connection timed out", "Operation timed out"];
+
+/// Why an `ssh` that did not reach the runner failed, read from its standard error (module
+/// docs of [`UnreachableCause`]; the markers above, in that order: the client's own refusal
+/// first, since a client that refused its configuration never connected).
+#[must_use]
+pub fn unreachable_cause(stderr: &[u8]) -> UnreachableCause {
+    let text = String::from_utf8_lossy(stderr);
+    let any = |markers: &[&str]| markers.iter().any(|m| text.contains(m));
+    if any(CLIENT_REJECTED) {
+        UnreachableCause::ClientRejected
+    } else if any(NAME_NOT_RESOLVED) {
+        UnreachableCause::NameNotResolved
+    } else if any(CONNECTION_REFUSED) {
+        UnreachableCause::ConnectionRefused
+    } else if any(CONNECTION_TIMED_OUT) {
+        UnreachableCause::ConnectionTimedOut
+    } else {
+        UnreachableCause::Other
+    }
+}
+
+/// Classify the preflight's standard error. Only OpenSSH's own markers are read. The
+/// authentication refusal that proves the pinned key is `"%s@%s: Permission denied (%s)."`
+/// (`sshconnect2.c`, both builds): the parenthesis keeps a `strerror(EACCES)` ("Permission
+/// denied" after a file name the client could not open) from reading as a verified host.
 #[must_use]
 pub fn classify_preflight(stderr: &[u8]) -> PreflightVerdict {
     let text = String::from_utf8_lossy(stderr);
@@ -400,10 +546,88 @@ pub fn classify_preflight(stderr: &[u8]) -> PreflightVerdict {
     ];
     if mismatch.iter().any(|m| text.contains(m)) {
         PreflightVerdict::HostKeyMismatch
-    } else if text.contains("Permission denied") {
+    } else if text.contains("Permission denied (") {
         PreflightVerdict::HostVerified
     } else {
-        PreflightVerdict::Unreachable
+        PreflightVerdict::Unreachable(unreachable_cause(stderr))
+    }
+}
+
+/// ⟨M06 W5 `w5v`, PC job 44⟩ The variable Win32-OpenSSH needs before it can start or say
+/// anything: `w32posix_initialize` (contrib/win32/win32compat/w32fd.c, PowerShell/openssh-portable
+/// v9.5.0.0) calls `init_prog_paths` first, which does `fatal("couldn't find ProgramData
+/// environment variable")` when it is unset. That runs before `fd_table_initialize`, so the
+/// message is written to an fd that does not exist yet (`w32_write`: `EBADF`) and the client
+/// exits 255 having printed nothing. That was job 44: the journey's driver started
+/// `heimdall` with an explicit environment that had no `ProgramData`, and the preflight's
+/// `ssh.exe` inherited it.
+pub const WINDOWS_CLIENT_REQUIRED_ENV: &str = "ProgramData";
+
+/// ⟨`w5v`⟩ The refusal when the environment an `ssh` child would inherit lacks
+/// [`WINDOWS_CLIENT_REQUIRED_ENV`] (`env` looks a name up; the product passes the process
+/// environment). `None` when it is set and not empty. Checked before every non-interactive
+/// `ssh` this controller starts on Windows ([`BootstrapSsh::preflight`],
+/// [`spawn_management`]); elsewhere the check is never made. The OpenSSH client would not start
+/// properly and would not say why, so nothing is started: `CAPABILITY_UNAVAILABLE`,
+/// `ssh_client_not_started`, and the message names the variable. No path.
+#[must_use]
+pub fn windows_client_environment_refusal(
+    env: &dyn Fn(&str) -> Option<OsString>,
+) -> Option<OpError> {
+    let set = env(WINDOWS_CLIENT_REQUIRED_ENV).is_some_and(|v| !v.is_empty());
+    (!set).then(|| {
+        OpError::new(
+            Code::CapabilityUnavailable,
+            format!(
+                "this controller's environment has no {WINDOWS_CLIENT_REQUIRED_ENV} variable, \
+                 which the Windows OpenSSH client needs before it can start or report an error, \
+                 so no ssh was started and nothing was sent; run Heimdall from an ordinary \
+                 Windows session (or set {WINDOWS_CLIENT_REQUIRED_ENV}), then try again"
+            ),
+        )
+        .with_reason(reason::SSH_CLIENT_NOT_STARTED)
+    })
+}
+
+/// [`windows_client_environment_refusal`] for this process, on Windows only.
+fn client_environment_refusal() -> Option<OpError> {
+    if cfg!(windows) {
+        windows_client_environment_refusal(&|n| std::env::var_os(n))
+    } else {
+        None
+    }
+}
+
+/// ⟨`w5v`⟩ A finished preflight: [`classify_preflight`], except that a client that said
+/// nothing and ended with a status no OpenSSH client uses (`ssh` exits 0–255; a Windows
+/// loader failure such as a missing DLL ends with an NTSTATUS, a negative `i32`) did not
+/// start.
+#[must_use]
+pub fn classify_preflight_run(exit: Option<i32>, stderr: &[u8]) -> PreflightVerdict {
+    let silent = stderr.iter().all(u8::is_ascii_whitespace);
+    if silent && exit.is_some_and(|c| !(0..=255).contains(&c)) {
+        PreflightVerdict::Unreachable(UnreachableCause::ClientNotStarted)
+    } else {
+        classify_preflight(stderr)
+    }
+}
+
+/// ⟨`w5v`; debug builds only, `HEIMDALL_TEST_SSH_STDERR_FILE`⟩ Append one `ssh` run's
+/// standard error to the diagnostic file, under a header naming the leg and its exit. Best
+/// effort: a failure to write it changes nothing else.
+pub fn append_stderr_record(file: &Path, leg: &str, exit: Option<i32>, stderr: &[u8]) {
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    if let Ok(mut f) = options.open(file) {
+        let exit = exit.map_or_else(|| "none".to_owned(), |c| c.to_string());
+        let _ = writeln!(f, "### {leg} exit={exit}");
+        let _ = f.write_all(&stderr[..stderr.len().min(STDERR_MAX)]);
+        let _ = writeln!(f);
     }
 }
 
@@ -418,6 +642,11 @@ pub struct BootstrapSsh {
     pub config: Option<PathBuf>,
     /// Extra `-o` options: tests only (the fixture isolation options).
     pub extra_options: Vec<String>,
+    /// ⟨`w5v`⟩ Debug builds only (`HEIMDALL_TEST_SSH_STDERR_FILE`, an absolute scratch
+    /// path): the preflight's standard error is appended there, and the interactive
+    /// session gets `-E <file>` so its client's own messages go there too. `None` in
+    /// production.
+    pub stderr_file: Option<PathBuf>,
     /// ⟨M06 W3⟩ The controller's CA public key line (its active issuer's), passed to the
     /// runner's `remote init` ([`remote_init_command_with`]); `None` when this controller has
     /// no issuer.
@@ -444,6 +673,22 @@ impl BootstrapSsh {
 
     fn write_pin_file(&self, plan: &BootstrapPlan) -> Result<PathBuf, OpError> {
         let text = pin_file_text(plan.access.destination.as_str(), &plan.access.route.runner)?;
+        // ⟨M06 W5⟩ The directory may not exist yet: on a new installation the bootstrap runs
+        // before any management session has made it (found by the Windows journey's driver:
+        // the first `environment add` failed here, after K_mgmt had been created).
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt as _;
+            builder.mode(0o700);
+        }
+        builder.create(&self.scratch_dir).map_err(|_| {
+            OpError::new(
+                Code::StateUnavailable,
+                "the bootstrap pin file could not be written",
+            )
+        })?;
         let path = self.scratch_dir.join("bootstrap_known_hosts");
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create(true).truncate(true);
@@ -477,6 +722,13 @@ impl BootstrapSsh {
     pub async fn preflight(&self, plan: &BootstrapPlan, pin_file: &Path) -> Result<(), OpError> {
         self.check_client()?;
         let args = preflight_args(plan, pin_file, self.config.as_deref(), &self.extra_options)?;
+        // ⟨`w5v`, PC job 44⟩ A Windows client that cannot start says nothing: refuse first.
+        if let Some(refusal) = client_environment_refusal() {
+            if let Some(file) = &self.stderr_file {
+                append_stderr_record(file, "preflight (not started: no ProgramData)", None, b"");
+            }
+            return Err(refusal);
+        }
         let mut command = crate::no_window!(tokio::process::Command::new(&self.ssh_client));
         command
             .args(&args)
@@ -488,19 +740,24 @@ impl BootstrapSsh {
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let unreachable = || {
-            OpError::new(
-                Code::DestinationUnreachable,
-                "the runner could not be reached over the existing access",
-            )
+        const LEG: &str = "over the existing access";
+        let Ok(child) = command.spawn() else {
+            if let Some(file) = &self.stderr_file {
+                append_stderr_record(file, "preflight (not started)", None, b"");
+            }
+            return Err(UnreachableCause::ClientNotStarted.error(LEG));
         };
-        let child = command.spawn().map_err(|_| unreachable())?;
-        let output = tokio::time::timeout(PREFLIGHT_BOUND, child.wait_with_output())
-            .await
-            .map_err(|_| unreachable())?
-            .map_err(|_| unreachable())?;
+        let output = match tokio::time::timeout(PREFLIGHT_BOUND, child.wait_with_output()).await {
+            Ok(Ok(output)) => output,
+            Ok(Err(_)) => return Err(UnreachableCause::Other.error(LEG)),
+            Err(_) => return Err(UnreachableCause::ConnectionTimedOut.error(LEG)),
+        };
         let stderr = &output.stderr[..output.stderr.len().min(STDERR_MAX)];
-        match classify_preflight(stderr) {
+        let exit = output.status.code();
+        if let Some(file) = &self.stderr_file {
+            append_stderr_record(file, "preflight", exit, stderr);
+        }
+        match classify_preflight_run(exit, stderr) {
             PreflightVerdict::HostVerified => Ok(()),
             PreflightVerdict::HostKeyMismatch => Err(OpError::new(
                 Code::HostTrustChanged,
@@ -508,7 +765,7 @@ impl BootstrapSsh {
                  the pin through independently verified access; a key is never scanned)",
             )
             .with_reason(reason::ENROLLMENT_HOST_KEY_MISMATCH)),
-            PreflightVerdict::Unreachable => Err(unreachable()),
+            PreflightVerdict::Unreachable(cause) => Err(cause.error(LEG)),
         }
     }
 }
@@ -520,7 +777,7 @@ impl BootstrapRunner for BootstrapSsh {
         let pin_file = self.write_pin_file(plan)?;
         let result = async {
             self.preflight(plan, &pin_file).await?;
-            let args = bootstrap_args_for(
+            let mut args = bootstrap_args_for(
                 plan,
                 &pin_file,
                 self.config.as_deref(),
@@ -528,6 +785,12 @@ impl BootstrapRunner for BootstrapSsh {
                 self.issuer_ca.as_deref(),
                 self.iroh_endpoint.as_ref(),
             )?;
+            // ⟨`w5v`, debug builds only⟩ The client's own messages to the diagnostic file
+            // (`-E`, first: before every other argument).
+            if let Some(file) = &self.stderr_file {
+                append_stderr_record(file, "bootstrap session (its -E log follows)", None, b"");
+                args.splice(0..0, [OsString::from("-E"), file.as_os_str().to_owned()]);
+            }
             // The interactive session shares the user's terminal: not a `no_window!` child.
             let status = tokio::process::Command::new(&self.ssh_client)
                 .args(&args)
@@ -591,8 +854,14 @@ pub struct ManagementChild {
 /// Spawn the management `ssh` (module docs).
 ///
 /// # Errors
-/// `LAUNCH_FAILED` when the client cannot be started.
+/// `LAUNCH_FAILED` when the client cannot be started; on Windows `CAPABILITY_UNAVAILABLE`
+/// (`ssh_client_not_started`) when the environment lacks `ProgramData`
+/// ([`windows_client_environment_refusal`]).
 pub fn spawn_management(ssh_client: &Path, args: &[OsString]) -> Result<ManagementChild, OpError> {
+    // ⟨`w5v`⟩ As the preflight: a Windows client that cannot start says nothing.
+    if let Some(refusal) = client_environment_refusal() {
+        return Err(refusal);
+    }
     let mut command = crate::no_window!(tokio::process::Command::new(ssh_client));
     command
         .args(args)
@@ -1024,7 +1293,14 @@ mod tests {
         assert!(session.contains(&"-t".to_owned()));
         let command = session.last().unwrap();
         assert!(command.starts_with("/opt/heimdall/bin/heimdall remote init --owner-client cl_"));
-        assert!(command.ends_with(&format!(" --owner-key '{ED}'")));
+        // ⟨M06 W5⟩ The attended bootstrap session, and only it, asks the runner to state
+        // whether its runtime runs and to offer its start.
+        assert!(command.ends_with(&format!(" --owner-key '{ED}' {OFFER_RUNTIME_START}")));
+        assert!(
+            !remote_init_command(&plan())
+                .unwrap()
+                .contains(OFFER_RUNTIME_START)
+        );
         assert_eq!(
             pin_file_text("lab", &plan().access.route.runner).unwrap(),
             format!("hm-dest-lab {ED}\n")
@@ -1122,7 +1398,7 @@ mod tests {
         );
         assert_eq!(
             classify_preflight(b"ssh: connect to host 127.0.0.1 port 1: Connection refused\r\n"),
-            PreflightVerdict::Unreachable
+            PreflightVerdict::Unreachable(UnreachableCause::ConnectionRefused)
         );
         assert_eq!(
             strings(&management_args(Path::new("/s/mgmt.conf"), "hm-env-env_aa")),
@@ -1138,6 +1414,474 @@ mod tests {
                 "hm-env-env_aa"
             ]
         );
+    }
+
+    /// ⟨M06 W5 `w5v`; ADR-0006 §18.9⟩ An unreached runner says why, from what the client
+    /// printed. Every line below is a client's real message: the POSIX ones as OpenSSH
+    /// 9.x/10.x prints them (glibc and macOS `strerror` texts), the Win32 ones from
+    /// PowerShell/openssh-portable v9.5.0.0 (`ssh.c`, `readconf.c`, `sshconnect.c`,
+    /// `kex.c`, `log.c`, `contrib/win32/win32compat/misc.c` `_sys_errlist_ext`), the
+    /// sources of the in-box `OpenSSH_for_Windows_9.5p2`. Paths and addresses are fixture
+    /// values.
+    #[test]
+    fn an_unreached_runner_is_classified_from_the_clients_own_words() {
+        use UnreachableCause as C;
+        let cases: &[(&str, &[u8], UnreachableCause)] = &[
+            // ssh.c case 'o' -> readconf.c parse_token (both builds), then exit(255).
+            (
+                "posix/win32 -o unknown keyword",
+                b"command-line: line 0: Bad configuration option: knownhostscommandx\r\n",
+                C::ClientRejected,
+            ),
+            (
+                "posix/win32 -o bad value",
+                b"command-line line 0: unsupported option \"maybe\".\r\n",
+                C::ClientRejected,
+            ),
+            // readconf.c read_config_file_depth (a -F file with a bad line).
+            (
+                "posix/win32 config file",
+                b"C:\\hm\\acct\\.ssh\\config: line 3: Bad configuration option: identityagnet\r\n\
+                  C:\\hm\\acct\\.ssh\\config: terminating, 1 bad configuration options\r\n",
+                C::ClientRejected,
+            ),
+            // readconf.c (SSHCONF_CHECKPERM): POSIX st_mode, Windows check_secure_file_permission.
+            (
+                "posix/win32 bad owner",
+                b"Bad owner or permissions on C:\\Users\\u/.ssh/config\r\n",
+                C::ClientRejected,
+            ),
+            // ssh.c process_config_files (-F names a file that cannot be opened).
+            (
+                "posix/win32 -F unreadable",
+                b"Can't open user config file C:\\hm\\acct\\.ssh\\config: No such file or directory\r\n",
+                C::ClientRejected,
+            ),
+            // ssh.c usage() after getopt refused a flag.
+            (
+                "posix usage",
+                b"ssh: illegal option -- J\nusage: ssh [-46AaCfGgKkMNnqsTtVvXxYy] [-B bind_interface]\n",
+                C::ClientRejected,
+            ),
+            // log.c log_redirect_stderr_to (-E).
+            (
+                "posix/win32 -E",
+                b"Couldn't open logfile C:\\hm\\x\\ssh.log: Permission denied\r\n",
+                C::ClientRejected,
+            ),
+            // ssh.c resolve_host.
+            (
+                "posix name",
+                b"ssh: Could not resolve hostname runner.invalid: Name or service not known\r\n",
+                C::NameNotResolved,
+            ),
+            (
+                "win32 name",
+                b"ssh: Could not resolve hostname runner.invalid: No such host is known. \r\n",
+                C::NameNotResolved,
+            ),
+            // sshconnect.c ssh_connect_direct, strerror(ECONNREFUSED).
+            (
+                "posix refused",
+                b"ssh: connect to host 127.0.0.1 port 1: Connection refused\r\n",
+                C::ConnectionRefused,
+            ),
+            (
+                "win32 refused",
+                b"ssh: connect to host 127.0.0.1 port 1: Connection refused\r\n",
+                C::ConnectionRefused,
+            ),
+            // strerror(ETIMEDOUT): glibc / Win32 _sys_errlist_ext, macOS; kex.c banner.
+            (
+                "linux/win32 timeout",
+                b"ssh: connect to host 192.0.2.1 port 22: Connection timed out\r\n",
+                C::ConnectionTimedOut,
+            ),
+            (
+                "macos timeout",
+                b"ssh: connect to host 192.0.2.1 port 22: Operation timed out\r\n",
+                C::ConnectionTimedOut,
+            ),
+            (
+                "banner timeout",
+                b"Connection timed out during banner exchange\r\n",
+                C::ConnectionTimedOut,
+            ),
+            // kex.c / sshconnect.c: anything else.
+            (
+                "closed",
+                b"kex_exchange_identification: Connection closed by remote host\r\n\
+                  Connection closed by 127.0.0.1 port 2222\r\n",
+                C::Other,
+            ),
+            ("silent", b"", C::Other),
+        ];
+        for (name, stderr, want) in cases {
+            assert_eq!(
+                classify_preflight(stderr),
+                PreflightVerdict::Unreachable(*want),
+                "{name}"
+            );
+        }
+        // A file the client could not open says "Permission denied" without the
+        // authentication refusal's parenthesis: not a verified host.
+        assert_eq!(
+            classify_preflight(b"Couldn't open logfile /s/x.log: Permission denied\n"),
+            PreflightVerdict::Unreachable(C::ClientRejected)
+        );
+        assert_eq!(
+            classify_preflight(b"runner@127.0.0.1: Permission denied (publickey,password).\r\n"),
+            PreflightVerdict::HostVerified
+        );
+        // A client that ended with a status no OpenSSH uses and said nothing did not start
+        // (Windows: STATUS_DLL_NOT_FOUND); with words, its words decide.
+        let dll_not_found = i32::from_ne_bytes(0xC000_0135_u32.to_ne_bytes());
+        assert_eq!(
+            classify_preflight_run(Some(dll_not_found), b""),
+            PreflightVerdict::Unreachable(C::ClientNotStarted)
+        );
+        assert_eq!(
+            classify_preflight_run(Some(255), b""),
+            PreflightVerdict::Unreachable(C::Other)
+        );
+        assert_eq!(
+            classify_preflight_run(Some(dll_not_found), b"x: Connection refused\n"),
+            PreflightVerdict::Unreachable(C::ConnectionRefused)
+        );
+        // Codes by the placement rule; reasons as the contract names them; no path.
+        for (cause, code, why) in [
+            (
+                C::ClientNotStarted,
+                Code::CapabilityUnavailable,
+                reason::SSH_CLIENT_NOT_STARTED,
+            ),
+            (
+                C::ClientRejected,
+                Code::CapabilityUnavailable,
+                reason::SSH_CLIENT_CONFIG_REJECTED,
+            ),
+            (
+                C::ConnectionRefused,
+                Code::DestinationUnreachable,
+                reason::SSH_CONNECTION_REFUSED,
+            ),
+            (
+                C::ConnectionTimedOut,
+                Code::DestinationUnreachable,
+                reason::SSH_CONNECTION_TIMED_OUT,
+            ),
+            (
+                C::NameNotResolved,
+                Code::DestinationUnreachable,
+                reason::SSH_NAME_NOT_RESOLVED,
+            ),
+            (
+                C::Other,
+                Code::DestinationUnreachable,
+                reason::SSH_UNREACHABLE_OTHER,
+            ),
+        ] {
+            let e = cause.error("over the existing access");
+            assert_eq!(e.code, code, "{cause:?}");
+            assert_eq!(e.reason.as_deref(), Some(why), "{cause:?}");
+            assert!(reason::M06.contains(&(why, code)), "{cause:?}");
+            assert!(
+                e.message.ends_with("over the existing access")
+                    || e.message.ends_with("nothing was sent"),
+                "{}",
+                e.message
+            );
+            assert!(!e.message.contains(['/', '\\']), "{}", e.message);
+        }
+        assert_eq!(
+            C::Other.error("over the existing access").message,
+            "the runner could not be reached over the existing access"
+        );
+    }
+
+    /// ⟨`w5v`⟩ The debug-only diagnostic file: each run appended under its own header.
+    #[test]
+    fn the_stderr_record_appends_each_run_under_its_header() {
+        let dir =
+            std::env::temp_dir().join(format!("hm-w5v-stderr-{}-{}", std::process::id(), line!()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("ssh-stderr.txt");
+        append_stderr_record(&file, "preflight", Some(255), b"first\n");
+        append_stderr_record(&file, "preflight", None, b"second");
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            text,
+            "### preflight exit=255\nfirst\n\n### preflight exit=none\nsecond\n"
+        );
+    }
+
+    /// ⟨`w5v`⟩ A scratch directory of its own (removed by the caller), a `-F` configuration
+    /// that sends the plan's alias to loopback port 1 (nothing listens there), and the
+    /// fixture isolation options. Nothing of the account's is read: `-F`, no agent, no key.
+    fn real_client_fixture(tag: &str) -> (PathBuf, PathBuf, Vec<String>) {
+        let dir = std::env::temp_dir().join(format!("hm-w5v-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config");
+        std::fs::write(
+            &config,
+            "Host lab\n    HostName 127.0.0.1\n    Port 1\n    IdentitiesOnly yes\n    \
+             IdentityAgent none\n    CertificateFile none\n",
+        )
+        .unwrap();
+        let isolation = vec![
+            "IdentityFile=none".to_owned(),
+            "IdentitiesOnly=yes".to_owned(),
+            "IdentityAgent=none".to_owned(),
+            "CertificateFile=none".to_owned(),
+        ];
+        (dir, config, isolation)
+    }
+
+    /// ⟨`w5v`⟩ The real client against the preflight's exact arguments: `ssh -G` (parse and
+    /// print the evaluated configuration, no connection) must accept every pinned option
+    /// and read the pin file's path back exactly, and a real preflight to a closed loopback
+    /// port must say "connection refused", never "rejected its options". This is the
+    /// check that tells a client that refuses the bootstrap's options (or mangles the
+    /// quoted pin path) from an unreachable runner.
+    async fn the_real_client_accepts_the_preflight_options(ssh: &Path, tag: &str) {
+        let (dir, config, isolation) = real_client_fixture(tag);
+        let scratch = dir.join("mgmt");
+        let adapter = BootstrapSsh {
+            ssh_client: ssh.to_path_buf(),
+            scratch_dir: scratch.clone(),
+            config: Some(config.clone()),
+            extra_options: isolation.clone(),
+            stderr_file: Some(dir.join("ssh-stderr.txt")),
+            issuer_ca: None,
+            iroh_endpoint: None,
+        };
+        let plan = plan();
+        let pin = adapter.write_pin_file(&plan).unwrap();
+        let redact = |text: &str| text.replace(dir.to_string_lossy().as_ref(), "<scratch>");
+        let mut g = vec![OsString::from("-G")];
+        g.extend(preflight_args(&plan, &pin, Some(&config), &isolation).unwrap());
+        let out = std::process::Command::new(ssh)
+            .args(&g)
+            .env_remove("SSH_AUTH_SOCK")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let dump = String::from_utf8_lossy(&out.stdout).into_owned();
+        let said = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(
+            out.status.success(),
+            "ssh -G refused the preflight's options: exit {:?}: {}",
+            out.status.code(),
+            redact(&said)
+        );
+        // Win32 may print a path with either separator; a dropped or doubled separator, or a
+        // kept quote, still fails.
+        let norm = |l: &str| l.trim_end().replace('\\', "/").to_ascii_lowercase();
+        let want = norm(&format!("userknownhostsfile {}", pin.to_string_lossy()));
+        assert!(
+            dump.lines().any(|l| norm(l) == want),
+            "the pin file's path did not come back as given: {}",
+            redact(
+                dump.lines()
+                    .find(|l| l.starts_with("userknownhostsfile"))
+                    .unwrap_or("(none)")
+            )
+        );
+        assert!(
+            dump.lines()
+                .any(|l| l.trim_end() == "hostkeyalias hm-dest-lab"),
+            "{}",
+            redact(&dump)
+        );
+        let e = adapter.preflight(&plan, &pin).await.unwrap_err();
+        let record = std::fs::read_to_string(dir.join("ssh-stderr.txt")).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            e.reason.as_deref(),
+            Some(reason::SSH_CONNECTION_REFUSED),
+            "{e:?}; the client said: {}",
+            redact(&record)
+        );
+        assert_eq!(e.code, Code::DestinationUnreachable);
+        assert!(
+            record.starts_with("### preflight exit="),
+            "{}",
+            redact(&record)
+        );
+    }
+
+    /// ⟨`w5v`, PC job 44⟩ An environment without `ProgramData` (what the journey's driver
+    /// gave `heimdall`) is refused before any Windows `ssh` starts, with the variable named;
+    /// an empty value counts as unset; a set one passes.
+    #[test]
+    fn a_windows_client_without_program_data_is_never_started() {
+        let refused = windows_client_environment_refusal(&|_| None).unwrap();
+        assert_eq!(refused.code, Code::CapabilityUnavailable);
+        assert_eq!(
+            refused.reason.as_deref(),
+            Some(reason::SSH_CLIENT_NOT_STARTED)
+        );
+        assert!(
+            refused.message.contains("no ProgramData variable"),
+            "{}",
+            refused.message
+        );
+        assert!(
+            !refused.message.contains(['/', '\\']),
+            "{}",
+            refused.message
+        );
+        assert!(
+            windows_client_environment_refusal(&|n| (n == "ProgramData").then(OsString::new))
+                .is_some()
+        );
+        assert!(
+            windows_client_environment_refusal(&|n| {
+                (n == "ProgramData").then(|| OsString::from("C:\\ProgramData"))
+            })
+            .is_none()
+        );
+        // Off Windows nothing is checked.
+        #[cfg(not(windows))]
+        assert!(client_environment_refusal().is_none());
+    }
+
+    /// ⟨`w5v`, PC job 44⟩ The child half of
+    /// [`the_windows_inbox_client_preflight_from_a_pseudoconsole`]: a real preflight to a
+    /// closed loopback port, run inside that test's pseudoconsole, printing what it got.
+    /// Does nothing unless the parent set `HM_W5V_CHILD`.
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "the child of the_windows_inbox_client_preflight_from_a_pseudoconsole"]
+    #[allow(clippy::print_stdout)]
+    async fn conpty_preflight_child() {
+        if std::env::var_os("HM_W5V_CHILD").is_none() {
+            return;
+        }
+        let root = std::env::var_os("SystemRoot").expect("SystemRoot");
+        let ssh = PathBuf::from(root)
+            .join("System32")
+            .join("OpenSSH")
+            .join("ssh.exe");
+        let (dir, config, isolation) = real_client_fixture("conpty");
+        let adapter = BootstrapSsh {
+            ssh_client: ssh,
+            scratch_dir: dir.join("mgmt"),
+            config: Some(config),
+            extra_options: isolation,
+            stderr_file: None,
+            issuer_ca: None,
+            iroh_endpoint: None,
+        };
+        let plan = plan();
+        let pin = adapter.write_pin_file(&plan).unwrap();
+        let got = adapter.preflight(&plan, &pin).await;
+        let _ = std::fs::remove_dir_all(&dir);
+        let reason = got
+            .err()
+            .and_then(|e| e.reason)
+            .unwrap_or_else(|| "none".to_owned());
+        // The parent reads this line from the pseudoconsole.
+        println!("w5v-child reason={reason} end");
+    }
+
+    /// ⟨`w5v`, PC job 44; the orchestrator's test (c)⟩ The journey's conditions for the
+    /// preflight: this test binary re-run on a pseudoconsole (`TerminalCommand`, as the
+    /// journey's driver runs `heimdall environment add`) with the driver's explicit
+    /// environment, its preflight's in-box `ssh.exe` started windowless from there, against
+    /// 127.0.0.1:1.
+    /// * With `ProgramData` (what the driver now passes): "connection refused", exactly as
+    ///   without a pseudoconsole (so the pseudoconsole loses no standard error).
+    /// * Without it (what the driver passed in job 44): refused before any ssh starts,
+    ///   `ssh_client_not_started`. Before the fix the client exited 255 silently, which read
+    ///   `ssh_unreachable_other`: job 44's result.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "needs the in-box OpenSSH client: run on the Windows PC by exact name"]
+    fn the_windows_inbox_client_preflight_from_a_pseudoconsole() {
+        let me = std::env::current_exe().unwrap();
+        for (with_program_data, want) in [
+            (true, reason::SSH_CONNECTION_REFUSED),
+            (false, reason::SSH_CLIENT_NOT_STARTED),
+        ] {
+            let mut command = heimdall_testkit::console::TerminalCommand::new(&me)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "remote_env::ssh::tests::conpty_preflight_child",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .size(400, 50)
+                .env("HM_W5V_CHILD", "1");
+            // The driver's list (tests/e2e/windows_controller_m06.rs `environment_add`).
+            let mut names = vec![
+                "PATH",
+                "USERPROFILE",
+                "LOCALAPPDATA",
+                "APPDATA",
+                "TEMP",
+                "TMP",
+                "USERNAME",
+            ];
+            if with_program_data {
+                names.push("ProgramData");
+            }
+            for name in names {
+                if let Some(value) = std::env::var_os(name) {
+                    command = command.env(name, value);
+                }
+            }
+            let mut terminal = command.spawn().expect("a pseudoconsole");
+            let shown = terminal.expect("w5v-child reason=", Duration::from_secs(120));
+            let _ = terminal.wait(Duration::from_secs(60));
+            let text = terminal.text();
+            assert!(
+                shown.is_ok(),
+                "ProgramData={with_program_data}: the child said nothing"
+            );
+            let line = text
+                .lines()
+                .find(|l| l.contains("w5v-child reason="))
+                .unwrap_or_default()
+                .to_owned();
+            assert!(
+                line.contains(&format!("w5v-child reason={want} end")),
+                "ProgramData={with_program_data}: {line}"
+            );
+        }
+    }
+
+    /// ⟨`w5v`⟩ POSIX OpenSSH (the system client, as the macOS rehearsal and the devbox use).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_posix_client_accepts_the_preflight_options() {
+        let ssh = Path::new("/usr/bin/ssh");
+        assert!(ssh.exists(), "blocked: this host has no /usr/bin/ssh");
+        the_real_client_accepts_the_preflight_options(ssh, "posix").await;
+    }
+
+    /// ⟨`w5v`; the Windows bootstrap failure of PC job 42⟩ The in-box Win32-OpenSSH client
+    /// with the preflight's exact arguments, a Windows pin path (backslashes, quoted in
+    /// `UserKnownHostsFile="…"`) and a Windows `-F` path. Ignored: it needs the in-box
+    /// client, so it runs on the PC (target/m06-w5/w5v/PC-DIAG.md), by exact name with
+    /// `--ignored`.
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "needs the in-box OpenSSH client: run on the Windows PC by exact name"]
+    async fn the_windows_inbox_client_accepts_the_preflight_options() {
+        let root = std::env::var_os("SystemRoot").expect("SystemRoot");
+        let ssh = PathBuf::from(root)
+            .join("System32")
+            .join("OpenSSH")
+            .join("ssh.exe");
+        assert!(
+            ssh.exists(),
+            "blocked: the in-box OpenSSH client is not installed"
+        );
+        the_real_client_accepts_the_preflight_options(&ssh, "win32").await;
     }
 
     /// ⟨ADR-0006 §18.7 item 16; ADR-0012 §3.2⟩ The four probes' arguments and how a run is

@@ -498,6 +498,7 @@ impl RunnerSync {
             received_at: now,
             cutoff_at: None,
             fired_uncertain_at: None,
+            in_force: true,
         };
         let ack = EffectAck {
             key: key.clone(),
@@ -603,6 +604,7 @@ impl RunnerSync {
             // it), so the report, `environment status` and `doctor` can say so.
             fired_uncertain_at: (uncertain && apply.fired && apply.instant < owner_at)
                 .then_some(apply.instant),
+            in_force: true,
         };
         let ack = EffectAck {
             key: key.clone(),

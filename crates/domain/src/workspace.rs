@@ -121,6 +121,13 @@ pub enum PolicyChangeCause {
     },
     /// An immediate narrowing on the owner channel (pause, stop, earlier cutoff, narrow).
     Narrowing,
+    /// ⟨M06 W5 ruling, 2026-11-22⟩ The policy named a runner environment whose record
+    /// this controller removed (`environment remove`): the policy went with the record,
+    /// in the same transaction. A narrowing; the last history row says why.
+    EnvironmentRemoved {
+        /// The removed runner environment.
+        environment: heimdall_contract::ids::EnvironmentId,
+    },
 }
 
 /// A denied decision's cooldown (ADR-0011 §4.3): requesters asking for the same key get
@@ -289,7 +296,33 @@ pub enum DecisionBasis {
     Targeted {
         /// Policy → its revision at creation.
         policies: std::collections::BTreeMap<PolicyId, PolicyRevision>,
+        /// ⟨M06 W5 `w5m` L1, L2; ADR-0012 §7.4⟩ The delivered pauses or cutoffs of exactly
+        /// the target's scope that were in force when the runner's **local** owner made
+        /// the request: approval also lifts these, and only these, whatever policies exist
+        /// now. Empty for every record a paired session's request made, and omitted then,
+        /// so every earlier record is unchanged.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lifts: Vec<DeliveredLift>,
     },
+}
+
+/// ⟨M06 W5 `w5m` L1, L2⟩ One delivered pause or cutoff a targeted `resume` or `clear_cutoff`
+/// record lifts: the row's key on the runner (scope, producer, revision) and what the owner
+/// is shown of it (which controller delivered it, and when).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeliveredLift {
+    /// The scope's canonical key (`all`, `profile:<id>`, `workspace:<id>`, `policy:<id>`).
+    pub scope_key: String,
+    /// `pause` or `cutoff`.
+    pub kind: String,
+    /// The controller (its paired client) that delivered the effect.
+    pub controller: heimdall_contract::ids::ClientId,
+    /// That controller's revision number for the scope.
+    pub revision: u64,
+    /// The effect that delivered it.
+    pub effect: heimdall_contract::ids::EffectId,
+    /// When the runner received it (the runner's clock).
+    pub delivered_at: heimdall_contract::Timestamp,
 }
 
 /// ⟨M05⟩ U4: the `decision_cooldowns.policy` value of a **trust** cooldown row (ruling I-5):

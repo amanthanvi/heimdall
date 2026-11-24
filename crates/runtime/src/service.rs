@@ -520,7 +520,6 @@ impl ServiceOptions {
                 crate::supervise_transport::TransportWiring {
                     program,
                     keys: None,
-                    sshd_port: 22,
                     announcer: None,
                 }
             }),
@@ -1237,6 +1236,12 @@ impl Service {
                 let endpoints: Arc<dyn crate::connections::BindingEndpoints> =
                     m.teardown.late.clone();
                 service = service.with_binding_endpoints(endpoints);
+                // ⟨M06 W5 `w5n`⟩ The environment endpoint as P renders it (the route
+                // helper's `--endpoint` of a managed alias).
+                service = service.with_environment_endpoint(
+                    m.teardown.registry.layout().rendered_environment(),
+                    operations.environment().clone(),
+                );
             }
             dispatcher = dispatcher.with_route_transport(Arc::new(service));
             let serving = crate::supervise_transport::read_authority(
@@ -2659,6 +2664,44 @@ impl heimdall_localenv::projection::ManagedPairSource for StorePairSource {
             }
             _ => Ok(None),
         }
+    }
+
+    /// ⟨M06 W5 `w5n`; ADR-0012 §5.3⟩ The route helper of a managed-certificate alias whose
+    /// destination has more than one approved route, or any Iroh route: this runtime's own
+    /// executable and the catalog pins (`heimdall_app::routes::helper_pins`). Without a
+    /// resolvable executable path the preview is refused, never rendered without the pin.
+    fn helper_route(
+        &self,
+        alias: &heimdall_domain::projection::ManagedAliasSpec,
+    ) -> Result<Option<heimdall_localenv::projection::HelperRouteSpec>, String> {
+        let pins = self
+            .store
+            .transaction(|tx| heimdall_app::routes::helper_pins(tx, &alias.destination))
+            .map_err(|_| "the destination's routes could not be read".to_owned())?;
+        let Some(pins) = pins else {
+            return Ok(None);
+        };
+        let program = std::env::current_exe()
+            .ok()
+            .filter(|p| p.is_absolute())
+            .ok_or_else(|| "this executable's path could not be resolved".to_owned())?;
+        Ok(Some(heimdall_localenv::projection::HelperRouteSpec {
+            program,
+            pins,
+        }))
+    }
+
+    /// ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ Whether the destination's approved routes
+    /// need the route helper (`heimdall_app::routes::helper_pins` is `Some`), whatever
+    /// the pair prefers.
+    fn routes_need_helper(
+        &self,
+        alias: &heimdall_domain::projection::ManagedAliasSpec,
+    ) -> Result<bool, String> {
+        self.store
+            .transaction(|tx| heimdall_app::routes::helper_pins(tx, &alias.destination))
+            .map(|pins| pins.is_some())
+            .map_err(|_| "the destination's routes could not be read".to_owned())
     }
 
     /// ⟨§17.22 item 16 (R2F-Q2)⟩ The pair's stored preference (either mechanism) is

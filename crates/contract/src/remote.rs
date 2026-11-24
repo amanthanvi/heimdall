@@ -204,8 +204,9 @@ pub enum RemoteEnvironmentRequest {
     /// ⟨rev6.3⟩ Set or replace the session's own client's Iroh endpoint ID (ADR-0012 §2.3
     /// item 1): only when its consumed invitation had `iroh_admission`. A replacement moves
     /// the runner's admission authority generation in the same transaction; the same
-    /// endpoint again is a no-op. Any role, the session's own client only. Kind
-    /// `remote_environment.rotate_endpoint`.
+    /// endpoint again is a no-op. Any role, the session's own client only. ⟨rev6.5; ADR-0006
+    /// §18.9 item 5⟩ It needs no capability beyond the base one, so a limited role's session
+    /// can send it. Kind `remote_environment.rotate_endpoint`.
     RotateEndpoint {
         /// The runner environment.
         environment: EnvironmentId,

@@ -33,6 +33,9 @@
 #        -SelfTest and the Linux wrapper; listed in that file's header).
 #   M05  tests/native/m05/selftest.sh (the evidence generator over synthetic logs, the wrappers and the
 #        WSL hook run's script in a fake world; listed in that file's header).
+#   M06  tests/native/m06/selftest.sh (the evidence generator over synthetic logs, the wrappers, the
+#        iroh-feature build helpers and the Linux and macOS harnesses with the feature in a fake
+#        world; listed in that file's header).
 #   M05W tests/native/m05/run-wsl-hook-windows.ps1 -SelfTest (the WSL hook harness's helpers, its
 #        reuse of the M02 and M04 runners' functions, `bash -n` of the scripts it sends into the
 #        distribution), when pwsh is available; the synthetic bundle it writes is then imported
@@ -464,6 +467,28 @@ if [ -f "$m05_dir/selftest.sh" ]; then
     fi
 else
     check "M05 selftest: tests/native/m05/selftest.sh exists" false
+fi
+
+# --- M06 harnesses (m06-plan U7 "the native harness builds the iroh-feature targets") ---------------
+
+m06_dir="$root/tests/native/m06"
+if [ -f "$m06_dir/selftest.sh" ]; then
+    bash "$m06_dir/selftest.sh" >"$T/m06-selftest.out" 2>&1 </dev/null
+    m06_rc=$?
+    cat "$T/m06-selftest.out"
+    m06_line=$(grep '^m06-selftest: ' "$T/m06-selftest.out" | tail -1)
+    m06_pass=$(printf '%s\n' "$m06_line" | sed -n 's/^m06-selftest: \([0-9][0-9]*\) passed.*/\1/p')
+    m06_fail=$(printf '%s\n' "$m06_line" | sed -n 's/^m06-selftest: [0-9][0-9]* passed, \([0-9][0-9]*\) failed.*/\1/p')
+    if [ -n "$m06_pass" ] && [ -n "$m06_fail" ]; then
+        passes=$((passes + m06_pass))
+        fails=$((fails + m06_fail))
+        check "M06 selftest: its exit code agrees with its totals ($m06_pass passed, $m06_fail failed)" \
+            exit_agrees "$m06_rc" "$m06_fail"
+    else
+        check "M06 selftest: it ran to its summary line" false
+    fi
+else
+    check "M06 selftest: tests/native/m06/selftest.sh exists" false
 fi
 
 # --- M04 harnesses (ADR-0010 §11; the Mode B native rows) ---------------------------------

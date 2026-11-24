@@ -26,6 +26,7 @@
                   "remote_environment.rotate_endpoint", "remote_environment.runner_policy_recheck",
                   "remote_environment.remove", "remote_environment.update",
                   "device.retire", "route.add", "route.remove", "route.prefer",
+                  "route.record_health",
                   "transport.enable", "transport.disable", "transport.adopt_roost", "transport.rotate",
                   "runner.prepare_remote_grant", "runner.install_certificate",
                   "runner.time_challenge", "runner.time_response", "runner.deliver_effect",

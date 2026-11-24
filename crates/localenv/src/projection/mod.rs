@@ -123,6 +123,24 @@ pub struct ManagedSectionSpec {
     pub control_path: Option<PathBuf>,
 }
 
+/// ⟨M06 W5 `w5n`⟩ What P renders for a managed-certificate alias whose destination has
+/// more than one approved route, or any Iroh route (ADR-0012 §5.3: the one ADR-0010 §5(b)
+/// exception): Heimdall's own route helper and the catalog pins the alias and its jump legs
+/// are checked against.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HelperRouteSpec {
+    /// The absolute path of the `heimdall` executable the alias runs as its `ProxyCommand`.
+    pub program: PathBuf,
+    /// The catalog-pinned host keys the pin file must hold for this alias: its own
+    /// destination's, and those of the jump destinations of its approved jump routes.
+    /// `(destination ID, "<type> <base64>")`.
+    pub pins: Vec<(String, String)>,
+}
+
+/// ⟨M06 W5 `w5n`⟩ The pin file's name under `<config_dir>/keys/` (a file of **public**
+/// host keys, written as a key file step: `hm-dest-<id> <type> <base64>` lines).
+pub const HOST_PINS_FILE: &str = "host_pins";
+
 /// ⟨M03⟩ Which pairs prefer `managed_certificate`, and what their sections render
 /// (preview only, like [`PublicKeySource`]). The runtime implements it over the store's
 /// `pair_preferences` and the endpoint names (U10's wiring); without a source every
@@ -152,6 +170,39 @@ pub trait ManagedPairSource: Send + Sync {
     /// # Errors
     /// The preference cannot be read: the preview is refused.
     fn projection_pending(
+        &self,
+        alias: &heimdall_domain::projection::ManagedAliasSpec,
+    ) -> Result<bool, String> {
+        let _ = alias;
+        Ok(false)
+    }
+
+    /// ⟨M06 W5 `w5n`; ADR-0012 §5.3⟩ The route helper of `alias`'s destination, when its
+    /// approved routes need one (more than one route, or any Iroh route) **and** its pair
+    /// prefers `managed_certificate`; `Ok(None)` otherwise, which keeps the native
+    /// rendering byte for byte. The default (a source that knows no routes): `None`, so
+    /// every M02–M04 projection is unchanged.
+    ///
+    /// # Errors
+    /// The routes or the pins cannot be read: the preview is refused, never rendered
+    /// without the pin.
+    fn helper_route(
+        &self,
+        alias: &heimdall_domain::projection::ManagedAliasSpec,
+    ) -> Result<Option<HelperRouteSpec>, String> {
+        let _ = alias;
+        Ok(None)
+    }
+
+    /// ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ Whether `alias`'s destination has approved
+    /// routes that only the route helper can use (more than one route, or any Iroh route),
+    /// whatever its pair prefers. For an **existing-access** alias that is `true`, the
+    /// alias keeps its native rendering and the plan says that those routes are not used
+    /// by ordinary `ssh`. The default (a source that knows no routes): `false`.
+    ///
+    /// # Errors
+    /// The routes cannot be read: the preview is refused.
+    fn routes_need_helper(
         &self,
         alias: &heimdall_domain::projection::ManagedAliasSpec,
     ) -> Result<bool, String> {
@@ -284,6 +335,12 @@ impl ProjectionConfig {
     #[must_use]
     pub fn managed_ssh_path(&self) -> PathBuf {
         self.config_dir.join("ssh_config")
+    }
+
+    /// ⟨M06 W5 `w5n`⟩ The pin file's path: `<config_dir>/keys/host_pins`.
+    #[must_use]
+    pub fn host_pins_path(&self) -> PathBuf {
+        self.config_dir.join("keys").join(HOST_PINS_FILE)
     }
 
     /// P_git's path.

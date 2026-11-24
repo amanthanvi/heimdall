@@ -938,6 +938,16 @@ pub fn rendered_sections(
     render_sections(sections, style, form).map(Rendered::from_renderer)
 }
 
+/// ⟨M06 W5 `w5n`⟩ [`crate::routes::render_pin_file`], wrapped as [`Rendered`] provenance
+/// for a `StepContent` (the pin file is written through the projection's file transaction,
+/// like every other byte Heimdall renders).
+///
+/// # Errors
+/// As [`crate::routes::render_pin_file`].
+pub fn rendered_pin_file(pins: &[(String, String)]) -> Result<Rendered, RenderError> {
+    crate::routes::render_pin_file(pins).map(Rendered::from_renderer)
+}
+
 // --- ⟨M03⟩ the command-line half (ADR-0008 D8 item 2, D10 item 4) ------------------------
 
 /// The pins an owned launch inserts **right after the program name** (ADR-0008 D8 item

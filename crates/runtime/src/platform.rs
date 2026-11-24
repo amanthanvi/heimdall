@@ -70,6 +70,7 @@
 //! | Unix | `fcntl(fd, F_GETFD)` / `fcntl(fd, F_SETFD, flags \| FD_CLOEXEC)` | integers only; a number that is not open returns -1 (checked); only the close-on-exec flag is added |
 //! | Unix | `close(fd)` (fd > 2) | only from `close_inherited_descriptors`, called by `service run` before it opens anything, so no live object owns the descriptor; EBADF for gaps ignored |
 //! | Unix | `getrlimit(RLIMIT_NOFILE, &mut rl)` | valid, aligned, writable out-pointer; return code checked; only the hard limit bounds the last-resort loop, and an infinite or over-cap one is an error, not a partial scan |
+//! | Unix | ⟨M06 W5⟩ `getuid()`, `getpwuid_r(uid, &mut pw, buf, len, &mut out)` ([`account_entry`]) | as the user-private-group lookup: the buffer outlives every read of `pw_name`, `pw_dir` and `pw_shell`, grown on `ERANGE` up to 1 MiB; each field is copied out before the buffer is freed; an empty name or a relative home or shell is refused |
 //! | Unix (unit tests only) | `fcntl(fd, F_DUPFD, n)` / `OwnedFd::from_raw_fd` | integers only; result checked; the duplicate is owned once and closed when the S04 fallback test ends; never in a release build |
 //!
 //! **Inherited descriptors** ([`disinherit_descriptors_above_stdio`],
@@ -431,10 +432,87 @@ pub fn regular_file_descriptors() -> std::io::Result<Vec<(u64, u64)>> {
     Ok(out)
 }
 
+/// ⟨M06 W5; ADR-0012 §4 item 5 "Launcher-set values" ⟨2026-11-22⟩⟩ The account database's
+/// entry of this process's real user (`getpwuid_r(getuid())`): what the launcher of runner
+/// work sets `HOME`, `USER`, `LOGNAME` and `SHELL` from. Never the environment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountEntry {
+    /// The login name (`pw_name`).
+    pub name: std::ffi::OsString,
+    /// The home directory (`pw_dir`), absolute.
+    pub home: std::ffi::OsString,
+    /// The login shell (`pw_shell`), absolute.
+    pub shell: std::ffi::OsString,
+}
+
+/// The [`AccountEntry`] of this process's real user.
+///
+/// # Errors
+/// The account has no entry, the call fails, or the entry's name is empty or its home or
+/// shell is not an absolute path (nothing is guessed in its place).
+#[cfg(unix)]
+pub fn account_entry() -> std::io::Result<AccountEntry> {
+    // SAFETY: `getuid` has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    unix_names::account(uid)
+}
+
+/// See the Unix function: runner work is launched on Unix only (m06-plan §5).
+///
+/// # Errors
+/// Always.
+#[cfg(not(unix))]
+pub fn account_entry() -> std::io::Result<AccountEntry> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "no account database on this platform",
+    ))
+}
+
 #[cfg(unix)]
 mod unix_names {
     use std::ffi::CStr;
     use std::io;
+
+    /// The whole entry of `uid` (`pw_name`, `pw_dir`, `pw_shell`), each copied out of the
+    /// buffer before it is freed.
+    pub(super) fn account(uid: libc::uid_t) -> io::Result<super::AccountEntry> {
+        use std::os::unix::ffi::OsStringExt;
+        let entry = with_buffer(|buf| {
+            // SAFETY: an all-zero passwd is a valid out-value; `getpwuid_r` fills it.
+            let mut pw: libc::passwd = unsafe { std::mem::zeroed() };
+            let mut out: *mut libc::passwd = std::ptr::null_mut();
+            // SAFETY: every pointer is valid for the call; `buf` outlives it and its
+            // length is passed; `out` is null or points at `pw`.
+            let rc =
+                unsafe { libc::getpwuid_r(uid, &mut pw, buf.as_mut_ptr(), buf.len(), &mut out) };
+            if rc != 0 {
+                return Err(io::Error::from_raw_os_error(rc));
+            }
+            if out.is_null() || pw.pw_name.is_null() || pw.pw_dir.is_null() || pw.pw_shell.is_null()
+            {
+                return Ok(None);
+            }
+            // SAFETY: the three fields point into `buf`, each NUL-terminated by
+            // `getpwuid_r`; the bytes are copied before `buf` is dropped.
+            let field = |p: *const libc::c_char| {
+                std::ffi::OsString::from_vec(unsafe { CStr::from_ptr(p) }.to_bytes().to_vec())
+            };
+            Ok(Some(super::AccountEntry {
+                name: field(pw.pw_name),
+                home: field(pw.pw_dir),
+                shell: field(pw.pw_shell),
+            }))
+        })?;
+        let absolute = |v: &std::ffi::OsStr| std::path::Path::new(v).is_absolute();
+        if entry.name.is_empty() || !absolute(&entry.home) || !absolute(&entry.shell) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "the account entry has no name, absolute home or absolute shell",
+            ));
+        }
+        Ok(entry)
+    }
 
     /// A buffer large enough for one passwd or group entry, grown on `ERANGE`.
     fn with_buffer<T>(

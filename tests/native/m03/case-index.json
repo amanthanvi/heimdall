@@ -51,7 +51,7 @@
         "macos",
         "linux"
       ],
-      "rationale": "#[cfg(unix)] (ADR-0007 §12.49 item 4, deferred with D3 to M04): its attended run decision needs a terminal on stdin, which on Windows is M04's pseudoconsole driver, and connect launches the pinned in-box ssh.exe, which finds the account's real profile from the token, so no scratch home can stand in for it and without -F it would read the owner's real configuration (§9 item 5). The rest of the ssh module runs on Windows."
+      "rationale": "#[cfg(unix)] (a rustix pty for the attended run decision, a wrapper ssh first on PATH for connect). Its Windows row is e2e_cli_m02 ssh::console::a01_personal_profile_without_repository (fixed-provider platform_required): the attended run decision with stdin a pseudoconsole, and connect through the debug pinned-client redirect HEIMDALL_TEST_PINNED_CLIENT, whose scratch wrapper adds only -F and the isolated options and starts the real in-box ssh.exe, which otherwise finds the account's real profile from the token (ADR-0007 §12.49 item 4, §12.52). The 'ordinary ssh without -F' rows of A01 and A35 on a real %USERPROFILE%\\.ssh\\config stay blocked on B2 (the disposable second Windows account). The rest of the ssh module runs on Windows."
     },
     "e2e_cli_m03::issuer::issuer_restore_after_access_denial_writes_a_new_item_and_lists_the_orphan": {
       "platforms": [
@@ -318,7 +318,7 @@
         "macos",
         "linux"
       ],
-      "rationale": "ADR-0007 §12.47 item 3 (D2/D3): deferred to M04 (deferred_with_decision row of this case): the interactive connect after provider approval is a pty case; its non-interactive twins run natively, and M04 adds the pseudoconsole driver for connect."
+      "rationale": "Unix pty case (#[cfg(unix)]: a rustix pty and a wrapper ssh first on PATH). Its Windows row is e2e_run_m02 a11::console::a11_interactive_connect_succeeds_after_provider_approval (fixed-provider platform_required): the same interactive connect on a pseudoconsole, through the debug pinned-client redirect HEIMDALL_TEST_PINNED_CLIENT, whose scratch wrapper adds only -F and the isolated options and starts the real in-box ssh.exe (ADR-0007 §12.47 item 3 (D3), §12.52)."
     },
     "e2e_tui_m03::pty::time_confirmation_chore_shown_after_reboot": {
       "platforms": [
@@ -1183,7 +1183,8 @@
             "git_run_injection_yields_to_dash_c_and_env",
             "git_run_malformed_caller_git_config_count_injects_nothing",
             "git_run_never_records_child_arguments_or_config_values",
-            "git_run_resolution_in_child_cwd_reports_local_override_and_injects_nothing"
+            "git_run_resolution_in_child_cwd_reports_local_override_and_injects_nothing",
+            "a11::console::a11_interactive_connect_succeeds_after_provider_approval"
           ],
           "e2e_setup_dispatch": [
             "declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher"
@@ -1198,7 +1199,8 @@
             "ssh::a35_matrix_ssh_git_scp_sftp_ordinary_alias_and_run_bound",
             "ssh::a35_mutation_broken_identity_agent_is_detected",
             "ssh::a35_too_many_keys_succeeds_for_managed_alias_only",
-            "ssh::a35_wrong_key_exclusive_selection_fails_without_fallback"
+            "ssh::a35_wrong_key_exclusive_selection_fails_without_fallback",
+            "ssh::console::a01_personal_profile_without_repository"
           ],
           "integration_testkit_fixtures": [
             "many_keys_exhaust_max_auth_tries_without_identities_only"
@@ -1447,6 +1449,7 @@
   },
   "child_entries": {
     "e2e_cli_m02::terminal::pty_child": "pseudo-terminal child entry point (#[ignore]; run only as a child of the pty cases)",
+    "e2e_cli_m02::windows_console::console_child": "pseudoconsole child entry point (#[ignore], Windows; run only as a child of the console cases)",
     "e2e_cli_m03::enroll::terminal::pty_child": "pseudo-terminal child entry point (#[ignore]; started by its parent case, never required)",
     "e2e_cli_m03::issuer::issuer_cli_pty_child": "pseudo-terminal child entry point (#[ignore]; started by its parent case, never required)",
     "e2e_cli_m03::uninstall_doctor::pty::pty_child": "pseudo-terminal child entry point (#[ignore]; started by its parent case, never required)",

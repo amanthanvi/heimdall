@@ -605,6 +605,15 @@ pair; A28 container row: the endpoint lists only the binding's identity and a co
   and account backups for Secret Service collections and DPAPI blobs. Recovery on another device is `heimdall device
   retire` and revocation of the old client on each runner, never a restore.
 
+- **A Windows device can be an owner controller of a remote environment, not a limited client** (ADR-0012 §2.6,
+  ruling of 2026-11-22; a line for the release notes' limitations list). The confirming probes do not run on Windows,
+  so a limited-role join and a policy recheck from Windows refuse, and say why.
+
+- **A remote runner does not dial onward over Iroh through a projected alias** (ADR-0012 §5, ruling of 2026-11-22;
+  outside V1; a line for the limitations list). Routes and the Iroh transport are for a controller's destinations.
+- **Certificate content change, for the M08 release notes:** the bastion of an approved jump route now gets
+  `permit-port-forwarding` in its certificate (ADR-0012 §5). The destination's certificate is unchanged.
+
 ## Mechanism observations (not product support)
 
 These rows record OpenSSH and platform mechanism behavior observed on fixtures during the gate experiments. They inform

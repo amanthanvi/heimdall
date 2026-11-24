@@ -315,6 +315,33 @@ impl Rig {
                 std::thread::sleep(Duration::from_millis(50));
             }
         }
+        // ⟨M06 W5 `w5o` item 15⟩ Wait, bounded, until the stopped runtime's instance lock
+        // is really free. The runtime's thread is joined above, but another test of this
+        // binary may be between `fork` and `exec` of a child at that moment, and such a
+        // child holds a duplicate of every descriptor of this process, the lock file's
+        // included, until its `exec` (the effect crates/runtime/src/lib.rs `spawn_guard`
+        // records). A `start()` straight after would then see `AlreadyRunning`. The probe
+        // takes the lock and drops it at once; nothing of the product changes.
+        let state_dir = heimdall_runtime::Paths::under(&self.home).state_dir;
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            match heimdall_runtime::InstanceLock::try_acquire(&state_dir) {
+                Ok(lock) => {
+                    drop(lock);
+                    break;
+                }
+                Err(heimdall_runtime::instance::InstanceError::AlreadyRunning) => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "the stopped runtime's instance lock was not released within 20 s"
+                    );
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                // No state directory (nothing ever started here), or it cannot be read:
+                // nothing to wait for.
+                Err(_) => break,
+            }
+        }
     }
 
     fn store(&self) -> Arc<Store> {

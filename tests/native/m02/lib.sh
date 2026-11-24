@@ -119,19 +119,29 @@ EOF
 # BUILD_LOG. Returns cargo's exit code. TRIPLE "host" builds for the build host with the
 # dev profile (check.sh's build). ⟨M03 wave 6, ADR-0009 §2.7⟩ A cross target builds with
 # the profile HM_CARGO_PROFILE (default `native-test`: line tables only, Cargo.toml).
+# ⟨M06 W5⟩ m02_cargo_build TRIPLE WORK BUILD_LOG JSON SELECT...: the same build with SELECT
+# (cargo's package, feature and target selection) in place of `--workspace`, its JSON
+# messages in WORK/JSON (m02_feature_build). Without them nothing changes.
 m02_cargo_build() {
     local triple=$1 work=$2 log=$3 s=${M02_SHIMS:-$2} profile=${HM_CARGO_PROFILE:-native-test}
+    local json=build.json sel
+    sel=(--workspace)
+    if [ $# -gt 4 ]; then
+        json=$4
+        shift 4
+        sel=("$@")
+    fi
     case "$profile" in '' | *[!a-z0-9-]*) echo "bad HM_CARGO_PROFILE" >&2; return 2 ;; esac
     case "$triple" in
         host)
-            cargo test --workspace --no-run --locked \
-                --message-format=json-render-diagnostics >"$work/build.json" 2>"$log" ;;
+            cargo test "${sel[@]}" --no-run --locked \
+                --message-format=json-render-diagnostics >"$work/$json" 2>"$log" ;;
         x86_64-unknown-linux-gnu)
             CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="$s/zigcc-linux.sh" \
             CC_x86_64_unknown_linux_gnu="$s/zigcc-linux.sh" \
             AR_x86_64_unknown_linux_gnu="$s/zigar.sh" \
-                cargo test --target "$triple" --profile "$profile" --workspace --no-run --locked \
-                --message-format=json-render-diagnostics >"$work/build.json" 2>"$log" ;;
+                cargo test --target "$triple" --profile "$profile" "${sel[@]}" --no-run --locked \
+                --message-format=json-render-diagnostics >"$work/$json" 2>"$log" ;;
         x86_64-pc-windows-gnu)
             # ⟨M03 wave 6⟩ lld writes no COFF symbol table, so a Windows binary without debug
             # information has no Rust symbols, and platform-tests.py could not see which tests
@@ -142,10 +152,157 @@ m02_cargo_build() {
             env ${lt[@]+"${lt[@]}"} \
             PATH="$s:$PATH" CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$s/zigcc-win.sh" \
             CC_x86_64_pc_windows_gnu="$s/zigcc-win-cc.sh" AR_x86_64_pc_windows_gnu="$s/zigar.sh" \
-                cargo test --target "$triple" --profile "$profile" --workspace --no-run --locked \
-                --message-format=json-render-diagnostics >"$work/build.json" 2>"$log" ;;
+                cargo test --target "$triple" --profile "$profile" "${sel[@]}" --no-run --locked \
+                --message-format=json-render-diagnostics >"$work/$json" 2>"$log" ;;
         *) echo "unsupported triple" >&2; return 2 ;;
     esac
+}
+
+# ⟨M06 W5⟩ m02_feature_targets FEATURE: "<package><TAB><target>" for every Cargo test target of
+# the workspace whose required-features name FEATURE (m06-plan U7: the `iroh` targets, which
+# the workspace build above never builds), sorted. Returns nonzero when the name or the
+# metadata is unusable.
+m02_feature_targets() {
+    case "$1" in '' | *[!a-z0-9-]*) echo "bad feature name" >&2; return 2 ;; esac
+    cargo metadata --locked --no-deps --format-version 1 |
+        jq -r --arg f "$1" '.packages[] | .name as $p | .targets[]
+            | select((.kind | index("test")) and ((.["required-features"] // []) | index($f)))
+            | [$p, .name] | @tsv' | LC_ALL=C sort -u |
+        awk -F'\t' '$1 !~ /^[A-Za-z0-9_-]+$/ || $2 !~ /^[A-Za-z0-9_-]+$/ { bad = 1 } { print } END { exit bad }'
+}
+
+# ⟨M06 W5⟩ m02_feature_build TRIPLE WORK BUILD_LOG FEATURE: after m02_cargo_build and
+# m02_artifacts, build the test targets that require FEATURE, one `cargo test -p <package>
+# --features FEATURE --test <target>... --no-run` per package (same triple, profile and shims).
+#   * Cargo writes the `heimdall` binary of both builds to one path. So the default-feature
+#     CLI is first copied to WORK/cli-default/ (WORK/cli.txt then names the copy: every other
+#     target keeps running against the build it was written for), and the feature build's CLI
+#     to WORK/cli-feature/ (WORK/feature-cli.txt; empty when no selected package builds it).
+#   * WORK/feature.tsv: name<TAB>executable of the feature targets built, also merged into
+#     WORK/all.tsv so the run plan, the hashes and the staging cover them. WORK/feature.json:
+#     the builds' JSON messages (for platform-tests.py).
+#   * WORK/feature-blocked.tsv: target<TAB>reason for every feature target that did not build
+#     (cargo's real exit code and its first error line in the reason). A target that does not
+#     build is never dropped silently: the harness writes each as a `feature-blocked-<target>`
+#     host fact, which the evidence generator turns into a blocked row.
+#   * ⟨M06 W5c⟩ M02_FEATURE_UNIT (comma-separated package names; the harnesses set it from
+#     HM_FEATURE_UNIT) also builds each named package's own unit tests with FEATURE
+#     (`cargo test -p <package> --features FEATURE --lib --no-run`): tests that exist only
+#     under the feature (heimdall-transport-iroh's) run nowhere else. The executable replaces
+#     the default-feature `<crate>-unit` row of WORK/all.tsv, so the one name holds the feature
+#     build's tests on every platform. A package that does not build is blocked like any other
+#     feature target, and its default-feature row is taken out of the plan: a build without
+#     the feature never runs under a name recorded as blocked.
+# M02_FEATURE_SKIP (comma-separated target names) leaves those targets out: only
+# refresh-inventory.sh sets it, from HM_SKIP_TARGETS; a run harness never skips a target.
+# The build log is appended to BUILD_LOG. Returns 0 when every target built, 6 when some are
+# blocked, 2 when no target requires FEATURE or the selection is unusable.
+# shellcheck disable=SC2013  # package and target names are [A-Za-z0-9_-] (m02_feature_targets)
+m02_feature_build() {
+    local triple=$1 work=$2 log=$3 feature=$4 pkg t rc first exe ext
+    : >"$work/feature.tsv"
+    : >"$work/feature-blocked.tsv"
+    : >"$work/feature-cli.txt"
+    : >"$work/feature.json"
+    m02_feature_targets "$feature" >"$work/feature-targets.tsv" || { echo "the $feature-feature targets could not be listed" >&2; return 2; }
+    if [ -n "${M02_FEATURE_SKIP:-}" ]; then
+        # refresh-inventory.sh only (HM_SKIP_TARGETS: targets the commit does not contain yet).
+        awk -F'\t' -v skip=",${M02_FEATURE_SKIP}," 'index(skip, "," $2 ",") == 0' "$work/feature-targets.tsv" >"$work/feature-targets.kept" &&
+            mv -f -- "$work/feature-targets.kept" "$work/feature-targets.tsv"
+    fi
+    [ -s "$work/feature-targets.tsv" ] || { echo "no test target requires feature $feature" >&2; return 2; }
+    if [ -s "$work/cli.txt" ]; then
+        exe=$(cat "$work/cli.txt")
+        rm -rf -- "$work/cli-default"
+        mkdir "$work/cli-default" && cp -- "$exe" "$work/cli-default/$(basename "$exe")" || return 2
+        echo "$work/cli-default/$(basename "$exe")" >"$work/cli.txt"
+    fi
+    for pkg in $(cut -f1 "$work/feature-targets.tsv" | LC_ALL=C sort -u); do
+        set --
+        for t in $(awk -F'\t' -v p="$pkg" '$1 == p { print $2 }' "$work/feature-targets.tsv"); do
+            set -- "$@" --test "$t"
+        done
+        m02_cargo_build "$triple" "$work" "$work/feature-build.log" feature-build.json -p "$pkg" --features "$feature" "$@"
+        rc=$?
+        { echo "== cargo test -p $pkg --features $feature $* --no-run (exit $rc)"; cat "$work/feature-build.log"; } >>"$log"
+        if [ "$rc" != 0 ]; then
+            first=$(grep -m1 -E '^error' "$work/feature-build.log" | tr '\t\r' '  ' | cut -c1-240)
+            for t in $(awk -F'\t' -v p="$pkg" '$1 == p { print $2 }' "$work/feature-targets.tsv"); do
+                printf '%s\tthe %s-feature build of %s failed (cargo exit %s): %s\n' "$t" "$feature" "$pkg" "$rc" \
+                    "${first:-no error line in the build log}" >>"$work/feature-blocked.tsv"
+            done
+            continue
+        fi
+        cat "$work/feature-build.json" >>"$work/feature.json"
+        jq -r 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null
+                      and (.target.kind | index("test"))) | [.target.name, .executable] | @tsv' \
+            "$work/feature-build.json" | LC_ALL=C sort -u >>"$work/feature.tsv"
+        exe=$(jq -r 'select(.reason == "compiler-artifact" and .profile.test == false and .executable != null
+                      and .target.name == "heimdall" and (.target.kind | index("bin"))) | .executable' \
+            "$work/feature-build.json" | LC_ALL=C sort -u | head -1)
+        if [ -n "$exe" ] && [ -f "$exe" ]; then
+            ext=""
+            case "$exe" in *.exe) ext=.exe ;; esac
+            rm -rf -- "$work/cli-feature"
+            mkdir "$work/cli-feature" && cp -- "$exe" "$work/cli-feature/heimdall$ext" || return 2
+            echo "$work/cli-feature/heimdall$ext" >"$work/feature-cli.txt"
+        fi
+    done
+    # A target cargo reported no executable for is blocked too, never assumed built.
+    while IFS=$'\t' read -r pkg t; do
+        cut -f1 "$work/feature.tsv" "$work/feature-blocked.tsv" | grep -qxF -- "$t" ||
+            printf '%s\tthe %s-feature build of %s produced no test executable for it\n' "$t" "$feature" "$pkg" >>"$work/feature-blocked.tsv"
+    done <"$work/feature-targets.tsv"
+    # ⟨M06 W5c⟩ The named packages' own unit tests, built with the feature.
+    : >"$work/feature-unit.tsv"
+    : >"$work/feature-unit-names.txt"
+    case "${M02_FEATURE_UNIT:-}" in *[!a-z0-9,-]*) echo "bad feature unit package list" >&2; return 2 ;; esac
+    for pkg in $(printf '%s' "${M02_FEATURE_UNIT:-}" | tr ',' ' '); do
+        t="$(printf '%s' "$pkg" | tr '-' '_')-unit"
+        echo "$t" >>"$work/feature-unit-names.txt"
+        m02_cargo_build "$triple" "$work" "$work/feature-build.log" feature-build.json -p "$pkg" --features "$feature" --lib
+        rc=$?
+        { echo "== cargo test -p $pkg --features $feature --lib --no-run (exit $rc)"; cat "$work/feature-build.log"; } >>"$log"
+        if [ "$rc" != 0 ]; then
+            first=$(grep -m1 -E '^error' "$work/feature-build.log" | tr '\t\r' '  ' | cut -c1-240)
+            printf '%s\tthe %s-feature build of %s failed (cargo exit %s): %s\n' "$t" "$feature" "$pkg" "$rc" \
+                "${first:-no error line in the build log}" >>"$work/feature-blocked.tsv"
+            continue
+        fi
+        exe=$(jq -r --arg n "${t%-unit}" 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null
+                      and .target.name == $n and (.target.kind | index("lib"))) | .executable' \
+            "$work/feature-build.json" | LC_ALL=C sort -u | head -1)
+        if [ -z "$exe" ]; then
+            printf '%s\tthe %s-feature build of %s produced no test executable for it\n' "$t" "$feature" "$pkg" >>"$work/feature-blocked.tsv"
+            continue
+        fi
+        cat "$work/feature-build.json" >>"$work/feature.json"
+        printf '%s\t%s\n' "$t" "$exe" >>"$work/feature-unit.tsv"
+    done
+    cat "$work/feature-unit.tsv" >>"$work/feature.tsv"
+    touch "$work/all.tsv"
+    # The unit rows named above leave the plan input first (the default-feature build's), then
+    # the feature build's rows come in: a blocked one is therefore in neither.
+    awk -F'\t' 'FILENAME == ARGV[1] { drop[$1] = 1; next } !($1 in drop)' "$work/feature-unit-names.txt" "$work/all.tsv" |
+        cat - "$work/feature.tsv" | LC_ALL=C sort -u >"$work/all.tsv.new" && mv -f -- "$work/all.tsv.new" "$work/all.tsv"
+    [ ! -s "$work/feature-blocked.tsv" ] || return 6
+    return 0
+}
+
+# ⟨M06 W5⟩ m02_feature_facts WORK FEATURE: the host facts of a feature build (key=value lines,
+# for host.txt): what was built, which CLI the feature targets run against, and one
+# `feature-blocked-<target>=<reason>` per target that did not build.
+m02_feature_facts() {
+    local work=$1 feature=$2 t reason
+    echo "feature-targets=$feature: $(cut -f1 "$work/feature.tsv" | tr '\n' ' ' | sed 's/ $//')"
+    if [ -s "$work/feature-cli.txt" ]; then
+        echo "feature-cli=the $feature-feature heimdall (HEIMDALL_E2E_BIN for those targets only)"
+    else
+        echo "feature-cli=none built (no selected package builds the heimdall binary)"
+    fi
+    while IFS=$'\t' read -r t reason; do
+        echo "feature-blocked-$t=$reason"
+    done <"$work/feature-blocked.tsv"
 }
 
 # m02_artifacts SHIM: from SHIM/build.json write SHIM/all.tsv (name<TAB>executable for

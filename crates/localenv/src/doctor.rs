@@ -185,6 +185,10 @@ pub struct LocalContext {
     pub catalog: Vec<CatalogAlias>,
     /// The Heimdall-managed include file P, when known (its role is `managed`).
     pub managed_file: Option<PathBuf>,
+    /// ⟨M06 W5 `w5o`⟩ The existing-access aliases whose destination has approved routes
+    /// that only the route helper can use, read by the caller from the store read-only.
+    /// Empty by default: the doctor then reports no such finding.
+    pub routes_unused: std::collections::BTreeSet<String>,
     /// ⟨M03⟩ The managed facts the caller read from the store read-only and the
     /// managed directories to check (m03-plan U12; [`ManagedFacts`]). Empty by default:
     /// the doctor then reports no M03 finding.
@@ -277,6 +281,7 @@ impl LocalContext {
             client_isolation: None,
             catalog: Vec::new(),
             managed_file: None,
+            routes_unused: std::collections::BTreeSet::new(),
             managed: ManagedFacts::default(),
         }
     }
@@ -581,6 +586,25 @@ struct Doctor<'a> {
     request: &'a DoctorRequest,
     findings: Vec<Finding>,
     probes: Vec<ProbeRecord>,
+}
+
+/// ⟨M06 W5 `w5n`⟩ Whether P (at `managed_file`) renders `alias` through Heimdall's route
+/// helper: its own `Host <alias>` section holds a `ProxyCommand` line (the helper is the
+/// only `ProxyCommand` P ever renders, ADR-0012 §5.3). An unreadable or absent P: no.
+#[must_use]
+pub fn helper_alias(managed_file: Option<&Path>, alias: &str) -> bool {
+    let Some(text) = managed_file.and_then(|p| std::fs::read_to_string(p).ok()) else {
+        return false;
+    };
+    let mut inside = false;
+    for line in text.lines() {
+        if let Some(name) = line.strip_prefix("Host ") {
+            inside = name.trim() == alias;
+        } else if inside && line.trim_start().starts_with("ProxyCommand ") {
+            return true;
+        }
+    }
+    false
 }
 
 fn subject(kind: &str, id: Option<&str>) -> ResourceRef {
@@ -1287,6 +1311,64 @@ impl Doctor<'_> {
                 Some(prov),
                 "StrictHostKeyChecking accepts unknown host keys for this alias",
                 "review_host_trust",
+                None,
+            );
+        }
+        // ⟨M06 W5 `w5n`; ADR-0012 §5.2⟩ An alias P renders through the route helper must
+        // hold its destination's catalog pin: every pin setting decided by P's own section.
+        // Static, like the rest of this level (nothing runs); the helper itself checks
+        // with `ssh -G` before every connection.
+        if helper_alias(ctx.managed_file.as_deref(), alias) {
+            use heimdall_sshconf::routes::StaticPin;
+            match heimdall_sshconf::routes::static_pin_status(&evaluation) {
+                StaticPin::Holds => {}
+                StaticPin::Defeated(setting) => self.add(
+                    heimdall_contract::envelope::reason::HOST_PIN_DEFEATED,
+                    FindingSeverity::Problem,
+                    subj(),
+                    ProbeLevel::Static,
+                    None,
+                    format!(
+                        "the SSH configuration decides `{setting}` for `{alias}` outside \
+                         Heimdall's own section, so the destination's catalog host-key pin \
+                         does not hold (host_pin_defeated: {setting}); `ssh {alias}` is \
+                         refused by Heimdall's route helper until that setting no longer \
+                         applies"
+                    ),
+                    "review_host_trust",
+                    Some(heimdall_contract::envelope::reason::HOST_PIN_DEFEATED),
+                ),
+                // ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ The static level cannot decide:
+                // said as such, never as a defeat. The helper's `ssh -G` check decides.
+                StaticPin::Undetermined(setting) => self.add(
+                    finding::DYNAMIC_MATCH_UNRESOLVED,
+                    FindingSeverity::Warning,
+                    subj(),
+                    ProbeLevel::Static,
+                    None,
+                    format!(
+                        "`{alias}`: host-key pin status: undetermined. Whether `{setting}` \
+                         is decided by Heimdall's own section depends on a condition this \
+                         level does not run (a `Match exec`, for example). Heimdall's route \
+                         helper checks the effective configuration before it tries any \
+                         route and refuses `ssh {alias}` if the pin does not hold"
+                    ),
+                    "review_host_trust",
+                    None,
+                ),
+            }
+        } else if ctx.routes_unused.contains(alias) {
+            // ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ An existing-access alias keeps its
+            // native rendering: its destination's approved routes are not used by
+            // ordinary `ssh`.
+            self.add(
+                crate::projection::plan::ROUTES_NOT_USED_BY_ORDINARY_SSH,
+                FindingSeverity::Warning,
+                subj(),
+                ProbeLevel::Static,
+                None,
+                crate::projection::plan::routes_unused_message(alias),
+                "none",
                 None,
             );
         }

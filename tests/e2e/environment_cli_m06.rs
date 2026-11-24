@@ -161,6 +161,8 @@ const HELP_LINES: &[(&str, &[&str])] = &[
     ("device", &["device"]),
     ("device-retire", &["device", "retire"]),
     ("route", &["route"]),
+    // ⟨ADR-0006 §18.9 item 9⟩ `route add`'s flags, `--relay` included (frozen surface).
+    ("route-add", &["route", "add"]),
     ("transport", &["transport"]),
     ("transport-disable", &["transport", "disable"]),
     ("remote-init", &["remote", "init"]),

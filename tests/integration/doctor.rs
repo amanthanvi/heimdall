@@ -1964,3 +1964,42 @@ fn a21_default_doctor_windows_execution_constructs_are_inert() {
         "the passive doctor changed fixture files"
     );
 }
+
+/// ⟨M06 W5 `w5o` item 12; ADR-0012 §5 ⟨2026-11-22⟩⟩ The doctor says, for an existing-access
+/// alias whose destination has approved routes only the route helper can use (the caller's
+/// read of the store, `LocalContext::routes_unused`), that those routes are not used by
+/// ordinary `ssh`. No such finding for an alias outside that set, and none for an alias P
+/// renders through the helper (it does use them).
+#[test]
+fn doctor_says_when_an_existing_access_aliass_routes_are_not_used_by_ordinary_ssh() {
+    use heimdall_localenv::projection::plan::ROUTES_NOT_USED_BY_ORDINARY_SSH;
+    let fx = Fx::new();
+    fx.config("Host legacy other\n    HostName host.example.invalid\n    User deploy\n");
+    let findings = |unused: &[&str], alias: &str| {
+        let mut c = fx.ctx();
+        c.routes_unused = unused.iter().map(|a| (*a).to_owned()).collect();
+        let mut request = DoctorRequest::passive();
+        request.aliases = Some(vec![alias.to_owned()]);
+        request.local_queries = LocalQueries::Disabled;
+        run(&c, &request)
+            .findings
+            .into_iter()
+            .filter(|f| f.code == ROUTES_NOT_USED_BY_ORDINARY_SSH)
+            .collect::<Vec<_>>()
+    };
+    let found = findings(&["legacy"], "legacy");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(
+        found[0].severity,
+        heimdall_contract::doctor::FindingSeverity::Warning
+    );
+    assert!(
+        found[0]
+            .message
+            .contains("are not used by ordinary `ssh legacy`"),
+        "{}",
+        found[0].message
+    );
+    assert!(findings(&["legacy"], "other").is_empty());
+    assert!(findings(&[], "legacy").is_empty());
+}

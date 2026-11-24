@@ -370,6 +370,7 @@ async fn bootstrap_refuses_an_unverified_host_key_and_never_scans() {
         scratch_dir: dir.clone(),
         config: Some(user_config),
         extra_options: vec!["CertificateFile=none".into()],
+        stderr_file: None,
         issuer_ca: None,
         iroh_endpoint: None,
     };

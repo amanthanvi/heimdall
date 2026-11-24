@@ -83,7 +83,22 @@ param(
     # directory's prefix, and m03's read-only time-service fact (m03-plan §4.3). ⟨M05⟩
     # tests/native/m05/run-windows-local.ps1 passes m05 (the run directory prefix only); ⟨M04⟩
     # tests/native/m04/run-windows-local.ps1 passes m04 (the prefix and the w32tm fact).
-    [ValidateSet('m02', 'm03', 'm04', 'm05')][string]$Milestone = 'm02',
+    # ⟨M06 W5⟩ tests/native/m06/run-windows-local.ps1 passes m06 (the prefix only) and -Feature.
+    [ValidateSet('m02', 'm03', 'm04', 'm06', 'm05')][string]$Milestone = 'm02',
+    # ⟨M06 W5⟩ A Cargo feature (m06 passes `iroh`): after the workspace build, the test targets
+    # whose required-features name it are built natively too, one `cargo test -p <package>
+    # --features <feature> --test <target>... --no-run` per package, and run with the others
+    # against that build's own heimdall.exe (every other target keeps the default-feature
+    # one). A package whose feature build fails is recorded per target as
+    # `feature-blocked-<target>=<reason>` in host.txt and in skipped.txt (the evidence row is
+    # blocked on it), and the run exits 6 when nothing else failed. Empty: nothing changes.
+    [ValidatePattern('^[a-z0-9-]*$')][string]$Feature = '',
+    # ⟨M06 W5c⟩ Comma-separated package names (m06 passes `heimdall-transport-iroh`), with
+    # -Feature: each package's own unit tests are built with the feature too (`cargo test -p
+    # <package> --features <feature> --lib --no-run`) and run as `<crate>-unit` in place of
+    # the default-feature build's, which holds almost none of them. A package that does not
+    # build is blocked as a feature target is, and its default-feature binary is not run.
+    [ValidatePattern('^[a-z0-9,-]*$')][string]$FeatureUnit = '',
     [switch]$SelfTest,
     [string]$Out = ''
 )
@@ -541,6 +556,73 @@ function Format-Leftover($L) {
     return "pid $($L.Pid) parent $($L.Ppid) created $($L.Created.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')) $($L.Role) $($L.Outcome)"
 }
 
+# ⟨M06 W5⟩ -Feature helpers
+# ---------------------------------------------------------------------------------------------
+
+# The test targets of `cargo metadata` output whose required-features name Feature: an ordered
+# map package -> [target], both sorted. A name outside [A-Za-z0-9_-] is refused.
+function Get-FeatureTargets([string]$MetadataJson, [string]$Feature) {
+    $out = [ordered]@{}
+    $meta = $MetadataJson | ConvertFrom-Json
+    foreach ($pkg in @($meta.packages | Sort-Object -Property name)) {
+        $names = @()
+        foreach ($t in @($pkg.targets)) {
+            $req = @()
+            if ($t.PSObject.Properties.Name -contains 'required-features' -and $null -ne $t.'required-features') { $req = @($t.'required-features') }
+            if (@($t.kind) -contains 'test' -and $req -contains $Feature) { $names += [string]$t.name }
+        }
+        if ($names.Count -eq 0) { continue }
+        foreach ($n in @([string]$pkg.name) + $names) { if ($n -notmatch '^[A-Za-z0-9_-]+$') { throw 'a package or target name is not [A-Za-z0-9_-]' } }
+        $out[[string]$pkg.name] = @($names | Sort-Object -Unique)
+    }
+    return $out
+}
+
+# ⟨M06 W5c⟩ -FeatureUnit as an ordered map {package: its unit target's name, `<crate>-unit`}.
+function Get-FeatureUnitNames([string]$FeatureUnit) {
+    $out = [ordered]@{}
+    foreach ($pkg in ($FeatureUnit -split ',' | Where-Object { $_ } | Sort-Object -Unique)) {
+        if ($pkg -notmatch '^[a-z0-9][a-z0-9-]*$') { throw 'a feature unit package has an unexpected name' }
+        $out[$pkg] = ($pkg -replace '-', '_') + '-unit'
+    }
+    return $out
+}
+
+# ⟨M06 W5c⟩ The unit-test executable of the lib target Crate in a cargo JSON build output
+# ('' when the build produced none).
+function Get-LibTestExecutable([string]$Output, [string]$Crate) {
+    foreach ($line in ($Output -split "`n")) {
+        if (-not $line.StartsWith('{')) { continue }
+        $m = $null
+        try { $m = $line | ConvertFrom-Json } catch { continue }
+        if ($m.reason -eq 'compiler-artifact' -and $m.executable -and $m.profile.test -and $m.target.name -eq $Crate -and $m.target.kind -contains 'lib') {
+            return [pscustomobject]@{ Exe = [string]$m.executable; Cwd = (Split-Path -Parent $m.manifest_path) }
+        }
+    }
+    return $null
+}
+
+# ⟨M07 W8⟩ Observation lines (no pass/fail rule reads them): the `other keys offered: <n>` lines
+# the Windows A01 and A11 rows print (ADR-0007 §12.52), as `other-keys-offered-<tag>` facts, in
+# the order they appear; a tag that printed none is not listed.
+function Get-OtherKeysOffered([string]$Text) {
+    $facts = [ordered]@{}
+    foreach ($m in [regex]::Matches($Text, '(?m)^(a01|a11) console: other keys offered: (\d+)\r?$')) {
+        $facts["other-keys-offered-$($m.Groups[1].Value)"] = $m.Groups[2].Value
+    }
+    return $facts
+}
+
+# Why a feature build is blocked: cargo's real exit code and its first error line (one line,
+# bounded), as lib.sh m02_feature_build words it.
+function Get-FeatureBlockReason([string]$Feature, [string]$Package, [int]$Code, [string]$Output) {
+    $first = @(($Output -replace "`r", '') -split "`n" | Where-Object { $_ -match '^error' } | Select-Object -First 1)
+    $line = if ($first.Count -gt 0) { ($first[0] -replace "`t", ' ') } else { 'no error line in the build log' }
+    if ($line.Length -gt 240) { $line = $line.Substring(0, 240) }
+    return "the $Feature-feature build of $Package failed (cargo exit $Code): $line"
+}
+
+# ---------------------------------------------------------------------------------------------
 # -SelfTest: the helpers on synthetic data (no host, no network, no toolchain)
 # ---------------------------------------------------------------------------------------------
 
@@ -756,6 +838,39 @@ function Invoke-SelfTest([string]$OutDir) {
         $plain = & $drain 'echo all; exit 0' 10
         Check 'D02 a child with no leftover drains to the end of its pipes' ($plain.Drained -and $plain.Text -eq "all`n" -and $plain.Waited -lt 5)
     }
+    # ⟨M06 W5⟩ The feature targets and the blocked reason.
+    $md = '{"packages":[{"name":"pkg-b","targets":[{"name":"t_plain","kind":["test"],"required-features":[]},{"name":"t_iroh_2","kind":["test"],"required-features":["iroh"]},{"name":"t_iroh_1","kind":["test"],"required-features":["other","iroh"]},{"name":"a_bin","kind":["bin"],"required-features":["iroh"]}]},{"name":"pkg-a","targets":[{"name":"t_none","kind":["test"]},{"name":"t_a","kind":["test"],"required-features":["iroh"]}]},{"name":"pkg-c","targets":[{"name":"lib","kind":["lib"]}]}]}'
+    $ft = Get-FeatureTargets $md 'iroh'
+    Check 'F01 the feature targets are the test targets whose required-features name the feature, per package, sorted' (
+        (@($ft.Keys) -join ',') -eq 'pkg-a,pkg-b' -and ($ft['pkg-a'] -join ',') -eq 't_a' -and ($ft['pkg-b'] -join ',') -eq 't_iroh_1,t_iroh_2')
+    Check 'F02 a feature no target requires gives no package (the run then stops instead of passing)' ((Get-FeatureTargets $md 'absent').Count -eq 0)
+    $badName = $false
+    try { [void](Get-FeatureTargets '{"packages":[{"name":"p","targets":[{"name":"t;x","kind":["test"],"required-features":["iroh"]}]}]}' 'iroh') } catch { $badName = $true }
+    Check 'F03 a target name outside [A-Za-z0-9_-] is refused' $badName
+    # ⟨M06 W5c⟩ -FeatureUnit.
+    $fu = Get-FeatureUnitNames 'pkg-b,heimdall-transport-iroh,pkg-b'
+    Check 'F06 the feature unit packages map to their <crate>-unit names, once each, sorted' (
+        (@($fu.Keys) -join ',') -eq 'heimdall-transport-iroh,pkg-b' -and $fu['heimdall-transport-iroh'] -eq 'heimdall_transport_iroh-unit' -and (Get-FeatureUnitNames '').Count -eq 0)
+    $badUnit = $false
+    try { [void](Get-FeatureUnitNames '-x') } catch { $badUnit = $true }
+    Check 'F07 a feature unit package with an unexpected name is refused' $badUnit
+    $unitOut = "   Compiling x`n" + '{"reason":"compiler-artifact","manifest_path":"C:\\s\\crates\\t\\Cargo.toml","target":{"name":"heimdall_transport_iroh","kind":["lib"]},"profile":{"test":false},"executable":null}' + "`n" +
+        '{"reason":"compiler-artifact","manifest_path":"C:\\s\\crates\\o\\Cargo.toml","target":{"name":"other","kind":["lib"]},"profile":{"test":true},"executable":"C:\\s\\o.exe"}' + "`n" +
+        '{"reason":"compiler-artifact","manifest_path":"C:\\s\\crates\\t\\Cargo.toml","target":{"name":"heimdall_transport_iroh","kind":["lib"]},"profile":{"test":true},"executable":"C:\\s\\t.exe"}'
+    $lt = Get-LibTestExecutable $unitOut 'heimdall_transport_iroh'
+    Check 'F08 the unit-test executable is the named lib target built as a test, and nothing else' (
+        $null -ne $lt -and $lt.Exe -eq 'C:\s\t.exe' -and $null -eq (Get-LibTestExecutable $unitOut 'absent'))
+    $why = Get-FeatureBlockReason 'iroh' 'pkg-a' 101 "   Compiling x`r`nwarning: w`nerror[E0432]: unresolved import`twith a tab`nerror: aborting"
+    Check 'F04 a blocked reason keeps cargo''s exit code and its first error line, on one line' (
+        $why -eq 'the iroh-feature build of pkg-a failed (cargo exit 101): error[E0432]: unresolved import with a tab')
+    Check 'F05 a blocked reason without an error line says so, and a long line is bounded' (
+        (Get-FeatureBlockReason 'iroh' 'p' 124 'timed out') -eq 'the iroh-feature build of p failed (cargo exit 124): no error line in the build log' -and
+        (Get-FeatureBlockReason 'iroh' 'p' 1 ('error: ' + ('x' * 400))).Length -lt 300)
+    $ok = Get-OtherKeysOffered ("### e2e_cli_m02`na01 console: other keys offered: 0`r`n" +
+        "### e2e_run_m02`na11 console: other keys offered: 2`nnot a01 console: other keys offered: 9`n")
+    Check 'O01 the other-keys-offered observation lines become one fact per row, the count as printed' (
+        (@($ok.Keys) -join ',') -eq 'other-keys-offered-a01,other-keys-offered-a11' -and $ok['other-keys-offered-a01'] -eq '0' -and $ok['other-keys-offered-a11'] -eq '2')
+    Check 'O02 output without the lines yields no fact (the run records "not shown")' ((Get-OtherKeysOffered "### x`ntest a ... ok`n").Count -eq 0)
     Write-Host "run-windows-local selftest: $($script:stPass) passed, $($script:stFail) failed"
 }
 
@@ -989,6 +1104,7 @@ try {
     $bins = [System.Collections.Generic.List[object]]::new()
     $cli = ''
     $hook = ''
+    $pinned = ''
     foreach ($line in ($r.Output -split "`n")) {
         if (-not $line.StartsWith('{')) { [void]$build.Append("$line`n"); continue }
         $m = $null
@@ -999,12 +1115,100 @@ try {
             $bins.Add([pscustomobject]@{ Name = $name; Exe = $m.executable; Cwd = (Split-Path -Parent $m.manifest_path) })
         } elseif ($m.target.name -eq 'heimdall' -and $m.target.kind -contains 'bin') { $cli = $m.executable }
         elseif ($m.target.name -eq 'hm-fixture-hook' -and $m.target.kind -contains 'bin') { $hook = $m.executable }
+        elseif ($m.target.name -eq 'hm-pinned-ssh' -and $m.target.kind -contains 'bin') { $pinned = $m.executable }
     }
     if ($r.Code -ne 0 -or $bins.Count -eq 0 -or -not $cli -or -not $hook) { throw 'the build failed or produced no test binaries' }
+    # ⟨M06 W5⟩ 3b. The targets that require -Feature. Cargo writes heimdall.exe of both builds
+    # to one path, so the default-feature CLI is copied aside first and stays HEIMDALL_E2E_BIN
+    # for every other target; the feature build's CLI is copied too, for its own targets.
+    $featureNames = @{}
+    $featureCli = ''
+    $featureBlocked = $false
+    if ($Feature) {
+        $keep = Join-Path $tools 'cli-default'
+        [void][System.IO.Directory]::CreateDirectory($keep)
+        Copy-Item -LiteralPath $cli -Destination (Join-Path $keep 'heimdall.exe')
+        $cli = Join-Path $keep 'heimdall.exe'
+        $r = Invoke-Bounded $cargo @('metadata', '--locked', '--no-deps', '--format-version', '1') $toolEnv $src 600
+        $mdLine = @(($r.Output -split "`n") | Where-Object { $_.StartsWith('{"packages"') } | Select-Object -First 1)
+        if ($r.Code -ne 0 -or $mdLine.Count -eq 0) { Add-Command $(if ($r.Code -ne 0) { $r.Code } else { 1 }) "cargo metadata (the test targets that require feature $Feature)"; throw 'cargo metadata failed' }
+        $ft = Get-FeatureTargets $mdLine[0] $Feature
+        Add-Command $(if ($ft.Count -gt 0) { 0 } else { 2 }) "list the test targets that require feature $Feature"
+        if ($ft.Count -eq 0) { throw "no test target requires feature $Feature" }
+        $builtNames = @()
+        foreach ($pkg in $ft.Keys) {
+            $a = @('test', '--locked', '--no-run', '-p', $pkg, '--features', $Feature)
+            foreach ($t in $ft[$pkg]) { $a += @('--test', $t) }
+            $a += '--message-format=json-render-diagnostics'
+            $r = Invoke-Bounded $cargo $a $toolEnv $src 7200
+            $got = @{}
+            $fcli = ''
+            foreach ($line in ($r.Output -split "`n")) {
+                if (-not $line.StartsWith('{')) { [void]$build.Append("$line`n"); continue }
+                $m = $null
+                try { $m = $line | ConvertFrom-Json } catch { continue }
+                if ($m.reason -ne 'compiler-artifact' -or -not $m.executable) { continue }
+                if ($m.profile.test -and $m.target.kind -contains 'test') { $got[[string]$m.target.name] = [pscustomobject]@{ Name = [string]$m.target.name; Exe = $m.executable; Cwd = (Split-Path -Parent $m.manifest_path) } }
+                elseif (-not $m.profile.test -and $m.target.name -eq 'heimdall' -and $m.target.kind -contains 'bin') { $fcli = $m.executable }
+            }
+            $missing = @($ft[$pkg] | Where-Object { -not $got.ContainsKey($_) })
+            if ($r.Code -ne 0 -or $missing.Count -gt 0) {
+                $why = if ($r.Code -ne 0) { Get-FeatureBlockReason $Feature $pkg $r.Code $r.Output } else { "the $Feature-feature build of $pkg produced no test executable for it" }
+                foreach ($t in $(if ($r.Code -ne 0) { $ft[$pkg] } else { $missing })) {
+                    Add-Fact "feature-blocked-$t" $why
+                    [void]$skipped.Append("${t}: blocked on windows: $why`n")
+                }
+                $featureBlocked = $true
+                Add-Command 0 "record the $Feature-feature targets of $pkg that did not build as blocked (host.txt feature-blocked-<target> keeps cargo's exit code and first error)"
+                if ($r.Code -ne 0) { continue }
+            } else {
+                Add-Command 0 "cargo test --locked --no-run -p $pkg --features $Feature --test <each target that requires it> (native x86_64-pc-windows-msvc)"
+            }
+            foreach ($t in $got.Keys) { $bins.Add($got[$t]); $featureNames[$t] = $true; $builtNames += $t }
+            if ($fcli) {
+                $fdir = Join-Path $tools 'cli-feature'
+                [void][System.IO.Directory]::CreateDirectory($fdir)
+                Copy-Item -LiteralPath $fcli -Destination (Join-Path $fdir 'heimdall.exe') -Force
+                $featureCli = Join-Path $fdir 'heimdall.exe'
+            }
+        }
+        # ⟨M06 W5c⟩ -FeatureUnit: those packages' own unit tests, built with the feature. The
+        # default-feature binary of the same name leaves the plan first, so a blocked build
+        # never runs a build without the feature under its name.
+        $units = Get-FeatureUnitNames $FeatureUnit
+        foreach ($pkg in $units.Keys) {
+            $t = $units[$pkg]
+            for ($i = $bins.Count - 1; $i -ge 0; $i--) { if ($bins[$i].Name -eq $t) { $bins.RemoveAt($i) } }
+            $r = Invoke-Bounded $cargo @('test', '--locked', '--no-run', '-p', $pkg, '--features', $Feature, '--lib', '--message-format=json-render-diagnostics') $toolEnv $src 7200
+            foreach ($line in ($r.Output -split "`n")) { if (-not $line.StartsWith('{')) { [void]$build.Append("$line`n") } }
+            $got = if ($r.Code -eq 0) { Get-LibTestExecutable $r.Output ($t -replace '-unit$', '') } else { $null }
+            if ($null -eq $got) {
+                $why = if ($r.Code -ne 0) { Get-FeatureBlockReason $Feature $pkg $r.Code $r.Output } else { "the $Feature-feature build of $pkg produced no test executable for it" }
+                Add-Fact "feature-blocked-$t" $why
+                [void]$skipped.Append("${t}: blocked on windows: $why`n")
+                $featureBlocked = $true
+                Add-Command 0 "record the $Feature-feature unit tests of $pkg that did not build as blocked (host.txt feature-blocked-<target> keeps cargo's exit code and first error)"
+                continue
+            }
+            Add-Command 0 "cargo test --locked --no-run -p $pkg --features $Feature --lib (native x86_64-pc-windows-msvc)"
+            $bins.Add([pscustomobject]@{ Name = $t; Exe = $got.Exe; Cwd = $got.Cwd })
+            $featureNames[$t] = $true
+            $builtNames += $t
+        }
+        Add-Fact 'feature-targets' ("${Feature}: " + (($builtNames | Sort-Object) -join ' '))
+        Add-Fact 'feature-cli' $(if ($featureCli) { "the $Feature-feature heimdall.exe (HEIMDALL_E2E_BIN for those targets only)" } else { 'none built (no selected package builds the heimdall binary)' })
+        if ($featureCli) { [void]$build.Append("heimdall.exe ($Feature feature; HEIMDALL_E2E_BIN for the targets that require it) sha256: $(Get-Sha256Hex ([System.IO.File]::ReadAllBytes($featureCli)))`n") }
+    }
     $bins = @($bins | Sort-Object -Property Name -Unique)
     foreach ($b in $bins) { [void]$build.Append("$($b.Name).exe sha256: $(Get-Sha256Hex ([System.IO.File]::ReadAllBytes($b.Exe)))`n") }
     [void]$build.Append("heimdall.exe (CLI for the e2e suites, HEIMDALL_E2E_BIN) sha256: $(Get-Sha256Hex ([System.IO.File]::ReadAllBytes($cli)))`n")
     [void]$build.Append("hm-fixture-hook.exe (HM_FIXTURE_HOOK) sha256: $(Get-Sha256Hex ([System.IO.File]::ReadAllBytes($hook)))`n")
+    # ⟨M07 W8⟩ An observation line only: the pinned-client wrapper the Windows connect rows start.
+    if ($pinned) {
+        [void]$build.Append("hm-pinned-ssh.exe (the debug pinned-client wrapper) sha256: $(Get-Sha256Hex ([System.IO.File]::ReadAllBytes($pinned)))`n")
+    } else {
+        [void]$build.Append("hm-pinned-ssh.exe (the debug pinned-client wrapper): not built`n")
+    }
 
     # The run plan: case-index.json build_host_paths (a test that truly needs the build host).
     $index = Get-Content -LiteralPath (Join-Path $src 'tests\native\m02\case-index.json') -Raw | ConvertFrom-Json -AsHashtable
@@ -1138,7 +1342,10 @@ try {
         # ⟨M05 W4⟩ e2e_exit_m05 the same way: its A02 week holds the lease for about 3 minutes.
         if ($b.Name -eq 'e2e_enroll_m03' -or $b.Name -eq 'e2e_exit_m05') { $a += '--test-threads=1' }
         $a += '--show-output'
-        $r = Invoke-Bounded $b.Exe $a $testEnv $b.Cwd $TimeoutSeconds -LeftoverRoot $run
+        # ⟨M06 W5⟩ A target that requires -Feature runs against that build's own CLI.
+        $benv = $testEnv
+        if ($featureCli -and $featureNames.ContainsKey($b.Name)) { $benv = $testEnv.Clone(); $benv['HEIMDALL_E2E_BIN'] = $featureCli }
+        $r = Invoke-Bounded $b.Exe $a $benv $b.Cwd $TimeoutSeconds -LeftoverRoot $run
         [void]$tests.Append((Format-TargetOutput $b.Name $r.Output $r.Code))
         if ($r.Code -ne 0) { $arc = $r.Code }
         # ⟨M03 E5⟩ A binary that left a process holding its pipes, or leftovers a timeout found.
@@ -1179,12 +1386,18 @@ try {
     if ($after.Count -gt 0) { $overall = 1 }
     Add-Command $arc 'every test binary natively, each under its timeout (overall exit = last failing binary''s exit, 0 if all passed)'
     if ($arc -ne 0) { $overall = 1 }
+    # ⟨M07 W8⟩ Observation lines only (no pass/fail rule reads them).
+    $offered = Get-OtherKeysOffered $tests.ToString()
+    if ($offered.Count -eq 0) { Add-Fact 'other-keys-offered' 'not shown (the A01 and A11 rows printed no count)' }
+    foreach ($k in $offered.Keys) { Add-Fact $k $offered[$k] }
     Add-Fact 'test-pipes-after' (& $pipes)
     Add-Fact 'localappdata-heimdall-after' $(if (Test-Path (Join-Path $env:LOCALAPPDATA 'heimdall')) { 'present' } else { 'absent' })
     $ownerAfter = & $ownerDigest
     Add-Fact 'owner-ssh-git-after' $ownerAfter
     Add-Command $(if ($ownerBefore -eq $ownerAfter) { 0 } else { 1 }) '%USERPROFILE%\.ssh and .gitconfig metadata unchanged by the run'
     if ($ownerBefore -ne $ownerAfter) { $overall = 1 }
+    # ⟨M06 W5⟩ 6: everything that ran passed, but a feature target did not build (blocked).
+    if ($featureBlocked -and $overall -eq 0) { $overall = 6 }
 } catch {
     Add-Command 1 "the run stopped: $($_.Exception.Message)"
     $overall = 1

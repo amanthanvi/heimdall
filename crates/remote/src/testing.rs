@@ -149,6 +149,9 @@ impl MemoryWidening {
 
 impl WideningRecords for MemoryWidening {
     fn by_key(&self, key: &WideningKey) -> Result<Option<WideningRecord>, LedgerError> {
+        if key.submitter.is_local() {
+            return Ok(None);
+        }
         Ok(lock(&self.records)
             .values()
             .find(|r| &r.key == key)
@@ -159,9 +162,35 @@ impl WideningRecords for MemoryWidening {
         Ok(lock(&self.records).get(id.as_str()).cloned())
     }
 
+    fn pending_local(
+        &self,
+        kind: &str,
+        delta_digest: &str,
+    ) -> Result<Option<WideningRecord>, LedgerError> {
+        Ok(lock(&self.records)
+            .values()
+            .find(|r| {
+                r.key.submitter.is_local()
+                    && r.key.kind == kind
+                    && r.delta_digest.as_deref() == Some(delta_digest)
+                    && r.state == DecisionState::Pending
+            })
+            .cloned())
+    }
+
     fn insert(&self, record: WideningRecord) -> Result<(), LedgerError> {
         let mut map = lock(&self.records);
-        if map.contains_key(record.decision.as_str()) || map.values().any(|r| r.key == record.key) {
+        let taken = if record.key.submitter.is_local() {
+            map.values().any(|r| {
+                r.key.submitter.is_local()
+                    && r.key.kind == record.key.kind
+                    && r.delta_digest == record.delta_digest
+                    && r.state == DecisionState::Pending
+            })
+        } else {
+            map.values().any(|r| r.key == record.key)
+        };
+        if map.contains_key(record.decision.as_str()) || taken {
             return Err(LedgerError::Exists);
         }
         map.insert(record.decision.as_str().to_owned(), record);

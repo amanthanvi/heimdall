@@ -899,7 +899,26 @@ fn a24_a_controller_dependent_signer_behind_an_ordinary_local_path_is_unknown() 
     let text = String::from_utf8(out.stdout).unwrap();
     let mut keys: Vec<&str> = text.lines().filter_map(|l| l.split('=').next()).collect();
     keys.sort_unstable();
-    assert_eq!(keys, ["HOME", "LANG", "PATH", "SSH_AUTH_SOCK"]);
+    // ⟨M06 W5⟩ The parent's HOME is not on the declared pass-list (ADR-0012 §4 item 5); the
+    // launcher sets HOME, USER, LOGNAME and SHELL from the account database and, with no
+    // LANG in the parent, the default LANG ("Launcher-set values" ⟨2026-11-22⟩).
+    let keys: Vec<&str> = keys
+        .into_iter()
+        .filter(|k| *k != "__CF_USER_TEXT_ENCODING")
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "HOME",
+            "LANG",
+            "LOGNAME",
+            "PATH",
+            "SHELL",
+            "SSH_AUTH_SOCK",
+            "USER"
+        ]
+    );
+    assert!(!text.contains("HOME=/home/runner"));
     assert!(text.contains(&format!("SSH_AUTH_SOCK={}", own.display())));
     assert!(!text.contains("agent.sock"));
     assert!(!text.contains("SSH_CONNECTION"));

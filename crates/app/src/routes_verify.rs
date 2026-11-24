@@ -97,6 +97,26 @@ async fn effective_config(client: &Path, args: &[OsString]) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
+/// The effective configuration of `alias` as `client [-F config] -G alias` prints it;
+/// `None` when it could not be read (an invalid alias, a failed, slow or oversized run).
+pub async fn effective_alias_config(
+    client: &Path,
+    config: Option<&Path>,
+    alias: &str,
+) -> Option<String> {
+    if !alias_ok(alias) {
+        return None;
+    }
+    let mut args: Vec<OsString> = Vec::new();
+    if let Some(config) = config {
+        args.push("-F".into());
+        args.push(config.into());
+    }
+    args.push("-G".into());
+    args.push(alias.into());
+    effective_config(client, &args).await
+}
+
 /// Verify the projected `alias` (ADR-0012 §5.2): `client [-F config] -G alias` must meet
 /// `expect`.
 ///

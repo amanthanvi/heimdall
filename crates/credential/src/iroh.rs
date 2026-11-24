@@ -40,6 +40,11 @@
 //! needs::<heimdall_credential::iroh::IrohKeyMaterial>();
 //! ```
 //!
+//! ⟨M06 W5⟩ **The debug-build file store** (`fixture_store`, selected only by
+//! [`FIXTURE_STORE_ENV`] through [`requested_test_store`]) lets the processes of one test
+//! share a K_iroh in a scratch directory. It is not compiled into a release build, has the
+//! test kind `fixture_store`, and never falls back to or from the platform store.
+//!
 //! **Test stores** ([`FixtureIrohStore`], [`UnsupportedIrohStore`]) report an
 //! [`IrohStoreKind::Test`] kind: fixture custody is mechanism evidence only and never
 //! satisfies a product-store claim. Tests never touch the owner's keychain, Secret Service
@@ -240,6 +245,11 @@ pub enum IrohStoreAvailability {
     Unsupported,
     /// The store is unlocked but the item's access list does not trust this executable.
     AccessDenied,
+    /// ⟨M06 W5⟩ Debug builds only: the Heimdall home is a temporary or scratch directory and
+    /// [`FIXTURE_STORE_ENV`] is not set, so the platform store is not opened
+    /// (`crate::scratch_guard`). A release build has no such state.
+    #[cfg(debug_assertions)]
+    FixtureStoreRequired,
 }
 
 impl IrohStoreAvailability {
@@ -254,6 +264,10 @@ impl IrohStoreAvailability {
             IrohStoreAvailability::Corrupt => "corrupt",
             IrohStoreAvailability::Unsupported => "unsupported",
             IrohStoreAvailability::AccessDenied => "access_denied",
+            #[cfg(debug_assertions)]
+            IrohStoreAvailability::FixtureStoreRequired => {
+                crate::scratch_guard::IROH_REFUSAL_DETAIL
+            }
         }
     }
 }
@@ -458,6 +472,125 @@ impl IrohKeyStore for MissingProductStore {
 
     fn destroy(&self, _: &IrohEndpointId) -> Result<(), IrohStoreError> {
         Err(IrohStoreError::Unavailable(IrohStoreAvailability::Missing))
+    }
+}
+
+/// ⟨M06 W5⟩ The debug-build test variable naming a scratch directory for K_iroh
+/// (`fixture_store::FileFixtureIrohStore`): an absolute path of an existing owner-only
+/// directory. `heimdall`'s `testcfg` lists it among the variables a release build refuses.
+pub const FIXTURE_STORE_ENV: &str = "HEIMDALL_TEST_IROH_KEY_STORE";
+
+/// ⟨M06 W5⟩ The kind name of the store [`FIXTURE_STORE_ENV`] selects, as the
+/// `transport_keys` row records it. Whatever is observed with that store is labelled with
+/// this name: mechanism evidence, never product persistence.
+pub const FIXTURE_STORE_KIND: &str = "fixture_store";
+
+/// ⟨M06 W5⟩ The debug-build file store [`FIXTURE_STORE_ENV`] selects. Not compiled into a
+/// release build.
+#[cfg(debug_assertions)]
+#[path = "iroh_fixture_store.rs"]
+pub mod fixture_store;
+
+/// ⟨M06 W5⟩ The test store [`FIXTURE_STORE_ENV`] asks for, read through `var` (the process
+/// environment in production wiring).
+///
+/// * **Unset:** `None`. The caller uses the platform store ([`product_store`]) and nothing
+///   of the fixture store is reached. **Except in a debug build whose Heimdall home
+///   (`HEIMDALL_HOME`, read through `var`) is a temporary or scratch directory**
+///   (`crate::scratch_guard`): then [`ScratchHomeRefusal`], a store that refuses every
+///   operation and names the variable, so a scratch installation never opens the account's
+///   platform store ([`scratch_home_refusal`]).
+/// * **Set, debug build:** the fixture file store over that directory, and only it. A value
+///   that is not an absolute path of an existing owner-only directory gives a store whose
+///   every operation is `Unavailable(Missing)` (`transport_key_store_unavailable`). There
+///   is no fallback to the platform store.
+/// * **Set, release build:** [`UnsupportedIrohStore`]: the variable is never honoured and
+///   never silently ignored (every K_iroh use refuses `transport_key_store_unavailable`;
+///   `service run` refuses the variable itself, exit 2).
+#[must_use]
+pub fn requested_test_store(
+    var: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<Box<dyn IrohKeyStore>> {
+    let Some(value) = var(FIXTURE_STORE_ENV) else {
+        return scratch_home_refusal(None, var);
+    };
+    #[cfg(debug_assertions)]
+    {
+        Some(Box::new(fixture_store::FileFixtureIrohStore::in_dir(
+            Path::new(&value),
+        )))
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = value;
+        Some(Box::new(UnsupportedIrohStore))
+    }
+}
+
+/// ⟨M06 W5⟩ The debug-build guard's store (`crate::scratch_guard`): `Some` when this is a
+/// debug build, the Heimdall home (`home` when the caller resolved one, otherwise
+/// `HEIMDALL_HOME` through `var`) is a temporary or scratch directory, and
+/// [`FIXTURE_STORE_ENV`] is not set. The caller must use it instead of the platform store.
+/// Always `None` in a release build.
+#[must_use]
+pub fn scratch_home_refusal(
+    home: Option<&Path>,
+    var: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<Box<dyn IrohKeyStore>> {
+    #[cfg(debug_assertions)]
+    {
+        crate::scratch_guard::home_is_scratch(home, FIXTURE_STORE_ENV, var)
+            .then(|| Box::new(ScratchHomeRefusal) as Box<dyn IrohKeyStore>)
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (home, var);
+        None
+    }
+}
+
+/// ⟨M06 W5⟩ The store a debug build under a scratch Heimdall home gets when
+/// [`FIXTURE_STORE_ENV`] is not set ([`scratch_home_refusal`]): it opens nothing, refuses
+/// every operation `Unavailable(FixtureStoreRequired)` (`transport_key_store_unavailable`,
+/// with a detail naming the variable), and is of a test kind, so it can never satisfy a
+/// product-store claim. Not compiled into a release build.
+#[cfg(debug_assertions)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScratchHomeRefusal;
+
+#[cfg(debug_assertions)]
+impl ScratchHomeRefusal {
+    const REFUSED: IrohStoreError =
+        IrohStoreError::Unavailable(IrohStoreAvailability::FixtureStoreRequired);
+}
+
+#[cfg(debug_assertions)]
+impl IrohKeyStore for ScratchHomeRefusal {
+    fn kind(&self) -> IrohStoreKind {
+        IrohStoreKind::Test("fixture_store_required")
+    }
+
+    fn availability(&self) -> IrohStoreAvailability {
+        IrohStoreAvailability::FixtureStoreRequired
+    }
+
+    fn store_ref(&self, endpoint: &IrohEndpointId) -> String {
+        format!(
+            "{ITEM_SERVICE}/fixture-store-required/{}",
+            endpoint.as_str()
+        )
+    }
+
+    fn put(&self, _: &IrohEndpointId, _: &IrohKeyMaterial) -> Result<(), IrohStoreError> {
+        Err(Self::REFUSED)
+    }
+
+    fn load(&self, _: &IrohEndpointId) -> Result<IrohKeyMaterial, IrohStoreError> {
+        Err(Self::REFUSED)
+    }
+
+    fn destroy(&self, _: &IrohEndpointId) -> Result<(), IrohStoreError> {
+        Err(Self::REFUSED)
     }
 }
 

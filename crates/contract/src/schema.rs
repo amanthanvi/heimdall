@@ -58,6 +58,11 @@ pub fn public_schemas() -> Vec<NamedSchema> {
         named::<crate::trust::PoliciesView>("inspect-policies"),
         // ⟨rev5.1⟩ ADR-0006 §17.9 C2: the typed result of a targeted policy action.
         named::<crate::trust::PolicyTargetResult>("policy-target-result"),
+        // ⟨rev6.5⟩ ADR-0006 §18.9 item 8: the typed parts of a decision document (the
+        // `request` of a `remote_widening` decision, with its `origin`; one entry of a
+        // `widen_policy` decision's `lifted_effects`).
+        named::<crate::decision::RemoteWidening>("decision.remote-widening"),
+        named::<crate::decision::LiftedEffect>("decision.lifted-effect"),
     ]
 }
 

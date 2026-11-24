@@ -70,7 +70,7 @@ impl fmt::Display for DigestChanged {
     }
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     HashAlg::Sha256
         .digest(bytes)
         .iter()

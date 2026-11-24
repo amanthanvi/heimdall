@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LiftedEffect",
+  "description": "⟨rev6.5; ADR-0006 §18.9⟩ One delivered pause or cutoff that approving a targeted\n`resume` or `clear_cutoff` record lifts on this runner, as the decision view shows it\n(`lifted_effects`, omitted when the record lifts none).",
+  "type": "object",
+  "properties": {
+    "controller": {
+      "description": "The controller (its paired client) that delivered the effect.",
+      "$ref": "#/$defs/ClientId"
+    },
+    "delivered_at": {
+      "description": "When the runner received it (the runner's clock).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "effect": {
+      "description": "The effect that delivered it.",
+      "$ref": "#/$defs/EffectId"
+    },
+    "kind": {
+      "description": "`pause` or `cutoff`.",
+      "type": "string"
+    },
+    "revision": {
+      "description": "That controller's revision number for the scope.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "scope": {
+      "description": "The target the record's action names; `null` when the action names none.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PolicyTarget"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "scope_key": {
+      "description": "The scope's canonical key (`all`, `profile:<id>`, `workspace:<id>`, `policy:<id>`).",
+      "type": "string"
+    }
+  },
+  "required": [
+    "scope_key",
+    "kind",
+    "controller",
+    "revision",
+    "effect",
+    "delivered_at"
+  ],
+  "$defs": {
+    "ClientId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §3.6, §3.7): a paired management client, minted by the\nrunner at invitation (`cl_<32 hex>`). It names the enrollment line\n(`heimdall-mgmt:<cid>`) and the bridge's argv; it is never a credential and never a\nrequest field that sets a caller (ADR-0006 §18).",
+      "type": "string"
+    },
+    "EffectId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §7.2): a narrowing effect, minted by its producing\ncontroller. Keyed with the authenticated producer, the typed target and its\ngeneration.",
+      "type": "string"
+    },
+    "PolicyId": {
+      "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
+      "type": "string"
+    },
+    "PolicyTarget": {
+      "description": "What a narrowing or block action applies to (ADR-0011 §7.3 \"Targets\"; m05-plan §4\nitem 2), tagged by `kind`.",
+      "oneOf": [
+        {
+          "description": "One policy.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "policy"
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "kind",
+            "policy_id"
+          ]
+        },
+        {
+          "description": "Every policy for a profile.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "profile"
+            },
+            "profile": {
+              "description": "Profile.",
+              "$ref": "#/$defs/ProfileId"
+            }
+          },
+          "required": [
+            "kind",
+            "profile"
+          ]
+        },
+        {
+          "description": "Every policy of a workspace.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "workspace"
+            },
+            "workspace": {
+              "description": "Workspace.",
+              "$ref": "#/$defs/WorkspaceId"
+            }
+          },
+          "required": [
+            "kind",
+            "workspace"
+          ]
+        },
+        {
+          "description": "Every policy.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "all"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "WorkspaceId": {
+      "description": "Workspace (adopted checkout) ID (spec §4.1 \"Workspace\").",
+      "type": "string"
+    }
+  }
+}
