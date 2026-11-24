@@ -1,5 +1,5 @@
 {
-  "$comment": "Configuration of the M06 native runs (m06-plan §3) for m06-evidence.py (tests/native/m02/m02-evidence.py with the M06 constants). TEMPLATE: no native run has happened yet, and no record exists. The native-run step sets build_commit, started_at, artifacts_root (one directory per build, e.g. tests/evidence/artifacts/m06/exit-<commit>), environment, artifact digests and commands, regenerates tests/native/m06/required-inventory.json at that commit (tests/native/m06/refresh-inventory.sh: with fresh Linux and Windows scans, which add the platform-only tests the build host cannot list), and only then runs --write. Every logs, commands_logs and facts path below is relative to artifacts_root; a missing file stops the generator before anything is written. A platform that did not run gets \"unavailable\": \"<the exact missing platform or input>\" (its rows are then blocked on it); a platform that could not build the iroh-feature targets needs nothing here: its host.txt carries feature-blocked-<target> facts and the generator blocks those rows on them.",
+  "$comment": "Configuration of the M06 native runs (m06-plan §3) for m06-evidence.py (tests/native/m02/m02-evidence.py with the M06 constants). TEMPLATE: no native run has happened yet, and no record exists. The native-run step sets build_commit, started_at, artifacts_root (one directory per build, e.g. tests/evidence/artifacts/m06/exit-<commit>), environment, artifact digests and commands, regenerates tests/native/m06/required-inventory.json at that commit (tests/native/m06/refresh-inventory.sh: with fresh Linux and Windows scans, which add the platform-only tests the build host cannot list), and only then runs --write. Every logs, commands_logs and facts path below is relative to artifacts_root; a missing file stops the generator before anything is written. A platform that did not run gets \"unavailable\": \"<the exact missing platform or input>\" (its rows are then blocked on it); a platform that could not build the iroh-feature targets needs nothing here: its host.txt carries feature-blocked-<target> facts and the generator blocks those rows on them. A platform may also carry run_commit (40 hex: the commit its run was built from, when not HEAD), with run_commit_reason (required when run_commit is not HEAD) and run_commit_drift_allow (the product files the reason names): fill-run-facts.py refuses a run_commit that is not an ancestor of HEAD, a missing reason, an output naming another commit than the platform's run_commit (default HEAD), and any product drift (git diff --name-only <run_commit> HEAD -- crates ':!crates/testkit') not in the allow list; it writes run_commit_drift ({range, count, files}) and appends the reason and the drift to the platform's label.",
   "case_index": "tests/native/m06/case-index.json",
   "required_inventory": "tests/native/m06/required-inventory.json",
   "summary_out": "tests/evidence/artifacts/m06/exit-PENDING/case-summary.json",
@@ -51,7 +51,7 @@
     "tests/native/m02/m02-evidence.py"
   ],
   "common_limitations": [
-    "Status discipline (m06-plan §3, M01 rule E15): verified rows mean the required tests ran and passed on that platform in this run; not an independent review of the units. The lowest-row rule applies: a blocked owner-input row (m06-plan §7) keeps its record blocked, a container, persistence or capture row without a run keeps it not_started, and no claim is widened to cover either.",
+    "Status discipline (m06-plan §3, M01 rule E15): verified rows mean the required tests ran and passed on that platform in this run; not an independent review of the units. The lowest-row rule applies: a blocked owner-input row (m06-plan §7) keeps its record blocked, the container mechanism and capture rows are deferred_with_decision (ADR-0015, ruling E1) and never count, the persistence journey and the n0-public capture are blocked on their owner inputs, and no claim is widened to cover any of them.",
     "Linux binaries are cross-built on the macOS host with zig and run natively on the devbox; Windows binaries are built and run natively on the PC. Tests that read the repository at its compile-time path read it through HM_REPO_ROOT, which the harnesses set.",
     "The iroh-feature targets come from a second, feature-enabled build of their packages on each platform and run against that build's own heimdall; every other target runs against the default-feature build. A platform that could not build them has those rows blocked with cargo's exit code and first error.",
     "Single-host journeys: on each platform the exit journeys run the controller, the runner and the fixture sshds on one host under one OS user with scratch homes. The devbox as a separate runner host, the Windows controller against a remote runner, the containers and the lifecycle rows are separate rows, blocked or not started until their own runs exist.",
@@ -154,7 +154,7 @@
       "summary": "Paired management roles are authenticated and bounded: limited clients cannot widen or reach a shell, PTY or forwarding; limited roles need a verified sshd policy; invitations cannot be replayed, delayed or rolled back; request IDs of two clients stay separate; widening is confirmed runner-locally; replaced keys are refused with no reset; version and capability mismatches are explicit (R-EN-08, R-SE-06).",
       "limitations": [
         "Blocked: the arm64 runner row; limited roles on a runner whose default sshd policy fails a check (owner-only there).",
-        "Not started until its own run exists: the limited management client in a container."
+        "Not in a container (ruling E1): the limited management client's evidence is the single-host limited-client tests (e2e_exit_m06 a25_roles_invitations_decisions, a25_pairing_invite_join_through_the_product_cli) and the cross-host steps a25_limited_after_verification and a25_sshd_policy_unverified; no Linux container ran the product client with its own K_mgmt."
       ]
     },
     "A26": {
@@ -169,8 +169,8 @@
       ],
       "summary": "Direct, jump and Iroh routes to one destination with host trust unchanged: failover only before the identification string, exposure bounded by the approved policy, revocation applied only after the live connection closes, host pins never defeated, removal leaves nothing (R-SS-05, R-SS-07, R-SS-08, R-SE-04, R-DI-07).",
       "limitations": [
-        "Loopback Iroh only in the cargo rows. Not started until their own runs exist: the container mechanism rows and traffic capture, the verified-store persistence journey, the n0-public capture row.",
-        "Blocked: Windows steps that may bind a non-loopback address (the owner at the console). Deferred (m06-plan §5): a direct path across real NATs."
+        "Loopback Iroh only in the cargo rows. Deferred (ADR-0015, ruling E1): the container Iroh direct and private-relay mechanism rows and the profile's traffic capture; Iroh is a preview built from source only.",
+        "Blocked: the verified-store persistence and restart journey, on owner input B3 (a disposable macOS standard account for the Keychain dialer); the n0-public capture row, on the owner's authorization of the one bounded capture (n0-public stays outside V1 until it runs); Windows steps that may bind a non-loopback address (the owner at the console). Deferred (m06-plan §5): a direct path across real NATs."
       ]
     },
     "T06": {
@@ -197,7 +197,11 @@
       "summary": "The A07 runner rows: revoke, pause and cutoff while the runner is disconnected, with typed effects and per-component residuals; reconnecting with uncertain time still narrows; the issuer's barrier; namespaced acknowledgements; no stale reactivation; a fresh work ID is refused after a reconciled cutoff (R-AU-04, R-RT-02, R-SE-07).",
       "limitations": [
         "The runner rows of A07 only; the local rows are earlier milestones' records.",
-        "Blocked: the arm64 runner row."
+        "Blocked: the arm64 runner row.",
+        "Residuals (ruling E4, U0-Q14): a runner's revocation residuals carry the new_authentication component only; the other RevocationResiduals components are not reported for a runner, so the record claims nothing about them on the runner path.",
+        "Namespaced acknowledgements (gap 3): model and single-host evidence only; the cross-host journey has no step that asserts them.",
+        "Pending approval while disconnected (gap 4): this leg is not asserted on the runner path. The approval-race leg is covered locally by model_revocation::a07_a_pending_approval_cannot_complete_after_a_revoke and model_revocation::a07_revoking_an_awaiting_grant_ends_its_operation_at_once (tests/model/revocation.rs), integration_store::decisions_complete_once_and_go_stale_when_the_generation_moves (tests/integration/store.rs), integration_managed_adapter::stale_approval_cannot_reactivate_after_revoke (tests/integration/managed_adapter.rs) and integration_runner_effects_m06::a_cutoff_delivered_after_the_decision_was_issued_makes_its_approval_stale (tests/integration/runner_effects_m06.rs).",
+        "The end-to-end fresh-work refusal is attributed: the cross-host step a07_cutoff_refused asserts the fresh work ID is refused POLICY_CUTOFF (the cutoff alone, after acknowledgement and with time certain, the delivered pause lifted at the runner), with nothing issued; a07_fresh_work_refused, after the reconciled pause and cutoff together, asserts the refusal without attributing it to one of them."
       ]
     },
     "M06 exit cases (m06-plan §3)": {

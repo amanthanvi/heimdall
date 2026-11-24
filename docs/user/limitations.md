@@ -9,8 +9,15 @@ Short, and meant to be read once.
   from each other. Where real isolation exists, the matrix says which mechanism provides it.
 - **Some prompts are not Heimdall's to remove.** A password manager, a hardware key or a
   provider that insists on a touch or an unlock will still ask.
-- **Stopping access does not close what is already open.** A shell or a forward that is
-  connected keeps working until it ends. New connections stop at once.
+- **Stopping access does not close what is already open,** and neither does a certificate
+  expiring. A shell or a forward that is connected keeps working until it ends. New
+  connections stop at once.
+- **With OpenSSH connection sharing (`ControlMaster`), "already open" includes the shared
+  connection.** A program already attached to a shared master connection can open new
+  sessions and forwards over it after access stops or a certificate expires, until that
+  master connection exits (`ssh -O exit`, or the master process ending). `ssh -O stop` alone
+  does not end them. This is OpenSSH's behaviour, observed in a gate probe
+  (`g04-exp-g09-prelim-mux-preconnected-after-stop`), not something Heimdall can refuse.
 - **A certificate already issued stays valid until it expires,** including at a host that
   is offline when you revoke. Heimdall shows the latest such expiry.
 - **A sleeping or powered-off machine does no work.** Locking the screen does not stop
@@ -19,5 +26,17 @@ Short, and meant to be read once.
 - **Only the combinations in the compatibility matrix were tested.** Others may work.
 - **The Iroh transport is not in this release.** It is a preview you can build from source
   (`cargo build --features iroh`), with no support claim. Direct and jump routes work without it.
+  A route can still list an Iroh leg; this release skips that leg and tries the route's others.
+- **A remote runner you cannot reach hears about a revoke, pause or cutoff when it reconnects.**
+  Until then its certificates already issued stay valid until they expire; the status view
+  shows the latest such expiry.
+- **A Windows computer can control runners only as their owner,** not as a limited (viewer or
+  requester) client. Limited roles also need a runner whose SSH server settings Heimdall can
+  verify; anywhere else the runner stays owner-only.
+- **Management and transport keys are never synced, but encrypted backups can hold them**
+  (Time Machine, account backups). To replace a device, retire it and revoke it on each runner;
+  do not restore it.
+- **On Windows, start Heimdall from a normal session.** Started without the system's
+  `ProgramData` variable, its route checks fail closed and report the route unreadable.
 - **What was not run before this release:** see the release notes. Rows that needed
   machines or accounts that were not available are listed there as not run, not as passed.

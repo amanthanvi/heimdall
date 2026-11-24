@@ -7,7 +7,18 @@ Inputs, each read here:
   * build_commit: `git rev-parse HEAD` of this checkout, which must be clean (`git status
     --porcelain` empty) and, with --commit, exactly that commit. A platform output that names
     its commit (the Windows bundle's `build-commit` host fact, the controller recorder's
-    `commit=` in build.txt) must name the same one;
+    `commit=` in build.txt) must name that platform's run commit (below; default HEAD);
+  * ⟨M06 exit C10b⟩ a platform's optional `run_commit` (40 hex, exit configuration only, not the
+    record schema): the commit that platform's run was built from, when it is not HEAD. Refused
+    unless it is an ancestor of HEAD (`git merge-base --is-ancestor`); when it differs from HEAD,
+    `run_commit_reason` (non-empty text) is required, and the product drift
+    `git diff --name-only <run_commit> HEAD -- crates ':!crates/testkit'` is computed and written
+    beside the reason as `run_commit_drift` ({range, count, files}). Every drifted file must be
+    listed in the optional `run_commit_drift_allow` (the files the reason names), and every listed
+    file must have drifted: anything else is refused. The reason and the drift are appended to the
+    platform's label, "<label>; ran at <short> (<reason>; product drift <n> files <range>)", so they
+    reach the records through the label field. A platform whose outputs name no commit may still
+    give run_commit: the ancestor, reason and drift rules apply all the same;
   * the binaries' digests: every `<name> sha256: <hex>` line of the build.txt files beside a
     platform's logs (run-linux.sh, run-crosshost.sh, the Windows bundle, the controller
     recorder), and for each --bin PLATFORM:NAME=PATH the sha256 computed here (macOS: check.sh
@@ -129,24 +140,78 @@ def oldest_artifact(cfg, base):
     return min(times) if times else None
 
 
-def fill(cfg, cfg_path, started_at, commit=None, bins=None):
+def is_ancestor(commit, head, repo):
+    try:
+        r = subprocess.run(("git", "merge-base", "--is-ancestor", commit, head), cwd=repo, capture_output=True, text=True)
+    except OSError as e:
+        raise Refused(f"git failed: {e}") from None
+    if r.returncode not in (0, 1):
+        raise Refused(f"git merge-base --is-ancestor {commit} {head} failed (exit {r.returncode}): is {commit} a commit of this checkout?")
+    return r.returncode == 0
+
+
+def run_commit_facts(pname, p, head, repo):
+    """(the platform's run commit, its drift record or None); raises Refused."""
+    rc = p.get("run_commit")
+    if rc is None:
+        if p.get("run_commit_reason") or p.get("run_commit_drift_allow"):
+            raise Refused(f"{pname}: run_commit_reason or run_commit_drift_allow without run_commit")
+        return head, None
+    if not isinstance(rc, str) or not re.fullmatch(r"[0-9a-f]{40}", rc):
+        raise Refused(f"{pname}: run_commit must be 40 lowercase hex digits")
+    reason = p.get("run_commit_reason")
+    allow = p.get("run_commit_drift_allow") or []
+    if not isinstance(allow, list) or not all(isinstance(f, str) and f for f in allow):
+        raise Refused(f"{pname}: run_commit_drift_allow must be a list of file paths")
+    if not is_ancestor(rc, head, repo):
+        raise Refused(f"{pname}: run_commit {rc} is not an ancestor of HEAD {head}")
+    if rc == head:
+        if allow:
+            raise Refused(f"{pname}: run_commit is HEAD, so nothing drifted: run_commit_drift_allow must be empty")
+        return rc, None
+    if not isinstance(reason, str) or not reason.strip():
+        raise Refused(f"{pname}: run_commit {rc} is not HEAD {head} and run_commit_reason is missing or empty")
+    out = run("git", "diff", "--name-only", rc, head, "--", "crates", ":!crates/testkit", cwd=repo)
+    files = sorted(f for f in (out or "").splitlines() if f)
+    extra = sorted(set(files) - set(allow))
+    if extra:
+        raise Refused(f"{pname}: product files changed in {rc}..{head} and not in run_commit_drift_allow: {', '.join(extra)}")
+    stale = sorted(set(allow) - set(files))
+    if stale:
+        raise Refused(f"{pname}: run_commit_drift_allow names files that did not change in {rc}..{head}: {', '.join(stale)}")
+    return rc, {"range": f"{rc}..{head}", "count": len(files), "files": files, "reason": reason.strip()}
+
+
+def drift_label(label, rc, drift):
+    rng = f"{drift['range'].split('..')[0][:8]}..{drift['range'].split('..')[1][:8]}"
+    suffix = f"; ran at {rc[:8]} ({drift['reason']}; product drift {drift['count']} files {rng})"
+    return label if (label or "").endswith(suffix) else f"{label}{suffix}"
+
+
+def fill(cfg, cfg_path, started_at, commit=None, bins=None, repo=ROOT):
     """(new configuration, digests.txt text); raises Refused."""
     base = Path(cfg.get("artifacts_root", "."))
     if not base.is_absolute():
         base = ROOT / base
-    if run("git", "status", "--porcelain", "--untracked-files=no"):
+    if run("git", "status", "--porcelain", "--untracked-files=no", cwd=repo):
         raise Refused("the checkout has uncommitted changes to tracked files: the commit would not describe the build")
-    head = run("git", "rev-parse", "HEAD")
+    head = run("git", "rev-parse", "HEAD", cwd=repo)
     if commit and head != commit:
         raise Refused(f"HEAD is {head}, not --commit {commit}")
     when = parse_started_at(started_at)
     oldest = oldest_artifact(cfg, base)
     if oldest and when > oldest:
         raise Refused(f"--started-at is after the oldest artifact ({oldest.isoformat()})")
+    ran_at = {}
+    for pname, p in cfg["platforms"].items():
+        if not p.get("unavailable"):
+            ran_at[pname] = run_commit_facts(pname, p, head, repo)
     sums, commits = collect(cfg, base, bins or {})
     for pname, cs in commits.items():
-        if cs != {head}:
-            raise Refused(f"{pname}'s outputs name commit {', '.join(sorted(cs))}, not {head}")
+        want = ran_at[pname][0]
+        if cs != {want}:
+            what = "HEAD" if want == head else "its run_commit"
+            raise Refused(f"{pname}'s outputs name commit {', '.join(sorted(cs))}, not {what} {want}")
     lines = [f"{pname} {name} sha256: {h}" for pname in sorted(sums) for name, h in sums[pname]]
     digests = "\n".join(lines) + "\n"
     new = json.loads(json.dumps(cfg))
@@ -155,6 +220,11 @@ def fill(cfg, cfg_path, started_at, commit=None, bins=None):
         if not p.get("artifact_digest"):
             own = "\n".join(f"{pname} {n} sha256: {h}" for n, h in entries) + "\n"
             p["artifact_digest"] = hashlib.sha256(own.encode()).hexdigest()
+    for pname, (rc, drift) in ran_at.items():
+        if drift:
+            p = new["platforms"][pname]
+            p["run_commit_drift"] = {k: drift[k] for k in ("range", "count", "files")}
+            p["label"] = drift_label(p.get("label"), rc, drift)
     new["build_commit"] = head
     new["artifact_digest"] = hashlib.sha256(digests.encode()).hexdigest()
     new["started_at"] = started_at

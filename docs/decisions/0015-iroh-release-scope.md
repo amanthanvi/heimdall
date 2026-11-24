@@ -8,12 +8,14 @@ supported"), plan §2 ("a named experimental transport module only through the s
 failure action.
 **Inputs:** ADR-0012 §1, §2.2, §2.6, §2.7 and §12; m06-plan §3 (A26, the `n0-public` rows, the G06 closure row), §5 and §7;
 the M06 exit records (`tests/evidence/m06-*.json`, written at the exit build).
+**Amended:** ⟨2026-11-24⟩ the M06 exit review's finding M06-X-R03 (`tests/evidence/artifacts/review-m06/exit.md`): what a
+build without `iroh` refuses, narrowed in §1 and §3 to what the build does. The add-time refusal is follow-up M06-F7.
 
 ## 1. What the evidence supports today
 
 | Question | State at the M06 exit | Source |
 |---|---|---|
-| The integration itself | Built: `heimdall-transport-iroh` (iroh `=1.4.2`, `tls-ring`, no portmapper), the supervised `transport serve` child, the route helper's Iroh leg, exposure policy and admission. Behind the cargo feature `iroh`, off by default; without it every Iroh form refuses `driver_unavailable` and direct and jump routes are unaffected | `crates/heimdall/Cargo.toml` `[features]`; ADR-0012 §1 |
+| The integration itself | Built: `heimdall-transport-iroh` (iroh `=1.4.2`, `tls-ring`, no portmapper), the supervised `transport serve` child, the route helper's Iroh leg, exposure policy and admission. Behind the cargo feature `iroh`, off by default. Without it the `transport` forms refuse `driver_unavailable`; route commands accept and record Iroh legs, and using such a leg is recorded `driver_unavailable` and failed over (an all-Iroh route refuses `driver_unavailable`; contract 6.6) ⟨2026-11-24, M06-X-R03⟩. Direct and jump routes are unaffected | `crates/heimdall/Cargo.toml` `[features]`; ADR-0012 §1 |
 | A26 on loopback (routes, serve restart, failover before the identification line, exposure refusals, host pins, removal) | Runs in `e2e_exit_m06_iroh` on loopback only | the A26 record (status from the exit run) |
 | Relay through a private relay | Mechanism rows in containers (`iroh-relay --dev`); the devbox reaches it relay-only by construction | the A26 record (status from the exit run) |
 | `n0-public` (n0's relays and lookup) | The bounded capture row has not run, so the profile stays outside V1 (ADR-0012 §2.2) | m06-plan §3 |
@@ -35,8 +37,12 @@ useful to a typical owner is qualified: a public relay, a real NAT, Windows, or 
 
 ## 3. Decision: (c)
 
-- **V1's release artifacts are built without the `iroh` feature.** Their Iroh forms refuse `driver_unavailable` as today, and the
-  refusal's message says the transport is a preview available only in a source build.
+- **V1's release artifacts are built without the `iroh` feature.** Their `transport` forms refuse `driver_unavailable` as today, and the
+  refusal's message says the transport is a preview available only in a source build. ⟨2026-11-24, M06-X-R03⟩ Route commands
+  (`route add --iroh`, with its attended exposure consent) accept and record an Iroh leg in any build; in a build without `iroh`
+  using that leg is recorded `driver_unavailable` and failed over to the route's other legs, and a route whose legs are all Iroh
+  refuses `driver_unavailable` with the same preview message (ADR-0006 §18.10, ruling Q-B). Nothing leaves the host. Refusing
+  the add itself in such a build is follow-up M06-F7, a contract change for revision 7 (U3).
 - **The preview** is a source build with `--features iroh`, named "Iroh transport preview" in its help, `doctor` and docs. It keeps
   every default of ADR-0012 §2 (no public infrastructure, loopback bind, each widening a recorded local decision), offers only the
   `none` and `custom` profiles, and carries no support label on any platform.

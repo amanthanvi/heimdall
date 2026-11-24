@@ -1,0 +1,11 @@
+#2159	INITED cov: 416 ft: 1267 corp: 490/101Kb exec/s: 0 rss: 78Mb
+#531695508	REDUCE cov: 416 ft: 1267 corp: 490/95Kb lim: 70000 exec/s: 299041 rss: 475Mb L: 2198/8210 MS: 2 CrossOver-EraseBytes-
+#536870912	pulse  cov: 416 ft: 1267 corp: 490/95Kb lim: 70000 exec/s: 299092 rss: 475Mb
+#538320109	DONE   cov: 416 ft: 1267 corp: 490/95Kb lim: 70000 exec/s: 298900 rss: 475Mb
+#538320109	DONE   cov: 416 ft: 1267 corp: 490/95Kb lim: 70000 exec/s: 298900 rss: 475Mb
+Done 538320109 runs in 1801 second(s)
+stat::number_of_executed_units: 538320109
+stat::average_exec_per_sec:     298900
+stat::new_units_added:          563
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              475

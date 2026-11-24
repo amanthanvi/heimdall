@@ -41,7 +41,12 @@
 //! * `positive-control`: a key whose line (written by the test, never by the runner) also
 //!   grants agent forwarding really gets the agent forwarded: the probe reports it, the
 //!   bridge refuses the session, the runner records the downgrade, and from then on a
-//!   limited role is refused (`management_sshd_unverified`) without a restart.
+//!   limited role is refused (`management_sshd_unverified`) without a restart. ⟨M06 exit
+//!   c11⟩ Where the fixture sshd (running as this account) would put the forwarded agent's
+//!   listener under the account's real `~/.ssh/agent/` (OpenSSH 10.1 and later; the
+//!   testkit's `agent_forwarding_through_account_sshd_blocked`), this one step does not run:
+//!   it prints `m06 observation: a25 positive-control: blocked (<reason>)` and the journey
+//!   goes on to its end.
 //!
 //! **Not driven here** (`NOT-COVERED.md`): an expired invitation, a delayed join, a
 //! wall-clock rollback between authentication and `join`, and a crash between the commit
@@ -1035,74 +1040,89 @@ async fn run() {
 
     // positive-control: a line that also grants agent forwarding really forwards.
     assert_eq!(recorded_downgrade(&w.runner.home), None);
-    let control = Peer::new(
-        &w.scratch,
-        "pc",
-        MgmtKey::generate().unwrap(),
-        &w.sshd,
-        &w.account,
-    );
-    let options = owner_line
-        .split_once(" ssh-ed25519 ")
-        .map(|(options, _)| options.to_owned())
-        .unwrap();
-    let mut keys = std::fs::read_to_string(&w.keys_file).unwrap();
-    keys.push_str(&format!(
-        "{} {} fixture-positive-control\n",
-        options.replacen("restrict,", "restrict,agent-forwarding,", 1),
-        control.text
-    ));
-    std::fs::write(&w.keys_file, keys).unwrap();
-    let (control_session, _control_child) =
-        w.session(&control).await.unwrap_or_else(|e| panic!("{e}"));
-    let forwarded = w.probes(&control).await;
-    assert_eq!(
-        forwarded,
-        ProbeObservation {
-            agent_forward_refused: false,
-            ..ALL_REFUSED
-        }
-    );
-    drop(control_session);
-    assert_eq!(
-        recorded_downgrade(&w.runner.home).as_deref(),
-        Some("session_agent_forwarded")
-    );
-    // Limited roles only after verification: the running runner is owner-only now.
-    let late = Peer::new(
-        &w.scratch,
-        "lt",
-        MgmtKey::generate().unwrap(),
-        &w.sshd,
-        &w.account,
-    );
-    let pending = owner_session
-        .request(w.invite("viewer", &late, "a25-invite-late"))
-        .await
-        .unwrap();
-    assert_eq!(pending.code.as_str(), "APPROVAL_REQUIRED", "{pending:?}");
-    let refused = at_runner
-        .request(decide(&pending.next.unwrap().decision_ref.unwrap()))
-        .await
-        .unwrap();
-    assert_eq!(
-        refusal(&refused).1,
-        "management_sshd_unverified",
-        "{refused:?}"
-    );
-    observe(
-        CASE,
-        "positive-control",
-        "restricted_line_agent_forwarding=refused control_line_agent_forwarding=forwarded \
-         bridge=refused_session downgrade=session_agent_forwarded \
-         limited_role_after=management_sshd_unverified",
-    );
+    // ⟨M06 exit c11⟩ Not through an sshd that would put the listener under the account's
+    // real `~/.ssh/agent/` (the testkit guard; fail closed; its scratch-account opt-in).
+    if heimdall_testkit::sshd::agent_forwarding_through_account_sshd_blocked() {
+        observe(
+            CASE,
+            "positive-control",
+            format!(
+                "blocked ({})",
+                heimdall_testkit::sshd::FORWARDED_AGENT_BLOCKED_REASON
+            ),
+        );
+    } else {
+        let control = Peer::new(
+            &w.scratch,
+            "pc",
+            MgmtKey::generate().unwrap(),
+            &w.sshd,
+            &w.account,
+        );
+        let options = owner_line
+            .split_once(" ssh-ed25519 ")
+            .map(|(options, _)| options.to_owned())
+            .unwrap();
+        let mut keys = std::fs::read_to_string(&w.keys_file).unwrap();
+        keys.push_str(&format!(
+            "{} {} fixture-positive-control\n",
+            options.replacen("restrict,", "restrict,agent-forwarding,", 1),
+            control.text
+        ));
+        std::fs::write(&w.keys_file, keys).unwrap();
+        let (control_session, _control_child) =
+            w.session(&control).await.unwrap_or_else(|e| panic!("{e}"));
+        let forwarded = w.probes(&control).await;
+        assert_eq!(
+            forwarded,
+            ProbeObservation {
+                agent_forward_refused: false,
+                ..ALL_REFUSED
+            }
+        );
+        drop(control_session);
+        assert_eq!(
+            recorded_downgrade(&w.runner.home).as_deref(),
+            Some("session_agent_forwarded")
+        );
+        // Limited roles only after verification: the running runner is owner-only now.
+        let late = Peer::new(
+            &w.scratch,
+            "lt",
+            MgmtKey::generate().unwrap(),
+            &w.sshd,
+            &w.account,
+        );
+        let pending = owner_session
+            .request(w.invite("viewer", &late, "a25-invite-late"))
+            .await
+            .unwrap();
+        assert_eq!(pending.code.as_str(), "APPROVAL_REQUIRED", "{pending:?}");
+        let refused = at_runner
+            .request(decide(&pending.next.unwrap().decision_ref.unwrap()))
+            .await
+            .unwrap();
+        assert_eq!(
+            refusal(&refused).1,
+            "management_sshd_unverified",
+            "{refused:?}"
+        );
+        observe(
+            CASE,
+            "positive-control",
+            "restricted_line_agent_forwarding=refused control_line_agent_forwarding=forwarded \
+             bridge=refused_session downgrade=session_agent_forwarded \
+             limited_role_after=management_sshd_unverified",
+        );
+        control.agent.stop().await;
+        late.agent.stop().await;
+    }
 
     drop(at_runner);
     drop(owner_session);
     drop(viewer_session);
     drop(requester_session);
-    for peer in [owner, viewer, requester, outsider, control, late] {
+    for peer in [owner, viewer, requester, outsider] {
         peer.agent.stop().await;
     }
     drop(w);

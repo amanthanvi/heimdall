@@ -1,0 +1,11 @@
+#310	INITED cov: 600 ft: 745 corp: 171/8303b exec/s: 0 rss: 51Mb
+#620189679	REDUCE cov: 712 ft: 881 corp: 211/13440b lim: 70000 exec/s: 361415 rss: 314Mb L: 67/170 MS: 2 PersAutoDict-EraseBytes- DE: "\001\030"-
+#623031582	REDUCE cov: 712 ft: 881 corp: 211/13435b lim: 70000 exec/s: 361596 rss: 314Mb L: 148/170 MS: 3 PersAutoDict-ChangeBinInt-EraseBytes- DE: "\000\000\000M\000\000"-
+#654199887	DONE   cov: 712 ft: 881 corp: 211/13435b lim: 70000 exec/s: 363242 rss: 314Mb
+#654199887	DONE   cov: 712 ft: 881 corp: 211/13435b lim: 70000 exec/s: 363242 rss: 314Mb
+Done 654199887 runs in 1801 second(s)
+stat::number_of_executed_units: 654199887
+stat::average_exec_per_sec:     363242
+stat::new_units_added:          159
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              314

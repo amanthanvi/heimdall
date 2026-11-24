@@ -665,7 +665,7 @@ check "m06_macos_the_feature_passes_are_recorded_with_their_exit_codes_and_the_t
         grep -qxF "feature-targets=iroh: iroh_cli iroh_rt" "$1/macos/host.txt" && ! grep -q "^feature-blocked-" "$1/macos/host.txt"' _ "$O"
 check "m06_macos_check_sh_never_inherits_the_milestone_settings" grep -qxF "env feature=unset harness_dir=unset" "$O/macos/check.txt"
 check "m06_macos_the_observation_pass_ran_the_case_indexs_observation_targets" \
-    bash -c 'grep -q "^cargo test --workspace --locked --no-fail-fast --test e2e_exit_m06 -- --show-output$" "$1" && [ -f "$2/macos/observations.txt" ]' _ "$L" "$O"
+    bash -c 'grep -q "^cargo test --workspace --locked --no-fail-fast --test e2e_exit_m06 --test e2e_environment_runner_m06 -- --show-output$" "$1" && [ -f "$2/macos/observations.txt" ]' _ "$L" "$O"
 check "m06_macos_the_scratch_directory_is_removed_and_recorded" \
     bash -c 'grep -q "^exit 0: remove exactly the run.s scratch directory, then check it is absent$" "$1/macos/commands.txt"' _ "$O"
 

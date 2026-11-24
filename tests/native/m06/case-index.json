@@ -2,7 +2,8 @@
   "description": "M06-U7 case index (m06-plan §3 \"Exit mapping\"): every M06 exit case mapped to its Cargo test targets and tests, per platform, in the M02 format (tests/native/m02/case-index.json description; read by tests/native/m06/m06-evidence.py, which is m02-evidence.py with the M06 constants, as m05-evidence.py is for M05). Patterns resolve into required-inventory.json from the build host's sources, never from run logs. Platform names (m06-plan §3): linux is the devbox (\"the runner\"), macos and windows are the controllers. The exit journeys are the tests of e2e_exit_m06 and e2e_exit_m06_iroh; the latter and integration_transport_supervise_m06 have required-features = [\"iroh\"] and are built by the harnesses' feature build (HM_FEATURE=iroh), and a platform that cannot build them gets a blocked row with the exact reason (m06-evidence.py). Rows this harness cannot run are blocked_rows: owner inputs of m06-plan §7 are blocked with the input named, the container and capture rows of §3 are not_started until their own runs exist, and §5's deferred items are deferred_with_decision. ⟨M06 W5g⟩ The cross-machine \"Runner\" rows of m06-plan §3 are the scenario crosshost-journey on the scenario platform runner-crosshost (tests/native/m06/run-crosshost.sh: the Mac as controller, the devbox as runner, the management sshd reached through an ssh forward); a case that names it requires its own steps there, and a platform without that run is blocked or in_progress, never inherited from a single-host run. G06 and G07 closure rows are hand-written gate records that cite these cases; they are not groups here.",
   "build_host": "macos",
   "observation_targets": [
-    "e2e_exit_m06"
+    "e2e_exit_m06",
+    "e2e_environment_runner_m06"
   ],
   "platforms": {
     "macos": {
@@ -90,6 +91,13 @@
         "linux"
       ],
       "rationale": "#![cfg(unix)] (tests/e2e/exit_m06_iroh.rs): each journey starts runner runtimes and unprivileged fixture sshds on the same host, and the runner is Unix-only in V1 (m06-plan §5); the Windows inventory scan does not build this iroh-feature target, so the exclusion is recorded here from the source"
+    },
+    "heimdall_runtime-unit::runner::launch::tests::a_real_child_gets_exactly_the_pass_list_and_never_the_parents_agent": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (crates/runtime/src/runner_launch.rs:678): the runner's clean launch reads the account database (HOME, USER, LOGNAME, SHELL against id -un and this uid's entry) and execs a real child on Unix; the runner is Unix-only in V1 (m06-plan §5: a managed Windows remote runner is later). Found by the M06 exit generator dry run (the Windows A24 row read in_progress on its absence)"
     }
   },
   "macro_tests": {},
@@ -270,6 +278,7 @@
         }
       },
       "crosshost_note": "m06-plan §3 names the runner (the devbox, a host of its own) as a platform of this row. On one host the controller and the runner are two scratch homes of one account, so the cross-machine evidence is the journey of tests/native/m06/run-crosshost.sh (platform runner-crosshost, scenario crosshost-journey): the listed steps must pass there; until that run exists and passes the row is in_progress or blocked on it, never inherited from the single-host suite",
+      "limited_client_note": "Ruling E1 (2026-11-23): the limited management client is evidenced by the single-host limited-client tests (e2e_exit_m06 a25_roles_invitations_decisions and a25_pairing_invite_join_through_the_product_cli) and the cross-host steps a25_limited_after_verification and a25_sshd_policy_unverified (a viewer invited, approved at the runner and joined from its own controller home through the product CLI); it is not run in a container, and the record states that limit (runs.json A25 limitations). m06-plan §3/§4's container row is withdrawn under E1, not run.",
       "tests": {
         "e2e_exit_m06": [
           "a25_roles_invitations_decisions",
@@ -297,11 +306,6 @@
           "platform": "linux-arm64 runner row",
           "status": "blocked",
           "blocked_on": "a native linux-arm64 host for the arm64 runner row (m06-plan §7)"
-        },
-        {
-          "platform": "containers (Docker on the Mac, linux-arm64): the limited management client",
-          "status": "not_started",
-          "not_configured": "m06-plan §3 and §4 declare this row (a Linux container running the product client with its own K_mgmt, invited as viewer or requester); it is a container fixture run with its own artifacts, not a row of the cargo harnesses, and no such run is configured"
         },
         {
           "platform": "limited roles on a runner whose account default sshd policy fails a check",
@@ -342,18 +346,18 @@
       "blocked_rows": [
         {
           "platform": "containers (Docker on the Mac): the Iroh direct and private-relay mechanism rows and the profile's own traffic capture",
-          "status": "not_started",
-          "not_configured": "m06-plan §3 and §4 declare these rows (internal Docker networks with a private iroh-relay --dev; fixture-store runs are mechanism evidence, never product persistence); they are container fixture runs with their own artifacts, not rows of the cargo harnesses, and no such run is configured"
+          "status": "deferred_with_decision",
+          "decision": "ADR-0015 (accepted 2026-11-23, ruling E2/E1): Iroh is a preview built from source only; the container mechanism and capture rows are not run for V1"
         },
         {
           "platform": "the endpoint persistence and restart journey with verified stores (macOS Keychain dialer, a verified-store server; the devbox as SSH target, relay host and the expected no-store refusal)",
-          "status": "not_started",
-          "not_configured": "m06-plan §3 declares this row; it is a cross-host procedure with product stores, not a row of the cargo harnesses, and no such run is configured"
+          "status": "blocked",
+          "blocked_on": "owner input B3: a disposable macOS standard account for the Keychain dialer (ruling E1)"
         },
         {
           "platform": "containers (internet): the n0-public capture row",
-          "status": "not_started",
-          "not_configured": "m06-plan §1 U56 and §3: the one authorized bounded capture (one container, at most 5 minutes, ephemeral keys, an allowlist, an echo target, no sshd), recorded in tests/evidence/m06-n0-public-capture.json; n0-public stays outside V1 unless it runs"
+          "status": "blocked",
+          "blocked_on": "the owner's authorization of the one bounded n0-public capture (m06-plan §1 U56, §3; ruling E1); n0-public stays outside V1 until it runs"
         },
         {
           "platform": "Windows steps that may bind a non-loopback address (G06 §8 W4)",

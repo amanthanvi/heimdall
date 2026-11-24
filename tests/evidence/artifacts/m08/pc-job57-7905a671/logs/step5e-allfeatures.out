@@ -1,0 +1,8 @@
+<R>\c1\tools\packaging\build-release.ps1 : A parameter cannot be found that 
+matches parameter name 'AllFeatures'.
+At line:1 char:401
++ ... r '<R>\in\heimdall' -AllFeatures
++                                                              ~~~~~~~~~~~~
+    + CategoryInfo          : InvalidArgument: (:) [build-release.ps1], ParameterBindingException
+    + FullyQualifiedErrorId : NamedParameterNotFound,build-release.ps1
+ 

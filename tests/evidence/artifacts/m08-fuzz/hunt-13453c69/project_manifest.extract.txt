@@ -1,0 +1,11 @@
+#70766	INITED cov: 5525 ft: 30077 corp: 6953/5888Kb exec/s: 1415 rss: 787Mb
+#11776668	REDUCE cov: 5543 ft: 30293 corp: 7062/6080Kb lim: 154884 exec/s: 6546 rss: 904Mb L: 65/76820 MS: 1 EraseBytes-
+#11777204	REDUCE cov: 5543 ft: 30293 corp: 7062/6080Kb lim: 154884 exec/s: 6546 rss: 904Mb L: 224/76820 MS: 1 EraseBytes-
+#11782397	REDUCE cov: 5543 ft: 30293 corp: 7062/6080Kb lim: 154935 exec/s: 6545 rss: 904Mb L: 275/76820 MS: 3 InsertRepeatedBytes-ShuffleBytes-EraseBytes-
+#11783202	DONE   cov: 5543 ft: 30293 corp: 7062/6080Kb lim: 154935 exec/s: 6542 rss: 904Mb
+Done 11783202 runs in 1801 second(s)
+stat::number_of_executed_units: 11783202
+stat::average_exec_per_sec:     6542
+stat::new_units_added:          5537
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              904

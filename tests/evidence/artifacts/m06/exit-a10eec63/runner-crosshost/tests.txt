@@ -1,0 +1,136 @@
+### crosshost-journey
+
+running 32 tests
+test a24_pair ... ok
+test a24_approve ... ok
+test a24_readiness ... ok
+test a24_work_clean_launch ... ok
+test a24_controller_leaves ... ok
+test a24_onward_managed ... ok
+test a24_no_controller_socket ... ok
+test a24_bound ... ok
+test a07_pair ... ok
+test a07_issued ... ok
+test a07_disconnected ... ok
+test a07_revoke_pending ... ok
+test a07_reconnect ... ok
+test a07_barrier ... ok
+test a07_no_stale_reactivation ... ok
+test a07_pause_pending ... ok
+test a07_cutoff_pending ... ok
+test a07_uncertain_time ... ok
+test a07_fresh_work_refused ... ok
+test a07_cutoff_refused ... ok
+test t06_pair ... ok
+test t06_first_grant ... ok
+test t06_second_owner ... ok
+test t06_first_controller_gone ... ok
+test t06_narrowing ... ok
+test t06_untrusted_issuer ... ok
+test t06_own_grant ... ok
+test t06_destination_trust ... ok
+test a25_pair ... ok
+test a25_sshd_policy_verified ... ok
+test a25_limited_after_verification ... ok
+test a25_sshd_policy_unverified ... ok
+
+successes:
+
+---- a24_pair stdout ----
+m06 observation: a24 pair: controller=environment_add_on_terminal runner=remote_init_confirmed_on_terminal owner_enrolled=true issuer_trusted=true controller_record=written_by_environment_add runtime_offer=accepted_typed_yes runner_runtime=started_by_the_bootstrap_session_and_serving pairing=one_pass code=OK then_fixture=offered_runtime_stopped_by_service_stop_runner_seeded_fixture_runtime_started management_route=ssh_forward_to_runner_loopback controller_host=macos runner_host=linux k_mgmt_store=fixture_file
+
+---- a24_approve stdout ----
+m06 observation: a24 approve: admitted_by=runner_standing_policy mechanism=managed_certificate issued_by=controller_issuer_child
+
+---- a24_readiness stdout ----
+m06 observation: a24 readiness: refresh_dependency=controller status=within_bound earliest_bound=certificate_valid_before bound_within_grant_deadline=true controller_view=connected_reconciled runner_own_report=same_grant_dependency_controller runner_endpoint_identities=1
+
+---- a24_work_clean_launch stdout ----
+m06 observation: a24 work-clean-launch: launched_by=heimdall_run launcher=real_ssh_session_from_controller_host_with_agent_forwarding forwarded_agent=disposable_fixture_agent environment=clean_allowlist_only shell=account_database work_agent=binding_endpoint work_agent_lists=runner_k_env_certificate_only forwarded_agent_inherited=false forwarded_agent_provenance=controller_dependency controller=running
+
+---- a24_controller_leaves stdout ----
+m06 observation: a24 controller-leaves: controller_runtime=stopped_by_exact_pid_identity_checked issuer_child=stopped management_forward=stopped_by_exact_pid_identity_checked controller_host_listener=none
+
+---- a24_onward_managed stdout ----
+m06 observation: a24 onward-managed: login=ok credential=runner_k_env_certificate signed_by=controller_ca controller=stopped route=closed controller_gone_before_this_login=true
+
+---- a24_no_controller_socket stdout ----
+m06 observation: a24 no-controller-socket: a_controller_gone_before_onward=true controller_runtime=stopped_by_exact_pid_identity_checked management_forward=stopped_by_exact_pid_identity_checked controller_gone_at_s=1795489113 onward_login_ok_at_s=1795489114 b_at_onward_login_by_direction runner_host_outbound_to_controller_host=0 runner_host_inbound_on_management_port=0 runner_host_inbound_on_fixture_port=0 runner_host_inbound_ssh_sessions_from_controller_host=1(not_evidence_either_way;observation_channel=1) c_mgmt_sshd_connections_in_window=0 mgmt_sshd_sessions_in_window=0 window_s=21 runner_runtime_fd_table_readable=false runner_runtime_fd_table_unreadable_reason=non_dumpable_process endpoint=under_runner_home identities=1 identity=runner_k_env_certificate runner_runtime_parent_is_sshd=false runner_started_with_ssh_auth_sock=unknown runner_host_forwarded_agent_sockets=0 runner_host_outbound_to_controller_host_at_window_end=0 controller_host_processes=0 controller_host_forward_port=closed
+
+---- a24_bound stdout ----
+m06 observation: a24 bound: managed_login_at_predicted_bound=refused status=bound_passed controller=stopped
+
+---- a07_pair stdout ----
+m06 observation: a07 pair: controller=environment_add_on_terminal runner=remote_init_confirmed_on_terminal owner_enrolled=true issuer_trusted=true controller_record=written_by_environment_add runtime_offer=accepted_typed_yes runner_runtime=started_by_the_bootstrap_session_and_serving pairing=one_pass code=OK then_fixture=offered_runtime_stopped_by_service_stop_runner_seeded_fixture_runtime_started management_route=ssh_forward_to_runner_loopback controller_host=macos runner_host=linux k_mgmt_store=fixture_file
+
+---- a07_issued stdout ----
+m06 observation: a07 issued: grant=issued onward_login=ok
+
+---- a07_disconnected stdout ----
+m06 observation: a07 disconnected: connectivity=not_connected issuance=awaiting_resync management_forward=closed
+
+---- a07_revoke_pending stdout ----
+m06 observation: a07 revoke-pending: local_applied=false remote_pending=1 target=grant_revoke residual=stated acknowledged=false runner_still_serves=true
+
+---- a07_reconnect stdout ----
+m06 observation: a07 reconnect: remote_pending=0 residual_acknowledged=true residual_names_destination_clock_error=true runner_endpoint_identities=0 onward_login=refused management_forward=reopened
+
+---- a07_barrier stdout ----
+m06 observation: a07 barrier: while_disconnected=awaiting_resync after_resync=reconciled
+
+---- a07_no_stale_reactivation stdout ----
+m06 observation: a07 no-stale-reactivation: same_request_again=OK revoked_grant_identities=0 revoked_grant_readiness=none
+
+---- a07_pause_pending stdout ----
+m06 observation: a07 pause-pending: remote_pending=1 target=policy_pause
+
+---- a07_cutoff_pending stdout ----
+m06 observation: a07 cutoff-pending: remote_pending=2 target=policy_cutoff applied_on_runner_while_disconnected=false
+
+---- a07_uncertain_time stdout ----
+m06 observation: a07 uncertain-time: runner_time=not_synchronized remote_pending=0 policy_paused=applied policy_cutoff=applied
+
+---- a07_fresh_work_refused stdout ----
+m06 observation: a07 fresh-work-refused: fresh_work_id=POLICY_PAUSED issued=nothing
+
+---- a07_cutoff_refused stdout ----
+m06 observation: a07 cutoff-refused: runner_time=synchronized remote_pending=0 policy_paused=lifted_at_runner policy_cutoff=in_force fresh_work_id=POLICY_CUTOFF issued=nothing
+
+---- t06_pair stdout ----
+m06 observation: t06 pair: controller=environment_add_on_terminal runner=remote_init_confirmed_on_terminal owner_enrolled=true issuer_trusted=true controller_record=written_by_environment_add runtime_offer=accepted_typed_yes runner_runtime=started_by_the_bootstrap_session_and_serving pairing=one_pass code=OK then_fixture=offered_runtime_stopped_by_service_stop_runner_seeded_fixture_runtime_started management_route=ssh_forward_to_runner_loopback controller_host=macos runner_host=linux k_mgmt_store=fixture_file
+
+---- t06_first_grant stdout ----
+m06 observation: t06 first-grant: issued_under=first_ca identities=1
+
+---- t06_second_owner stdout ----
+m06 observation: t06 second-owner: invited_by=first_owner_environment_invite approved_by=runner_local_owner_decision_approve_on_terminal joined_with=own_key_environment_join role=owner requests=product_cli second_controller_host=macos
+
+---- t06_first_controller_gone stdout ----
+m06 observation: t06 first-controller-gone: first_controller_runtime=stopped
+
+---- t06_narrowing stdout ----
+m06 observation: t06 narrowing: effect=grant_revoke target=first_controllers_grant applied_on_runner=true acknowledged_to=second_controller
+
+---- t06_untrusted_issuer stdout ----
+m06 observation: t06 untrusted-issuer: forwarded_request=CAPABILITY_UNAVAILABLE reason=issuer_untrusted
+
+---- t06_own_grant stdout ----
+m06 observation: t06 own-grant: trusted_by=runner_local_owner_on_terminal issued_under=second_ca first_controllers_grant_identities=0
+
+---- t06_destination_trust stdout ----
+m06 observation: t06 destination-trust: destination_trusting_first_ca_only=refused destination_trusting_second_ca=ok
+
+---- a25_pair stdout ----
+m06 observation: a25 pair: controller=environment_add_on_terminal runner=remote_init_confirmed_on_terminal owner_enrolled=true issuer_trusted=true controller_record=written_by_environment_add runtime_offer=accepted_typed_yes runner_runtime=started_by_the_bootstrap_session_and_serving pairing=one_pass code=OK then_fixture=offered_runtime_stopped_by_service_stop_runner_seeded_fixture_runtime_started management_route=ssh_forward_to_runner_loopback controller_host=macos runner_host=linux k_mgmt_store=fixture_file
+
+---- a25_sshd_policy_verified stdout ----
+m06 observation: a25 sshd-policy-verified: sshd_t=host_sshd_binary_over_fixture_config exit=0 agent_forwarding=no tcp_forwarding=no accept_env_all=false force_command=none authorized_keys_command=none
+
+---- a25_limited_after_verification stdout ----
+m06 observation: a25 limited-after-verification: invited_role=viewer runner_approval=OK joined=environment_join_on_terminal viewer_record_role=viewer requests=product_cli viewer_host=macos
+
+---- a25_sshd_policy_unverified stdout ----
+m06 observation: a25 sshd-policy-unverified: authorized_keys_command=management_sshd_unverified force_command=management_sshd_unverified accept_env_all=management_sshd_unverified refused_at=runner_local_approval runner_installations=one_per_variant policy_check=host_sshd_T_over_variant_config owner_pairing_on_each=ok live_sshd_with_variant=not_run
+
+test result: ok. 32 passed; 0 failed; 0 ignored
+### crosshost-journey exit=0

@@ -75,10 +75,12 @@ impl Drop for Root {
     }
 }
 
-/// A temporary Heimdall home and its scratch login root.
+/// A temporary Heimdall home, its scratch login root, and the scratch account home and
+/// fixture key stores of every `heimdall` it starts (AGENTS.md "Boundaries").
 struct World {
     home: tempfile::TempDir,
     root: Root,
+    scratch: tempfile::TempDir,
 }
 
 #[derive(Debug)]
@@ -103,6 +105,7 @@ impl World {
         Self {
             home: tempfile::Builder::new().prefix("hdm").tempdir().unwrap(),
             root: Root::new(),
+            scratch: tempfile::Builder::new().prefix("hds").tempdir().unwrap(),
         }
     }
 
@@ -114,15 +117,53 @@ impl World {
         installation_token(&self.state_dir())
     }
 
+    /// The binary with a cleared environment: the platform minimum, a scratch `HOME`
+    /// (`USERPROFILE` on Windows) that is also `HEIMDALL_TEST_SSH_HOME`, the three fixture
+    /// key stores, this world's `HEIMDALL_HOME` and its `HEIMDALL_TEST_LOGIN_ROOT`.
     fn command(&self, args: &[&str]) -> Command {
+        let account = self.scratch.path().join("account");
+        let iroh = self.scratch.path().join("iroh");
+        for dir in [&account, &iroh] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
         let mut cmd = Command::new(bin());
-        cmd.arg("--json").args(args);
-        for (k, _) in std::env::vars_os() {
-            if k.to_string_lossy().starts_with("HEIMDALL_TEST_") {
-                cmd.env_remove(k);
+        cmd.arg("--json").args(args).env_clear();
+        let carried: &[&str] = if cfg!(windows) {
+            &[
+                "SystemRoot",
+                "SystemDrive",
+                "windir",
+                "ComSpec",
+                "PATHEXT",
+                "PATH",
+                "TEMP",
+                "TMP",
+            ]
+        } else {
+            // TMPDIR: on macOS the suite runs with TMPDIR=/tmp (module docs).
+            &["TMPDIR"]
+        };
+        for k in carried {
+            if let Some(v) = std::env::var_os(k) {
+                cmd.env(k, v);
             }
         }
-        cmd.env("HEIMDALL_HOME", self.home.path())
+        if !cfg!(windows) {
+            cmd.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+        }
+        cmd.env("HOME", &account)
+            .env("USERPROFILE", &account)
+            .env("HEIMDALL_TEST_SSH_HOME", &account)
+            .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
+            .env(
+                "HEIMDALL_TEST_MGMT_STORE",
+                format!(
+                    "fixture-file:{}",
+                    self.scratch.path().join("k_mgmt.fixture").display()
+                ),
+            )
+            .env("HEIMDALL_TEST_IROH_KEY_STORE", &iroh)
+            .env("HEIMDALL_HOME", self.home.path())
             .env("HEIMDALL_TEST_LOGIN_ROOT", &self.root.path)
             .stdin(Stdio::null());
         cmd

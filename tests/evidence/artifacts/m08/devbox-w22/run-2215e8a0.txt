@@ -1,0 +1,35 @@
+== stategen-unit
+== stategen-unit: exit 0
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+== stategen-faults
+== stategen-faults: exit 0
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.70s
+
+== install-selftest-sh
+== install-selftest-sh: exit 0
+ok   R10: a prefix beginning with a dash is a directory, not an option
+install-selftest: PASS
+== provenance-selftest
+== provenance-selftest: exit 2
+provenance: No such file or directory
+== agent-delay-selftest
+== agent-delay-selftest: exit 1
+FAIL a replaced upstream socket is refused at connect time
+agent-delay self-test: 1 failed of 10
+== run-campaign-selftest
+== run-campaign-selftest: exit 0
+ok   run refuses in the local mode
+run-campaign-selftest: PASS (16 checks)
+== verify-artifact-selftest
+== verify-artifact-selftest: exit 0
+verify_artifact self-test: 49 cases, 0 failed
+== analyze-selftest
+== analyze-selftest: exit 0
+analyze self-test: 9 cases, 0 failed
+== docs-commands-selftest
+== docs-commands-selftest: exit 0
+docs_commands_check self-test: 9 cases, 0 failed
+== docs-commands-check
+== docs-commands-check: exit 0
+docs_commands_check: 11 files, 0 unknown, 6 planned (unchecked)

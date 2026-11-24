@@ -1,0 +1,2 @@
+﻿FAILED a24_pair: first_pass_prompted=false wanted=true code=CAPABILITY_UNAVAILABLE reason=ssh_client_not_started exit=4 envelope=present error_fields=code,effect_status,message,next,reason,retryable message=this controller?s environment has no ProgramData variable, which the Windows OpenSSH client needs before it ca
+### windows-controller-journey exit=1 (0 of 10 steps passed; cleanup clean)

@@ -1,0 +1,2 @@
+canary-prefix occurrences in saved output: 0
+leak-scan: 0 artifact(s) with a home path, user or host name
