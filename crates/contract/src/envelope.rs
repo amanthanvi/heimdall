@@ -1033,6 +1033,10 @@ pub mod reason {
     /// ⟨rev7⟩ `CAPABILITY_UNAVAILABLE`: exposure or admission state disabled by a restore
     /// (ADR-0014 H10).
     pub const EXPOSURE_DISABLED_AFTER_RESTORE: &str = "exposure_disabled_after_restore";
+    /// ⟨rev7⟩ `INTERACTION_REQUIRED` (next `interact`): a local widening (`route add`,
+    /// `transport enable`, `transport adopt-roost`) asked for without an attended owner, which
+    /// it needs (ADR-0006 §18.9 item 10, deferred there to revision 7; ruled 2026-11-24).
+    pub const LOCAL_WIDENING_NEEDS_ATTENDED_OWNER: &str = "local_widening_needs_attended_owner";
     /// ⟨rev7⟩ `REQUEST_STALE` (declared code): a mutating request whose epoch is not the
     /// current one (ADR-0014 H13, §3.6 step 3; U0-Q5); and `DECISION_STALE` (`fix_request`): a
     /// decision reference minted under an older epoch with no carried record (§3.6 step 2).
@@ -1058,6 +1062,10 @@ pub mod reason {
         (DECISION_DENIED, Code::CapabilityUnavailable),
         (PROBES_UNAVAILABLE, Code::CapabilityUnavailable),
         (PROBE_INCONCLUSIVE, Code::DestinationUnreachable),
+        (
+            LOCAL_WIDENING_NEEDS_ATTENDED_OWNER,
+            Code::InteractionRequired,
+        ),
         (STATE_CORRUPT, Code::StateUnavailable),
         (STATE_NEWER_THAN_BUILD, Code::StateUnavailable),
         (LEDGER_DAMAGED, Code::StateUnavailable),

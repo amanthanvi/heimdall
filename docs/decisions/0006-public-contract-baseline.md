@@ -2712,7 +2712,7 @@ release --request-id` arrive with their checks); H11 (M08 U3c), H12 and H15 (U2b
 |---|---|---|---|
 | D1 | Typed views for every untyped read: `inspect` subjects, `status`, `service-status`, `operation`, the subscription head, the stream line, `environment status` and `GrantResidual` (Q14); keys kept, subject metadata kept | `contract::views`; `tests/contracts/rev7_views.rs` | U3 builders (PC2) |
 | D2 | `pages/1` declared, not offered; `PageRequest`, `Select`, `Page`, `Selection`, `PageToken`; the limits | `contract::page`, `ipc::capability::PAGES_V1` | U3 |
-| D3 | The command-tree golden; M06's names are in | `heimdall::cli_tree_tests`, `golden/command-tree.golden.txt` | — |
+| D3 | The command-tree golden; M06's names are in. **E8 (ruled 2026-11-24):** revision 7 gives the hidden endpoints no declarative flags; `route connect`, `transport serve` and `remote serve` stay hidden, frozen integration endpoints that take trailing arguments as today. Human help text is not frozen: the golden pins paths and flags, the help lint the text rules | `heimdall::cli_tree_tests`, `golden/command-tree.golden.txt` | — |
 | D4 | `EventSnapshot` and its caps | `contract::event` | U3 (PC1) |
 | D5 | `EventPayload`, every key as emitted; the emission-site registry | `contract::event_payload`; `tests/contracts/rev7_events.rs`, `golden/event-emission-sites.json` | — |
 | D6 | `ResyncReason`; the resync reasons | `contract::event`, `envelope::reason` | U3 (PC5, PC6, PC9, PC10) |
@@ -2720,7 +2720,7 @@ release --request-id` arrive with their checks); H11 (M08 U3c), H12 and H15 (U2b
 | D8 | The reason table: every error reason with every code it is emitted under; pending, resync and warning reasons apart; `declared_codes` | `contract::reasons` | — |
 | D9 | The per-field inventory | `golden/views-null-inventory.md` | U3 (PC3) |
 | D10 | — (the views carry no new field yet) | — | U3 |
-| D11 | Ruled (Q12): M06's `route_health` and `host_pin_defeated` on each `inspect destinations` item are D11, omitted when there is no report; typed in the destinations view. ADR-0010 §10's per-pair dependency status is `deferred_with_decision` past 1.0 (the consumer has `route_dependency_out_of_scope` and `route_undetermined`) | `contract::views::catalog` | U3 (a test of the emitted `route` event) |
+| D11 | Ruled (Q12): M06's `route_health` and `host_pin_defeated` on each `inspect destinations` item are D11, omitted when there is no report; typed in the destinations view. `route_health` is the latest report per destination, ignoring `account`, held in memory since the runtime started, and omitted when there is no report (D9). ADR-0010 §10's per-pair dependency status is `deferred_with_decision` past 1.0 (the consumer has `route_dependency_out_of_scope` and `route_undetermined`) | `contract::views::catalog` | U3 (a test of the emitted `route` event) |
 | D12 | The `service-status` view; `runtime_not_running`, `runtime_unreachable` (H14), `endpoint_untrusted` | `contract::views::status`, `envelope::reason::REV7` | U3 |
 | D13 | `destination_has_live_access`; `LiveAccessRefusal` | `contract::envelope` | U3 with U8b |
 | D14 | The help lint, with no exemption left; `cli.rs` help rewritten, and `m06_cmd.rs`'s `remote` help strings once M06's exit was on this branch (review R08(f)) | `heimdall::cli_tree_tests` | — |
@@ -2856,6 +2856,14 @@ dropped records retried without its epoch could run again).
   `probe_inconclusive` (`DESTINATION_UNREACHABLE`) to the inconclusive probe (`:1435`, `:1571`).
   Carrying the managed adapter's reasons through the port is a
   live change, listed for U3.
+- **M06's handoff (`docs/architecture/m06-u0-handoff.md`; ruled 2026-11-24):**
+  - **M06-F7:** `route add` with an Iroh leg in a build without the driver is refused
+    `CAPABILITY_UNAVAILABLE` / `driver_unavailable`, with the preview message, before any
+    decision is recorded. The command tree is unchanged; rows a source build wrote keep the
+    failover (6.6). U3 implements it.
+  - **§18.9 item 10's reason:** an unattended local widening's `INTERACTION_REQUIRED` carries
+    `local_widening_needs_attended_owner` (`reason::REV7`, next `interact`). Declared, not
+    emitted; U3 adds the emitter.
 
 ### 19.6 Provisional ratifications (D16–D18) and decision-backed replay
 
@@ -2867,6 +2875,9 @@ dropped records retried without its epoch could run again).
     its ID and the exact delta; one pending record per digest; a terminal, claimed or expired
     record is never replayed, and a repeat is evaluated afresh against the current state (a still
     widening request gets a new decision; otherwise it runs, e.g. `already_present`).
+  - The `runner_local.*` forms (§18.7's `trust_issuer`, `enroll_owner`) are **not**
+    decision-backed replay (ruled 2026-11-24): `request_id` is advisory and a repeat converges by
+    result.
   - `route add`, `transport enable` and `transport adopt-roost` are owner commands with no
     `--request-id`: each run is a new request, idempotent in effect. ADR-0013 §7's "agents always
     pass `--request-id`" covers the agent primitives only. Their frames carry the frame-level epoch,

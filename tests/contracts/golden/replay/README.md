@@ -38,6 +38,11 @@ export); a dump whose build did not is discarded and rebuilt. Every binary's SHA
 | — | HEAD after the M06 build (`723c4cd8`, worktree sources touched) | — | 14 | 20, equal | `18ec7f15d4f57a26518cff2697e9ca6a29e63aa8fb1a56a89ece4a488ce18e2e` |
 | — | HEAD after the first three builds (`a0cd29f2`, worktree sources touched) | — | 14 | 20, equal | `8425422fd8e4cde3ae9f5c560270732b384ec568ea0e470911dda708c9abce18` |
 
+The M06 dump comes from exit build 2 (`9399e768`); M06's build of record is exit build 4
+(`aa87c34c`). `git diff --stat 9399e768 aa87c34c -- crates` touches only
+`crates/testkit/src/sshd.rs` and a `#[cfg(test)]` block in `crates/localenv/src/sys/openssh_env.rs`,
+so the product code that wrote these rows is identical to exit build 4's.
+
 Workspace members outside the `heimdall` graph (not built by `-p heimdall`): none at M02, M03
 and M04/M05; `heimdall-stategen` and `heimdall-support` at M06 and at HEAD.
 

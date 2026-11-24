@@ -404,6 +404,11 @@
       "reason": "local_owner_required"
     },
     {
+      "code": "INTERACTION_REQUIRED",
+      "next_action": "interact",
+      "reason": "local_widening_needs_attended_owner"
+    },
+    {
       "code": "CAPABILITY_UNAVAILABLE",
       "next_action": "narrow_request",
       "reason": "lock_continuity_unverified"
