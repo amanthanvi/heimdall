@@ -177,7 +177,7 @@
         {
           "platform": "windows-11 TUI standalone (ConPTY variant)",
           "status": "blocked",
-          "blocked_on": "the ConPTY variant of tui_standalone_access_and_stop is not written yet (m07-plan §6, U1); a later M07 wave"
+          "blocked_on": "the ConPTY variant of tui_standalone_access_and_stop is not written yet (m07-plan §6, the TUI standalone row: Windows (ConPTY variant)); a later M07 wave, by ruling (2026-11-23)"
         }
       ]
     }
