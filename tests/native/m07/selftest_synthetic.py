@@ -374,7 +374,14 @@ class CleanRun(unittest.TestCase):
         self.assertNotIn("verified", {r["status"] for r in rows(summary, "A32") if r["platform"].startswith("windows-11 reference wrapper")})
 
     def test_the_deferred_row_stays_deferred_and_never_counts(self):
-        index = without_index_rows(reduced_index(), keep=("deferred_with_decision",))
+        # A synthetic deferred row: the case index carries none since W9's PC run (job 56) proved
+        # task 5's Windows endpoint login.
+        index = without_index_rows(reduced_index())
+        index["groups"]["A32"].setdefault("blocked_rows", []).append({
+            "platform": "windows-11 synthetic deferred row",
+            "status": "deferred_with_decision",
+            "decision": "synthetic: deferred by ruling; the isolated set uses IdentityAgent=none",
+        })
         s = Scratch(self, index=index)
         rc, summary, err = s.run()
         self.assertEqual(rc, 0, err)

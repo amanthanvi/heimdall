@@ -174,14 +174,9 @@
           "platform": "windows-11 reference wrapper journey over the named pipe",
           "status": "blocked",
           "blocked_on": "verified-hello discovery (ADR-0013 D12, U3, revision 7)"
-        },
-        {
-          "platform": "windows-11 task 5's login through the binding's own signing endpoint",
-          "status": "deferred_with_decision",
-          "decision": "by ruling (2026-11-23): on Windows nothing between `run` and the in-box ssh.exe can check that SSH_AUTH_SOCK names the disposable agent, so the isolated set uses IdentityAgent=none; proven on Unix only (WINDOWS_HELD in tests/e2e/harness_m07.rs) W9e builds the proof (the wrapper accepts the binding's declared pipe from its runtime only); the row stays deferred until the PC run passes, then the generator decides it."
         }
       ],
-      "note": "The Python suites of examples/reference-wrapper, examples/harnesses/cli and examples/harnesses/goal-loop run through tools/validation/check.sh and on Windows in the PC job. Held for revision 7: the wrapper's skew run against the M06 exit build, H2's call set from `schema show primitives` (U4b, U5h), pages and the A19 contract rows (U3). A32's LLM metrics are M09-T02. On Windows, task 5 shows two logins, named apart in the journey's output: the endpoint login (task 5's `run` child, a scratch hm-pinned-ssh that uses the binding's own signing endpoint, checked by name, by the pipe server's PID and start time and by `ssh -G`: `a32 endpoint login <harness>-child: logins 1, other keys offered: 0`) and the isolated in-box login the driver makes itself after each harness, outside `heimdall run` (`a32 isolated login <harness>-child: logins 1`)."
+      "note": "The Python suites of examples/reference-wrapper, examples/harnesses/cli and examples/harnesses/goal-loop run through tools/validation/check.sh and on Windows in the PC job. Held for revision 7: the wrapper's skew run against the M06 exit build, H2's call set from `schema show primitives` (U4b, U5h), pages and the A19 contract rows (U3). A32's LLM metrics are M09-T02. On Windows, task 5 shows two logins, named apart in the journey's output: the endpoint login (task 5's `run` child, a scratch hm-pinned-ssh that uses the binding's own signing endpoint, checked by name, by the pipe server's PID and start time and by `ssh -G`: `a32 endpoint login <harness>-child: logins 1, other keys offered: 0`) and the isolated in-box login the driver makes itself after each harness, outside `heimdall run` (`a32 isolated login <harness>-child: logins 1`). Both seen on Windows in PC job 56 at d3d7afde, for h1 and h2."
     },
     "CLI-standalone": {
       "title": "CLI standalone: access and stop through the CLI only",
@@ -232,7 +227,7 @@
           ]
         }
       },
-      "note": "Windows (ConPTY variant): windows_console::windows_tui_standalone_access_and_stop covers the whole journey, the connect handoff (c) included, through the debug pinned-client redirect (HEIMDALL_TEST_PINNED_CLIENT, testkit's hm-pinned-ssh with its argument record) against the harness fixture sshd (HM_FIXTURE_SSHD_*)."
+      "note": "Windows (ConPTY variant): windows_console::windows_tui_standalone_access_and_stop covers the whole journey, the connect handoff (c) included, through the debug pinned-client redirect (HEIMDALL_TEST_PINNED_CLIENT, testkit's hm-pinned-ssh with its argument record) against the harness fixture sshd (HM_FIXTURE_SSHD_*). Observation limit: the console capture does not carry the wrapper's stderr, so its `checked:` line and ssh's exit line are not in the Windows log; the test's own assertions (the argument record, the login count, `tui standalone console: other keys offered: 0`) carry the row (PC job 56 at d3d7afde)."
     }
   },
   "exit_claims": {}
