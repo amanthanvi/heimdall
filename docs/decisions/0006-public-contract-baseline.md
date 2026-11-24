@@ -2882,16 +2882,18 @@ dropped records retried without its epoch could run again).
 
 ### 19.8 Proofs
 
-- `cargo test -p heimdall-contract`: `contracts::rev7::{primitive_index_names_six_groups_with_known_schemas_codes_and_capabilities, reason_table_lists_every_reason_with_its_codes, revision_7_capabilities_are_declared_not_offered}`; `contracts::rev7_events::{event_payload_schema_covers_every_emission_site, emission_scan_self_check}`; `contracts::rev7_views` (every view reads today's documents; re-serialization drops only PC3 fields); `contracts::schema_export::{checked_in_public_api_matches_the_model_exactly, declared_schemas_are_disjoint_from_the_public_ones}` and the keyword and tolerance checks over the declared schemas; unit tests in `page`, `primitives`, `event_payload`, `lifecycle`, `request_state`.
+- `cargo test -p heimdall-contract`: `contracts::rev7::{primitive_index_names_six_groups_with_known_schemas_codes_and_capabilities, reason_table_lists_every_answer_with_its_code_and_next_action, revision_7_capabilities_are_declared_not_offered}`; `contracts::rev7_events::{event_payload_schema_covers_every_emission_site, emission_scan_self_check}`; `contracts::rev7_views` (every view reads today's documents; re-serialization drops only PC3 fields); `contracts::schema_export::{checked_in_public_api_matches_the_model_exactly, declared_schemas_are_disjoint_from_the_public_ones}` and the keyword and tolerance checks over the declared schemas; unit tests in `page`, `primitives`, `event_payload`, `lifecycle`, `request_state`.
 - `cargo test -p heimdall --bin heimdall`: `cli::tree_tests::{command_tree_matches_its_golden, help_text_names_no_milestone_adr_or_section, help_lint_self_check}`; `rev7_cmd::tests::{every_declared_command_answers_not_available_and_touches_nothing, only_inspect_request_takes_an_id}`.
 - `cargo test -p heimdall-store`: `migrations::tests::restore_epoch_step_keeps_every_row_at_epoch_zero_and_rolls_back_whole`; `tests::catalog_aliases_are_unique_without_case_at_write`.
-- The replay corpus: `stored_samples_replay_through_revision_7_readers` (§19.9).
+- `cargo test -p heimdall-store --test contracts_replay`: `stored_samples_replay_through_revision_7_readers` (§19.9); the driver's self-test `tests/contracts/test_replay_journey.py` (the `check.sh` step `replay-driver-selftest`).
 
 ### 19.9 The replay corpus
 
 Real prior-version rows (ADR-0013 §1.3): scratch stores written by the M02 (`e4f43f84`), M03
-(`2b79aac1`), M04/M05 (`50dbc86b`) and M06 exit builds running one short fixed journey, kept as
-SQL text dumps under `tests/contracts/golden/replay/`, migrated forward by the production
-migrations and read back through the store's readers and revision 7's decoders, plus
-hand-authored rows for every historical shape no journey produces. The recipe is
-`docs/architecture/u0-plan.md` §5.
+(`2b79aac1`) and M04/M05 (`50dbc86b`) exit builds running one short fixed journey, kept as SQL
+text dumps under `tests/contracts/golden/replay/`, migrated forward by the production migrations
+and read back through the store's readers and revision 7's typed payloads, plus hand-authored
+rows (`hand/`) for the historical shapes no journey produces. **The M06 exit build's dump is not
+landed yet** (it follows M06's final exit SHA). Each build's genuineness (its `heimdall` build
+graph equals the crates cargo compiled; every binary's SHA-256 differs) is recorded in
+`tests/contracts/golden/replay/README.md`. The recipe is `docs/architecture/u0-plan.md` §5.

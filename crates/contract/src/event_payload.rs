@@ -5,8 +5,9 @@
 //! write, with optional keys (`?`, absent on some forms) and nullable keys (`|null`, written as
 //! JSON `null`) kept apart. It was derived from every emission site
 //! (`tests/contracts/golden/event-emission-sites.json`, checked by
-//! `event_payload_schema_covers_every_emission_site`) and the replay corpus
-//! (`stored_samples_replay_through_revision_7_readers`). **Declared:** [`Event::payload`]
+//! `event_payload_schema_covers_every_emission_site`) and is checked against stored rows by
+//! the replay corpus (`stored_samples_replay_through_revision_7_readers`, the M02, M03 and
+//! M04/M05 exit builds' stores and the hand-authored historical shapes). **Declared:** [`Event::payload`]
 //! stays a `serde_json::Value`, so no published schema of a live document changes; a reader
 //! decodes with [`EventPayload::decode`]. Persisted payloads are unchanged (D9): a nullable key
 //! serializes as `null`, an optional key is omitted when absent.

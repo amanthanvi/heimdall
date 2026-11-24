@@ -183,6 +183,12 @@ run_step evidence-selftest env PYTHONDONTWRITEBYTECODE=1 \
 run_step evidence-records env PYTHONDONTWRITEBYTECODE=1 \
     python3 -I tools/validation/validate-records.py
 
+# ⟨rev7⟩ U0 (ADR-0013 §1.3): the replay corpus driver (tests/contracts/replay_journey.py)
+# refuses a store dump that holds a home path, the account's user name, a canary or key armor.
+# Self-test only: it calls the refusal on built strings and runs no binary.
+run_step replay-driver-selftest env PYTHONDONTWRITEBYTECODE=1 \
+    python3 -I -B -m unittest discover -s tests/contracts -p "test_replay_journey.py"
+
 # ⟨M07 U4⟩ m07-plan §5: the optional agent skill names only commands the CLI has (the
 # debug binary the test step built answers `<path> --help`, in a scratch home), and never
 # an approval, a boundary escape or real data. Self-checks against a known-bad skill first.

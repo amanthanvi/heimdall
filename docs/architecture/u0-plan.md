@@ -296,8 +296,9 @@ template `tests/e2e/cli_m01.rs` `every_exit_class_0_to_7_is_observed_through_the
    `access cutoff pol --at 2099-01-01T00:00:00Z`; `access cutoff pol --clear` (pending).
 6. `access release <binding>`; `access revoke <grant> --request-id rv1`.
 7. A second home with `HEIMDALL_TEST_SLOW_PREPARE_MS` for `--async` then `operation cancel`; a
-   third with `lose_reply` for `OUTCOME_UNKNOWN` and its same-key retry; a fourth with a stage
-   failure (`failed`).
+   third with `lose_reply` for `OUTCOME_UNKNOWN` and its same-key retry. (A stage-failure home
+   was dropped: it only replayed an injected `INTERNAL_ERROR`; the denied approval gives the
+   failed operation.)
 8. Per build: M03+ `access lock-behavior` and `access connection-policy`, a `session_lock` event
    from the lock file; M04/M05+ `access stop --work`, `access default-profile`, `access allow`;
    M06 a local widening (`route add --iroh … --relay …` on a pty, writes a record, dials nothing).
@@ -330,6 +331,12 @@ projection, supervisor); `enrollment`, `connection`, `route` and `client` events
 other than `approve_authority`, `widen_policy` and `confirm_time`; a lapsed `pending` decision with
 a past `expires_at` (no build before M06 writes `expired`); and every shape D5's emission
 inventory finds that no journey produces.
+
+**As built:** each export is touched after `git archive` (its commit-time mtimes would let cargo
+reuse another SHA's artifacts with the same unit hash), and the worktree's sources are touched
+before HEAD is rebuilt. Each build's genuineness is recorded in
+`tests/contracts/golden/replay/README.md`: the workspace crates of its `heimdall` build graph
+equal the crates cargo compiled, and every binary's SHA-256 differs.
 
 **Order:** M02, M03 and M04/M05 now; M06 when the contract owner sends its SHA.
 
