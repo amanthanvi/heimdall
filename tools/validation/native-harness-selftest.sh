@@ -36,6 +36,8 @@
 #   M06  tests/native/m06/selftest.sh (the evidence generator over synthetic logs, the wrappers, the
 #        iroh-feature build helpers and the Linux and macOS harnesses with the feature in a fake
 #        world; listed in that file's header).
+#   M07  tests/native/m07/selftest.sh (the evidence generator over synthetic logs, its own modes and
+#        the inventory wrapper; listed in that file's header).
 #   M05W tests/native/m05/run-wsl-hook-windows.ps1 -SelfTest (the WSL hook harness's helpers, its
 #        reuse of the M02 and M04 runners' functions, `bash -n` of the scripts it sends into the
 #        distribution), when pwsh is available; the synthetic bundle it writes is then imported
@@ -489,6 +491,28 @@ if [ -f "$m06_dir/selftest.sh" ]; then
     fi
 else
     check "M06 selftest: tests/native/m06/selftest.sh exists" false
+fi
+
+# --- M07 harnesses (m07-plan U9 "exit suite, evidence and ratification") -------------------------
+
+m07_dir="$root/tests/native/m07"
+if [ -f "$m07_dir/selftest.sh" ]; then
+    bash "$m07_dir/selftest.sh" >"$T/m07-selftest.out" 2>&1 </dev/null
+    m07_rc=$?
+    cat "$T/m07-selftest.out"
+    m07_line=$(grep '^m07-selftest: ' "$T/m07-selftest.out" | tail -1)
+    m07_pass=$(printf '%s\n' "$m07_line" | sed -n 's/^m07-selftest: \([0-9][0-9]*\) passed.*/\1/p')
+    m07_fail=$(printf '%s\n' "$m07_line" | sed -n 's/^m07-selftest: [0-9][0-9]* passed, \([0-9][0-9]*\) failed.*/\1/p')
+    if [ -n "$m07_pass" ] && [ -n "$m07_fail" ]; then
+        passes=$((passes + m07_pass))
+        fails=$((fails + m07_fail))
+        check "M07 selftest: its exit code agrees with its totals ($m07_pass passed, $m07_fail failed)" \
+            exit_agrees "$m07_rc" "$m07_fail"
+    else
+        check "M07 selftest: it ran to its summary line" false
+    fi
+else
+    check "M07 selftest: tests/native/m07/selftest.sh exists" false
 fi
 
 # --- M04 harnesses (ADR-0010 §11; the Mode B native rows) ---------------------------------

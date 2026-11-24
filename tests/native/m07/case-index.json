@@ -1,5 +1,6 @@
 {
-  "description": "M07 case index, GROUNDWORK (wave 8; m07-plan §6 \"Exit mapping\"): the M07 rows that exist today mapped to their Cargo test targets and tests, per platform, in the M02 format (tests/native/m02/case-index.json description). No generator reads this file yet: U9 adds tests/native/m07/m07-evidence.py (as m05 and m06 did) and the records. Rows that depend on revision 7 (U3's A19 contract tests, U4b, the U5b and U5h remainders, U6, U7) are not listed until they exist. Platform names: macos (the build host), linux (the devbox), windows (Windows 11 native).",
+  "description": "M07 case index, GROUNDWORK (wave 8; m07-plan §6 \"Exit mapping\"): the M07 rows that exist today mapped to their Cargo test targets and tests, per platform, in the M02 format (tests/native/m02/case-index.json description). Read by tests/native/m07/m07-evidence.py (wave 9c; m02-evidence.py with the M07 constants, as m05 and m06 did); the records are U9's. Rows that depend on revision 7 (U3's A19 contract tests, U4b, the U5b and U5h remainders, U6, U7) are not listed until they exist. Platform names: macos (the build host), linux (the devbox), windows (Windows 11 native).",
+  "build_host": "macos",
   "platforms": {
     "macos": {
       "runs": "cargo"
@@ -32,6 +33,33 @@
         "linux"
       ],
       "rationale": "#[cfg(unix)]: the seven tasks with the Unix fixtures. Windows runs tasks 1-7 as journey::both_harnesses_use_existing_access_on_windows (1, 2, 5, 6, 7) and journey::both_harnesses_use_the_fixture_adapter_on_windows (3, 4) (A32 platform_required)."
+    },
+    "e2e_m07_powershell_hook::powershell_hook_bounds_child_exit_and_inherited_stdout": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)]: Unix shell stubs exercise both timeout paths without compiling an executable. The hook's stdout and startup rows on Windows are powershell_hook_writes_nothing_to_stdout, powershell_hook_startup_with_an_unreachable_runtime and powershell_hook_activates_and_warms_the_default (A27-M07 platform_required)."
+    },
+    "e2e_m07_powershell_hook::powershell_hook_ignores_start_failures_and_failed_answers": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)]: the start-failure stubs are Unix shell scripts with their mode bits set; Windows exercises a failing start through powershell_hook_missing_executable_leaves_the_error_history_alone."
+    },
+    "e2e_cli_m07::enrollment_wait_explains_an_interrupted_step": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)]: the interrupted enrollment step is a Unix shell stub with its mode bits set; the explained-wait wording itself runs on Windows in cli_sync_wait_explains_itself."
+    },
+    "e2e_tui_m07::windows_console::": {
+      "platforms": [
+        "windows"
+      ],
+      "rationale": "#[cfg(windows)]: the TUI on a Windows pseudoconsole through heimdall_testkit::console::TerminalCommand (A20's and the TUI standalone row's Windows tests); their Unix rows are the pty:: cases."
     }
   },
   "groups": {
@@ -47,7 +75,8 @@
           "pty::resize_then_yes_before_redraw_stops_nothing",
           "pty::roundtrip_resize_before_redraw_triggers_nothing::*",
           "pty::idle_tui_writes_nothing_between_minute_ticks",
-          "pty::a_stopped_runtime_is_shown_as_stale_not_ready"
+          "pty::a_stopped_runtime_is_shown_as_stale_not_ready",
+          "windows_console::windows_tui_walkthrough*"
         ]
       },
       "declared_platforms": [
@@ -82,7 +111,6 @@
         "windows": {
           "e2e_m07_powershell_hook": [
             "powershell_hook_writes_nothing_to_stdout",
-            "powershell_hook_bounds_child_exit_and_inherited_stdout",
             "powershell_hook_startup_with_an_unreachable_runtime",
             "powershell_hook_activates_and_warms_the_default"
           ]
@@ -165,7 +193,8 @@
       ],
       "tests": {
         "e2e_tui_m07": [
-          "pty::tui_standalone_access_and_stop"
+          "pty::tui_standalone_access_and_stop",
+          "windows_console::windows_tui_standalone*"
         ]
       },
       "declared_platforms": [
@@ -182,5 +211,6 @@
       },
       "note": "Windows (ConPTY variant): windows_console::windows_tui_standalone_access_and_stop covers the whole journey, the connect handoff (c) included, through the debug pinned-client redirect (HEIMDALL_TEST_PINNED_CLIENT, testkit's hm-pinned-ssh with its argument record) against the harness fixture sshd (HM_FIXTURE_SSHD_*)."
     }
-  }
+  },
+  "exit_claims": {}
 }
