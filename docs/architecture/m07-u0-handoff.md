@@ -1,7 +1,9 @@
 # M07 U0 handoff list
 
-**Status:** prepared 2026-11-22 by the M07 integrator for the contract owner, to be ruled on together
-when M06's contract closes. Docs only: nothing here is applied. Sources: ADR-0013 (revision 3) §11 to
+**Status:** prepared 2026-11-22 by the M07 integrator for the contract owner; **ruled 2026-11-24**
+(U0-Q1 to Q14, and the U0 plan's asks). The rulings and what U0 landed for each are ADR-0006 §19
+(revision 7, provisional) and `docs/architecture/u0-plan.md`; this list is kept as the record of
+the questions. U0-Q8 to Q10 were added by M08 W2 (2026-11-23). Sources: ADR-0013 (revision 3) §11 to
 §13, ADR-0014 §7 (H1 to H13), `docs/architecture/m07-plan.md`, and what the M07 W3 and W4 real-binary
 journeys observed on main `6a087fbb` (macOS and the devbox; Windows where stated).
 
@@ -136,6 +138,38 @@ Each has what today's build does (observed, with where), and a recommendation.
   binding list: a binding listed `active`, or a list it cannot read, is `still_unknown` (held, exit
   1); a binding listed `released` is taken as released; a binding missing from the list is
   `not_listed` (not held, never called released).
+
+### U0-Q8. Repairing a damaged request ledger (H12; added by M08 W2, 2026-11-23)
+- **Ruled already:** a request ledger with damage (anything but a torn tail: a zero record that
+  is not the last, or a final record that is not all zeros) refuses every append with a typed
+  refusal and writes nothing, so no mutating request proceeds; recovery is U0's attended path,
+  as for `state_corrupt` (`crates/stategen/src/ledger.rs`, provisional).
+- **Question:** may an attended repair truncate the ledger at the first damaged record? The
+  records after it may name requests that were accepted and acted on; dropping them would let a
+  retry of one of those requests run again unless the store's own idempotency records still
+  answer it.
+- **To decide with it:** whether the repair first carries every decodable record after the
+  damage into the store as fence records (`REQUEST_STALE`), so nothing past the damage can run
+  twice, and whether the restore epoch is raised as part of the repair.
+
+### U0-Q9. Catalog alias uniqueness is case-insensitive (added by M08 W2-2, 2026-11-23)
+- **Observed:** the catalog's alias check is case-sensitive (`WHERE alias = ?1` and a `UNIQUE`
+  column in `crates/store/migrations/0005_existing_access.sql`), so `Alpha` can be stored beside
+  `alpha`. The managed-file renderer then refuses the pair (`duplicate_alias_is_refused`,
+  `crates/sshconf/src/render.rs`), so no wrong identity is written, but the catalog holds a state it
+  cannot render.
+- **Ruled direction (the contract owner's, low):** catalog alias uniqueness is case-insensitive,
+  matching `ssh_config` `Host` matching, checked at write time and answered `CONFIG_CONFLICT` with
+  reason `alias_collision`. Existing case-variant duplicates are reported, not rewritten. It touches
+  the store, so it lands with U0.
+
+### U0-Q10. The `alias_collision` doctor finding and the `AliasCollision` setup conflict have no producer (added by M08 W2-2, 2026-11-23)
+- **Observed:** the contract defines a doctor finding `alias_collision` and a setup conflict
+  `AliasCollision`, but nothing in `crates/localenv` produces either; the only producer of the
+  reason is the catalog (`crates/app/src/catalog.rs`). No test puts a same-name `Host <alias>` in
+  the user's configuration or an included file.
+- **Question:** produce them (the passive doctor and setup report a user `Host` section that names
+  a managed alias), or remove them from the contract. U1b's new test follows whichever is decided.
 
 ## 4. Rulings already made that U0 or U4b must carry
 
