@@ -223,3 +223,25 @@ reproducible only by a PC pair at a commit with the record split: the candidate'
   was fixed in W2.3 (`2215e8a0`; `-Features` is a list). **Closed by PC job 59 at `8ba4f28c`:**
   `build-release-features-selftest: PASS (18 checks)` under Windows PowerShell 5.1 and
   PowerShell 7. The unquoted `default,iroh` now reaches the refusal (exit 2) in both.
+
+## The release feature set has no test kit (M08 U3c, 2026-11-24)
+
+The binary's edge to `heimdall-testkit` (the debug-build test configuration) is the optional
+default feature `test-config` (`crates/heimdall/Cargo.toml`). Every release build is made
+with `--no-default-features`: `build-release.sh`, `build-release.ps1`,
+`tools/validation/release-gate.sh` and every cargo call in `provenance.py`
+(`RELEASE_FEATURE_ARGS`). A debug build without the feature fails to compile, and says why
+(`crates/heimdall/src/main.rs`).
+
+- **The check:** `provenance.py check-features` now also runs
+  `release_graph_holds_no_test_only_crate`. The test-only set is what the debug graph reaches
+  only through the kit: the default graph minus the same graph with `--prune heimdall-testkit`,
+  plus the kit itself. None of it may be in the release graph.
+- **Observed on `aarch64-apple-darwin`:** 14 such crates (`bit-set`, `bit-vec`, `core_detect`,
+  `fastrand`, `fnv`, `heimdall-testkit`, `proptest`, `quick-error`, `rand_xorshift`,
+  `regex-syntax`, `rusty-fork`, `tempfile`, `unarray`, `wait-timeout`). The release graph holds
+  none of them.
+- **Shown failing without the fix:** with `RELEASE_FEATURE_ARGS` emptied, `check-features`
+  refuses and names all 14.
+- **The record:** the build record, the SBOM's `heimdall:features` and the notices header now
+  name the set as `--no-default-features` (plus `--features …` if any), not `default`.

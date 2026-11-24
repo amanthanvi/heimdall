@@ -6,7 +6,7 @@
 # Exit code: 0 only when every probe below passes; 1 on any failed probe or a failed build;
 # 2 when the script cannot set up (no testcfg.rs, no python3, no scratch).
 #
-# Builds the release binary once (`cargo build --release --locked -p heimdall`, the single
+# Builds the release binary once (`cargo build --release --locked --no-default-features -p heimdall`, the single
 # ./target dir), then runs it once per HEIMDALL_TEST_* variable and asserts that the build
 # refuses with exit code 2 before anything else happens:
 #   * the M01/M02 variables are read from crates/heimdall/src/testcfg.rs (`ALL_ENV`:
@@ -210,8 +210,10 @@ probe() {
 vars_out="$(read_vars)" || { echo "release-gate: cannot read the test variables from ${TESTCFG}"; exit 2; }
 [ -n "${vars_out}" ] || { echo "release-gate: no test variables found in ${TESTCFG}"; exit 2; }
 
-echo "release-gate: cargo build --release --locked -p heimdall"
-if ! cargo build --release --locked -p heimdall; then
+# --no-default-features, as the release scripts build it (M08 U3c): the gate tests the binary
+# with the release feature set, which has no edge to the test kit.
+echo "release-gate: cargo build --release --locked --no-default-features -p heimdall"
+if ! cargo build --release --locked --no-default-features -p heimdall; then
     echo "release-gate: release build FAILED"
     exit 1
 fi

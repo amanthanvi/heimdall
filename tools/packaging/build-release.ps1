@@ -117,7 +117,9 @@ $env:SOURCE_DATE_EPOCH = (git show -s --format=%ct HEAD).Trim()
 $out = Join-Path $repo "target\release-artifacts"
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $messages = Join-Path $out ".build-messages-$target.json"
-$cargoArgs = @("build", "--release", "--locked", "-p", "heimdall", "--target", $target, "--message-format=json-render-diagnostics")
+# --no-default-features: the default feature `test-config` is the debug-build edge to the test
+# kit (M08 U3c); a release artifact never has it.
+$cargoArgs = @("build", "--release", "--locked", "--no-default-features", "-p", "heimdall", "--target", $target, "--message-format=json-render-diagnostics")
 if ($Offline) { $cargoArgs += "--offline" }
 if ($featureList) { $cargoArgs += @("--features", $featureList) }
 $checkArgs = @("check-features", "--target", $target)

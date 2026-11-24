@@ -102,6 +102,18 @@ def refuse_iroh_request(features):
             raise Refused("release artifacts are built without the iroh feature (the Iroh transport is a source-build preview)")
 
 
+def test_only_crates(default_names, default_pruned_names):
+    """The crates the default (debug) graph reaches only through the test kit."""
+    return (set(default_names) - set(default_pruned_names)) | {TEST_KIT}
+
+
+def refuse_test_only_crates(release_names, test_only):
+    """`release_graph_holds_no_test_only_crate` (m08-plan U3c, ADR-0014 §4.5, H11)."""
+    found = sorted(set(release_names) & set(test_only))
+    if found:
+        raise Refused(f"the release graph holds test-only crates: {', '.join(found)}")
+
+
 def refuse_iroh_packages(names):
     found = sorted(set(names) & IROH_CRATES)
     if found:
@@ -169,9 +181,20 @@ def stage_exe(executable, expect, out):
 
 # ------------------------------------------------------------------------ selection
 
-def tree(target, features, edges, offline, extra=()):
+# ⟨M08 U3c⟩ Release artifacts are built with --no-default-features: the binary's default
+# feature `test-config` is the debug-build edge to the test kit (crates/heimdall/Cargo.toml).
+# Every graph this script reads is the release build's, so every cargo call here passes it.
+RELEASE_FEATURE_ARGS = ["--no-default-features"]
+
+
+def feature_label(features):
+    """The feature set a release build used, as the record, SBOM and notices name it."""
+    return "--no-default-features" + (f" --features {features}" if features else "")
+
+
+def tree(target, features, edges, offline, extra=(), release=True):
     cmd = ["cargo", "tree", "--locked", "-p", ROOT_CRATE, "--target", target, "--edges", edges,
-           "--prefix", "depth", "--no-dedupe", "--format", "{p}"]
+           "--prefix", "depth", "--no-dedupe", "--format", "{p}"] + (RELEASE_FEATURE_ARGS if release else [])
     if offline:
         cmd.append("--offline")
     if features:
@@ -233,12 +256,12 @@ def selection(target, features, offline):
 
 
 def cargo_metadata(target, features, offline):
-    cmd = ["cargo", "metadata", "--format-version", "1", "--locked", "--filter-platform", target]
+    cmd = ["cargo", "metadata", "--format-version", "1", "--locked", "--filter-platform", target] + RELEASE_FEATURE_ARGS
     if offline:
         cmd.append("--offline")
     if features:
         cmd += ["--features", features]
-    cwd = os.path.join(REPO, "crates", ROOT_CRATE) if features else REPO
+    cwd = os.path.join(REPO, "crates", ROOT_CRATE)
     return json.loads(run(cmd, cwd=cwd))
 
 
@@ -343,7 +366,7 @@ def run_tool(tool, target, features, time):
         raise Refused(f"the SBOM tool is not cargo-cyclonedx {CYCLONEDX_VERSION}")
     before = set(_tool_outputs())
     cmd = [tool, "cyclonedx", "--manifest-path", "Cargo.toml", "-f", "json", "--describe", "binaries",
-           "--target", target, "--spec-version", "1.5", "-qq"]
+           "--target", target, "--spec-version", "1.5", "-qq"] + RELEASE_FEATURE_ARGS
     if features:
         cmd += ["--features", features]
     env = dict(os.environ, SOURCE_DATE_EPOCH=str(epoch(time)))
@@ -460,7 +483,7 @@ def adapt(doc, root, comps, sums, target, features, commit, time, compiled=None)
         counts[c["role"]] = counts.get(c["role"], 0) + 1
     return {
         "bomFormat": "CycloneDX", "specVersion": "1.5", "version": 1,
-        "serialNumber": "urn:uuid:" + str(uuid.uuid5(uuid.NAMESPACE_URL, f"heimdall:{commit}:{target}:{features or 'default'}")),
+        "serialNumber": "urn:uuid:" + str(uuid.uuid5(uuid.NAMESPACE_URL, f"heimdall:{commit}:{target}:{feature_label(features)}")),
         "metadata": {
             "timestamp": time,
             "tools": [{"vendor": "CycloneDX", "name": "cargo-cyclonedx", "version": CYCLONEDX_VERSION},
@@ -469,7 +492,7 @@ def adapt(doc, root, comps, sums, target, features, commit, time, compiled=None)
                           "version": root[1], "purl": root_ref},
             "properties": [
                 {"name": "heimdall:target", "value": target},
-                {"name": "heimdall:features", "value": features or "default"},
+                {"name": "heimdall:features", "value": feature_label(features)},
                 {"name": "heimdall:commit", "value": commit},
                 {"name": "heimdall:inventory",
                  "value": "cargo's selected graph for this package, target and feature set; normal and build edges"},
@@ -527,7 +550,7 @@ def make_notices(root, comps, target, features):
             texts[key]["users"].append(f"{p['name']} {p['version']} ({os.path.basename(f)})")
     if missing:
         raise Refused("no licence text in the crate source for: " + ", ".join(missing))
-    lines.append(f"Third-party notices for {root[0]} {root[1]} ({target}, features: {features or 'default'})")
+    lines.append(f"Third-party notices for {root[0]} {root[1]} ({target}, features: {feature_label(features)})")
     lines.append("")
     lines.append("Every third-party component in the build graph cargo selects for this artifact,")
     lines.append("with its declared licence, followed by the licence texts found in each")
@@ -639,7 +662,7 @@ def make_record(a, compiled_names):
     return {
         "schema": "heimdall-build-record/1",
         "commit": a["commit"], "commit_time": a["time"], "tree_clean": a["clean"] == "yes",
-        "target": a["target"], "profile": "release", "features": a.get("features") or "default",
+        "target": a["target"], "profile": "release", "features": feature_label(a.get("features")),
         # Ruling E2 (option c), checked above against the packages the build compiled.
         "iroh_transport": "not built (release artifacts ship without the iroh feature; the Iroh transport is a source-build preview)",
         "rustflags": a["flags"],
@@ -932,6 +955,19 @@ def self_test():
         os.unlink(msgs)
         os.unlink(elsewhere)
         shutil.rmtree(rt)
+        # U3c: release_graph_holds_no_test_only_crate, over synthetic graphs.
+        only = test_only_crates({"heimdall", "linked", TEST_KIT, "proptest", "tempfile"}, {"heimdall", "linked"})
+        check("U3c: the test-only set is what only the kit brings in", only == {TEST_KIT, "proptest", "tempfile"})
+        try:
+            refuse_test_only_crates({"heimdall", "linked"}, only)
+        except Refused:
+            check("U3c: release_graph_holds_no_test_only_crate passes a clean graph", False)
+        for leaked in ("proptest", TEST_KIT):
+            try:
+                refuse_test_only_crates({"heimdall", "linked", leaked}, only)
+                check(f"U3c: release_graph_holds_no_test_only_crate refuses {leaked}", False)
+            except Refused:
+                pass
         check("W2-R02: a feature list is split on commas and whitespace",
               feature_tokens(" a, b\tc,,d ") == ["a", "b", "c", "d"])
         try:
@@ -1086,6 +1122,14 @@ def main(argv):
             refuse_other_target_dir(os.environ, cargo_metadata(opts["target"], opts.get("features"), opts.get("offline"))["target_directory"])
             rows = parse_tree(tree(opts["target"], opts.get("features"), "normal,build", opts.get("offline")))
             refuse_iroh_packages(name for _, name, _, _, _ in rows)
+            # U3c: nothing the debug graph reaches only through the test kit is in the
+            # release graph.
+            dflt = parse_tree(tree(opts["target"], opts.get("features"), "normal,build", opts.get("offline"), release=False))
+            pruned = parse_tree(tree(opts["target"], opts.get("features"), "normal,build", opts.get("offline"),
+                                     ("--prune", TEST_KIT), release=False))
+            only = test_only_crates((n for _, n, _, _, _ in dflt), (n for _, n, _, _, _ in pruned))
+            refuse_test_only_crates((n for _, n, _, _, _ in rows), only)
+            print(f"provenance: {opts['target']}: no test-only crate in the release graph ({len(only)} reach the debug graph only through the test kit)")
             print(f"provenance: {opts['target']}: no iroh feature requested and no iroh crate in the selected graph")
             return 0
         elif cmd == "stage-exe":
