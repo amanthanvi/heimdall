@@ -1,0 +1,48 @@
+### call 1: & '<R>\a2\install.ps1' -Prefix '<R>\p7a' -AssumeStopped ; 'exit ' + $LASTEXITCODE
+install: -AssumeStopped: not asking the installed executable whether a runtime is running
+install: installed <R>\p7a\heimdall.exe
+install: to run it as 'heimdall', add this directory to your PATH yourself: <R>\p7a
+install: next: heimdall setup    (it shows every change to your SSH configuration and asks first)
+exit 
+### prefix after call 1:
+12dbfbf78dc1b346800ee7a3aceb2c1e37e3caa2ef5d1ca051783daa7bb17c93    31539201  heimdall.exe
+dir   linux-x86_64
+03afaf0e74280d86ed705dc2eae6248ce2bd84874e535c413fa3e7228bd256bd    25396769  linux-x86_64\heimdall
+
+### action: wrote heimdall.previous.exe as text stand-in; deleted heimdall.exe
+### call 2: $env:HM_INSTALL_TEST_STOP_AFTER='1'; & '<R>\a2\install.ps1' -Prefix '<R>\p7a' -AssumeStopped ; 'exit ' + $LASTEXITCODE
+install: -AssumeStopped: not asking the installed executable whether a runtime is running
+install: stopped after 1 (test)
+exit 1
+### prefix after call 2:
+12dbfbf78dc1b346800ee7a3aceb2c1e37e3caa2ef5d1ca051783daa7bb17c93    31539201  .heimdall.new.exe
+dir   .linux-x86_64.new
+03afaf0e74280d86ed705dc2eae6248ce2bd84874e535c413fa3e7228bd256bd    25396769  .linux-x86_64.new\heimdall
+3014f9e73375311b6ce3be1b3d4931a864d7509403b3ee0d2971fa8af3f25351          23  heimdall.previous.exe
+dir   linux-x86_64
+03afaf0e74280d86ed705dc2eae6248ce2bd84874e535c413fa3e7228bd256bd    25396769  linux-x86_64\heimdall
+
+### call 3: & '<R>\a2\install.ps1' -Prefix '<R>\p7a' -AssumeStopped ; 'exit ' + $LASTEXITCODE
+install: removed a leftover staged file from an interrupted run
+install: -AssumeStopped: not asking the installed executable whether a runtime is running
+install: installed <R>\p7a\heimdall.exe
+install: an older executable is kept as heimdall.previous.exe without its WSL helper; install.ps1 -Rollback will refuse it
+install: to run it as 'heimdall', add this directory to your PATH yourself: <R>\p7a
+install: next: heimdall setup    (it shows every change to your SSH configuration and asks first)
+exit 
+### prefix after call 3:
+12dbfbf78dc1b346800ee7a3aceb2c1e37e3caa2ef5d1ca051783daa7bb17c93    31539201  heimdall.exe
+3014f9e73375311b6ce3be1b3d4931a864d7509403b3ee0d2971fa8af3f25351          23  heimdall.previous.exe
+dir   linux-x86_64
+03afaf0e74280d86ed705dc2eae6248ce2bd84874e535c413fa3e7228bd256bd    25396769  linux-x86_64\heimdall
+
+### call 4: & '<R>\a2\install.ps1' -Prefix '<R>\p7a' -AssumeStopped -Rollback; 'exit ' + $LASTEXITCODE
+install: the previous pair is incomplete: missing linux-x86_64.previous
+install: a rollback would leave the executable without its WSL helper. Nothing was changed. If an update was interrupted, run that archive's install.ps1 again to finish it. To go back to the older version, install the older archive again with its own install.ps1.
+exit 1
+### prefix after call 4:
+12dbfbf78dc1b346800ee7a3aceb2c1e37e3caa2ef5d1ca051783daa7bb17c93    31539201  heimdall.exe
+3014f9e73375311b6ce3be1b3d4931a864d7509403b3ee0d2971fa8af3f25351          23  heimdall.previous.exe
+dir   linux-x86_64
+03afaf0e74280d86ed705dc2eae6248ce2bd84874e535c413fa3e7228bd256bd    25396769  linux-x86_64\heimdall
+

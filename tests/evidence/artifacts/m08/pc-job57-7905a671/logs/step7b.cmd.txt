@@ -1,0 +1,3 @@
+& '<R>\a1\install.ps1' -Prefix '<R>\p7b' -AssumeStopped ; 'exit ' + $LASTEXITCODE
+$env:HM_INSTALL_TEST_STOP_AFTER='3a'; & '<R>\a2\install.ps1' -Prefix '<R>\p7b' -AssumeStopped ; 'exit ' + $LASTEXITCODE
+& '<R>\a2\install.ps1' -Prefix '<R>\p7b' -AssumeStopped ; 'exit ' + $LASTEXITCODE

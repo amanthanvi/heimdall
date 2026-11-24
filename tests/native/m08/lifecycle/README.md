@@ -254,3 +254,14 @@ PASS, 45 checks, with `sh` and with `dash`. The Windows evidence is the PC job a
 **Rehearsed on macOS** (pwsh 7): `install-selftest.ps1` PASS, 85 checks; `install-revert-proofs.ps1`
 PASS, run to its closing line (every revert fails its own cases). The Windows evidence is the PC
 job at the W2 candidate.
+
+**The Windows evidence for W2.1 and W2.2: PC job 57, at `7905a671` (2026-11-24).**
+
+| Run | Result |
+|---|---|
+| `install-selftest.ps1`, Windows PowerShell 5.1 and PowerShell 7 | PASS, 85 checks each; every W2.1-R01 (6) and W2.2-RC01 (8) line `ok` |
+| `install-revert-proofs.ps1`, both | PASS to its closing line, with the full output kept and identical between the shells. W2-R04's revert failed exactly its 2 W2.1-R01 cases; W2-RC01's 6 cases, including case C; W2-R07's 1 |
+| The real archive of `7905a671`, as files, every call with `-AssumeStopped` | 7a: the reviewer's R01 case (no finish, no `linux-x86_64.previous`, `-Rollback` exit 1). 7b: a 3a stop, finished by the rerun, no marker left. 7c: case C (no marker after a 4b stop of a helper-less install's update; the rerun after the lost executable not finished; `-Rollback` exit 1). 7d: a 4b stop: `-Rollback` refused on the marker, the rerun removed it and said so, then `-Rollback` worked. 7e: the job-47 message. `heimdall.exe` was never run |
+
+**R01 (W2) and RC01 (W2.2) are closed on Windows**, and so is R04 (W1), which they reopened.
+Records: `tests/evidence/artifacts/m08/pc-job57-7905a671/`.

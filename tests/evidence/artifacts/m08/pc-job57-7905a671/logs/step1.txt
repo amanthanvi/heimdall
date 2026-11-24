@@ -1,0 +1,17 @@
+## step 1
+clone exit=0
+checkout exit=0
+clone exit=0
+checkout exit=0
+-- c1
+7905a6712a39d374c653b30b3efc608c1af82986
+status lines: 0
+i/lf    w/lf    attr/                 	tests/native/m08/lifecycle/install-selftest.ps1
+i/lf    w/lf    attr/                 	tools/packaging/build-release.ps1
+i/lf    w/lf    attr/                 	tools/packaging/install.ps1
+-- c2
+7905a6712a39d374c653b30b3efc608c1af82986
+status lines: 0
+i/lf    w/lf    attr/                 	tests/native/m08/lifecycle/install-selftest.ps1
+i/lf    w/lf    attr/                 	tools/packaging/build-release.ps1
+i/lf    w/lf    attr/                 	tools/packaging/install.ps1

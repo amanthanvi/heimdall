@@ -1,0 +1,44 @@
+{
+ "builder_os": "Windows 10.0.26300 AMD64",
+ "cargo_lock_sha256": "c42d0a34d56cdb6d70dfef01785b93ca95180e9122806c639735788810fa68f9",
+ "commit": "7905a6712a39d374c653b30b3efc608c1af82986",
+ "commit_time": "2026-11-24T13:21:01Z",
+ "features": "default",
+ "finished_at": "2026-11-24T15:25:18Z",
+ "iroh_transport": "not built (release artifacts ship without the iroh feature; the Iroh transport is a source-build preview)",
+ "outputs": [
+  {
+   "path": "heimdall.exe",
+   "sha256": "5152a7a7c05f513a4d230d908aba371b655000f99c6824c474ceb336bf2b5068",
+   "size": 31539200
+  },
+  {
+   "path": "linux-x86_64/heimdall",
+   "sha256": "e6ba25f7a926bdbbed0e60e953237facd67100b681d9f5e85d185f7e36072445",
+   "size": 25396768
+  }
+ ],
+ "profile": "release",
+ "rustflags": "-Ctarget-feature=+crt-static -Clink-arg=/Brepro --remap-path-prefix=<home>=/builder --remap-path-prefix=<rustup-home>=/rustup --remap-path-prefix=<cargo-home>=/cargo --remap-path-prefix=<checkout>=/heimdall",
+ "schema": "heimdall-build-record/1",
+ "signature": "none (unsigned)",
+ "started_at": "2026-11-24T15:21:11Z",
+ "target": "x86_64-pc-windows-msvc",
+ "toolchain": {
+  "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+  "rustc": {
+   "LLVM version": "23.1.1",
+   "binary": "rustc",
+   "commit-date": "2026-10-13",
+   "commit-hash": "58cf8f9c35b355199727627d07ae34a4e2846d67",
+   "host": "x86_64-pc-windows-msvc",
+   "release": "1.99.1"
+  }
+ },
+ "tools": {
+  "cargo-cyclonedx": "0.5.10",
+  "python": "3.13.15",
+  "zig": "0.15.2"
+ },
+ "tree_clean": true
+}

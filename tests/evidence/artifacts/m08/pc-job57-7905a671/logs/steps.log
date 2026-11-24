@@ -1,0 +1,59 @@
+[09:23:15] job57 start
+[09:23:15] rustup-init sha256 published=38027d51d69a5d05493627a0634dbea52d6cd793c8f072d2373d3f4163eec7db got=38027d51d69a5d05493627a0634dbea52d6cd793c8f072d2373d3f4163eec7db match=True
+[09:23:16] rustup-init: exit=0 secs=0
+[09:23:21] toolchain-install: exit=0 secs=5
+[09:23:21] active=1.99.1-x86_64-pc-windows-msvc (overridden by '<R>\c1\rust-toolchain.toml')
+[09:23:21] cargo=cargo 1.99.1 (5f94df478 2026-08-27)
+[09:24:18] step2-selftest-pwsh: exit=0 secs=56
+[09:25:13] step2-selftest-ps51: exit=0 secs=55
+[09:32:42] step2-revert-pwsh: exit=0 secs=450
+[09:40:10] step2-revert-ps51: exit=0 secs=448
+[09:40:31] step3-stategen: exit=0 secs=20
+[09:41:32] step4-c1-cyclonedx: exit=0 secs=61
+[10:16:11] job57b start (steps 4-7; the first run hung in step 4 c1, see report)
+[10:16:11] step4-c1-cyclonedx: exit=0 secs=0
+[10:20:13] step4-c1-build: exit=0 secs=242
+[10:21:09] step4-c2-cyclonedx: exit=0 secs=57
+[10:25:31] step4-c2-build: exit=0 secs=262
+[10:25:31] step4-compare: exit=0 secs=0
+[10:25:31] 4 zips identical=True exes identical=True
+[10:25:32] step5a-iroh: exit=0 secs=1
+[10:25:32] step5a-iroh release-dir before: files=1433 newest=2026-11-24T15:19:59.8430313Z | after: files=1433 newest=2026-11-24T15:19:59.8430313Z
+[10:25:33] step5b-runtime-iroh: exit=0 secs=1
+[10:25:33] step5b-runtime-iroh release-dir before: files=1433 newest=2026-11-24T15:19:59.8430313Z | after: files=1433 newest=2026-11-24T15:19:59.8430313Z
+[10:25:33] step5c-default-iroh: exit=0 secs=0
+[10:25:33] step5c-default-iroh release-dir before: files=1433 newest=2026-11-24T15:19:59.8430313Z | after: files=1433 newest=2026-11-24T15:19:59.8430313Z
+[10:25:34] step5d-iroh-iroh: exit=0 secs=0
+[10:25:34] step5d-iroh-iroh release-dir before: files=1433 newest=2026-11-24T15:19:59.8430313Z | after: files=1433 newest=2026-11-24T15:19:59.8430313Z
+[10:25:34] step5e-allfeatures: exit=1 secs=0
+[10:25:34] step5e-allfeatures release-dir before: files=1433 newest=2026-11-24T15:19:59.8430313Z | after: files=1433 newest=2026-11-24T15:19:59.8430313Z
+[10:25:34] 6 hm-w22-td exists before: False
+[10:25:34] step6-plant: exit=0 secs=0
+[10:25:35] step6-build: exit=0 secs=1
+[10:25:35] 6 hm-w22-td exists after build: False
+[10:25:35] 6 step4 zip unchanged=True (7e47f12448af14b203a51e367a07389bb8865a18140042b5038a72861f6a7bfb)
+[10:25:36] step6-cleanup: exit=0 secs=0
+[10:25:36] 7 zip has one top directory: heimdall-0.1.0-m01-x86_64-pc-windows-msvc; a1 is its content
+[10:25:36] 7 a2 manifest lines rewritten=2
+[10:25:37] step7-archives: exit=0 secs=0
+[10:25:37] step7a: exit=0 secs=1
+[10:25:38] step7a: exit=0 secs=1
+[10:25:39] step7a: exit=0 secs=1
+[10:25:40] step7a: exit=0 secs=0
+[10:25:40] step7b: exit=0 secs=1
+[10:25:41] step7b: exit=0 secs=1
+[10:25:42] step7b: exit=0 secs=1
+[10:25:43] step7c: exit=0 secs=1
+[10:25:44] step7c: exit=0 secs=1
+[10:25:45] step7c: exit=0 secs=0
+[10:25:46] step7c: exit=0 secs=1
+[10:25:46] step7c: exit=0 secs=0
+[10:25:47] step7d: exit=0 secs=1
+[10:25:48] step7d: exit=0 secs=1
+[10:25:48] step7d: exit=0 secs=0
+[10:25:48] step7d: exit=0 secs=0
+[10:25:49] step7d: exit=0 secs=0
+[10:25:50] step7e: exit=0 secs=1
+[10:25:51] step7e: exit=0 secs=1
+[10:25:51] hm-w22-td exists at end: False
+[10:25:51] done

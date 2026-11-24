@@ -205,3 +205,20 @@ checkout paths on the PC, with the same limits as the others. The Windows **arch
 reproducible only by a PC pair at a commit with the record split: the candidate's PC build
 (ruled; no job before it).
 
+**The Windows archive is reproducible: PC job 57 at `7905a671` (the W2 merge candidate,
+2026-11-24).**
+- **The build:** two clones at different paths and depths, each built by `build-release.ps1`
+  under Windows PowerShell 5.1.
+- **The zips are byte-identical**, `7e47f12448af14b203a51e367a07389bb8865a18140042b5038a72861f6a7bfb`.
+  So are the two `heimdall.exe`, `5152a7a7…`.
+- **The indexes:** the two `SHA256SUMS` differ only on the external build record's line. That
+  record differs only in `started_at` and `finished_at`.
+- **Packaging:** the same job was `stage-exe`'s first Windows release run ("staged the executable
+  the build reported"). Its first release run anywhere was the Linux x86_64 archive of
+  `7905a671`, cross-built on the Mac: archive `0a6e1545d643b5635732ace8d346a0a76bb734e3a73e595ba8bbfc755b14d3be`,
+  executable `e6ba25f7…`, record `iroh_transport: not built`.
+- **Records:** `tests/evidence/artifacts/m08/pc-job57-7905a671/`.
+- **Finding M08-W2-F2** (step 5c): an unquoted `-Features default,iroh` failed PowerShell's
+  parameter binding before the script's own refusal. It failed closed: nothing was built. It
+  was fixed in W2.3 (`2215e8a0`; `-Features` is a list), and the Windows run of
+  `build-release-features-selftest.ps1` is pending.
