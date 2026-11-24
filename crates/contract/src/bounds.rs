@@ -31,6 +31,14 @@ pub const MAX_RELAYS_PER_DESTINATION: usize = 16;
 pub const MAX_CONSENTS_PER_ROUTE: usize = 4;
 /// An Iroh route's direct addresses (ruled 2026-11-24: 3 covers dual stack with one spare).
 pub const MAX_DIRECT_ADDRESSES_PER_ROUTE: usize = 3;
+/// ⟨review U0-RC01; ruled 2026-11-24⟩ An address string, in bytes: each `direct_addresses`
+/// entry of an Iroh route and a `BindScope::Interface` address (covers IPv6 with a zone ID).
+/// **Declared, not enforced:** at write time (U3, PC11) each is parsed as an IP address with
+/// an optional zone and stored in its canonical text form; an unparseable entry or one over
+/// this bound is refused with `USAGE_ERROR` (`item_too_large` over the bound, next
+/// `fix_request` for an unparseable entry). A stored value that does not parse or exceeds the
+/// bound is reported, never rewritten.
+pub const MAX_ADDRESS_BYTES: usize = 64;
 /// A destination's pinned host keys (three key types through a rotation).
 pub const MAX_HOST_KEYS_PER_DESTINATION: usize = 8;
 /// A pinned host key's OpenSSH public key line, in bytes (an RSA-8192 line is about 1.4 KB).

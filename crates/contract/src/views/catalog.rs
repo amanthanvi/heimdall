@@ -136,13 +136,43 @@ pub enum PairProjectionStatus {
     },
 }
 
+/// ⟨rev7; review U0-RC01⟩ The most attempts `route_health` lists: the most recent ones of the
+/// report (which holds up to [`crate::route::ROUTE_HEALTH_ATTEMPTS_MAX`]). A diagnostic
+/// report is cut, never a user capacity: the destination item keeps its 4 KiB spare.
+pub const ROUTE_HEALTH_VIEW_ATTEMPTS_MAX: usize = 32;
+
 /// ⟨M06 W5; D11⟩ The route helper's latest report for a destination.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RouteHealthView {
-    /// The attempt's structured result (ADR-0012 §5.5 item 4).
+    /// The attempt's structured result (ADR-0012 §5.5 item 4). ⟨rev7; U0-RC01⟩ Its
+    /// `attempts` are at most 32 of the report's (`ROUTE_HEALTH_VIEW_ATTEMPTS_MAX`): the most
+    /// recent, newest first.
     pub result: RouteHealthPayload,
+    /// ⟨rev7; U0-RC01⟩ How many older attempts of the report are not listed. Omitted when
+    /// none was dropped (the form of `resync_required`'s `dropped`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempts_dropped: Option<u64>,
     /// When it was reported.
     pub reported_at: Timestamp,
+}
+
+impl RouteHealthView {
+    /// The view of one report: its attempts newest first, cut to the
+    /// [`ROUTE_HEALTH_VIEW_ATTEMPTS_MAX`] most recent, with the count of the older ones.
+    #[must_use]
+    pub fn from_report(mut result: RouteHealthPayload, reported_at: Timestamp) -> Self {
+        result.attempts.reverse();
+        let dropped = result
+            .attempts
+            .len()
+            .saturating_sub(ROUTE_HEALTH_VIEW_ATTEMPTS_MAX);
+        result.attempts.truncate(ROUTE_HEALTH_VIEW_ATTEMPTS_MAX);
+        Self {
+            result,
+            attempts_dropped: (dropped > 0).then(|| u64::try_from(dropped).unwrap_or(u64::MAX)),
+            reported_at,
+        }
+    }
 }
 
 /// ⟨M06 W5; D11⟩ The setting that defeated the destination's catalog host-key pin.
@@ -364,4 +394,49 @@ pub struct ProjectionItemRecordView {
     pub operation: OperationId,
     /// When it was committed.
     pub committed_at: Timestamp,
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    /// ⟨rev7; review U0-RC01⟩ `route_health` lists the 32 most recent attempts, newest first,
+    /// and counts the older ones; a short report is listed whole, newest first, with no count.
+    #[test]
+    fn route_health_lists_the_most_recent_attempts_newest_first() {
+        let report = |n: usize| -> RouteHealthPayload {
+            serde_json::from_value(serde_json::json!({
+                "kind": "failed_over",
+                "destination": "dst_a",
+                "account": "deploy",
+                "attempts": (0..n)
+                    .map(|i| serde_json::json!({
+                        "route": format!("route_{i:02}"),
+                        "failure": "timeout",
+                        "duration_ms": i,
+                    }))
+                    .collect::<Vec<_>>(),
+            }))
+            .unwrap()
+        };
+        let at: Timestamp = serde_json::from_str("\"2026-11-24T00:00:00Z\"").unwrap();
+        let routes = |v: &RouteHealthView| -> Vec<String> {
+            v.result
+                .attempts
+                .iter()
+                .map(|a| a.route.as_str().to_owned())
+                .collect()
+        };
+        let full = RouteHealthView::from_report(report(64), at);
+        assert_eq!(full.result.attempts.len(), ROUTE_HEALTH_VIEW_ATTEMPTS_MAX);
+        assert_eq!(routes(&full)[0], "route_63");
+        assert_eq!(routes(&full)[31], "route_32");
+        assert_eq!(full.attempts_dropped, Some(32));
+        let short = RouteHealthView::from_report(report(3), at);
+        assert_eq!(routes(&short), ["route_02", "route_01", "route_00"]);
+        assert_eq!(short.attempts_dropped, None);
+        let text = serde_json::to_string(&short).unwrap();
+        assert!(!text.contains("attempts_dropped"), "{text}");
+    }
 }

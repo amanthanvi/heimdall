@@ -46,8 +46,9 @@ and §3; m08-plan U0 and rule 2; `m07-u0-handoff.md` (main's copy plus Q8–Q10 
 - **D20:** the 64 KiB item bound stays; 200 profile pairs (a maximal profile is 58,381 bytes);
   8 routes, 8 relays per route, 16 relays per destination, relay URLs at 2,048 bytes, 4 consents
   and 3 direct addresses per route, 8 host-key pins of 1,536 bytes (a maximal destination with
-  its routes is 61,185 bytes, worst-case escaping and every field filled). Each maximal-record
-  test (`contracts::rev7::maximal_*`) fills every field at once and leaves 4 KiB.
+  its routes is 58,569 bytes, worst-case escaping and every field filled, addresses with a zone, with `route_health`
+  cut to its 32 most recent attempts per review U0-RC01; 61,517 before the cut). Each
+  maximal-record test (`contracts::rev7::maximal_*`) fills every field at once and leaves 4 KiB.
 - **Readings confirmed:** `state_restored_authority_ended` (`CREDENTIAL_EXPIRED`), `item_too_large`
   (`USAGE_ERROR`, byte and count bounds; `ItemTooLarge` names the field and the bound),
   `ledger_damaged` and `state_corrupt` (`STATE_UNAVAILABLE`, next `owner_decision`),
@@ -114,7 +115,7 @@ named.
 | D11 per-pair route status | **Waits for Q12** (§7) | — | — |
 | D12, H14 | Standalone `ServiceStatus` view (every field from or checked against the verified connection: `control_endpoint`, `environment_id`, `protocol`, `capabilities`, `principal`, `server`, `pid`); reasons `runtime_not_running`, `endpoint_untrusted`, `runtime_unreachable` (`SERVICE_UNAVAILABLE`) | `contract/views/service.rs`, reasons | U3: the three-state read |
 | D13 | Reason `destination_has_live_access` (`CONFIG_CONFLICT`); standalone `LiveAccessRefusal {live (≤ 32), total, remediation?}` | reasons, `contract/catalog.rs` | U3 with U8b |
-| D14 | The help lint over the rendered help of every command (no `M0n`, `ADR-`, `§`, no test-only wording); the help strings in `cli.rs` rewritten to pass. **m06_cmd.rs's help strings are outside U0's scope** (§6) | `cli.rs`, help goldens | U2b for any remainder |
+| D14 | The help lint over the rendered help of every command (no `M0n`, `ADR-`, `§`, no test-only wording); the help strings in `cli.rs` rewritten to pass; `m06_cmd.rs`'s `remote` help strings cleaned once M06's exit was on the branch (R08(f)), and the exemption list is empty | `cli.rs`, help goldens | U2b for any remainder |
 | D15 | The proposed spec §11.6 text (16 codes plus the exit table and stream grammar), drafted in ADR-0006 §19 for the contract owner to apply | ADR-0006 §19 | the orchestrator |
 | D16–D18 | Recorded in §19 as provisional ratifications: §15.2 items 1–7, §16.2 items 1–18, revision 6 as ruled in §18.5, the M06 W2–W3 readings, §7.4 retention unchanged, decision-backed replay **with D16's precondition met by `6f2cc7eb`'s restart-replay coverage** (to be confirmed under Q11), `remote_pending_reasons` distinct, coexistence and removal | ADR-0006 §19 | — |
 | D19 | Reason `response_too_large` (`USAGE_ERROR`); standalone `ResponseTooLarge {limit_bytes, section?, narrow?, resource?}` | reasons, `contract/envelope.rs` | U3: PC4 |
@@ -514,3 +515,51 @@ D5 payload inventory are the largest (about a third). The replay corpus needs th
 | `m06_cmd.rs` help strings, for the lint | M06 / U2b |
 | The `doctor` finding for existing case-variant catalog aliases (reads the store query) | M08 U1b (with Q10) |
 | Attaching each standalone type (S0) | U3, U2b |
+
+## 10. Native runs at the U0 candidate (drafted 2026-11-24; after the quiet window closes)
+
+Both rows run once, on the merge candidate commit (ADR-0009 §2.2). The candidate is `u0/rev7`'s
+tip after the M06 corpus part, M06's exit on `main` (merged in), and the help lint's `remote`
+exemptions removed. **The contract owner runs the PC row;** the implementer never reaches the PC.
+
+**PC (Windows 11 x86-64, native msvc).**
+1. The full suite at the candidate, through M06's local harness (it clones the commit into its
+   own scratch root and removes it; the iroh feature unit as M06 ran it):
+   `pwsh -NoProfile -File tests/native/m06/run-windows-local.ps1 -Commit <candidate 40-hex>
+   -ScratchRoot $env:LOCALAPPDATA\hm-u0 -Out <artifacts dir>`, with the same `-WslDistro` as
+   M06's exit run (the harness's WSL fixture sshds).
+2. What it covers that U0 changed, on Windows paths:
+   - `heimdall-contract` (`contracts`: the reason table, primitive index, declared schemas, the
+     maximal-record bounds, the emission-site registry; `cargo test -p heimdall-contract`);
+   - `heimdall-store` unit tests (migration 0014 on a real `%TEMP%` path,
+     `a_lost_restore_epoch_is_damage_never_epoch_zero`, the Q9 alias tests) and `contracts_replay`
+     (every dump rebuilt and migrated on NTFS);
+   - `heimdall-app` unit tests (`catalog::tests`: the driver's store-conflict defence, U0-RC03);
+   - `integration_store`, `integration_store_m03`, `integration_store_m04_m05`,
+     `integration_portable` (U0-R01's regression), `model_setup` (Q9 through the driver);
+   - `heimdall` unit tests (`cli::tree_tests`: the command-tree golden, the help lint,
+     `every_primitive_index_form_parses`; `rev7_cmd::tests`);
+   - the help goldens through the real `heimdall.exe`: `e2e_cli_m03`
+     (`m03_help_and_discovery_goldens`), `e2e_cli_m05` (`m05_help_and_shell_script_goldens`),
+     `e2e_environment_cli_m06` (`m06_help_goldens`).
+3. If only a targeted rerun is needed after a Windows-only fix:
+   `cargo test --locked -p heimdall-contract -p heimdall-store` then
+   `cargo test --locked -p heimdall --bin heimdall` and the three help-golden tests by name
+   (`cargo test --locked -p heimdall --test e2e_cli_m03 m03_help_and_discovery_goldens`, and the
+   same for the other two), each with the harness's scratch `HOME`/`HEIMDALL_HOME` environment.
+4. Record: the harness's exit, per-target counts and the commit; a `blocked` row names the exact
+   missing input.
+
+**Devbox (Linux x86-64), in batches with the free-space floor.**
+1. `tests/native/m06/run-linux-batches.sh <artifacts_root> <devbox alias>
+   tests/contracts/native/u0-linux-batches.txt` from the candidate checkout on this Mac (it
+   cross-builds once, then stages and runs each batch; floor `HM_BATCH_FLOOR_KB` default 3 GiB,
+   stage cap 1.5 GiB). The U0 list is M06's exit list with `contracts_replay` added to b07: the
+   runner refuses a list that misses a planned target.
+2. Each batch removes its scratch directory on the devbox; the run stops at a floor or cap breach
+   with its documented exit (3, 7), any other failure is recorded and the next batch runs.
+3. Record: `linux-batches.txt` (one `exit N:` line per floor check and batch) and the per-batch
+   outputs.
+
+Neither row uses the owner's keys, agent, keychain or `~/.ssh` beyond reaching the hosts (the
+harnesses' fixtures are per-run). `du -sh target` is reported after the cross-build.

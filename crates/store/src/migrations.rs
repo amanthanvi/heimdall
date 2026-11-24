@@ -687,15 +687,15 @@ mod tests {
     }
 
     /// ⟨rev7⟩ U0 (ADR-0014 H9; U0-Q9): `0014_restore_epoch` applies on a database at version
-    /// 13 and keeps every row: each existing operation, decision, effect and idempotency
-    /// record reads as epoch 0 and keeps every column (each of the four altered tables is
-    /// seeded, the outbox included), `meta.restore_epoch` is written `0` and no other `meta` row
-    /// changes, and it adds exactly the
-    /// `request_fences` table and the two indexes. The alias index is not unique, so an
-    /// existing case-variant pair survives the step. A failure inside the step leaves
-    /// version 13 and nothing of it.
+    /// 13 holding one seeded row in each of the four tables it alters, and keeps them: the
+    /// operation keeps its ID, kind, state, code and record, the idempotency record its key
+    /// and operation, the decision its ID, kind, state, generation and record, and the outbox
+    /// row every column (review U0-RC06); each reads epoch 0. Every `meta` row is kept and
+    /// `restore_epoch` = `0` is the only one added; the step adds exactly the `request_fences`
+    /// table and the two indexes. The alias index is not unique, so an existing case-variant
+    /// pair survives the step. A failure inside the step leaves version 13 and nothing of it.
     #[test]
-    fn restore_epoch_step_keeps_every_row_at_epoch_zero_and_rolls_back_whole() {
+    fn restore_epoch_step_keeps_the_seeded_rows_at_epoch_zero_and_rolls_back_whole() {
         let names = |c: &Connection, kind: &str| -> Vec<String> {
             let mut stmt = c
                 .prepare(
@@ -722,8 +722,8 @@ mod tests {
             VALUES ('dec_probe', '{}', 'pending', 0, 't', 't', '{}');
             INSERT INTO destinations (id, alias, revision, record_json)
             VALUES ('d1', 'Alpha', 1, '{}'), ('d2', 'alpha', 1, '{}');";
-        // Every row of the four altered tables and `meta`, column by column (the new columns
-        // excluded), before and after the step.
+        // The seeded rows of the four altered tables (the columns named; every column of the
+        // outbox but the new one) and every `meta` row, before and after the step.
         let content = |c: &Connection| -> Vec<String> {
             let mut out = Vec::new();
             for (table, cols) in [
@@ -814,7 +814,7 @@ mod tests {
         after_content.retain(|r| r != "meta: Text(\"restore_epoch\") | Text(\"0\")");
         assert_eq!(
             after_content, before_content,
-            "every row kept, column by column"
+            "the seeded rows and meta kept"
         );
         let added: Vec<String> = names(&c, "table")
             .into_iter()

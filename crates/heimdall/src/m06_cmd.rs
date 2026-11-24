@@ -337,7 +337,8 @@ pub struct TransportAdoptArgs {
     pub endpoint: String,
 }
 
-/// `remote` subcommands: the runner's side (ADR-0012 §3.3, §3.6). Hidden and frozen.
+// ADR-0012 §3.3, §3.6.
+/// `remote` subcommands: the runner's side. Hidden and frozen.
 #[derive(Debug, Subcommand)]
 pub enum RemoteCommand {
     /// On the runner, in the bootstrap's interactive ssh session: mark this installation a
@@ -347,21 +348,24 @@ pub enum RemoteCommand {
     /// The forced command of a management line: bridge one paired session to this
     /// installation's runtime. Takes exactly `--client <client> --home <absolute path>`.
     Serve(crate::cli::PlannedArgs),
-    /// ⟨M06 W3⟩ This runner's trusted issuers (`issuer_trust`): add a controller's CA (a
-    /// widening, typed `yes` on this terminal), remove one (narrowing), or list them.
+    // ⟨M06 W3⟩
+    /// This runner's trusted issuers (`issuer_trust`): add a controller's CA (a widening,
+    /// typed `yes` on this terminal), remove one (narrowing), or list them.
     #[command(subcommand)]
     IssuerTrust(IssuerTrustCommand),
-    /// ⟨M06 W3⟩ This runner's designated time source: set an owner client (a widening, typed
-    /// `yes` on this terminal), clear it (narrowing), or show it.
+    // ⟨M06 W3⟩
+    /// This runner's designated time source: set an owner client (a widening, typed `yes` on
+    /// this terminal), clear it (narrowing), or show it.
     #[command(subcommand)]
     TimeSource(TimeSourceCommand),
-    /// ⟨M06 W3; ADR-0006 §18.7 item 19⟩ This runner's sshd-policy downgrade.
+    // ⟨M06 W3; ADR-0006 §18.7 item 19⟩
+    /// This runner's sshd-policy downgrade.
     #[command(subcommand)]
     Policy(RemotePolicyCommand),
 }
 
-/// ⟨M06 W3; ADR-0006 §18.7 item 19⟩ `remote policy` subcommands, run at the runner (an
-/// interactive ssh TTY counts).
+// ⟨M06 W3; ADR-0006 §18.7 item 19⟩
+/// `remote policy` subcommands, run at the runner (an interactive ssh TTY counts).
 #[derive(Debug, Subcommand)]
 pub enum RemotePolicyCommand {
     /// Lift this runner's owner-only downgrade on the recheck an owner's controller left
@@ -371,8 +375,8 @@ pub enum RemotePolicyCommand {
     Recheck,
 }
 
-/// ⟨M06 W3; ADR-0006 §18.7 item 7⟩ `remote issuer-trust` subcommands, run at the runner (an
-/// interactive ssh TTY counts).
+// ⟨M06 W3; ADR-0006 §18.7 item 7⟩
+/// `remote issuer-trust` subcommands, run at the runner (an interactive ssh TTY counts).
 #[derive(Debug, Subcommand)]
 pub enum IssuerTrustCommand {
     /// Trust the CA in FILE (one OpenSSH public key line) as the issuer of a paired owner
@@ -402,7 +406,8 @@ pub struct IssuerTrustRemoveArgs {
     pub fingerprint: String,
 }
 
-/// ⟨M06 W3; ADR-0006 §18.7 item 7⟩ `remote time-source` subcommands, run at the runner.
+// ⟨M06 W3; ADR-0006 §18.7 item 7⟩
+/// `remote time-source` subcommands, run at the runner.
 #[derive(Debug, Subcommand)]
 pub enum TimeSourceCommand {
     /// Designate a paired owner client as this runner's time source. Needs a terminal and a
@@ -435,21 +440,24 @@ pub struct RemoteInitArgs {
     /// bootstrap's checksum step; refused before anything is written when it differs.
     #[arg(long, value_name = "HEX")]
     pub expect_sha256: Option<String>,
-    /// ⟨M06 W3⟩ The controller's CA public key (`ssh-ed25519 <base64>`): trusted for the owner
-    /// client being enrolled, which also becomes this runner's time source, in the same
+    // ⟨M06 W3⟩
+    /// The controller's CA public key (`ssh-ed25519 <base64>`): trusted for the owner client
+    /// being enrolled, which also becomes this runner's time source, in the same
     /// confirmation. Absent when the controller has no issuer.
     #[arg(long, value_name = "KEY")]
     pub issuer_ca: Option<String>,
-    /// ⟨M06 W3⟩ The controller device's Iroh endpoint ID (64 lowercase hex): the owner client
-    /// is admitted to this runner over Iroh with it, in the same confirmation. Absent when
-    /// the controller has no Iroh key. An endpoint already recorded is never replaced.
+    // ⟨M06 W3⟩
+    /// The controller device's Iroh endpoint ID (64 lowercase hex): the owner client is
+    /// admitted to this runner over Iroh with it, in the same confirmation. Absent when the
+    /// controller has no Iroh key. An endpoint already recorded is never replaced.
     #[arg(long, value_name = "ENDPOINT")]
     pub iroh_endpoint: Option<String>,
-    /// ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ Passed by a controller's bootstrap
-    /// (`environment add`): after the enrollment, say plainly whether this runner's runtime
-    /// is running and, when it is not, offer to start it in this same attended terminal
-    /// session with a typed `yes` (`service run --runner`, detached). Declined, it prints
-    /// the next step. Without the flag nothing is offered or started.
+    // ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩
+    /// Passed by a controller's bootstrap (`environment add`): after the enrollment, say
+    /// plainly whether this runner's runtime is running and, when it is not, offer to start it
+    /// in this same attended terminal session with a typed `yes` (`service run --runner`,
+    /// detached). Declined, it prints the next step. Without the flag nothing is offered or
+    /// started.
     #[arg(long)]
     pub offer_runtime_start: bool,
 }

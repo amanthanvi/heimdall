@@ -237,28 +237,7 @@ fn every_command() -> Vec<(String, clap::Command)> {
 }
 
 /// The command paths whose help is not yet clean, each with its owner. Only shrinks.
-const HELP_LINT_PENDING: &[(&str, &str)] = &[
-    (
-        "heimdall remote",
-        "m06_cmd.rs (U0, after M06's exit is on main)",
-    ),
-    (
-        "heimdall remote init",
-        "m06_cmd.rs (U0, after M06's exit is on main)",
-    ),
-    (
-        "heimdall remote issuer-trust",
-        "m06_cmd.rs (U0, after M06's exit is on main)",
-    ),
-    (
-        "heimdall remote time-source",
-        "m06_cmd.rs (U0, after M06's exit is on main)",
-    ),
-    (
-        "heimdall remote policy",
-        "m06_cmd.rs (U0, after M06's exit is on main)",
-    ),
-];
+const HELP_LINT_PENDING: &[(&str, &str)] = &[];
 
 /// What the help lint refuses, and why: a milestone, an ADR, a section sign, or wording only
 /// a test or fixture needs.

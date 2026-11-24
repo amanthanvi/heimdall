@@ -247,16 +247,18 @@ fn maximal_profile_item_fits_with_room_to_spare() {
 
 /// A maximal destination item: the destination view with every field at its bound (the
 /// 255-byte alias and host name, the 256-byte label of `"` (512 bytes escaped), the pair
-/// preference with its connection policy's longest wording, a route-health report of 64
-/// attempts, the longest host-pin setting)
-/// and its approved routes (8 routes, 8 relays on each of two of them for the destination's
-/// 16, every relay URL at 2,048 bytes, 4 consents and 3 direct addresses per route, 8 host-key
-/// pins of 1,536 bytes) fits the 64 KiB item bound with 4 KiB to spare (ruled 2026-11-24).
+/// preference with `graceful` and its connection policy's longest wording, the route-health
+/// view of the largest report `record_health` accepts (64 attempts with the longest failure
+/// class, `terminal_after_forwarding`), listed as its 32 most recent with the dropped count
+/// (review U0-RC01), the longest host-pin setting) and its approved routes (8 routes, each
+/// with `external_roost`, 8 relays on each of two of them for the destination's 16, every
+/// relay URL at 2,048 bytes, 4 consents and 3 direct addresses per route, each address and the
+/// interface bind address an IPv6 maximum with a 15-byte zone, 8 host-key pins of 1,536 bytes) fits the 64 KiB item bound with 4 KiB to spare (ruled 2026-11-24).
 #[test]
 fn maximal_destination_item_fits_with_room_to_spare() {
     use heimdall_contract::bounds::{
-        ITEM_SPARE_BYTES, MAX_ITEM_BYTES, MAX_RELAYS_PER_DESTINATION, MAX_RELAYS_PER_ROUTE,
-        MAX_ROUTES_PER_DESTINATION,
+        ITEM_SPARE_BYTES, MAX_ADDRESS_BYTES, MAX_ITEM_BYTES, MAX_RELAYS_PER_DESTINATION,
+        MAX_RELAYS_PER_ROUTE, MAX_ROUTES_PER_DESTINATION,
     };
     use heimdall_contract::bounds::{
         MAX_CONSENTS_PER_ROUTE as CONSENTS, MAX_DIRECT_ADDRESSES_PER_ROUTE as DIRECT_ADDRESSES,
@@ -264,11 +266,24 @@ fn maximal_destination_item_fits_with_room_to_spare() {
     };
     use heimdall_contract::ids::MAX_ID_LEN;
     use heimdall_contract::route::{RELAY_URL_MAX_BYTES, ROUTE_HEALTH_ATTEMPTS_MAX};
+    use heimdall_contract::views::catalog::RouteHealthView;
     let hex = |i: usize, n: usize| format!("{i:0n$x}");
     let route_id = |i: usize| format!("route_{}", hex(i, 32));
     let relay = |i: usize| {
         let head = format!("https://relay{i:02}.example.invalid/");
         format!("{head}{}", "p".repeat(RELAY_URL_MAX_BYTES - head.len()))
+    };
+    // An address string at its ruled worst case: the canonical IPv6 maximum (39 bytes) with a
+    // zone of an interface name at its longest (15 bytes), within `MAX_ADDRESS_BYTES`.
+    let v6_with_zone = |a: usize| {
+        format!(
+            "ffff:ffff:ffff:ffff:ffff:ffff:ffff:{a:04x}%{}",
+            "e".repeat(15)
+        )
+    };
+    let address = |text: &str| {
+        assert!(text.len() <= MAX_ADDRESS_BYTES, "{text}");
+        text.to_owned()
     };
     let mut relays_left = MAX_RELAYS_PER_DESTINATION;
     let routes: Vec<serde_json::Value> = (0..MAX_ROUTES_PER_DESTINATION)
@@ -280,13 +295,14 @@ fn maximal_destination_item_fits_with_room_to_spare() {
                 "route": {
                     "kind": "iroh",
                     "endpoint": hex(i, 64),
-                    "external_roost": false,
+                    // Serialized only when true: an external-roost route with consent.
+                    "external_roost": true,
                     "direct_addresses": (0..DIRECT_ADDRESSES)
-                        .map(|a| format!("[ffff:ffff:ffff:ffff:ffff:ffff:ffff:{a:04x}]:65535"))
+                        .map(|a| address(&format!("[{}]:65535", v6_with_zone(a))))
                         .collect::<Vec<_>>(),
                 },
                 "exposure": {
-                    "bind": {"kind": "interface", "address": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"},
+                    "bind": {"kind": "interface", "address": address(&v6_with_zone(i))},
                     "infrastructure": {
                         "kind": "custom",
                         "relays": (0..n).map(|r| relay(i * 8 + r)).collect::<Vec<_>>(),
@@ -315,16 +331,37 @@ fn maximal_destination_item_fits_with_room_to_spare() {
             "host_keys": host_keys,
         }))
         .unwrap_or_else(|e| panic!("routes: {e}"));
-    let attempts: Vec<serde_json::Value> = (0..ROUTE_HEALTH_ATTEMPTS_MAX)
-        .map(|a| {
-            serde_json::json!({
-                "route": route_id(a % MAX_ROUTES_PER_DESTINATION),
-                "failure": "identification_timeout",
-                "duration_ms": 600_000,
+    // The reports `record_health` accepts at their largest: 64 attempts, every failure the
+    // longest class, the final route the one attempt without a failure (or none). The view
+    // lists the 32 most recent, so the largest view puts the success among the dropped ones.
+    let at: heimdall_contract::Timestamp = "2026-11-24T00:00:00.123456789Z".parse().unwrap();
+    let report = |success: Option<usize>| -> heimdall_contract::route::RouteHealthPayload {
+        let attempts: Vec<serde_json::Value> = (0..ROUTE_HEALTH_ATTEMPTS_MAX)
+            .map(|a| {
+                let route = route_id(a % MAX_ROUTES_PER_DESTINATION);
+                if success == Some(a) {
+                    serde_json::json!({"route": route, "duration_ms": 600_000})
+                } else {
+                    serde_json::json!({
+                        "route": route,
+                        "failure": "terminal_after_forwarding",
+                        "duration_ms": 600_000,
+                    })
+                }
             })
-        })
-        .collect();
-    let view: heimdall_contract::views::catalog::DestinationView =
+            .collect();
+        let mut result = serde_json::json!({
+            "kind": "failed_over",
+            "destination": filled(0, MAX_ID_LEN),
+            "account": filled(1, MAX_ID_LEN),
+            "attempts": attempts,
+        });
+        if let Some(a) = success {
+            result["final_route"] = route_id(a % MAX_ROUTES_PER_DESTINATION).into();
+        }
+        serde_json::from_value(result).unwrap_or_else(|e| panic!("report: {e}"))
+    };
+    let mut view: heimdall_contract::views::catalog::DestinationView =
         serde_json::from_value(serde_json::json!({
             "destination_id": filled(0, MAX_ID_LEN),
             "alias": "a".repeat(255),
@@ -344,20 +381,10 @@ fn maximal_destination_item_fits_with_room_to_spare() {
                 "mechanism": "managed_certificate",
                 "projection": {"state": "applied", "generation": u64::MAX},
                 "connection_policy": {
-                    "existing": "strict",
+                    "existing": "graceful",
                     "multiplexing": "owned_masters",
                     "wording": "w".repeat(256),
                 },
-            },
-            "route_health": {
-                "result": {
-                    "kind": "failed_over",
-                    "destination": filled(0, MAX_ID_LEN),
-                    "account": filled(1, MAX_ID_LEN),
-                    "attempts": attempts,
-                    "final_route": route_id(15),
-                },
-                "reported_at": "2026-11-24T00:00:00.123456789Z",
             },
             "host_pin_defeated": {
                 "setting": heimdall_contract::route::HOST_PIN_SETTINGS
@@ -368,11 +395,17 @@ fn maximal_destination_item_fits_with_room_to_spare() {
             },
         }))
         .unwrap_or_else(|e| panic!("view: {e}"));
-    let n = item_bytes(&view) + item_bytes(&routes);
+    let mut largest = 0;
+    for success in [None, Some(0), Some(ROUTE_HEALTH_ATTEMPTS_MAX - 1)] {
+        let health = RouteHealthView::from_report(report(success), at);
+        assert_eq!(health.attempts_dropped, Some(32));
+        view.route_health = Some(health);
+        largest = largest.max(item_bytes(&view));
+    }
+    let n = largest + item_bytes(&routes);
     assert!(
         n + ITEM_SPARE_BYTES <= MAX_ITEM_BYTES,
-        "a maximal destination with its routes is {n} bytes (view {}, routes {})",
-        item_bytes(&view),
+        "a maximal destination with its routes is {n} bytes (view {largest}, routes {})",
         item_bytes(&routes)
     );
 }

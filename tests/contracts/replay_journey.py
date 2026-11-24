@@ -16,6 +16,10 @@ and recorded. Nothing reaches the network, an SSH server, an agent or a key stor
   ignores the variables it does not know;
 * before anything is spawned, the three homes are checked to resolve inside the run's own
   scratch root;
+* `PATH` starts with a guard directory in the scratch root whose `ssh`, `scp`, `sftp`,
+  `ssh-add`, `ssh-agent`, `ssh-keygen` and `ssh-keyscan` only log their arguments and exit 1,
+  so no OpenSSH program runs (the runtime calls `ssh -V` at start); the calls are recorded in
+  the manifest;
 * the runtime is this script's own child (`service run` in the foreground). It is stopped with
   `service stop`, and if it has not exited it is killed by its own handle: never by name;
 * attended steps answer a typed `yes` on a pseudo-terminal this script owns.
@@ -57,10 +61,12 @@ class Home:
         self.ssh = os.path.join(self.root, "sshhome")
         for d in (self.home, self.ssh, os.path.join(self.ssh, "etc-ssh"), os.path.join(self.root, "iroh")):
             os.makedirs(d, mode=0o700)
+        self.guard_log = os.path.join(self.root, "ssh-guard.log")
+        guard = write_guard(os.path.join(self.root, "guard"), self.guard_log)
         with open(os.path.join(self.root, "lock"), "w", encoding="ascii") as f:
             f.write("unlocked\n")
         self.env = {
-            "PATH": "/usr/bin:/bin",
+            "PATH": guard + ":/usr/bin:/bin",
             "HOME": self.home,
             "HEIMDALL_HOME": self.hh,
             "HEIMDALL_TEST_SSH_HOME": self.ssh,
@@ -174,10 +180,37 @@ class Home:
         with open(os.path.join(out_dir, f"{self.name}.sql"), "w", encoding="utf-8") as f:
             f.write(text)
         return {"home": self.name, "user_version": version, "rows": counts,
-                "steps": self.steps}
+                "steps": self.steps, "ssh_guard_calls": self.guard_calls()}
+
+    def guard_calls(self):
+        """The guarded programs' calls, one `<program> <arguments>` line each, in order."""
+        try:
+            with open(self.guard_log, encoding="utf-8") as f:
+                text = f.read()
+        except FileNotFoundError:
+            return []
+        refuse(text, self.root)
+        return [line.replace(self.root, "/scratch") for line in text.splitlines()]
 
     def remove(self):
         shutil.rmtree(self.root, ignore_errors=True)
+
+
+GUARDED = ("ssh", "scp", "sftp", "ssh-add", "ssh-agent", "ssh-keygen", "ssh-keyscan")
+
+
+def write_guard(directory, log):
+    """Write the guard directory: each of `GUARDED` appends `<name> <arguments>` to `log` and
+    exits 1. Returns the directory."""
+    os.makedirs(directory, mode=0o700)
+    for name in GUARDED:
+        path = os.path.join(directory, name)
+        with open(path, "w", encoding="ascii") as f:
+            f.write("#!/bin/sh\n"
+                    f"printf '%s\\n' \"{name} $*\" >> '{log}'\n"
+                    "exit 1\n")
+        os.chmod(path, 0o700)
+    return directory
 
 
 def account_user():

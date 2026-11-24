@@ -954,6 +954,10 @@ fn apply_action(
                         label: destination.label.clone(),
                         updated_at: now,
                     };
+                    #[cfg(test)]
+                    if tests::alias_taken_by_another_writer(&record.alias) {
+                        return Err(heimdall_store::StoreError::DestinationAliasTaken);
+                    }
                     tx.upsert_destination(&record)?;
                     record
                 }
@@ -1570,6 +1574,104 @@ impl Operations {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    /// ⟨rev7; review U0-RC03⟩ The aliases a test marks as taken by another writer: the store's
+    /// `DestinationAliasTaken` at the write, after the catalog's own check passed. Keyed by
+    /// alias, so tests running at the same time are not touched.
+    static TAKEN_BY_ANOTHER_WRITER: std::sync::Mutex<Vec<String>> =
+        std::sync::Mutex::new(Vec::new());
+
+    pub(super) fn alias_taken_by_another_writer(alias: &str) -> bool {
+        TAKEN_BY_ANOTHER_WRITER
+            .lock()
+            .is_ok_and(|taken| taken.iter().any(|a| a == alias))
+    }
+
+    /// ⟨rev7; review U0-RC03⟩ The driver's own defence, without the plan's: a store alias
+    /// conflict that reaches the catalog driver settles the operation terminal as
+    /// `CONFIG_CONFLICT` / `alias_collision`, writes nothing and leaves nothing open, through
+    /// a retry with the same request ID and a restart.
+    #[tokio::test]
+    async fn a_store_alias_conflict_in_the_driver_settles_terminal_and_leaves_nothing_open() {
+        use heimdall_contract::catalog::{DestinationDefinitionSpec, DestinationSpec};
+        use heimdall_contract::ids::{EnvironmentId, RequestId};
+        use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+        use heimdall_domain::time::{SyncStatus, TimePolicy};
+        use heimdall_store::Store;
+        use heimdall_testkit::{ScriptedTimeSync, VirtualClock};
+
+        use crate::ensure::NoStageHook;
+        use crate::operations::{Limits, OperationsConfig};
+
+        const ALIAS: &str = "rc03-taken-by-another-writer";
+        TAKEN_BY_ANOTHER_WRITER
+            .lock()
+            .unwrap()
+            .push(ALIAS.to_owned());
+        let env = EnvironmentId::from_random_bytes([0x33; 16]);
+        let store = std::sync::Arc::new(
+            Store::open_in_memory(std::sync::Arc::new(heimdall_store::NoFaults)).unwrap(),
+        );
+        store
+            .transaction(|tx| tx.init_self_environment(&env))
+            .unwrap();
+        let start = |store: std::sync::Arc<Store>| {
+            let env = env.clone();
+            async move {
+                Operations::start(OperationsConfig {
+                    store,
+                    clock: VirtualClock::at("2026-11-24T09:00:00Z".parse().unwrap()),
+                    time_sync: ScriptedTimeSync::new(SyncStatus::Synchronized),
+                    time_policy: TimePolicy::default(),
+                    environment: env,
+                    adapters: Vec::new(),
+                    stage_hook: std::sync::Arc::new(NoStageHook),
+                    limits: Limits::default(),
+                    default_window: std::time::Duration::from_secs(3600),
+                    projection: None,
+                })
+                .await
+                .unwrap()
+            }
+        };
+        let owner = Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 501 },
+            role: ClientRole::Owner,
+            remote_client: None,
+        });
+        let request = || CatalogRequest::UpsertDestination {
+            destination: DestinationSpec {
+                id: DestinationId::parse("dst-late").unwrap(),
+                alias: ALIAS.to_owned(),
+                definition: DestinationDefinitionSpec::Observed,
+                label: None,
+            },
+            request_id: RequestId::parse("r-rc03").unwrap(),
+        };
+        let open = |store: &Store| store.transaction(|tx| tx.open_operations()).unwrap();
+        let written = |store: &Store| {
+            store
+                .transaction(|tx| tx.destination(&DestinationId::parse("dst-late").unwrap()))
+                .unwrap()
+                .is_some()
+        };
+        let ops = start(store.clone()).await;
+        for attempt in ["first", "retry"] {
+            let e = ops.catalog(&owner, request()).await.unwrap_err();
+            assert_eq!(e.code, Code::ConfigConflict, "{attempt}: {e:?}");
+            assert_eq!(e.reason.as_deref(), Some("alias_collision"), "{attempt}");
+            assert!(open(&store).is_empty(), "{attempt}: nothing is left open");
+            assert!(!written(&store), "{attempt}: nothing was written");
+        }
+        drop(ops);
+        let _restarted = start(store.clone()).await;
+        assert!(open(&store).is_empty(), "nothing is open after a restart");
+        assert!(!written(&store));
+        TAKEN_BY_ANOTHER_WRITER
+            .lock()
+            .unwrap()
+            .retain(|a| a != ALIAS);
+    }
 
     fn blob() -> Vec<u8> {
         // A synthetic ed25519 wire blob over 32 zero bytes (no private key exists).

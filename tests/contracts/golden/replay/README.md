@@ -6,8 +6,14 @@ running the short fixed journey of `tests/contracts/replay_journey.py`, as SQL t
 every step with its real exit code and code). `hand/` holds hand-authored rows for the
 historical shapes no journey writes. `stored_samples_replay_through_revision_7_readers`
 (`cargo test -p heimdall-store --test contracts_replay`) rebuilds each dump, migrates it with
-the production migrations and reads every row back through the store's readers and
-revision 7's typed payloads.
+the production migrations and reads every row of every table of the migrated schema back
+through its reader, except the tables and `meta` keys under "Stored, not read" below: the
+store's public readers (methods of `heimdall_store::Txn`), each event also through revision
+7's `EventPayload`, each controller pin (`remote_environment_pins`) also through revision 7's
+`RemoteEnvironmentPin`, and each `meta` row through the reader of its key class
+(`META_RECOVERY`). For every table the rows read must equal the rows stored. A table of the
+migrated schema, or a `META_RECOVERY` key class, that is neither read nor listed below fails
+the test.
 
 Every dump is fixture data from scratch homes under the debug test configuration (the fake
 adapter; no SSH, agent, key store or network). The fake adapter's synthetic credential
@@ -43,6 +49,11 @@ and M04/M05; `heimdall-stategen` and `heimdall-support` at HEAD.
 
 ## The journeys
 
+The M02, M03 and M04/M05 journeys ran with `PATH=/usr/bin:/bin`, so each runtime ran the real
+`/usr/bin/ssh -V` at start (it reads nothing under `~/.ssh`). The driver now puts a guard first
+on `PATH` (fake OpenSSH programs that log their arguments and exit 1) and records the calls in
+the manifest's `ssh_guard_calls`.
+
 - **m02/main** (version 5): service run 0; ensure (ready) 0; ensure (replay) 0; ensure (conflict) 6; ensure (pending) 3; ensure (to deny) 3; decision deny (attended) 0; ensure (to approve) 3; decision approve (attended) 0; access pause 0; access resume (pending) 3; access resume (attended) 0; access cutoff 0; access cutoff --clear (pending) 3; inspect bindings 0; access release 0; access revoke 0; operation events 0; service stop 0.
 - **m02/slow** (version 5): service run 0; ensure --async 0; operation cancel 0; service stop 0.
 - **m02/lost** (version 5): service run 0; ensure (outcome unknown) 7; ensure (same key retry) 0; service stop 0.
@@ -52,4 +63,15 @@ and M04/M05; `heimdall-stategen` and `heimdall-support` at HEAD.
 - **m0405/main** (version 8): service run 0; ensure (ready) 0; ensure (replay) 0; ensure (conflict) 6; ensure (pending) 3; ensure (to deny) 3; decision deny (attended) 0; ensure (to approve) 3; decision approve (attended) 0; access pause 0; access resume (pending) 3; access resume (attended) 0; access cutoff 0; access cutoff --clear (pending) 3; access lock-behavior 0; access default-profile 0; inspect bindings 0; access release 0; access revoke 0; access stop --work 0; operation events 0; service stop 0.
 - **m0405/slow** (version 8): service run 0; ensure --async 0; operation cancel 0; service stop 0.
 - **m0405/lost** (version 8): service run 0; ensure (outcome unknown) 7; ensure (same key retry) 0; service stop 0.
+
+## Stored, not read
+
+No reader an integration test can reach (neither a public reader of the store nor a revision 7
+typed reader). The test's `NOT_READ` and `META_NOT_READ` list the same, with the same reasons,
+and it counts these rows as stored, not read.
+
+- `request_fences`: no reader: migration 0014 creates it; its writer and reader are U2b's.
+- `meta` key `restore_epoch`: no public reader: `Store::open` refuses a missing or non-canonical value, and no method returns it.
+- `meta` key `remote_revocation_claim_seq`: no reader: only `next_remote_claim_seq`, which reads it to advance it (a writer).
+- `meta` key `cleanup_intent_version`: no reader: only `record_cleanup_intent`, which reads it to advance it (a writer).
 

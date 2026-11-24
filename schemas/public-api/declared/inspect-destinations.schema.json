@@ -754,13 +754,22 @@
       "description": "⟨M06 W5; D11⟩ The route helper's latest report for a destination.",
       "type": "object",
       "properties": {
+        "attempts_dropped": {
+          "description": "⟨rev7; U0-RC01⟩ How many older attempts of the report are not listed. Omitted when\nnone was dropped (the form of `resync_required`'s `dropped`).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
         "reported_at": {
           "description": "When it was reported.",
           "type": "string",
           "format": "date-time"
         },
         "result": {
-          "description": "The attempt's structured result (ADR-0012 §5.5 item 4).",
+          "description": "The attempt's structured result (ADR-0012 §5.5 item 4). ⟨rev7; U0-RC01⟩ Its\n`attempts` are at most 32 of the report's (`ROUTE_HEALTH_VIEW_ATTEMPTS_MAX`): the most\nrecent, newest first.",
           "$ref": "#/$defs/RouteHealthPayload"
         }
       },

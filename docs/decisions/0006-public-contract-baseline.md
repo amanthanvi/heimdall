@@ -2723,7 +2723,7 @@ release --request-id` arrive with their checks); H11 (M08 U3c), H12 and H15 (U2b
 | D11 | Ruled (Q12): M06's `route_health` and `host_pin_defeated` on each `inspect destinations` item are D11, omitted when there is no report; typed in the destinations view. ADR-0010 §10's per-pair dependency status is `deferred_with_decision` past 1.0 (the consumer has `route_dependency_out_of_scope` and `route_undetermined`) | `contract::views::catalog` | U3 (a test of the emitted `route` event) |
 | D12 | The `service-status` view; `runtime_not_running`, `runtime_unreachable` (H14), `endpoint_untrusted` | `contract::views::status`, `envelope::reason::REV7` | U3 |
 | D13 | `destination_has_live_access`; `LiveAccessRefusal` | `contract::envelope` | U3 with U8b |
-| D14 | The help lint; `cli.rs` help rewritten (`m06_cmd.rs`'s once M06's exit is on `main`) | `heimdall::cli_tree_tests` | U2b remainder |
+| D14 | The help lint, with no exemption left; `cli.rs` help rewritten, and `m06_cmd.rs`'s `remote` help strings once M06's exit was on this branch (review R08(f)) | `heimdall::cli_tree_tests` | — |
 | D15 | The spec text below (§19.7), for the contract owner to apply | — | the orchestrator |
 | D16–D18 | §19.6 | — | ratification |
 | D19 | `response_too_large`; `ResponseTooLarge` | `contract::envelope` | U3 (PC4) |
@@ -2806,17 +2806,37 @@ dropped records retried without its epoch could run again).
   per destination of at most 1,536 bytes each (an RSA-8192 pin is about 1.4 KB), 16 listed
   `remote_pending` entries. Each maximal-record test fills every field of its item at its bound
   at once, at its worst-case escaping (a label of `"`), and leaves 4 KiB (at most 61,440 bytes):
-  a maximal profile is 58,381 bytes; a maximal destination with its routes, its pair preference
-  and connection policy, a 64-attempt route-health report and the longest host-pin setting is
-  61,185 bytes (view 9,512, routes 51,673). Each bound, of bytes or of entries, refuses at write
-  with `USAGE_ERROR` / `item_too_large` (`ItemTooLarge` names the field and the bound); a store
-  that already exceeds one is reported, never truncated.
+  a maximal profile is 58,381 bytes; a maximal destination with its routes (each with
+  `external_roost`), its pair preference (`graceful`) and connection policy, the route-health view
+  of the largest report `record_health` accepts and the longest host-pin setting is 58,569 bytes
+  (view 6,208, routes 52,361; review U0-RC01; addresses with their zones). **`route_health` lists
+  at most the 32 most recent attempts of its report, newest first, with `attempts_dropped`** (how
+  many older attempts are not listed, omitted when none, the form of `resync_required`'s
+  `dropped`; `ROUTE_HEALTH_VIEW_ATTEMPTS_MAX`, `RouteHealthView::from_report`): the diagnostic
+  report is cut, not a user capacity. Before the cut the true worst case was 61,517 bytes, 77 over
+  the line. **Address strings (ruled 2026-11-24):** each `direct_addresses` entry and each
+  `BindScope::Interface.address` is at most `MAX_ADDRESS_BYTES` = 64 bytes (IPv6 with a zone ID).
+  At write time (U3, PC11) each is parsed as an IP address with an optional zone and stored in its
+  canonical text form; an unparseable entry or one over the bound is refused with `USAGE_ERROR`
+  (`item_too_large` over the bound, next `fix_request` for an unparseable entry); a stored value
+  that does not parse or exceeds the bound is reported, never rewritten. The maximal test fills
+  each with the canonical IPv6 maximum and a 15-byte zone. Each bound, of bytes or of entries,
+  refuses at write with `USAGE_ERROR` / `item_too_large` (`ItemTooLarge` names the field and the
+  bound); a store that already exceeds one is reported, never truncated.
 - **Next actions in the reason table (ruled 2026-11-24):** every row is one (reason, code)
   answer with the `next.action` it carries, so a well-behaved agent stops instead of looping:
   `state_corrupt` and `ledger_damaged` carry `owner_decision` (the attended repair or restore),
   `state_newer_than_build` carries `change_client`, and three M03 answers carry what their
   emission sites send today (`projection_pending`: `setup_apply`; `remote_step_in_progress`:
-  `reconcile`; `managed_slot_held`: `release_binding`). `retryable` is always the code's.
+  `reconcile`; `managed_slot_held`: `release_binding`). The review's overrides (U0-R04):
+  `response_too_large` under `USAGE_ERROR` carries `narrow_request` (a read refused before
+  anything is sent), with one exception: a reply that does not fit after dispatch keeps its
+  operation's true effect and reference and carries `observe`; `decision_denied` under
+  `CAPABILITY_UNAVAILABLE` carries `none` (the person said no: stop, do not ask again); and
+  `client_quarantined_after_restore`, `invitation_void_after_restore` and
+  `exposure_disabled_after_restore` under `CAPABILITY_UNAVAILABLE` carry `owner_decision`
+  (only the owner's reauthorization or a new local decision reopens). `retryable` is always
+  the code's.
   `restore_epoch_stale` is an answer under both `REQUEST_STALE` (a request) and
   `DECISION_STALE` (`fix_request`; a decision reference minted under an older epoch).
 - **The D1 views (ruled 2026-11-24):** a terminal operation with no `result` reads as
@@ -2887,9 +2907,10 @@ dropped records retried without its epoch could run again).
 
 ### 19.8 Proofs
 
-- `cargo test -p heimdall-contract`: `contracts::rev7::{primitive_index_names_six_groups_with_known_schemas_codes_and_capabilities, reason_table_lists_every_answer_with_its_code_and_next_action, revision_7_capabilities_are_declared_not_offered}`; `contracts::rev7_events::{event_payload_schema_covers_every_emission_site, emission_scan_self_check}`; `contracts::rev7_views` (every view reads today's documents; re-serialization drops only PC3 fields); `contracts::schema_export::{checked_in_public_api_matches_the_model_exactly, declared_schemas_are_disjoint_from_the_public_ones}` and the keyword and tolerance checks over the declared schemas; unit tests in `page`, `primitives`, `event_payload`, `lifecycle`, `request_state`.
+- `cargo test -p heimdall-contract`: `contracts::rev7::{primitive_index_names_six_groups_with_known_schemas_codes_and_capabilities, reason_table_lists_every_answer_with_its_code_and_next_action, revision_7_capabilities_are_declared_not_offered}`; `contracts::rev7_events::{event_payload_schema_covers_every_emission_site, emission_scan_self_check}`; `contracts::rev7_views` (every view reads today's documents; re-serialization drops only PC3 fields); `contracts::schema_export::{checked_in_public_api_matches_the_model_exactly, declared_schemas_are_disjoint_from_the_public_ones}` and the keyword and tolerance checks over the declared schemas; unit tests in `page`, `primitives`, `event_payload`, `lifecycle`, `request_state`, and `views::catalog::tests::route_health_lists_the_most_recent_attempts_newest_first` (U0-RC01).
 - `cargo test -p heimdall --bin heimdall`: `cli::tree_tests::{command_tree_matches_its_golden, help_text_names_no_milestone_adr_or_section, help_lint_self_check}`; `rev7_cmd::tests::{every_declared_command_answers_not_available_and_touches_nothing, only_inspect_request_takes_an_id}`.
-- `cargo test -p heimdall-store`: `migrations::tests::restore_epoch_step_keeps_every_row_at_epoch_zero_and_rolls_back_whole`; `tests::catalog_aliases_are_unique_without_case_at_write`.
+- `cargo test -p heimdall-store`: `migrations::tests::restore_epoch_step_keeps_the_seeded_rows_at_epoch_zero_and_rolls_back_whole`; `tests::{catalog_aliases_are_unique_without_case_at_write, a_lost_restore_epoch_is_damage_never_epoch_zero, the_restore_epoch_is_canonical_decimal_only}` (the stored epoch is canonical decimal only: no sign, no leading zero but `0`, no whitespace; anything else is `state_corrupt`, U0-RC04).
+- `cargo test -p heimdall-app --lib`: `catalog::tests::a_store_alias_conflict_in_the_driver_settles_terminal_and_leaves_nothing_open` (the driver's own defence, U0-RC03; a test-build seam makes the store refuse the write after the catalog's check passed).
 - `cargo test -p heimdall-store --test contracts_replay`: `stored_samples_replay_through_revision_7_readers` (§19.9); the driver's self-test `tests/contracts/test_replay_journey.py` (the `check.sh` step `replay-driver-selftest`).
 
 ### 19.9 The replay corpus
@@ -2897,8 +2918,11 @@ dropped records retried without its epoch could run again).
 Real prior-version rows (ADR-0013 §1.3): scratch stores written by the M02 (`e4f43f84`), M03
 (`2b79aac1`) and M04/M05 (`50dbc86b`) exit builds running one short fixed journey, kept as SQL
 text dumps under `tests/contracts/golden/replay/`, migrated forward by the production migrations
-and read back through the store's readers and revision 7's typed payloads, plus hand-authored
-rows (`hand/`) for the historical shapes no journey produces. **The M06 exit build's dump is not
+and read back, every row of every table of the migrated schema, through its reader (the
+store's public readers, revision 7's typed payloads for events and controller pins; rows read
+must equal rows stored, U0-RC02), plus hand-authored rows (`hand/`) for the historical shapes no
+journey produces. The tables and `meta` keys with no reader are listed in the corpus README
+("Stored, not read"). **The M06 exit build's dump is not
 landed yet** (it follows M06's final exit SHA). Each build's genuineness (its `heimdall` build
 graph equals the crates cargo compiled; every binary's SHA-256 differs) is recorded in
 `tests/contracts/golden/replay/README.md`. The recipe is `docs/architecture/u0-plan.md` §5.

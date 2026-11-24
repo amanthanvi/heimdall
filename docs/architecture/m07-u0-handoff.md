@@ -30,7 +30,7 @@ correction in U3, with its emitters, every in-tree reader and its goldens.
 | D14 help-text rule and lint | U0 and U2b | — | — |
 | D15 to D18 ratifications | the contract owner | — | — |
 | D19 `response_too_large` | the reason | PC4 | CLI exit tests, the wrapper |
-| D20 write-time item bounds | the bounds | PC11 | CLI refusals |
+| D20 write-time item bounds | the bounds, `MAX_ADDRESS_BYTES` included | PC11; and **the address strings** (ruled 2026-11-24): each `direct_addresses` entry and `BindScope::Interface.address` parsed as an IP address with an optional zone and stored canonically, refused over 64 bytes (`item_too_large`) or unparseable (`USAGE_ERROR`, `fix_request`), stored values that fail reported and never rewritten | CLI refusals |
 | D21 `page_token_invalid`, `selector_invalid`, `route_undetermined` | the reasons | U3 | the wrapper, both harnesses |
 
 ## 2. M08's deltas that touch M07's consumers (ADR-0014 §7)

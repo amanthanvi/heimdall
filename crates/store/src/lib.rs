@@ -325,6 +325,20 @@ const META_WINDOWS_PIPE_TOKEN: &str = "windows_environment_pipe_token";
 /// [`verify_schema`] refuses it at every open.
 const META_RESTORE_EPOCH: &str = "restore_epoch";
 
+/// ⟨rev7; review U0-RC04⟩ The stored restore epoch's only form: canonical decimal (`0`, or a
+/// nonzero digit then digits), no sign, no leading zero, no whitespace, within `u64`. Anything
+/// else is damage. The reader U2b adds parses through this too, so the open check and the
+/// reader cannot disagree.
+pub(crate) fn parse_restore_epoch(text: &str) -> Option<u64> {
+    let canonical = text == "0"
+        || (text
+            .as_bytes()
+            .first()
+            .is_some_and(|b| (b'1'..=b'9').contains(b))
+            && text.bytes().all(|b| b.is_ascii_digit()));
+    if canonical { text.parse().ok() } else { None }
+}
+
 /// A Windows pipe token: 1 to 64 ASCII letters or digits (the credential crate's
 /// `pipe_token_ok`, which the store cannot name).
 fn pipe_token_valid(token: &str) -> bool {
@@ -675,11 +689,7 @@ fn verify_schema(conn: &rusqlite::Connection) -> Result<()> {
         )
         .optional()
         .map_err(codec::classify)?;
-    if epoch
-        .as_deref()
-        .and_then(|v| v.parse::<u64>().ok())
-        .is_none()
-    {
+    if epoch.as_deref().and_then(parse_restore_epoch).is_none() {
         return Err(StoreError::Corrupt(
             "the restore epoch is missing or malformed".to_owned(),
         ));
@@ -2118,8 +2128,6 @@ mod tests {
             .map(|t| ((*t).to_owned(), table_count(&c, t)))
             .collect()
         };
-        // This test tracks no `meta` row (the v1 fixture's time anchor is rewritten on the way).
-        let meta_before: Vec<(String, String)> = Vec::new();
         assert!(
             before.iter().all(|(_, n)| *n > 0),
             "fixture populated every table"
@@ -2144,14 +2152,7 @@ mod tests {
         {
             let c = s.lock();
             for (table, n) in &before {
-                if table == "meta" {
-                    continue;
-                }
                 assert_eq!(table_count(&c, table), *n, "{table} rows preserved");
-            }
-            let meta_after = meta_rows(&c);
-            for row in &meta_before {
-                assert!(meta_after.contains(row), "meta row {} preserved", row.0);
             }
             let fk_violation = c
                 .prepare("PRAGMA foreign_key_check")
@@ -3060,8 +3061,8 @@ mod tests {
     }
 
     /// ⟨rev7; review U0-R06⟩ A store at schema version 14 whose `meta.restore_epoch` row is
-    /// lost (or malformed) is refused as damaged at every open, never read as epoch 0: a lost row
-    /// must not reset the restore fence.
+    /// lost, malformed or not canonical decimal (U0-RC04) is refused as damaged at every open,
+    /// never read as epoch 0 or as another number: a lost row must not reset the restore fence.
     #[test]
     fn a_lost_restore_epoch_is_damage_never_epoch_zero() {
         let dir = tempfile::tempdir().unwrap();
@@ -3070,6 +3071,14 @@ mod tests {
             (
                 "malformed",
                 "UPDATE meta SET value = 'x' WHERE key = 'restore_epoch'",
+            ),
+            (
+                "signed",
+                "UPDATE meta SET value = '+1' WHERE key = 'restore_epoch'",
+            ),
+            (
+                "leading-zero",
+                "UPDATE meta SET value = '007' WHERE key = 'restore_epoch'",
             ),
         ] {
             let db = dir.path().join(format!("{label}.sqlite3"));
@@ -3092,6 +3101,38 @@ mod tests {
                 ),
                 "{label}, read-only"
             );
+        }
+    }
+
+    /// ⟨rev7; review U0-RC04⟩ The restore epoch parses as canonical decimal only.
+    #[test]
+    fn the_restore_epoch_is_canonical_decimal_only() {
+        for (text, want) in [
+            ("0", Some(0)),
+            ("1", Some(1)),
+            ("42", Some(42)),
+            ("18446744073709551615", Some(u64::MAX)),
+        ] {
+            assert_eq!(parse_restore_epoch(text), want, "{text:?}");
+        }
+        for text in [
+            "",
+            "+1",
+            "-1",
+            "-0",
+            "00",
+            "007",
+            " 0",
+            "0 ",
+            "\t1",
+            "1\n",
+            "1e3",
+            "0x1",
+            "1_000",
+            "١",
+            "18446744073709551616",
+        ] {
+            assert_eq!(parse_restore_epoch(text), None, "{text:?}");
         }
     }
 }
