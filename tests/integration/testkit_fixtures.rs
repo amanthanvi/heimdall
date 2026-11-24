@@ -1235,6 +1235,81 @@ impl Login {
     }
 }
 
+/// ⟨M06 exit c9⟩ A fixture sshd session never starts with the account's own `HOME`: the
+/// account's login shell runs the command with `HOME` and `ZDOTDIR` set to the server's
+/// scratch session home and `BASH_ENV` empty, so zsh and bash read none of the account's
+/// startup files. A server this fixture started names that directory; a harness server's
+/// (`tests/native/m02/remote-lib.sh`) is `<its directory>/session-home`.
+#[cfg(unix)]
+#[test]
+#[allow(clippy::print_stderr)] // the observation for the M06 exit record
+fn fixture_sshd_session_has_a_scratch_home_and_no_account_startup_files() {
+    let home = ScratchHome::new();
+    let key = FixtureKey::generate();
+    let sshd = LoopbackSshd::start(
+        home.scratch(),
+        SshdConfig {
+            authorized: vec![key.public().clone()],
+            ..SshdConfig::default()
+        },
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    home.trust_host_key(&sshd.host_key_line).unwrap();
+    let identity = home.ssh_dir.join("session_env_key");
+    key.write_private(&identity).unwrap();
+    home.write_user_config(&format!(
+        "Host hm-session-env\n  HostName 127.0.0.1\n  Port {}\n  IdentityAgent none\n  \
+         IdentityFile {}\n  IdentitiesOnly yes\n",
+        sshd.port,
+        config_path(&identity),
+    ))
+    .unwrap();
+    let mut cmd = home
+        .client_command(ClientKind::Ssh, "hm-session-env")
+        .unwrap();
+    cmd.arg(r#"printf 'home=%s\nzdotdir=%s\nbash_env=%s\nshell0=%s\n' "$HOME" "${ZDOTDIR-unset}" "${BASH_ENV-unset}" "$0""#)
+        .stdin(Stdio::null());
+    let out = cmd.output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        out.status.success(),
+        "ssh exit {:?}: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let value = |name: &str| {
+        stdout
+            .lines()
+            .find_map(|l| l.strip_prefix(&format!("{name}=")))
+            .unwrap_or_else(|| panic!("no {name} in the session output"))
+            .to_owned()
+    };
+    let session_home = value("home");
+    match sshd.session_home() {
+        Some(expected) => {
+            assert_eq!(Path::new(&session_home), expected);
+            assert!(expected.starts_with(home.scratch().path()));
+        }
+        None => assert!(session_home.ends_with("/session-home"), "{session_home}"),
+    }
+    assert_eq!(
+        value("zdotdir"),
+        session_home,
+        "ZDOTDIR is the scratch home"
+    );
+    assert_eq!(value("bash_env"), "", "BASH_ENV is set empty");
+    // The account's login shell runs the command (sshd always uses it), as `<name> -c`.
+    let shell0 = value("shell0");
+    assert!(
+        !shell0.is_empty() && !shell0.starts_with('-') && !shell0.contains('/'),
+        "{shell0}"
+    );
+    eprintln!(
+        "observation test=fixture_sshd_session_env home=scratch zdotdir=scratch bash_env=empty \
+         login_shell={shell0}"
+    );
+}
+
 #[test]
 fn fake_agent_round_trip_with_real_ssh_login() {
     let login = Login::new(6);

@@ -60,10 +60,32 @@ const DEST: &str = "ex1";
 const ALIAS: &str = "exit1";
 const BASTION: &str = "ex2";
 
-/// `heimdall run --profile exit -- ssh -F <scratch config> -o BatchMode=yes -o
+/// `heimdall run --profile exit -- ssh -F <scratch config> <pins> -o BatchMode=yes -o
 /// ConnectTimeout=30 exit1 'echo <marker>'`: an ordinary login through the projected alias,
 /// retried while an earlier launch's binding still holds the pairs' slots.
+///
+/// `<pins>` ([`ALIAS_PINS`]) are the client isolation options that agree with the route
+/// helper's own section, so they never change what the alias does. They keep the
+/// client from writing a known-hosts file, reading the global one or offering any other
+/// identity, whatever alias this is called with. The testkit's
+/// `isolation_args()` is not used: its scratch `UserKnownHostsFile` comes before the
+/// section's catalog pin file, which overrides the pin. The section's
+/// `IdentityAgent` (the binding's endpoint, which is what this login is about) is kept.
 pub(crate) fn ordinary_login(w: &World, alias: &str, work: &str, marker: &str) -> Out {
+    /// The helper section's own values ([`heimdall_sshconf::routes`], ADR-0012 §5.3) and
+    /// its section's `IdentitiesOnly yes`. Not `ControlMaster`/`ControlPath`: `run` refuses
+    /// them on the command line (`owned_connection_option_conflict`), and the section
+    /// renders `ControlMaster no`/`ControlPath none`, which the helper checks.
+    const ALIAS_PINS: [&str; 8] = [
+        "-o",
+        "GlobalKnownHostsFile=none",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "UpdateHostKeys=no",
+        "-o",
+        "IdentitiesOnly=yes",
+    ];
     slots_free(w);
     let mut last = None;
     for _ in 0..40 {
@@ -81,6 +103,7 @@ pub(crate) fn ordinary_login(w: &World, alias: &str, work: &str, marker: &str) -
         .arg(m03world::openssh("ssh"))
         .arg("-F")
         .arg(&w.home.user_config)
+        .args(ALIAS_PINS)
         .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=30", alias])
         .arg(format!("echo {marker}"))
         .env_clear()

@@ -8,8 +8,10 @@
 //! server knows the option, `PerSourcePenalties no` (MANIFEST row 1). A non-root sshd
 //! authenticates only its own account, so clients log in as the current user and no
 //! user name appears in any fixture text (a harness sshd that names its account is the
-//! one exception; see below). Limitation: the session runs the account's
-//! login shell in the account's home, as any login to this account would.
+//! one exception; see below). Sessions run the account's login shell (sshd always
+//! does) with `HOME` and `ZDOTDIR` set to a scratch directory and `BASH_ENV` empty
+//! ([`session_setenv`]), so the shell reads none of the account's own startup files.
+//! Limitation: the working directory is still the account database's home.
 //!
 //! When the harness supplies `HM_FIXTURE_SSHD_{HOST,PORT,HOST_KEY}` (Windows, which
 //! runs the fixture sshd in WSL scratch, or the Docker fallback of m02-plan §4), that
@@ -310,6 +312,9 @@ pub struct LoopbackSshd {
     ca_keys: Option<PathBuf>,
     /// ⟨M03⟩ The `AuthorizedPrincipalsFile` directory (`<dir>/%u`).
     principals_dir: Option<PathBuf>,
+    /// The sessions' scratch `HOME` and `ZDOTDIR` ([`session_setenv`]; a local server only:
+    /// a harness writes its own, `tests/native/m02/remote-lib.sh`).
+    session_home: Option<PathBuf>,
     /// The harness server's lease (none for a local server). Declared last, so it is
     /// released after the keys file is emptied in `drop`.
     _lease: Option<HarnessLease>,
@@ -591,6 +596,7 @@ impl LoopbackSshd {
             destination_id: None,
             ca_keys: None,
             principals_dir: None,
+            session_home: None,
             _lease: Some(lease),
         })
     }
@@ -711,6 +717,7 @@ impl LoopbackSshd {
             destination_id: None,
             ca_keys: None,
             principals_dir: None,
+            session_home: None,
             _lease: None,
         })
     }
@@ -761,9 +768,11 @@ impl LoopbackSshd {
             })?),
             None => None,
         };
+        let session_home = create_session_home(&dir).map_err(io_err("session home"))?;
         let extras = Extras {
             principals_dir: principals_dir.as_deref(),
             command_user: command_user.as_deref(),
+            session_home: Some(&session_home),
         };
         let config_file = dir.join("sshd_config");
         let log = dir.join("sshd.log");
@@ -840,6 +849,7 @@ impl LoopbackSshd {
                         registry: Some(authorized),
                         ca_keys: config.trusted_user_ca_keys.clone(),
                         principals_dir,
+                        session_home: Some(session_home.clone()),
                         _lease: None,
                     });
                 }
@@ -963,6 +973,13 @@ impl LoopbackSshd {
             .filter(|l| l.contains(needle))
             .map(str::to_owned)
             .collect()
+    }
+
+    /// The sessions' scratch `HOME` and `ZDOTDIR` ([`session_setenv`]) of a server this
+    /// fixture started; `None` for a harness server (its config is the harness's).
+    #[must_use]
+    pub fn session_home(&self) -> Option<&Path> {
+        self.session_home.as_deref()
     }
 
     /// ⟨M03⟩ The destination ID a [`TwoHosts`]/[`ThreeHosts`] fixture assigned (or
@@ -1257,6 +1274,8 @@ fn config_path(p: &Path) -> String {
 struct Extras<'a> {
     principals_dir: Option<&'a Path>,
     command_user: Option<&'a str>,
+    /// The sessions' scratch `HOME` and `ZDOTDIR` ([`session_setenv`]).
+    session_home: Option<&'a Path>,
 }
 
 /// A path as an `sshd_config` token that sshd expands (`%` doubled), quoted when needed.
@@ -1336,16 +1355,53 @@ fn sshd_config_text(
     for target in config.tcp_forwarding_permit_open.iter().flatten() {
         text.push_str(&format!("PermitOpen {target}\n"));
     }
-    if let Some(dir) = &config.session_path {
-        text.push_str(&format!(
-            "SetEnv {}\n",
-            config_path(Path::new(&format!(
-                "PATH={}:{STANDARD_PATH}",
-                dir.to_string_lossy()
-            )))
-        ));
+    let path = config
+        .session_path
+        .as_ref()
+        .map(|dir| format!("{}:{STANDARD_PATH}", dir.to_string_lossy()));
+    if let Some(home) = extras.session_home {
+        text.push_str(&session_setenv(home, path.as_deref()));
     }
     text
+}
+
+/// The fixture sshd's one `SetEnv` line: `HOME` and `ZDOTDIR` set to `session_home` (a
+/// scratch directory), `BASH_ENV` set empty, and `PATH` when given.
+///
+/// A non-root sshd serves only its own account, so every session command runs as
+/// `<account login shell> -c <command>`. Without this line that shell starts with the
+/// account database's `HOME`, and zsh reads `$ZDOTDIR/.zshenv` (`ZDOTDIR` defaulting to
+/// `HOME`) even for `-c`; bash reads `$BASH_ENV`, and where it is built to detect sshd, `~/.bashrc`.
+/// `sshd_config(5)`: "Environment variables set by SetEnv override the default
+/// environment" (`HOME` among them: sshd applies `SetEnv` after it sets `HOME`). sshd
+/// keeps only the first `SetEnv` line, so every variable is on this one.
+/// The session's working directory is still the account database's home (sshd changes
+/// to it before the shell starts); fixture commands use absolute paths.
+pub fn session_setenv(session_home: &Path, path: Option<&str>) -> String {
+    let home = session_home.to_string_lossy();
+    let mut line = format!(
+        "SetEnv {} {} BASH_ENV=",
+        config_path(Path::new(&format!("HOME={home}"))),
+        config_path(Path::new(&format!("ZDOTDIR={home}"))),
+    );
+    if let Some(path) = path {
+        line.push(' ');
+        line.push_str(&config_path(Path::new(&format!("PATH={path}"))));
+    }
+    line.push('\n');
+    line
+}
+
+/// Create `dir/session-home` (mode 700), the sessions' scratch `HOME` ([`session_setenv`]).
+pub fn create_session_home(dir: &Path) -> io::Result<PathBuf> {
+    let home = dir.join("session-home");
+    fs::create_dir(&home)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&home, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(home)
 }
 
 /// The standard directories after a [`LaggingClock`]'s scratch directory.
@@ -2475,6 +2531,7 @@ mod tests {
             harness_registry: None,
             ca_keys: None,
             principals_dir: None,
+            session_home: None,
             _lease: None,
         };
         assert_eq!(
@@ -2511,6 +2568,7 @@ mod tests {
             harness_registry: None,
             ca_keys: None,
             principals_dir: None,
+            session_home: None,
             _lease: None,
         };
         sshd.append_registry_line("a b heimdall:enr_x").unwrap();
