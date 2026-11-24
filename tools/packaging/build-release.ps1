@@ -12,6 +12,8 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\packaging\build-release.ps1 `
 #       -LinuxHelper <path to the Linux x86_64 heimdall from the Linux archive> `
 #       [-Features <list>] [-AllowDirty] [-Offline]
+#   (-Features takes a comma list, quoted or not: an unquoted `default,iroh` arrives as an
+#   array and is joined. -CheckFeaturesOnly runs only the feature checks, then exits.)
 # Exit code: 0 when the archive was built and passed verify_artifact.py; 1 when the build,
 # the inventory or the verification failed; 2 on a usage or setup error.
 #
@@ -27,9 +29,11 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$LinuxHelper,
-    [string]$Features = "",
+    [string[]]$Features = @(),
     [switch]$AllowDirty,
-    [switch]$Offline
+    [switch]$Offline,
+    [switch]$AllFeatures,
+    [switch]$CheckFeaturesOnly
 )
 $ErrorActionPreference = "Stop"
 $target = "x86_64-pc-windows-msvc"
@@ -39,6 +43,24 @@ $here = "tools\packaging"
 $env:PYTHONDONTWRITEBYTECODE = "1"
 
 function Fail([int]$code, [string]$msg) { Write-Host "build-release: $msg"; exit $code }
+
+# The feature request, checked before anything else (review M08-W2-F2). Windows PowerShell
+# passes an unquoted `-Features default,iroh` as an array; it used to fail binding to a string
+# with a PowerShell error, before this script's own refusal. The elements are joined with
+# commas into the one list cargo takes, and every check below reads that list.
+$featureList = (@($Features) | Where-Object { $_ }) -join ','
+if ($AllFeatures) { Fail 2 "-AllFeatures is refused: release artifacts are built without the iroh feature (the Iroh transport is a source-build preview)" }
+# The feature list is passed to cargo on one command line (below), so it may hold only the
+# characters a feature list uses.
+if ($featureList -and ($featureList -notmatch '^[A-Za-z0-9_,/-]+$')) { Fail 2 "-Features may hold only letters, digits, '_', '-', '/' and ','" }
+if ($CheckFeaturesOnly) {
+    $onlyArgs = @("check-features", "--target", $target)
+    if ($featureList) { $onlyArgs += @("--features", $featureList) }
+    if ($Offline) { $onlyArgs += "--offline" }
+    & python -I "$here\provenance.py" @onlyArgs
+    if ($LASTEXITCODE -ne 0) { Fail 2 "refused before the build; nothing was built" }
+    exit 0
+}
 
 foreach ($tool in "cargo", "rustc", "rustup", "git", "python") {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { Fail 2 "$tool not found" }
@@ -68,9 +90,6 @@ $env:TZ = "UTC"
 $commitTime = (git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD).Trim()
 $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
 if (-not $version) { Fail 2 "no workspace version" }
-# The feature list is passed to cargo on one command line (below), so it may hold only the
-# characters a feature list uses.
-if ($Features -and ($Features -notmatch '^[A-Za-z0-9_,/-]+$')) { Fail 2 "-Features may hold only letters, digits, '_', '-', '/' and ','" }
 # Release artifacts ship without the Iroh transport (ruling E2, option c): a source-build preview.
 # The feature list is judged by `provenance.py check-features` before the build, the one
 # authoritative check (review M08-W2-RC06), and what was compiled by `build-record` after it.
@@ -100,9 +119,9 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
 $messages = Join-Path $out ".build-messages-$target.json"
 $cargoArgs = @("build", "--release", "--locked", "-p", "heimdall", "--target", $target, "--message-format=json-render-diagnostics")
 if ($Offline) { $cargoArgs += "--offline" }
-if ($Features) { $cargoArgs += @("--features", $Features) }
+if ($featureList) { $cargoArgs += @("--features", $featureList) }
 $checkArgs = @("check-features", "--target", $target)
-if ($Features) { $checkArgs += @("--features", $Features) }
+if ($featureList) { $checkArgs += @("--features", $featureList) }
 if ($Offline) { $checkArgs += "--offline" }
 & python -I "$here\provenance.py" @checkArgs
 if ($LASTEXITCODE -ne 0) { Fail 2 "refused before the build; nothing was built" }
@@ -152,7 +171,7 @@ foreach ($f in "LICENSE", "SECURITY.md") { if (Test-Path $f) { Copy-Item $f (Joi
 if (Test-Path "$here\install.ps1") { Copy-Item "$here\install.ps1" (Join-Path $stage "install.ps1") } else { $missing += "install.ps1" }
 
 function Py { & python -I "$here\provenance.py" @args; if ($LASTEXITCODE -ne 0) { exit 1 } }
-$feat = @(); if ($Features) { $feat = @("--features", $Features) }
+$feat = @(); if ($featureList) { $feat = @("--features", $featureList) }
 $off = @(); if ($Offline) { $off = @("--offline") }
 Py sbom --target $target @feat @off --commit $commit --time $commitTime --tool $sbomTool --build-messages $messages --out (Join-Path $stage "heimdall-$target.cdx.json")
 Py notices --target $target @feat @off --out (Join-Path $stage "THIRD-PARTY-NOTICES.txt")
