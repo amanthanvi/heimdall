@@ -26,7 +26,8 @@ the `ssh -G` output reader take files and a child process, and have no target.
     file of the workspace crates the fuzz crate links, its manifest, lock file and targets,
     and (since W2.1, review M08-W2-R03) the workspace's root `Cargo.toml` and `Cargo.lock`, the
     product's `rust-toolchain.toml`, the pinned nightly with its `rustc --version`, the
-    cargo-fuzz version and `RUSTFLAGS`. Every run line carries it (`build=`), and the report
+    cargo-fuzz version and `RUSTFLAGS`, and (since W3) the base image, pinned by its digest in
+    `run-campaign.sh`. Every run line carries it (`build=`), and the report
     counts only the current build's runs, plus earlier unrecorded runs that
     `fuzz/accounting.txt` declares equivalent, with the reason. It prints the counted time, its
     two parts and the time of all runs.

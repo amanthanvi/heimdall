@@ -26,7 +26,9 @@
 # (fuzz or soak) at a time.
 set -euo pipefail
 
-IMAGE="debian:13-slim"
+# The base image, pinned by its index digest (Debian 13 slim, 2026-11-24; review M08-W2 re-check:
+# a mutable tag sat outside the build identity). It is part of the identity below.
+IMAGE="debian@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0"
 NIGHTLY="nightly-2026-11-15"
 CARGO_FUZZ="0.13.2"
 RUSTUP_VERSION="1.29.3"
@@ -55,7 +57,7 @@ if [ -n "$local_root" ]; then
     case "${1:-}" in setup|build-id) ;; *) echo "run-campaign: HM_FUZZ_LOCAL_ROOT covers setup and build-id only" >&2; exit 2 ;; esac
     in_container() { # NETWORK SCRIPT [ARGS...]: run locally (the self-test)
         local script=$2; shift 2
-        env V="$local_root/vol" S="$repo" NIGHTLY="$NIGHTLY" CARGO_FUZZ="$CARGO_FUZZ" TARGETS="$TARGETS" \
+        env V="$local_root/vol" S="$repo" IMAGE="$IMAGE" NIGHTLY="$NIGHTLY" CARGO_FUZZ="$CARGO_FUZZ" TARGETS="$TARGETS" \
             RUSTFLAGS="-Clink-arg=-fuse-ld=lld" HM_FUZZ_TEST_STOP_AFTER="${HM_FUZZ_TEST_STOP_AFTER:-}" \
             bash -euo pipefail -c "$script" campaign "$@"
     }
@@ -68,7 +70,7 @@ in_container() { # NETWORK SCRIPT [ARGS...]
     docker run --rm --network "$net" --cpus 2 --memory "${HM_FUZZ_MEMORY:-4g}" --pids-limit 512 \
         -v "$repo":/src:ro -v "$VOLUME":/vol -e V=/vol -e S=/src \
         -e CARGO_HOME=/vol/cargo -e RUSTUP_HOME=/vol/rustup -e CARGO_BUILD_JOBS="${HM_FUZZ_JOBS:-2}" \
-        -e RUSTFLAGS="-Clink-arg=-fuse-ld=lld" -e RUSTUP_VERSION="$RUSTUP_VERSION" -e RUSTUP_SHA_AARCH64="$RUSTUP_SHA_AARCH64" -e RUSTUP_SHA_X86_64="$RUSTUP_SHA_X86_64" -e NIGHTLY="$NIGHTLY" -e CARGO_FUZZ="$CARGO_FUZZ" -e TARGETS="$TARGETS" \
+        -e RUSTFLAGS="-Clink-arg=-fuse-ld=lld" -e RUSTUP_VERSION="$RUSTUP_VERSION" -e RUSTUP_SHA_AARCH64="$RUSTUP_SHA_AARCH64" -e RUSTUP_SHA_X86_64="$RUSTUP_SHA_X86_64" -e NIGHTLY="$NIGHTLY" -e CARGO_FUZZ="$CARGO_FUZZ" -e TARGETS="$TARGETS" -e IMAGE="$IMAGE" \
         "$IMAGE" bash -euo pipefail -c "$script" campaign "$@"
 }
 fi
@@ -91,7 +93,7 @@ BUILD_ID_SCRIPT='
         | grep -o "($V/work/src/crates/[^)]*)" | tr -d "()" | sed "s#^$V/work/src/##" | sort -u)
     [ -n "$dirs" ] || { echo "run-campaign: cannot list the crates the fuzz crate links" >&2; exit 1; }
     toolfile=absent; [ ! -f product-rust-toolchain.toml ] || toolfile=product-rust-toolchain.toml
-    inputs="nightly=$NIGHTLY rustc=$(rustc "+$NIGHTLY" --version | tr " " "_") cargo-fuzz=$CARGO_FUZZ rustflags=$RUSTFLAGS"
+    inputs="image=$IMAGE nightly=$NIGHTLY rustc=$(rustc "+$NIGHTLY" --version | tr " " "_") cargo-fuzz=$CARGO_FUZZ rustflags=$RUSTFLAGS"
     id=$( { { find $dirs -type f ! -path "*/target/*"; find fuzz/fuzz_targets -type f; echo fuzz/Cargo.toml; echo fuzz/Cargo.lock
               echo Cargo.toml; echo Cargo.lock; [ "$toolfile" = absent ] || echo "$toolfile"; } \
             | LC_ALL=C sort | xargs sha256sum; echo "$inputs"; } | sha256sum | cut -c1-16)
