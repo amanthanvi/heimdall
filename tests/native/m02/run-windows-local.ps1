@@ -602,8 +602,6 @@ function Get-LibTestExecutable([string]$Output, [string]$Crate) {
     return $null
 }
 
-# Why a feature build is blocked: cargo's real exit code and its first error line (one line,
-# bounded), as lib.sh m02_feature_build words it.
 # ⟨M07 W8⟩ Observation lines (no pass/fail rule reads them): the `other keys offered: <n>` lines
 # the Windows A01 and A11 rows print (ADR-0007 §12.52), as `other-keys-offered-<tag>` facts, in
 # the order they appear; a tag that printed none is not listed.
@@ -615,6 +613,8 @@ function Get-OtherKeysOffered([string]$Text) {
     return $facts
 }
 
+# Why a feature build is blocked: cargo's real exit code and its first error line (one line,
+# bounded), as lib.sh m02_feature_build words it.
 function Get-FeatureBlockReason([string]$Feature, [string]$Package, [int]$Code, [string]$Output) {
     $first = @(($Output -replace "`r", '') -split "`n" | Where-Object { $_ -match '^error' } | Select-Object -First 1)
     $line = if ($first.Count -gt 0) { ($first[0] -replace "`t", ' ') } else { 'no error line in the build log' }

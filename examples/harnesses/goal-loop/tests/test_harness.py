@@ -92,6 +92,17 @@ SAMPLES = {
 # prints its line, and exits with the child's exit code once it has ended. The child's
 # output goes nowhere (Heimdall's child shares Heimdall's): a child that outlives the stop
 # then cannot keep the harness waiting on its pipes, and the test sees it still running.
+# Mode `spawn-child-mute` is the same launch with a child that ends before it is up: the
+# stub prints no line, and exits with the child's exit code once it has ended.
+# M07 W8e: SAYS `live` in mode `work:NAMES:SAYS` is `active` as Heimdall's list would show
+# it: a binding the harness released (an `access release` of it earlier in `calls.jsonl`)
+# is listed `released` from then on. A name in NAMES that ends `@K` (after any `/` tie) is
+# listed only in the first K reads of the list, then not at all (it expired, or another
+# caller released it). Profiles `bad-operation` and `bad-decision` answer `access ensure`
+# with a code that has a row, and one typed field present but invalid: `ACCEPTED` whose
+# `next.operation_id` is `op bad` (the envelope's own `op_fixture` is valid, exit 5), and
+# `APPROVAL_REQUIRED` whose `next.decision_ref` is `dec bad` (`next.operation_id`
+# `op_fixture`, exit 3); `bad-binding` is the same for `ACCESS_READY` (M07-W8-R03).
 STUB = r'''
 import json
 import os
@@ -216,6 +227,11 @@ elif args[:2] == ["access", "ensure"]:
         refuse("UNSUPPORTED_CLIENT", "change_client", 5)
     if profile == "bad-binding":
         emit("ACCESS_READY", 0, {}, {"action": "use_binding", "binding_id": "../../not-a-binding"})
+    if profile == "bad-operation":
+        emit("ACCEPTED", 5, {}, {"action": "observe", "operation_id": "op bad"}, state="running",
+             operation_id=OP)
+    if profile == "bad-decision":
+        refuse("APPROVAL_REQUIRED", "observe", 3, decision_ref="dec bad", operation_id=OP)
     if profile == "missing":
         refuse("NOT_FOUND", "fix_request", 2)
     if profile == "uncertain":
@@ -335,7 +351,11 @@ elif args == ["inspect", "bindings"]:
     if says == "unknown":
         refuse("SERVICE_UNAVAILABLE", "retry_after", 5)
     states = {"active": ["active"], "released": ["released"], "odd": ["suspended"],
-              "twice": ["active", "released"]}.get(says, [])
+              "twice": ["active", "released"], "live": ["active"]}.get(says, [])
+    # what the harness released before this read, and how many reads came before it
+    logged = [json.loads(line) for line in (root / "calls.jsonl").read_text().splitlines()]
+    gone = {call[2] for call in logged if call[:2] == ["access", "release"]}
+    reads = logged.count(["inspect", "bindings"]) - 1
     if mode.startswith("work:") and says == "wrong-exit":
         states = ["active"]
     asked = (root / "last-profile").read_text() if (root / "last-profile").exists() else "covered"
@@ -358,7 +378,11 @@ elif args == ["inspect", "bindings"]:
         return listed
     listed = [entry("binding_bystander", "work-bystander", "active")]
     for name in names:
-        listed += [entry(name, "work-1", state) for state in states]
+        name, _, kept = name.partition("@")
+        if says == "live" and kept and reads >= int(kept):
+            continue
+        listed += [entry(name, "work-1", "released" if says == "live" and name.partition("/")[0] in gone
+                         else state) for state in states]
     emit("OK", 4 if says == "wrong-exit" else 0, {"bindings": listed}, state="succeeded")
 elif args[0] == "run":
     assert args[1] == "--profile" and args[3] == "--work-id" and args[5] == "--request-id", args
@@ -380,7 +404,7 @@ elif args[0] == "run":
                           "binding_id": SECOND if mode == "second-binding" else BINDING,
                           "pid": 1 if mode == "other-pid" else os.getpid(),
                           "consumer_overrides": []}), file=meta, flush=True)
-        if mode == "spawn-child":  # as Heimdall on Windows: the child is a process of its own
+        if mode in ("spawn-child", "spawn-child-mute"):  # as Heimdall on Windows: a process of its own
             program = args[10:]
             if os.name == "nt" and program[0].lower().endswith((".bat", ".cmd")):
                 program = [str(Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe"),
@@ -395,6 +419,8 @@ elif args[0] == "run":
         time.sleep(60)
     if mode == "silent-child":
         sys.exit(0)
+    if mode == "spawn-child-mute":
+        sys.exit(spawned.wait())
     print("up", flush=True)
     if mode == "spawn-child":
         sys.exit(spawned.wait())
@@ -1979,6 +2005,37 @@ class PlannerTests(unittest.TestCase):
              "SOMETHING_NEW", 1, {"operation_id": "op_fixture"}, "unknown code SOMETHING_NEW", found,
              [wait, ["access", "release", "binding_fixture"]]),
         )
+        self.fails_closed(cases)
+
+    def test_a_known_code_with_a_typed_field_present_but_invalid_fails_closed(self):
+        # M07-W8-R03 (ruled 2026-11-23: fail closed): an answer whose code has a row, but
+        # whose state refuses a typed field that is present and invalid, takes the same path
+        # as one with no row. The goal fails by no row, the request is remembered
+        # `still_unknown` with the envelope's valid `operation_id` where `next` names an
+        # invalid one, the close observes it, and the run exits 1.
+        wait = ["operation", "wait", "op_fixture", "--timeout-ms", "20000"]
+        found = {"outcome": "binding_found", "code": "ACCESS_READY", "exit_code": 0,
+                 "observed": "operation", "bindings": ["binding_fixture"]}
+        released = [wait, ["access", "release", "binding_fixture"]]
+        ensure = ["access", "ensure"]
+        self.fails_closed((
+            # `next.operation_id` is `op bad`; the envelope's own `op_fixture` is kept
+            (self.access("bad-operation"), ensure, "ACCEPTED", 5, {"operation_id": "op_fixture"},
+             "state observing was given an invalid operation_id", found, released),
+            (self.access("bad-decision"), ensure, "APPROVAL_REQUIRED", 3, {"operation_id": "op_fixture"},
+             "state pending_approval was given an invalid decision_ref", found, released),
+            # it names no operation: observed through the list, which names none for the work
+            (self.access("bad-binding"), ensure, "ACCESS_READY", 0, {},
+             "state ready was given an invalid binding_id",
+             {"outcome": "still_unknown", "code": "OK", "exit_code": 0, "observed": "bindings",
+              "listed": [], "candidates": []}, [["inspect", "bindings"]]),
+        ))
+
+    def fails_closed(self, cases):
+        """Run H2 as a whole for each case's one goal, a request answered with no row,
+        and check that it failed closed: `cases` are (the goal, the command it sends, its
+        answer's code and exit status, the operation it named, the goal's detail, the
+        close's observation, the calls after the request)."""
         argv = ["--heimdall-bin", str(self.stub), "--scratch-root", str(self.root)]
         for goal, command, code, exit_code, named, detail, observed, after in cases:
             with self.subTest(goal=goal["goal"], code=code):
@@ -3352,6 +3409,18 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(h2.exit_status([{"success": False}], closed, planner), 1)
         self.assertEqual(h2.exit_status(met, {"released": [], "held": ["binding_x"]}, planner), 1)
 
+    def test_the_run_fails_while_the_child_heimdall_spawned_could_not_be_shown_ended(self):
+        # M07-W7-R03 (M07-W8-R04): where the close could not show the held child ended, the
+        # run exits 1 whatever else it found; any other ending of it fails nothing.
+        planner = self.planner()
+        for ended, status in (("not_ended", 1), ("exited", 0), ("ended_by_handle", 0), (None, 0)):
+            with self.subTest(ended=ended):
+                closing = {"released": [], "held": []}
+                if ended is not None:
+                    closing["spawned_child"] = {"pid": 4242, "ended": ended,
+                                                "exit_code": None if ended == "not_ended" else 1}
+                self.assertEqual(h2.exit_status([{"success": True}], closing, planner), status)
+
     def test_requests_for_one_work_and_profile_are_observed_together_and_each_binding_is_credited_once(self):
         # M07-W6-R02 (the re-check's A15 and A16): two requests for the same work and
         # profile bring no answer and name no operation. One read of the list of bindings
@@ -3453,6 +3522,104 @@ class PlannerTests(unittest.TestCase):
                                  "request-waited": {"call": "access ensure", "profile": "p", "work_id": "w",
                                                     "operation_id": "op_sample"}})
         self.assertEqual(planner.open_requests(), ["request-waited", "request-listed"])
+
+    def test_what_a_read_found_a_request_can_have_made_stays_its_own_in_every_later_read(self):
+        # M07-W8-R01 (ruled 2026-11-23): every binding a read of the list found that a
+        # remembered request can have made counts as that request's in every later read,
+        # whether or not the list still names it `active`. The list is `live` here: a
+        # binding H2 released is listed `released` from then on, as Heimdall lists it. So
+        # a request an earlier read could not credit is never credited later, and the
+        # binding H2 never held stays active and is named in the summary.
+        one, two = "binding_second", "binding_many_7"
+        inspect = ["inspect", "bindings"]
+        # (the mode, how many silent requests, {request: its observations after its own
+        #  attempt, each (by, outcome, `listed`, candidates, the bindings it gave, the
+        #  requests it names in `shared_with`)}, the calls after the requests, and
+        #  {binding left active: the requests it was a candidate of})
+        rows = (
+            # A15, a stop and then the close (the reviewer's case): `two` is shared, held
+            # and released by the stop; the close's read lists it `released`. R1 can have
+            # made it, so R1's one candidate left, `one`, is not credited or released.
+            (f"work:{one}/made-1,{two}/made-2:live", 2,
+             {1: [("stop", "still_unknown", [one, two], [one, two], [], [2]),
+                  ("close", "still_unknown", [one], [one], [], [2])],
+              2: [("stop", "still_unknown", [one, two], [two], [two], [1]),
+                  ("close", "still_unknown", [one], [], [], [1])]},
+             [inspect, ["access", "release", two], inspect], {one: [1]}),
+            # SEVERAL, with no shared binding: one request with two candidates, one of
+            # which is gone from the list by the close (`@1`: listed in the first read
+            # only). The request can have made either, so the one left is not credited.
+            (f"work:{one}/made-1@1,{two}/made-1:live", 1,
+             {1: [("stop", "still_unknown", [one, two], [one, two], [], []),
+                  ("close", "still_unknown", [two], [two], [], [])]},
+             [inspect, inspect], {one: [1], two: [1]}),
+        )
+        seen = self.watched(2.0, limited=(["access", "ensure"],))
+        for mode, count, outcomes, after, left in rows:
+            with self.subTest(mode=mode):
+                self.fresh()
+                del seen[:]
+                planner = self.planner(mode)
+                for _ in range(count):
+                    self.assertFalse(h2.run_goal(planner, self.access("silent"))["success"])
+                requests = [command[7] for command in seen[:count]]
+                self.assertFalse(h2.run_goal(planner, {"goal": "stop"})["success"])
+                closing = planner.close()
+                self.assertEqual(seen[count:], after)
+                self.assertEqual(closing, {"released": [], "held": []})
+                self.assertEqual(list(planner.requests), requests)
+                for index, observations in outcomes.items():
+                    attempts = planner.by_request()[requests[index - 1]]["attempts"]
+                    self.assertEqual(
+                        [(attempt["by"], attempt["outcome"], attempt["listed"], attempt["candidates"],
+                          attempt.get("bindings", []), attempt.get("shared_with", []))
+                         for attempt in attempts[1:]],
+                        [(by, outcome, listed, candidates, given, [requests[other - 1] for other in shared])
+                         for by, outcome, listed, candidates, given, shared in observations], index)
+                self.assertEqual(planner.left_active(), [
+                    f"unattributed binding left active: {binding} "
+                    f"(candidates: {', '.join(requests[index - 1] for index in indices)})"
+                    for binding, indices in left.items()])
+                self.assertEqual(h2.exit_status([{"success": True}], closing, planner), 1)
+
+    def test_a_request_that_named_an_operation_counts_in_the_read_of_the_list(self):
+        # M07-W8-R02 (ruled 2026-11-23): a remembered request of the same work and profile
+        # that named an operation, still uncertain once the stop has waited on it (here
+        # the wait is refused for now), counts in the read of the list: what it can have
+        # made goes into `could`, and it is never credited from the list. The list names
+        # one binding, made after both requests were sent: either can have made it, so
+        # the silent request is not credited. The binding is held and released (it is one
+        # of H2's own requests' either way), and the silent request stays uncertain, in
+        # the close too, after the operation has said it made another binding.
+        binding = "binding_many_7"
+        wait = ["operation", "wait", "op_fixture", "--timeout-ms", "20000"]
+        inspect = ["inspect", "bindings"]
+        seen = self.watched()
+        planner = self.planner(f"sleep:wait-unavailable:work:{binding}:active")
+        now = time.time_ns()
+        asked = {"call": "access ensure", "profile": "covered", "work_id": "work-1"}
+        # as `remember` leaves two requests: the older named an operation, the newer none
+        planner.requests.update({"request-op": dict(asked, operation_id="op_fixture"),
+                                 "request-silent": dict(asked)})
+        planner.sent_at.update({"request-op": now - 20 * 10**9, "request-silent": now - 10 * 10**9})
+        self.assertFalse(h2.run_goal(planner, {"goal": "stop"})["success"])
+        closing = planner.close()
+        self.assertEqual(seen, [wait, inspect, ["access", "release", binding],
+                                wait, inspect, ["access", "release", "binding_fixture"]])
+        self.assertEqual(closing, {"released": ["binding_fixture"], "held": []})
+        observations = {request_id: [(attempt["by"], attempt["outcome"], attempt["code"],
+                                      attempt.get("candidates"), attempt.get("bindings", []),
+                                      attempt.get("shared_with", []))
+                                     for attempt in entry["attempts"]]
+                        for request_id, entry in planner.by_request().items()}
+        self.assertEqual(observations, {
+            "request-op": [("stop", "still_unknown", "SERVICE_UNAVAILABLE", None, [], []),
+                           ("close", "binding_found", "ACCESS_READY", None, ["binding_fixture"], [])],
+            "request-silent": [("stop", "still_unknown", "OK", [binding], [binding], ["request-op"]),
+                               ("close", "still_unknown", "OK", [], [], [])]})
+        self.assertEqual(list(planner.requests), ["request-silent"])
+        self.assertEqual(planner.left_active(), [])
+        self.assertEqual(h2.exit_status([{"success": True}], closing, planner), 1)
 
     def test_a_request_with_no_usable_output_is_observed_by_the_list_of_bindings_for_its_work(self):
         # It named no operation, and today's CLI has no way to observe a request by its
@@ -3973,6 +4140,71 @@ class PlannerTests(unittest.TestCase):
             return reading
         with patch.object(h2.Planner, "launch", launch):
             self.spawned_child_stop([str(child)], planner_processes, gone, cleanup)
+
+    def launch_held_as_data(self, mode, **child):
+        """A `run` goal under the stub's `spawn-child` or `spawn-child-mute` mode, read as
+        on Windows, with the planner's process calls as data (RecordedProcesses). The PID
+        the `spawned` record names is the child, as SpawnedChildTests' table gives it with
+        `child`'s changes, and it is still running; any other PID is the Heimdall this
+        planner started. The real child is a script that exits at once. Returns the goal's
+        record, the process calls, the child's PID and Heimdall's process."""
+        program = self.root / ("child.cmd" if os.name == "nt" else "child.sh")
+        program.write_text("@exit /b 0\r\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n", encoding="utf-8")
+        program.chmod(0o700)
+        spawned = self.root / "spawned-pid"
+
+        class Launched(RecordedProcesses):
+            def open(self, pid):
+                if pid not in self.table:
+                    if pid != int(spawned.read_text()):
+                        self.heimdall = pid
+                        self.table[pid] = {"created": 1000, "parent": 1, "image": None, "running": True}
+                    else:
+                        self.table[pid] = dict({"created": 1001, "parent": self.heimdall,
+                                                "image": PureWindowsPath(str(program)), "running": True}, **child)
+                return super().open(pid)
+        planner = self.planner(mode)
+        planner.platform, planner.processes = "nt", Launched({})
+        started, popen = [], subprocess.Popen
+
+        def starting(*arguments, **options):
+            process = popen(*arguments, **options)
+            started.append(process)
+            return process
+        with patch.object(h2.subprocess, "Popen", starting):
+            record = h2.run_goal(planner, {"goal": "run", "profile": "covered", "work_id": "work-6",
+                                           "argv": [str(program)]})
+        heimdall, = started
+        self.assertIsNone(planner.child)
+        self.assertIsNotNone(heimdall.returncode)  # Heimdall was ended with the launch
+        self.assertEqual(list(self.root.glob("h2-run-*")), [])
+        return record, planner.processes.log, int(spawned.read_text()), heimdall
+
+    def test_a_spawned_record_naming_a_process_that_fails_a_check_is_no_launch(self):
+        # M07-W7-R03, the planner's use of `hold_spawned` (M07-W8-R04): the `spawned` record
+        # names a running process whose parent is not the Heimdall this planner started.
+        # It is no launch: the goal fails, Heimdall is ended, and that process is neither
+        # held nor terminated by H2.
+        record, log, pid, _ = self.launch_held_as_data("spawn-child", parent=1)
+        refused = "its parent is not the process this planner started"
+        self.assertFalse(record["success"], record)
+        self.assertEqual(record["detail"], f"the spawned record names a process that is not the child: {refused}")
+        self.assertEqual(record["spawned_child"], {"pid": pid, "held": False, "problem": refused})
+        self.assertIn(("facts", f"h{pid}"), log)
+        self.assertNotIn(("terminate", f"h{pid}"), log)
+        self.assertEqual(log[-2:], [("wait", f"h{pid}", 0), ("close", f"h{pid}")])
+
+    def test_a_launch_that_is_not_up_ends_the_child_it_held(self):
+        # M07-W8-R04: Heimdall wrote `launching` and `spawned`, and ended before its child
+        # wrote a line (not up). The child it named passes every check and is held, and
+        # since the launch is no launch, H2 ends it by its handle, once.
+        record, log, pid, heimdall = self.launch_held_as_data("spawn-child-mute")
+        self.assertFalse(record["success"], record)
+        self.assertEqual(record["detail"], f"the child wrote no line (exit {heimdall.returncode})")
+        self.assertEqual(record["spawned_child"], {"pid": pid, "held": True, "ended": "ended_by_handle",
+                                                   "exit_code": 1})
+        self.assertEqual(log.count(("terminate", f"h{pid}")), 1)
+        self.assertEqual(log[-1], ("close", f"h{pid}"))
 
     def test_close_ends_a_child_that_was_never_stopped(self):
         planner = self.planner()

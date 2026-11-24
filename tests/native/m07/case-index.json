@@ -126,8 +126,8 @@
         },
         {
           "platform": "windows-11 task 5's login through the binding's own signing endpoint",
-          "status": "blocked",
-          "blocked_on": "by ruling (2026-11-23): on Windows nothing between `run` and the in-box ssh.exe can check that SSH_AUTH_SOCK names the disposable agent, so the isolated set uses IdentityAgent=none; proven on Unix only (WINDOWS_HELD in tests/e2e/harness_m07.rs)"
+          "status": "deferred_with_decision",
+          "decision": "by ruling (2026-11-23): on Windows nothing between `run` and the in-box ssh.exe can check that SSH_AUTH_SOCK names the disposable agent, so the isolated set uses IdentityAgent=none; proven on Unix only (WINDOWS_HELD in tests/e2e/harness_m07.rs)"
         }
       ],
       "note": "The Python suites of examples/reference-wrapper, examples/harnesses/cli and examples/harnesses/goal-loop run through tools/validation/check.sh and on Windows in the PC job. Held for revision 7: the wrapper's skew run against the M06 exit build, H2's call set from `schema show primitives` (U4b, U5h), pages and the A19 contract rows (U3). A32's LLM metrics are M09-T02."
@@ -176,8 +176,8 @@
       "blocked_rows": [
         {
           "platform": "windows-11 TUI standalone (ConPTY variant)",
-          "status": "blocked",
-          "blocked_on": "the ConPTY variant of tui_standalone_access_and_stop is not written yet (m07-plan §6, the TUI standalone row: Windows (ConPTY variant)); a later M07 wave, by ruling (2026-11-23)"
+          "status": "deferred_with_decision",
+          "decision": "the ConPTY variant of tui_standalone_access_and_stop is not written yet (m07-plan §6, the TUI standalone row: Windows (ConPTY variant)); a later M07 wave, by ruling (2026-11-23)"
         }
       ]
     }

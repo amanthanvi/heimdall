@@ -290,8 +290,9 @@ SHARED_FIND = "(a binding another request may have made)"
 # Stand where the list's word on a request would: it names exactly one binding that can
 # be the request's own (`work.matching`) and that this planner was never given; that
 # one, where another request of the same read can have made it too; that one, where the
-# read is ambiguous about another binding (two requests of the read have a candidate in
-# common); none; or more than one. Only the first is evidence (ruled 2026-11-23).
+# read is ambiguous about another binding (two requests of the read can have made one
+# binding, or the request can have made another binding, by this read or an earlier one);
+# none; or more than one. Only the first is evidence (ruled 2026-11-23).
 NEW, SHARED, WITHHELD, NONE_NEW, SEVERAL = "one", "shared", "withheld", "none", "several"
 ORIGIN = ("start", "discovered")
 REQUESTING = ORIGIN + ("pending_provider",)
@@ -443,8 +444,9 @@ REQUEST_SAYS = (
     Says("work", "OK", "none", False, (("work.found", (NEW,)),), MISFIT),
     # That one binding can be another request's too: it is held, and settles no request.
     Says("work", "OK", "none", None, (("work.found", (SHARED,)),), SHARED_FIND),
-    # One candidate, in a read that is ambiguous about another binding: nothing is
-    # credited in that read, so it settles nothing (ruled 2026-11-23).
+    # One candidate, in a read that is ambiguous about another binding, or of a request
+    # that this read or an earlier one found can have made another: nothing is credited,
+    # so it settles nothing (ruled 2026-11-23; M07-W8-R01).
     Says("work", "OK", "none", None, (("work.found", (WITHHELD,)),), STILL_OPEN),
     Says("work", None, None, None, (), STILL_OPEN),
 )
@@ -470,10 +472,11 @@ KEPT = {"unresolved": "outcome_unknown"}
 UNCERTAIN_OUTCOME = "outcome_unknown"
 # A request answered with a code that has no row in the state it arrives in: a code no
 # table knows, a published code the table does not cover there (`UNSUPPORTED_CLIENT`), or
-# one whose typed fields no row takes. Its goal ends there, by no row, and nothing is sent
-# again. The answer does not say what became of the request, so it is recorded with this
-# outcome and remembered with the operation it named, when it named one: a later stop or
-# the close observes it like any uncertain request (ruled 2026-11-23: fail closed).
+# one whose typed fields no row takes, missing or present but invalid (M07-W8-R03). Its
+# goal ends there, by no row, and nothing is sent again. The answer does not say what
+# became of the request, so it is recorded with this outcome and remembered with the
+# operation it named, when it named a valid one: a later stop or the close observes it
+# like any uncertain request (ruled 2026-11-23: fail closed).
 UNLISTED_OUTCOME = REQUEST_OUTCOMES[STILL_OPEN]
 # The lists of a goal's record that are about requests, and the outcome each one holds
 # the attempts of. They stand beside the lists about releases (RECORDED).
@@ -1487,14 +1490,20 @@ class Planner:
         self.held = []
         # Every binding it was ever given, in the order it first held them.
         self.ever_held = []
-        # The bindings it holds because two of its requests can have made each one
-        # (SHARED_FIND). A later read of the list still counts each as a candidate of
-        # those requests: it keeps that read ambiguous, and is never held again.
-        self.contested = []
+        # Every binding a read of the list found that a remembered request can have made
+        # (its `could` in `conclude`), under that request's ID, for as long as the request
+        # is uncertain (M07-W8-R01, ruled 2026-11-23). Each later read counts all of them
+        # as that request's, whether or not the list still names them `active`: a binding
+        # held because two requests can have made it (SHARED_FIND) stays shared by both,
+        # and a request that could have made more than one is never credited later, even
+        # where only one of them is still listed.
+        self.possible = {}
         # The bindings a read of the list named as candidates of its requests but credited
-        # to none and never held (an ambiguous read, or more than one candidate), each with
-        # the requests it was a candidate of: never released, since they may not be this
-        # planner's, and named in the run summary so that a person can release them.
+        # to none and never held (an ambiguous read, more than one candidate, a request
+        # that could have made another, or a candidate of a request that named an
+        # operation), each with the requests it was a candidate of: never released, since
+        # they may not be this planner's, and named in the run summary so that a person
+        # can release them. A later read that no longer lists one does not take it off.
         self.unattributed = {}
         # Every call this planner made about the release of a binding, oldest first:
         # the binding, who called (`by`: a stop goal, or the close), the outcome, the
@@ -1595,12 +1604,16 @@ class Planner:
             elif kind == "bindings":
                 reading = read_bindings(envelope, values["binding_id"])
             elif kind == "work":
-                # One read, for every request observed with this one (`together`).
+                # One read, for every request observed with this one (`together`), and
+                # for the requests it counts beside them (`peers`).
                 read = {request_id: read_work(envelope, self.asked_about(request_id))
                         for request_id in self.together(values["request_id"])}
+                counted = {request_id: read_work(envelope, self.asked_about(request_id))
+                           for request_id in self.peers(values["request_id"])}
                 reading = read[values["request_id"]]
                 reading = reading._replace(facts=dict(reading.facts, together={
-                    request_id: lookup(each.facts, "work") for request_id, each in read.items()}))
+                    request_id: lookup(each.facts, "work") for request_id, each in read.items()},
+                    peers={request_id: lookup(each.facts, "work") for request_id, each in counted.items()}))
             else:
                 reading = read_envelope(envelope)
         except PlannerError as error:
@@ -1664,6 +1677,19 @@ class Planner:
                 if "operation_id" not in self.requests[other]
                 and all(self.requests[other][field] == asked[field] for field in ("work_id", "profile"))]
         # A request whose sending moment is not known has no candidate: it comes last.
+        return sorted(same, key=lambda other: self.sent_at.get(other, -1), reverse=True)
+
+    def peers(self, request_id):
+        """The remembered requests one read of the list of bindings counts beside those
+        it observes (`together`), the newest first: every one still uncertain that named
+        an operation and asked for the same work and profile as `request_id` (M07-W8-R02,
+        ruled 2026-11-23). Its operation, observed first, may not have said what it
+        made, so a binding the list shows can be its own too. The read counts what it can
+        have made, and never credits it with anything: its operation decides that."""
+        asked = self.requests[request_id]
+        same = [other for other in self.requests
+                if "operation_id" in self.requests[other]
+                and all(self.requests[other][field] == asked[field] for field in ("work_id", "profile"))]
         return sorted(same, key=lambda other: self.sent_at.get(other, -1), reverse=True)
 
     def asked_about(self, request_id):
@@ -1876,36 +1902,52 @@ class Planner:
         `problem` says how the answer's exit class did not fit, when it did not.
 
         One read of the list of bindings observes every request `together` names with
-        this one, the newest first, and each gets its attempt. Each request's candidates
-        are the bindings the read names that can be its own and that this planner was
-        never given before the read. Where no two of them can have made the same binding,
-        a request with one candidate is credited with it (M07-W6-R02). Where two can, the
-        read is ambiguous and credits no request (M07-W7-R04, ruled 2026-11-23: the strict
-        reading): a request whose one candidate is another's too holds it, to be
-        released, and every request stays uncertain. A binding held that way still
-        counts for this in a later read (`contested`), so that no later read credits what
-        an earlier one could not. Each attempt names the requests it has a binding in
-        common with (`shared_with`)."""
+        this one, the newest first, and each gets its attempt. It counts the requests
+        `peers` names beside them, and records nothing for those. Each request's
+        candidates are the bindings the read names that can be its own and that this
+        planner was never given before the read. What it can have made (`could`) is those,
+        and every binding an earlier read found it can have made (`possible`), whether or
+        not this list still names it `active`. Where no two requests can have made the
+        same binding, a request that can have made one binding only, a candidate of this
+        read, is credited with it (M07-W6-R02). Where two can, the read is ambiguous and
+        credits no request (M07-W7-R04, ruled 2026-11-23: the strict reading): a request
+        whose one candidate is another's too holds it, to be released, and every request
+        stays uncertain. A request that can have made a binding other than its one
+        candidate is credited with nothing either (M07-W8-R01), and neither is a peer
+        (M07-W8-R02): no later read credits what an earlier one could not. Each attempt
+        names the requests it has a binding in common with (`shared_with`)."""
         if call == "work":
             together = answer.facts.get("together") or {request_id: lookup(answer.facts, "work")}
-            order = list(together)
-            matching = {other: (together[other] or {}).get("matching", []) for other in order}
+            counted = {other: work for other, work in (answer.facts.get("peers") or {}).items()
+                       if other not in together}
+            order, listing = list(together), dict(counted, **together)
+            every = order + list(counted)
+            matching = {other: (listing[other] or {}).get("matching", []) for other in every}
             candidates = {other: [binding for binding in matching[other] if binding not in self.ever_held]
-                          for other in order}
+                          for other in every}
             # What each request can have made, for judging the read: its candidates, and
-            # the contested bindings it can have made.
-            could = {other: set(candidates[other]) | set(matching[other]) & set(self.contested)
-                     for other in order}
-            sharing = {other: [peer for peer in order if peer != other and could[peer] & could[other]]
-                       for other in order}
+            # what earlier reads found it can have made.
+            could = {other: set(candidates[other]) | set(self.possible.get(other, ())) for other in every}
+            for other in every:
+                known = self.possible.setdefault(other, [])
+                known += [binding for binding in candidates[other] if binding not in known]
+            sharing = {other: [peer for peer in every if peer != other and could[peer] & could[other]]
+                       for other in every}
             ambiguous = any(sharing.values())
             for other in order:
                 theirs = set().union(*(could[peer] for peer in sharing[other]))
                 said = self.observed(call, answer, problem, other, together[other], candidates[other],
-                                     sharing[other] if set(candidates[other]) & theirs else (), ambiguous,
+                                     sharing[other] if set(candidates[other]) & theirs else (),
+                                     ambiguous or bool(could[other] - set(candidates[other])),
                                      sharing[other])
                 if other == request_id:
                     says, facts = said
+            for other in counted:  # a peer's candidates are never credited from the list
+                for binding in candidates[other]:
+                    if binding not in self.ever_held:
+                        self.unattributed.setdefault(binding, [])
+                        if other not in self.unattributed[binding]:
+                            self.unattributed[binding].append(other)
         else:
             says, facts = self.observed(call, answer, problem, request_id)
         return Reading(says, "none", answer.effect, dict(facts, **self.release_facts(None)),
@@ -1917,13 +1959,15 @@ class Planner:
         record its attempt. `work` is what the list of bindings says of that request
         (`read_work`), when the call read it; `new` its candidates in that read; `shared`
         the other requests observed with it that can have made one of those candidates
-        too; `ambiguous` whether any two requests of the read can have made one binding;
+        too; `ambiguous` whether any two requests of the read can have made one binding,
+        or this one can have made another binding than its one candidate (`possible`);
         and `peers` the requests this one can share a binding with. Returns the reading
         and its facts.
 
         One candidate that is another request's candidate too is held and released, and
-        settles no request: either may have made it (M07-W7-R04). In an ambiguous read,
-        one candidate settles nothing either, and is not held (ruled 2026-11-23).
+        settles no request: either may have made it (M07-W7-R04). Where the read is
+        ambiguous, one candidate settles nothing either, and is not held (ruled
+        2026-11-23; M07-W8-R01).
 
         A binding the observation shows is held from here on, so that the stop in
         progress releases it like any other: the one the request's operation says it
@@ -1935,7 +1979,7 @@ class Planner:
         uncertain, and is observed again by a later stop. A binding this planner was ever
         given is never held again from an observation."""
         request = self.requests[request_id]
-        facts = {key: value for key, value in answer.facts.items() if key not in ("work", "together")}
+        facts = {key: value for key, value in answer.facts.items() if key not in ("work", "together", "peers")}
         listed = work["active"] if work is not None else None
         new = list(new)
         if listed is not None:  # the planner's own word on what the list names
@@ -1961,8 +2005,6 @@ class Planner:
                 attempt["bindings"] = given
             for binding in given:
                 self.hold(binding)
-                if says == SHARED_FIND:
-                    self.contested.append(binding)
         for binding in new:
             if binding not in self.ever_held:
                 self.unattributed.setdefault(binding, [])
@@ -1971,6 +2013,7 @@ class Planner:
         if says in SETTLED:
             del self.requests[request_id]
             self.sent_at.pop(request_id, None)
+            self.possible.pop(request_id, None)
         self.asked.append(attempt)
         return says, facts
 
@@ -2243,6 +2286,7 @@ class Planner:
                 problem = answer.facts["problem"]  # the goal ends here, and says what went wrong
             first = None  # the state the answer itself leads to, its exit class aside
             listed = True  # whether a row of the table applies to the answer itself
+            unlisted = None  # why none does, where a state refused the answer's typed fields
             try:
                 after, row = transition(before, answer)
                 first, listed = after, row is not None
@@ -2255,6 +2299,8 @@ class Planner:
             except PlannerError as error:  # the code's typed fields are present but invalid
                 reading = answer
                 after, row, problem = State("failed", code=answer.code), None, str(error)
+                if first is None:  # no row takes the answer itself (M07-W8-R03)
+                    listed, unlisted = False, str(error)
             metrics["transitions"].append(
                 {"from": before.name, "code": reading.code, "action": reading.action,
                  "to": after.name, "by_table": row is not None})
@@ -2270,9 +2316,11 @@ class Planner:
                 # Answered uncertainly, and no state waits on it: it is remembered.
                 self.uncertain_answer(answer, misfit)
             elif call in REQUESTS and not unanswered and not listed:
-                # Answered with a code no row covers here: the goal ends by no row, and
-                # the request is remembered as uncertain, never sent again (fail closed).
-                self.uncertain_answer(answer, misfit, UNLISTED_OUTCOME, no_row(before, answer))
+                # Answered with a code no row covers here, or with a typed field present
+                # but invalid: the goal ends by no row, and the request is remembered as
+                # uncertain, never sent again (fail closed).
+                self.uncertain_answer(answer, misfit, UNLISTED_OUTCOME,
+                                      unlisted or no_row(before, answer))
             if after.name == "stopped" and self.child is not None:
                 child, self.child = self.child, None
                 status = child.end()

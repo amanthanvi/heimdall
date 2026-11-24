@@ -1770,7 +1770,7 @@ mod journey {
     #[cfg(windows)]
     const WINDOWS_HELD: [&str; 2] = [
         "task 5 on Windows: the child is the in-box ssh.exe with the isolated options, so it makes no login through the binding's signing endpoint (M07-W3-R02 is proven on Unix)",
-        "H2 on Windows (M07-W7-R03): H2 holds the child the spawned record names by a handle of its own, opened when the record is read and checked by identity (its parent is the heimdall.exe H2 started, it was created after it, it runs the goal's program), and ends it by that handle; the Windows check of a child that ignores the end of its input (goal-loop PlannerTests.test_windows_the_child_heimdall_spawned_is_ended_by_its_own_handle) is pending the PC run",
+        "H2 on Windows (M07-W7-R03): H2 holds the child the spawned record names by a handle of its own, opened when the record is read and checked by identity (its parent is the heimdall.exe H2 started, it was created after it, it runs the goal's program), and ends it by that handle; the Windows check of a child that ignores the end of its input (goal-loop PlannerTests.test_windows_the_child_heimdall_spawned_is_ended_by_its_own_handle) passed natively in PC job 52 at 44da298d",
     ];
 
     #[cfg(windows)]
