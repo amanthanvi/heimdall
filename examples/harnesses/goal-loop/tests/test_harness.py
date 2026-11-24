@@ -3439,6 +3439,13 @@ class PlannerTests(unittest.TestCase):
                 # A binding no request was credited with, and that is no shared candidate,
                 # is never released: A15's `one`.
                 self.assertNotIn(["access", "release", one], after)
+                # ...and it is not silent: the summary names it, with the requests it was a
+                # candidate of, and the run fails (ruled 2026-11-23).
+                left = [f"unattributed binding left active: {one} (candidates: {requests[0]})"] \
+                    if one in outcomes[1][2] else []
+                self.assertEqual(planner.left_active(), left)
+                if left:
+                    self.assertEqual(h2.exit_status([{"success": True}], closing, planner), 1)
         # A request that named an operation is observed before those observed through the
         # list: the binding its operation names is its own, and never another's candidate.
         planner = self.planner()
@@ -4112,8 +4119,8 @@ class PlannerTests(unittest.TestCase):
                           for entry in summary["request_attempts"].values()],
                          [("access ensure", "novel", True, ["still_unknown", "still_unknown"])])
         self.assertEqual(self.calls()[-2], ["inspect", "bindings"])
-        self.assertEqual(sorted(summary), ["call_set", "close", "harness", "release_attempts",
-                                           "request_attempts", "tasks"])
+        self.assertEqual(sorted(summary), ["call_set", "close", "harness", "left_active",
+                                           "release_attempts", "request_attempts", "tasks"])
         for task in summary["tasks"]:
             for field in ("calls", "round_trips", "human_handoffs", "invalid_retries",
                           "wall_time_ms", "discovery_bytes", "detail", "skipped", "final_state",

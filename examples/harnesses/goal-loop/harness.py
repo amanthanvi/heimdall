@@ -1491,6 +1491,11 @@ class Planner:
         # (SHARED_FIND). A later read of the list still counts each as a candidate of
         # those requests: it keeps that read ambiguous, and is never held again.
         self.contested = []
+        # The bindings a read of the list named as candidates of its requests but credited
+        # to none and never held (an ambiguous read, or more than one candidate), each with
+        # the requests it was a candidate of: never released, since they may not be this
+        # planner's, and named in the run summary so that a person can release them.
+        self.unattributed = {}
         # Every call this planner made about the release of a binding, oldest first:
         # the binding, who called (`by`: a stop goal, or the close), the outcome, the
         # answer's code and the exit status of its process. An observation also says
@@ -1958,11 +1963,23 @@ class Planner:
                 self.hold(binding)
                 if says == SHARED_FIND:
                     self.contested.append(binding)
+        for binding in new:
+            if binding not in self.ever_held:
+                self.unattributed.setdefault(binding, [])
+                if request_id not in self.unattributed[binding]:
+                    self.unattributed[binding].append(request_id)
         if says in SETTLED:
             del self.requests[request_id]
             self.sent_at.pop(request_id, None)
         self.asked.append(attempt)
         return says, facts
+
+    def left_active(self):
+        """The summary lines for every candidate binding no request was credited with and
+        this planner never held (ruled 2026-11-23): it was listed active and is left so,
+        since it may not be this planner's; a person can release it."""
+        return [f"unattributed binding left active: {binding} (candidates: {', '.join(requests)})"
+                for binding, requests in self.unattributed.items() if binding not in self.ever_held]
 
     def recorded(self, outcome, since=0):
         """The attempts from `since` on that had this outcome, as a record lists them."""
@@ -2446,12 +2463,14 @@ def parse_arguments(argv=None):
 def exit_status(tasks, closing, planner):
     """1 when the run failed, else 0. It failed when a goal was not met or a binding is
     still held; when a release was ever refused, uncertain, unanswered or not sent; when
-    a request's outcome was ever unknown, or it was never sent; and whenever a release or
-    a request is still uncertain, whatever the goals' own results (M07-W6-R03)."""
+    a request's outcome was ever unknown, or it was never sent; whenever a release or a
+    request is still uncertain, whatever the goals' own results (M07-W6-R03); and while
+    a candidate binding no request was credited with is left active."""
     return int(any(not task["success"] for task in tasks) or bool(closing["held"])
                or closing.get("spawned_child", {}).get("ended") == "not_ended"
                or bool(planner.by_binding()) or bool(planner.by_request())
-               or bool(planner.requests) or bool(planner.uncertain))
+               or bool(planner.requests) or bool(planner.uncertain)
+               or bool(planner.left_active()))
 
 
 def run(args, command):
@@ -2472,7 +2491,7 @@ def run(args, command):
     unanswered = planner.by_request()
     print(json.dumps({"harness": "H2", "call_set": CALL_SET_SOURCE, "tasks": tasks,
                       "close": closing, "release_attempts": unreleased,
-                      "request_attempts": unanswered}))
+                      "request_attempts": unanswered, "left_active": planner.left_active()}))
     return exit_status(tasks, closing, planner)
 
 

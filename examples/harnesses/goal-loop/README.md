@@ -803,6 +803,7 @@ lists is the same attempt with the fields named there.
 | `tasks` | one record for each goal, in order | the summary |
 | `close` | what the close did: `released` and `held` | the summary |
 | `release_attempts` | each binding with an attempt that did not release it, keyed by binding ID | the summary |
+| `left_active` | one line per candidate binding a read of the list credited to no request and H2 never held: `unattributed binding left active: <binding_id> (candidates: <request ids>)`. It is left active because it may not be H2's, so a person can release it; any entry fails the run | the summary |
 | `request_attempts` | each request whose outcome was ever unknown or that was never sent, keyed by request ID | the summary |
 | `released` | the bindings the close released, by an answer or by an observed release, in the order H2 first held them | `close` |
 | `held` | the bindings H2 still holds | `close`; a task, after its goal; an entry of `release_attempts` (`true` or `false`) |
