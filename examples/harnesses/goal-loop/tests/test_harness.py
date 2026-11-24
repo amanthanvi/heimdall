@@ -3621,6 +3621,33 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(planner.left_active(), [])
         self.assertEqual(h2.exit_status([{"success": True}], closing, planner), 1)
 
+    def test_a_binding_once_found_ambiguous_is_never_credited_after_a_peer_settles(self):
+        # Ruled 2026-11-23 ("once ambiguous, never credited"): an earlier read found that a
+        # request that named an operation and a silent request of the same work and
+        # profile could both have made `binding`. The operation has since settled its
+        # request, so only the silent one is left. A later read lists `binding` again: it
+        # stays ambiguous, so the silent request is not credited. The binding is held and
+        # released (it is one of H2's own requests' either way), and the request stays
+        # uncertain.
+        binding = "binding_many_7"
+        inspect = ["inspect", "bindings"]
+        seen = self.watched()
+        planner = self.planner(f"work:{binding}:active")
+        asked = {"call": "access ensure", "profile": "covered", "work_id": "work-1"}
+        # as the earlier read and the peer's settling leave the planner
+        planner.requests["request-silent"] = dict(asked)
+        planner.sent_at["request-silent"] = time.time_ns() - 10 * 10**9
+        planner.disputed[binding] = ["request-silent", "request-op"]
+        closing = planner.close()
+        self.assertEqual(seen, [inspect, ["access", "release", binding]])
+        self.assertEqual(closing, {"released": [binding], "held": []})
+        (attempt,) = [a for a in planner.by_request()["request-silent"]["attempts"] if "observed" in a]
+        self.assertEqual((attempt["outcome"], attempt["candidates"], attempt.get("bindings"),
+                          attempt.get("shared_with")),
+                         ("still_unknown", [binding], [binding], ["request-op"]))
+        self.assertEqual(list(planner.requests), ["request-silent"])
+        self.assertEqual(h2.exit_status([{"success": True}], closing, planner), 1)
+
     def test_a_request_with_no_usable_output_is_observed_by_the_list_of_bindings_for_its_work(self):
         # It named no operation, and today's CLI has no way to observe a request by its
         # ID. The typed means left is the complete list of this caller's bindings, read

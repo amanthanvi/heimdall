@@ -1498,6 +1498,10 @@ class Planner:
         # and a request that could have made more than one is never credited later, even
         # where only one of them is still listed.
         self.possible = {}
+        # Every binding a read found two or more requests can have made, with those
+        # requests: once ambiguous, never credited (ruled 2026-11-23), even after one of
+        # those requests settles. A later read counts it as shared by them.
+        self.disputed = {}
         # The bindings a read of the list named as candidates of its requests but credited
         # to none and never held (an ambiguous read, more than one candidate, a request
         # that could have made another, or a candidate of a request that named an
@@ -1933,13 +1937,23 @@ class Planner:
                 known += [binding for binding in candidates[other] if binding not in known]
             sharing = {other: [peer for peer in every if peer != other and could[peer] & could[other]]
                        for other in every}
+            for other in every:
+                for peer in sharing[other]:
+                    for binding in could[other] & could[peer]:
+                        known = self.disputed.setdefault(binding, [])
+                        known += [r for r in (other, peer) if r not in known]
             ambiguous = any(sharing.values())
             for other in order:
                 theirs = set().union(*(could[peer] for peer in sharing[other]))
+                # A binding an earlier read found ambiguous stays so, whoever has settled
+                # since: it is shared by the requests that read found could have made it.
+                earlier = sorted({r for binding in set(candidates[other]) & set(self.disputed)
+                                  for r in self.disputed[binding] if r != other})
+                shared = sharing[other] if set(candidates[other]) & theirs else ()
                 said = self.observed(call, answer, problem, other, together[other], candidates[other],
-                                     sharing[other] if set(candidates[other]) & theirs else (),
-                                     ambiguous or bool(could[other] - set(candidates[other])),
-                                     sharing[other])
+                                     shared or earlier,
+                                     ambiguous or bool(earlier) or bool(could[other] - set(candidates[other])),
+                                     list(sharing[other]) + [r for r in earlier if r not in sharing[other]])
                 if other == request_id:
                     says, facts = said
             for other in counted:  # a peer's candidates are never credited from the list
