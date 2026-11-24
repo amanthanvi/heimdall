@@ -1,0 +1,58 @@
+{
+ "background_unlocks": {
+  "count": 5,
+  "errors": [],
+  "min_ms": 1574.22,
+  "p50_ms": 1582.61,
+  "succeeded": 5,
+  "what": "issuer unlock calls in the background (latency includes the CLI's process start)"
+ },
+ "destinations": 1,
+ "key_to_first_byte_quiet": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn; no background work (for comparison)",
+  "errors": 0,
+  "max_ms": 0.89,
+  "min_ms": 0.39,
+  "p50_ms": 0.5,
+  "p95_ms": 0.62,
+  "samples": 200
+ },
+ "key_to_first_byte_slow_store": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn, while `issuer unlock` runs in a loop: each makes the runtime's issuer child load its CA from the Secret Service through a bus relay holding each request 50 ms. Measures issuer secret-store load under a slow Secret Service, not each signature",
+  "errors": 0,
+  "max_ms": 2.54,
+  "min_ms": 0.35,
+  "p50_ms": 0.5,
+  "p95_ms": 0.61,
+  "samples": 200
+ },
+ "key_to_frame_quiet": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn; no background work (for comparison); timed only once the reconstructed screen shows the selected view's title, absent before the key; the frame ends at the last byte before 20 ms of quiet",
+  "errors": 0,
+  "max_ms": 3.24,
+  "min_ms": 0.62,
+  "missed": {
+   "no_effect_within_2s": 0,
+   "title_already_shown": 0
+  },
+  "p50_ms": 0.74,
+  "p95_ms": 0.9,
+  "samples": 200
+ },
+ "key_to_frame_slow_store": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn, while `issuer unlock` runs in a loop: each makes the runtime's issuer child load its CA from the Secret Service through a bus relay holding each request 50 ms. Measures issuer secret-store load under a slow Secret Service, not each signature",
+  "errors": 0,
+  "max_ms": 2.76,
+  "min_ms": 0.57,
+  "missed": {
+   "no_effect_within_2s": 0,
+   "title_already_shown": 0
+  },
+  "p50_ms": 0.74,
+  "p95_ms": 0.87,
+  "samples": 200
+ },
+ "sample_floor": 200,
+ "schema": "heimdall-m08-bench/1",
+ "started_at": "2026-11-24T19:57:40Z"
+}

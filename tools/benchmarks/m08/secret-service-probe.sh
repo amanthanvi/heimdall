@@ -179,5 +179,43 @@ hmcli "$S/istatus2.json" issuer status
 fact issuer-status-after-restart "$(jget "$S/istatus2.json" code); ca state $(jget "$S/istatus2.json" data cas 0 state)"
 hmcli "$S/stop2.json" service stop
 fact service-stop-2 "$(jget "$S/stop2.json" code)"
+# 4. Probe step (ii) (mode `slow`): the runtime's session bus behind a delaying relay.
+if [ "$mode" = slow ]; then
+    case "${DBUS_SESSION_BUS_ADDRESS:-}" in
+        unix:path=*) bus=${DBUS_SESSION_BUS_ADDRESS#unix:path=}; bus=${bus%%,*} ;;
+        *) fact slow-bus "the session bus is not a path address ($(printf '%s' "${DBUS_SESSION_BUS_ADDRESS:-none}" | cut -d= -f1))"; exit 1 ;;
+    esac
+    delay=${SLOW_BUS_DELAY_MS:-500}
+    fact slow-bus-delay-ms "$delay"
+    start_runtime() { # start_runtime BUS_ADDRESS LOG
+        DBUS_SESSION_BUS_ADDRESS="$1" "$HM" service run --detach </dev/null >"$2" 2>&1 &
+        i=0; until hmcli "$S/st.json" service status && [ -n "$(jget "$S/st.json" data environment_id)" ]; do
+            i=$((i + 1)); [ $i -lt 100 ] || return 1; sleep 0.2
+        done
+    }
+    timed_unlock() { # timed_unlock LABEL: three unlocks, each timed end to end
+        local k t0 t1 rc
+        for k in 1 2 3; do
+            t0=$(date +%s%N)
+            python3 -I /src/tools/benchmarks/m08/pty-drive.py "$S/u.txt" 120 "[y/N]" yes -- "$HM" --json issuer unlock
+            rc=$?; t1=$(date +%s%N)
+            fact "unlock-$1-$k" "exit $rc, $(jget "$S/u.txt" code), $(( (t1 - t0) / 1000000 )) ms"
+        done
+    }
+    start_runtime "$DBUS_SESSION_BUS_ADDRESS" "$S/service-fast.log" || { fact runtime-fast "did not come up"; exit 1; }
+    timed_unlock fast-bus
+    hmcli "$S/stopf.json" service stop
+    python3 -I /src/tools/benchmarks/m08/agent-delay.py "$S/slowbus" "$bus" "$delay" "$(dirname "$bus")" </dev/null >"$S/relay.err" 2>&1 &
+    relay=$!
+    i=0; while [ $i -lt 100 ] && [ ! -S "$S/slowbus" ]; do sleep 0.1; i=$((i + 1)); done
+    [ -S "$S/slowbus" ] || { fact relay "did not start: $(head -c 200 "$S/relay.err")"; exit 1; }
+    fact relay started
+    start_runtime "unix:path=$S/slowbus" "$S/service-slow.log" || { fact runtime-slow "did not come up"; kill "$relay"; exit 1; }
+    timed_unlock slow-bus
+    python3 -I /src/tools/benchmarks/m08/slow-store-keys.py --heimdall "$HM" --out "$out" --scratch "$S" --delay-ms "$delay" >"$S/keys.log" 2>&1
+    fact slow-store-keys "exit $?"
+    hmcli "$S/stops.json" service stop
+    kill "$relay" 2>/dev/null; wait "$relay" 2>/dev/null
+fi
 rm -f "$S"/ca-backup-*.key
 exit 0

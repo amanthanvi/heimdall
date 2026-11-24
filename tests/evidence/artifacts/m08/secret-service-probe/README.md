@@ -29,7 +29,44 @@ A rehearsal on W2's build: the Linux arm64 release archive of `605f7286`, execut
 
 **Step (i) is answered yes:** a release build's managed recipe stores and reloads its CA key in a
 real Secret Service inside the container, with no hook. That makes lane M feasible in this
-image. Step (ii), the delaying relay in front of the session bus, follows.
+image.
+
+## Step (ii): issuer secret-store load under a slow Secret Service
+
+`ss8` and `ss9` use the same image and executable as `ss7`. Each run:
+1. follows the `access allow`-first order, then `issuer init` (CA `active`);
+2. times three `issuer unlock` calls with the runtime on the real session bus;
+3. restarts the runtime with its session bus behind `agent-delay.py`. The relay holds each
+   request N ms, and its upstream is the bus socket, which is checked to belong to this account;
+4. times three more unlocks;
+5. runs `slow-store-keys.py`: bench.py's own `key_to_frame` (200 samples; timed when the
+   screen shows the key's effect, absent before the key) while `issuer unlock` runs in a loop in
+   the background.
+
+Each unlock makes the runtime's issuer child load its CA from the store.
+
+| Run | Relay delay | `issuer unlock`, real bus | `issuer unlock`, delayed bus | Background unlocks during the keys | `key_to_frame` quiet (P50 / P95) | `key_to_frame` under the slow store (P50 / P95) |
+|---|---|---|---|---|---|---|
+| `ss9` (`facts-slow-50ms-ss9.ndjson`, `slow-store-50ms-ss9.json`) | 50 ms | OK, 47 to 55 ms | **OK, 1574 to 1596 ms** | 5, all OK, P50 1583 ms | 0.74 / 0.90 ms, 0 missed | **0.74 / 0.87 ms**, 0 missed |
+| `ss8` (`facts-slow-500ms-ss8.ndjson`, `slow-store-500ms-ss8.json`) | 500 ms | OK, 45 to 52 ms | **exit 4, `CAPABILITY_UNAVAILABLE`, about 9.07 s each** | 1, failed | 0.76 / 1.20 ms | 1.11 / 1.43 ms |
+
+**What this shows:**
+- **The delay is on a path the runtime waits on.** Each load through the delayed bus takes about
+  30 times as long at 50 ms per request.
+- **At 500 ms the store's per-operation bound ends the load.** The answer is
+  `CAPABILITY_UNAVAILABLE`, so it fails closed: no fallback key and no plaintext.
+- **TUI key handling is unaffected while those loads are in flight.** The P95 is within
+  0.1 ms of the quiet run at 50 ms.
+
+**The row, worded for the record:** "issuer secret-store load under a slow Secret Service". It
+is not per-signature: a signature is in-memory work in the issuer child once its key is loaded.
+
+**What it is not:**
+- a release-row number: it is a rehearsal on W2's build, on the Mac's Docker (Linux arm64,
+  supplementary);
+- the candidate's measurement, which W3-6 repeats with the same method.
+
+The background latency includes each CLI's process start and its pseudo-terminal.
 
 **Earlier runs** (`ss1` to `ss5`) were harness tryouts and are not kept:
 - the runtime started in the foreground;
