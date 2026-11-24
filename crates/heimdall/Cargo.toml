@@ -66,9 +66,13 @@ heimdall-testkit = { workspace = true, default-features = false, features = ["ap
 [features]
 default = []
 # ⟨M06 W3⟩ ADR-0012 §1 item 1: the Iroh transport in this binary (the supervised serve child
-# `transport serve` and the route helper's Iroh leg). Without it both refuse
-# (`driver_unavailable`) and direct and jump routes are unaffected. Which release builds enable
-# it is the distribution's decision (ADR-0012 §1, §2.6).
+# `transport serve` and the route helper's Iroh leg). Without it the serve child refuses
+# (`driver_unavailable`). The route helper never dials an Iroh leg: it records the leg's
+# attempt as `driver_unavailable` (route.health) and fails over
+# to the destination's direct and jump legs, which are unaffected. A destination whose every
+# leg is Iroh is refused `CAPABILITY_UNAVAILABLE` / `driver_unavailable` with the Iroh
+# preview message, after its attempts are recorded. Which release builds enable it is the
+# distribution's decision (ADR-0012 §1, §2.6).
 iroh = ["heimdall-runtime/iroh"]
 
 [target.'cfg(unix)'.dependencies]

@@ -45,6 +45,12 @@
 //!    identification arrives; an Iroh close with Pigeons' refusal before it is
 //!    `admission_refused`, failed over. Anything after the server's identification is
 //!    terminal, as for every leg. The line's contents are never logged.
+//! 6. ⟨M06 exit, Q-B⟩ **A leg whose driver is not in this build** (an Iroh leg in a build
+//!    without the `iroh` feature: [`LegDialer::driver_unavailable`],
+//!    [`DialFailure::DriverUnavailable`]) is recorded as [`DRIVER_UNAVAILABLE_CLASS`] and
+//!    failed over before anything is read from the client or dialed; the route's other legs
+//!    are tried as usual. [`FailoverOutcome::driver_unavailable`] names those routes, so the
+//!    caller can refuse a destination whose every leg is one (`driver_unavailable`).
 
 use std::future::Future;
 use std::time::Duration;
@@ -98,7 +104,14 @@ pub enum DialFailure {
     /// ⟨M06 U56⟩ The Iroh serving side refused admission while the leg was dialed:
     /// failover allowed.
     AdmissionRefused,
+    /// ⟨M06 exit, Q-B⟩ The leg's driver is not in this build (an Iroh leg without the
+    /// `iroh` feature): recorded as [`DRIVER_UNAVAILABLE_CLASS`], failover allowed.
+    DriverUnavailable,
 }
+
+/// ⟨M06 exit, Q-B⟩ The attempt class recorded for a leg whose driver is not in this build
+/// (`driver_unavailable`).
+pub const DRIVER_UNAVAILABLE_CLASS: RouteFailureClass = RouteFailureClass::DriverUnavailable;
 
 /// How a leg ended (the jump leg's `ssh`, the Iroh connection).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -143,6 +156,14 @@ pub trait LegDialer: Send + Sync {
         route: &PlannedRoute,
         connect_timeout: Duration,
     ) -> Result<Leg, DialFailure>;
+
+    /// ⟨M06 exit, Q-B⟩ Whether `route`'s leg has no driver in this build: such a route is
+    /// recorded as [`DRIVER_UNAVAILABLE_CLASS`] and failed over without being dialed and
+    /// before anything is read from the client. `false` by default.
+    fn driver_unavailable(&self, route: &PlannedRoute) -> bool {
+        let _ = route;
+        false
+    }
 }
 
 /// Where the identification scan stands ([`scan_identification`]).
@@ -206,6 +227,9 @@ pub struct FailoverOutcome {
     /// sent to an Iroh leg (module docs, item 5). A terminal one ended the connect; neither
     /// kind is recorded as a route attempt.
     pub client_failure: Option<ClientIdentification>,
+    /// ⟨M06 exit, Q-B⟩ The routes skipped because their leg's driver is not in this build
+    /// ([`DialFailure::DriverUnavailable`]), in order.
+    pub driver_unavailable: Vec<RouteId>,
 }
 
 impl FailoverOutcome {
@@ -530,6 +554,7 @@ where
         final_route: None,
         late_failure: false,
         client_failure: None,
+        driver_unavailable: Vec::new(),
     };
     let mut attempts: Vec<RouteAttempt> = Vec::new();
     // ⟨rev6.5; ADR-0006 §18.9 item 11⟩ Each attempt reports how long it took, bounded.
@@ -547,6 +572,13 @@ where
     };
     for route in routes {
         let started = tokio::time::Instant::now();
+        // ⟨M06 exit, Q-B⟩ No driver for this leg in this build: recorded and failed over,
+        // with nothing read from the client and nothing dialed.
+        if dialer.driver_unavailable(route) {
+            attempts.push(failed(route, DRIVER_UNAVAILABLE_CLASS, started));
+            outcome.driver_unavailable.push(route.id.clone());
+            continue;
+        }
         let client_first = matches!(route.leg, LegPlan::Iroh { .. });
         // ⟨M06 U56; M06-W2-R06⟩ An Iroh leg is sent the client's identification line, and
         // only that, before the server's (module docs, item 5). The line is read and
@@ -595,6 +627,11 @@ where
             }
             Err(DialFailure::AdmissionRefused) => {
                 attempts.push(failed(route, RouteFailureClass::AdmissionRefused, started));
+                continue;
+            }
+            Err(DialFailure::DriverUnavailable) => {
+                attempts.push(failed(route, DRIVER_UNAVAILABLE_CLASS, started));
+                outcome.driver_unavailable.push(route.id.clone());
                 continue;
             }
         };

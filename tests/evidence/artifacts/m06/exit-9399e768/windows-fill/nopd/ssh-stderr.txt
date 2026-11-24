@@ -1,0 +1,13 @@
+### preflight exit=255
+<account>?127?0?0?1? Permission denied ?publickey??
+
+### bootstrap session ?its -E log follows? exit=none
+
+### management session exit=none
+
+### preflight exit=255
+<account>?127?0?0?1? Permission denied ?publickey??
+
+### bootstrap session ?its -E log follows? exit=none
+
+

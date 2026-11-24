@@ -37,8 +37,11 @@ probe exited exactly as expected. A failed or ignored test, a test missing from 
 current run, a build-host-path test that is a harness gap (build_host_paths, neutral
 false), a nonzero command or a predates_build log keep the row in_progress. blocked is
 only for a missing platform (`unavailable`), a capability named in
-`missing_capabilities`, or the case's owner-input rows (`blocked_rows`), each with
-blocked_on naming the exact input. A record's status is its lowest row, lowest first:
+`missing_capabilities`, a failed command named in the platform's `blocked_commands`
+({command: {owner_input, reason}}: only a command its logs recorded with a nonzero exit,
+else nothing is written; it ranks with a missing capability, so it never outranks another
+failure or gap and never yields verified), or the case's owner-input rows (`blocked_rows`),
+each with blocked_on naming the exact input. A record's status is its lowest row, lowest first:
 blocked, not_started, in_progress, implemented_unverified, verified
 (tests/evidence/README.md); deferred_with_decision rows do not count.
 
@@ -750,6 +753,48 @@ def command_failures(pconf):
     return failed, bad
 
 
+def check_blocked_commands(pname, pconf, codes):
+    """⟨M06 exit, ruling 2026-11-24⟩ A platform's `blocked_commands` map: {exact command (as
+    its commands log writes it after `exit <n>: `): {"owner_input": "<ID>", "reason": "<text>"}}.
+    A command named there failed only for want of that owner input. The map is refused (a
+    RunError, nothing written) unless every entry is well formed and names a command the
+    platform's logs recorded with a nonzero exit: it can name an observed failure, never
+    excuse an exit 0 or a command that did not run. An unavailable platform ran nothing, so
+    any entry there is refused too."""
+    entries = pconf.get("blocked_commands")
+    if entries is None:
+        return
+    if not isinstance(entries, dict) or not entries:
+        raise RunError(f"{pname}: blocked_commands is not a non-empty map of exact commands")
+    for command, entry in entries.items():
+        if not isinstance(entry, dict) or set(entry) != {"owner_input", "reason"} \
+                or not all(isinstance(entry[k], str) and entry[k].strip() for k in ("owner_input", "reason")):
+            raise RunError(f"{pname}: blocked_commands entry {command!r} needs exactly a non-empty owner_input and reason")
+        if pconf.get("unavailable"):
+            raise RunError(f"{pname}: blocked_commands names {command!r}, but the platform is unavailable and ran nothing")
+        if command not in codes:
+            raise RunError(f"{pname}: blocked_commands names {command!r}, which no commands log of the platform recorded")
+        code = codes[command]
+        if type(code) is not int or code == 0:
+            raise RunError(f"{pname}: blocked_commands names {command!r}, which exited {code!r}; only a recorded "
+                           "failure can be blocked on an owner input")
+
+
+def blocked_command_reasons(pconf, failed_commands):
+    """({command: blocked_on text}, the failed commands not named in blocked_commands)."""
+    entries = pconf.get("blocked_commands") or {}
+    codes = pconf.get("exit_codes") or {}
+    named, rest = {}, []
+    for command in failed_commands:
+        entry = entries.get(command)
+        if entry:
+            named[command] = (f"owner input {entry['owner_input']}: {entry['reason']} "
+                              f"(the command `{command}` exited {codes.get(command)!r})")
+        else:
+            rest.append(command)
+    return named, rest
+
+
 def missing_capability(pconf, target, name):
     caps = pconf.get("missing_capabilities") or {}
     reason = caps.get(f"{target}::{name}", caps.get(target))
@@ -832,6 +877,10 @@ def row_for(index, platform, pconf, logs, tests, obs=None, guard=None):
     unavailable = pconf.get("unavailable")
     ran = bool(passed or failed or ignored)
     failed_commands, failed_probes = command_failures(pconf)
+    # ⟨M06 exit⟩ A failed command named in blocked_commands is a blocked reason, never a pass:
+    # it ranks with a missing capability, so any other failure or gap still keeps the row
+    # in_progress, and with nothing else wrong the row is blocked on the owner input.
+    blocked_commands, failed_commands = blocked_command_reasons(pconf, failed_commands)
     if unavailable and not ran and not stale:
         status = "blocked"
     elif unavailable or failed or ignored:
@@ -840,7 +889,7 @@ def row_for(index, platform, pconf, logs, tests, obs=None, guard=None):
         # An unexplained exclusion or a declared test that did not pass is a coverage gap
         # (ADR-0007 §12.47 item 1), like an incomplete run: it outranks a missing capability.
         status = "in_progress"
-    elif reasons:
+    elif reasons or blocked_commands:
         status = "blocked"
     else:
         status = "verified"
@@ -875,6 +924,9 @@ def row_for(index, platform, pconf, logs, tests, obs=None, guard=None):
         row["incomplete_run"] = incomplete
     if failed_commands and not (status == "blocked" and unavailable):
         row["failed_commands"] = failed_commands
+    if blocked_commands:
+        # The failure stays on record: its observed exit is in exit_codes, and here.
+        row["failed_commands_blocked_on"] = dict(sorted(blocked_commands.items()))
     if pconf.get("negative_probes"):
         row["negative_probes"] = pconf["negative_probes"]
     if failed_probes:
@@ -889,7 +941,7 @@ def row_for(index, platform, pconf, logs, tests, obs=None, guard=None):
             row["blocked_on"] = unavailable
             row.pop("missing_targets", None)
         else:
-            row["blocked_on"] = "; ".join(sorted(reasons))
+            row["blocked_on"] = "; ".join(sorted(reasons | set(blocked_commands.values())))
     elif reasons and not stale:
         row["missing_capabilities"] = sorted(reasons)
     return row
@@ -942,6 +994,7 @@ def load_platforms(cfg):
                     )
                 codes.setdefault(command, code)
             p["exit_codes"] = codes
+            check_blocked_commands(pname, p, codes)
             facts = {}
             for rel in p.get("facts", []):
                 facts.update(parse_facts(base / rel))
@@ -953,6 +1006,8 @@ def load_platforms(cfg):
                         have = seen.setdefault(target, {}).setdefault(test, [])
                         have.extend(x for x in lines if x not in have)
             p["_observations"] = seen
+        else:
+            check_blocked_commands(pname, p, {})
         out[pname] = (p, logs)
     return out
 

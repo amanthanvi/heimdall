@@ -2275,7 +2275,20 @@ mod tests {
         // owner's serve is a widening that needs the terminal (⟨rev6.5; ADR-0006 §18.9
         // item 10⟩). Nothing is written either way.
         #[cfg(not(feature = "iroh"))]
-        assert_eq!(serve.code, Code::CapabilityUnavailable, "{serve:?}");
+        {
+            assert_eq!(serve.code, Code::CapabilityUnavailable, "{serve:?}");
+            // ⟨M06 exit, ruling E2⟩ The refusal names the preview and how to build it.
+            assert_eq!(
+                serve.data["error"]["reason"],
+                heimdall_contract::envelope::reason::DRIVER_UNAVAILABLE,
+                "{serve:?}"
+            );
+            assert_eq!(
+                serve.data["error"]["message"],
+                heimdall_app::transport::IROH_PREVIEW_UNAVAILABLE,
+                "{serve:?}"
+            );
+        }
         #[cfg(feature = "iroh")]
         {
             assert_eq!(serve.code, Code::InteractionRequired, "{serve:?}");

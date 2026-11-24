@@ -1652,6 +1652,9 @@ mod capture {
             fs::write(&auth, authorized).unwrap();
             let log = dir.join("sshd.log");
             let config = dir.join("sshd_config");
+            // The sessions' scratch HOME and ZDOTDIR, as the testkit fixture's.
+            let session_home = heimdall_testkit::sshd::create_session_home(&dir).unwrap();
+            let setenv = heimdall_testkit::sshd::session_setenv(&session_home, None);
             for _attempt in 0..5 {
                 let port = pick_loopback_port().unwrap();
                 let mut accepted = false;
@@ -1663,7 +1666,7 @@ mod capture {
                          PubkeyAuthentication yes\nAuthenticationMethods publickey\n\
                          PermitRootLogin no\nPermitUserRC no\nPermitUserEnvironment no\n\
                          AllowAgentForwarding no\nAllowTcpForwarding no\nX11Forwarding no\n\
-                         UseDNS no\nMaxAuthTries 6\nLogLevel VERBOSE\n",
+                         UseDNS no\nMaxAuthTries 6\nLogLevel VERBOSE\n{setenv}",
                         ssh_config_quote(&auth.to_string_lossy())
                     );
                     if penalties {

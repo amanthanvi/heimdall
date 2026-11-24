@@ -1,0 +1,322 @@
+{
+  "$comment": "M06 exit run configuration (2026-11-24): a copy of tests/native/m06/runs.json for the M06 exit. The records' build_commit is the commit the generator ran at (fill-run-facts requires a clean HEAD). The record schema has one build_commit and no per-platform commit field, so artifacts_root is tests/evidence/artifacts/m06, every platform path names its own exit-<commit>/ directory, and each platform's run commit is its run_commit (with run_commit_reason and the mechanical product drift, copied into its label) or stated in its label (devbox, cross-host: their outputs name no commit). The Windows platforms were imported from PC job 58 through a staging config and a one-off transplant (an evidence-tool gap: the importers assume artifacts_root is the import directory's parent). build_commit, started_at, environment and every artifact_digest are filled by tests/native/m06/fill-run-facts.py, never by hand.",
+  "case_index": "tests/native/m06/case-index.json",
+  "required_inventory": "tests/native/m06/required-inventory.json",
+  "summary_out": "tests/evidence/artifacts/m06/exit-aa87c34c/case-summary.json",
+  "artifacts_root": "tests/evidence/artifacts/m06",
+  "build_commit": "0a5def0357548cad7f5dbf55427607153a551722",
+  "artifact_digest": "5c5ef026c0c31fe520bd7145038b394e13ccfac63ff6e37e830348a7b2518710",
+  "started_at": "2026-11-24T02:57:21Z",
+  "environment": {
+    "build_host": {
+      "uname": "Darwin 27.2.0 arm64",
+      "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+      "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+      "zig": "0.17.1"
+    },
+    "platforms": {
+      "macos": "macos-arm64 (build host, controller) at aa87c34c, exit build 4: the macOS row of record (run 2026-11-24T17:16:52Z-17:47:38Z with every other track paused); ran at aa87c34c (exit build 4; C10 after it changes the evidence tooling and the case index only (no Rust code); product drift 0 files aa87c34c..fffc8f8f); ran at aa87c34c (exit build 4; C10 after it changes the evidence tooling and the case index only (no Rust code); product drift 0 files aa87c34c..0a5def03)",
+      "linux": "linux-x86_64 (devbox, the runner; headless) at a10eec63, exit build 1 (13 batches, 140 targets), with the C9 fixture-sshd targets re-run at 842044c7, exit build 3 (4 batches); product code as at the final exit build except C7 978c2be4 (the shared OpenSSH fill's SystemDrive fallback: Windows-only callers), with C8, C9, C9.1 and C11 test and testkit only; the two agent-forwarding tests re-run at aa87c34c, exit build 4 (supporting: exit-aa87c34c/linux-fwd)",
+      "windows": "windows-11-x86_64 (controller) at 842044c7, exit build 3 (PC job 58); windows-11-x86_64 (native msvc, local mode); ran at 842044c7 (PC rows at 842044c7; the exit build's Windows-compiled delta is the removal of route_m04.rs's dead local guard (its only caller is cfg(unix)); product drift 0 files 842044c7..fffc8f8f); ran at 842044c7 (PC rows at 842044c7; the exit build's Windows-compiled delta is the removal of route_m04.rs's dead local guard (its only caller is cfg(unix)); product drift 0 files 842044c7..0a5def03)",
+      "windows-controller": "windows-11-x86_64 (controller journey: heimdall.exe, DPAPI K_mgmt, named-pipe session agent, in-box OpenSSH; fixture Linux runner in a scratch directory of the existing WSL distribution) at 842044c7, exit build 3 (PC job 58 step 4); ran at 842044c7 (PC rows at 842044c7; the exit build's Windows-compiled delta is the removal of route_m04.rs's dead local guard (its only caller is cfg(unix)); product drift 0 files 842044c7..fffc8f8f); ran at 842044c7 (PC rows at 842044c7; the exit build's Windows-compiled delta is the removal of route_m04.rs's dead local guard (its only caller is cfg(unix)); product drift 0 files 842044c7..0a5def03)",
+      "runner-crosshost": "macos-arm64 controller + linux-x86_64 runner on another host (the devbox) at a10eec63, exit build 1: the cross-host journey, product CLI on both, management through an ssh forward to a fixture sshd on the runner's loopback; product code as at the final exit build except C7 978c2be4 (Windows-only callers); the journey's own runner sshd (crosshost-runner.sh) is untouched by C9 and C11"
+    }
+  },
+  "commands": [
+    "tests/native/m06/refresh-inventory.sh at 509b234a (sources digest; committed as 842044c7, exit build 3: its tree is the exit build)",
+    "tests/native/m06/run-crosshost.sh tests/evidence/artifacts/m06/exit-a10eec63/runner-crosshost <linuxhost> at a10eec63 (exit build 1; 32 steps)",
+    "tests/native/m06/run-linux-batches.sh tests/evidence/artifacts/m06/exit-a10eec63 <linuxhost> at a10eec63 (13 HM_ONLY batches of tests/native/m06/linux-batches.txt, 140 targets; a 3 GiB free-space floor before each batch and a 1.5 GiB cap on each staged set; linux-batches.txt holds each batch's exit code)",
+    "HM_FEATURE=iroh HM_ONLY=<the targets of batch cN> HM_STAGE_MAX_KB=1572864 tests/native/m06/run-linux.sh tests/evidence/artifacts/m06/exit-842044c7/linux-cN <linuxhost> at 842044c7, N=1..4 (the C9 fixture-sshd targets, the new fixture test's target and service_login_m04's target re-run at exit build 3)",
+    "tests/native/m06/run-macos.sh tests/evidence/artifacts/m06/exit-aa87c34c at aa87c34c, exit build 4 (the macOS row of record, run 17:16:52Z-17:47:38Z with every other track paused; earlier macOS runs kept on record, not of record: exit-a10eec63/macos, exit-9399e768/macos, exit-842044c7/macos)",
+    "on the PC (job 58), by a T3 agent at Medium integrity: pwsh -NoProfile -File tests/native/m06/run-windows-local.ps1 -Commit 842044c74931a5bfb4c69cd0d4296aae43559eb1 -ScratchRoot <scratch root>; then on the build host: python3 -I tests/native/m02/import-windows-bundle.py (see target/m06-exit/recs/DONE.md for the exact import)",
+    "on the PC (job 58), from a checkout of 842044c7: pwsh -NoProfile -File tests/native/m06/record-windows-controller.ps1 -ScratchRoot <scratch> -HeimdallExe <debug heimdall.exe> -DriverExe <e2e_windows_controller_m06.exe> -LinuxHeimdall <path> -LinuxDriver <path> -WslDistro <the existing distribution> -Out <dir>; then on the build host: python3 -I tests/native/m06/import-windows-controller.py (see target/m06-exit/recs/DONE.md)",
+    "on the PC (job 55, at 9399e768): the fill fix's native proof, run-windows-controller.ps1 -WithoutProgramData (10/10), the guard run (refused) and the control (10/10); supporting artifacts, not a generator platform",
+    "python3 -I tests/native/m06/fill-run-facts.py --config tests/evidence/artifacts/m06/exit-runs.json --started-at 2026-11-24T02:57:21Z --commit <the generator's clean HEAD> --bin macos:heimdall=target/debug/heimdall (per-platform run_commit: macOS aa87c34c, windows and windows-controller 842044c7)",
+    "python3 -I tests/native/m06/m06-evidence.py --config tests/evidence/artifacts/m06/exit-runs.json --write",
+    "python3 -I tools/validation/validate-records.py"
+  ],
+  "evidence_paths": [
+    "tests/native/m06/case-index.json",
+    "tests/native/m06/runs.json",
+    "tests/native/m06/required-inventory.json",
+    "tests/native/m06/m06-evidence.py",
+    "tests/native/m06/refresh-inventory.sh",
+    "tests/native/m06/run-macos.sh",
+    "tests/native/m06/run-linux.sh",
+    "tests/native/m06/run-windows-local.ps1",
+    "tests/native/m06/run-crosshost.sh",
+    "tests/native/m06/crosshost-runner.sh",
+    "tests/native/m06/crosshost-tool.py",
+    "tests/native/m06/windows-controller-runner.sh",
+    "tests/native/m06/run-linux-batches.sh",
+    "tests/native/m06/linux-batches.txt",
+    "tests/native/m06/run-windows-controller.ps1",
+    "tests/native/m06/record-windows-controller.ps1",
+    "tests/native/m06/import-windows-controller.py",
+    "tests/native/m06/fill-run-facts.py",
+    "tests/native/m06/selftest.sh",
+    "tests/native/m05/m05-evidence.py",
+    "tests/native/m02/run-macos.sh",
+    "tests/native/m02/run-linux.sh",
+    "tests/native/m02/run-windows-local.ps1",
+    "tests/native/m02/import-windows-bundle.py",
+    "tests/native/m02/lib.sh",
+    "tests/native/m02/remote-lib.sh",
+    "tests/native/m02/platform-tests.py",
+    "tests/native/m02/refresh-inventory.sh",
+    "tests/native/m02/m02-evidence.py",
+    "tests/evidence/artifacts/m06/exit-runs.json",
+    "tests/evidence/artifacts/m06/exit-9399e768/windows-fill",
+    "tests/evidence/artifacts/m06/exit-aa87c34c/linux-fwd",
+    "tests/evidence/artifacts/m06/exit-aa87c34c/macos-supplement",
+    "tests/evidence/artifacts/m06/digests.txt"
+  ],
+  "common_limitations": [
+    "Status discipline (m06-plan §3, M01 rule E15): verified rows mean the required tests ran and passed on that platform in this run; not an independent review of the units. The lowest-row rule applies: a blocked owner-input row (m06-plan §7) keeps its record blocked, a container, persistence or capture row without a run keeps it not_started, and no claim is widened to cover either.",
+    "Linux binaries are cross-built on the macOS host with zig and run natively on the devbox; Windows binaries are built and run natively on the PC. Tests that read the repository at its compile-time path read it through HM_REPO_ROOT, which the harnesses set.",
+    "The iroh-feature targets come from a second, feature-enabled build of their packages on each platform and run against that build's own heimdall; every other target runs against the default-feature build. A platform that could not build them has those rows blocked with cargo's exit code and first error.",
+    "Single-host journeys: on each platform the exit journeys run the controller, the runner and the fixture sshds on one host under one OS user with scratch homes. The devbox as a separate runner host, the Windows controller against a remote runner, the containers and the lifecycle rows are separate rows, blocked or not started until their own runs exist.",
+    "Iroh in these rows is loopback only: no public relay, no non-loopback listener, no real NAT.",
+    "Proptest regression files resolve at compile-time source paths: persisted regression seeds replay on macOS only; the fixed default seeds run everywhere.",
+    "Every fixture is disposable: per-run keys, the loopback fixture sshd, disposable ssh-agents with a scratch HOME, scratch configuration and Heimdall homes; the owners' keys, agents, keychains, ~/.ssh and Git configuration are never test material.",
+    "The cross-host journey (platform runner-crosshost): the controller's K_mgmt and K_iroh are the debug build's fixture stores, never a platform store; the controller's and the runner's fixture state (the verified enrollment, the profiles, the issuer on the scratch store, the runner's standing policy) is seeded as in the Windows controller journey; pairing, invitation, join, approval, issuance, narrowing and status are the product CLI. Its \"no silent controller socket\" row rests on what the account can read (the fixture sshd's own log, the port's connection table, the product's reports): the runtime is non-dumpable, so its descriptor table is not read.",
+    "Per-platform commits (the record schema has one build_commit, the generator's HEAD; no per-platform commit field): macOS at aa87c34c (exit build 4); Windows (cargo row and controller journey step 4, PC job 58) at 842044c7 (exit build 3), whose Windows-compiled delta to the final exit build is the removal of route_m04.rs's dead local guard (its only caller is cfg(unix)); the devbox and the cross-host journey at a10eec63 (exit build 1), whose product code differs from the final exit build only by the Windows-only fill fix (C7) and test/testkit-only changes (C8, C9, C9.1, C11); the C9 fixture-sshd targets re-ran on the devbox at 842044c7 (linux-c1..c4: 701 passed, 0 failed, 190 ignored) and the two agent-forwarding tests at aa87c34c (linux-fwd: 19 passed, the forwarding steps ran). The fill fix's native proof is PC job 55 at 9399e768 (steps 5/6: -WithoutProgramData 10/10; the guard run refused; the control 10/10).",
+    "macOS owner metadata: the run of record (aa87c34c, 17:16:52Z-17:47:38Z, every other track paused) left ~/.ssh and Git configuration metadata unchanged (exit 0). Earlier macOS runs (a10eec63, 9399e768, 842044c7) exited 1 on that step; a digest bisection named two tests that forwarded an agent through the account's own fixture sshd, which on OpenSSH >= 10.1 places the forwarded agent's socket under the account's real ~/.ssh/agent (transient). Fixed by the C11 guard: no test forwards an agent through the account's sshd on OpenSSH >= 10.1 (those steps print blocked with that reason on the Mac and run on the devbox's 9.6p1). Whether sshd also cleans stale sockets in ~/.ssh/agent is an open question for the owner.",
+    "The fixture sshd session's working directory is still the account's real home (testkit and the WSL sshd); sessions get a scratch HOME and ZDOTDIR and an empty BASH_ENV (C9; observed on the devbox: home=scratch zdotdir=scratch bash_env=empty).",
+    "The Windows ProgramData fill: FOLDERID_Windows relies on the caller's windir (with neither SystemDrive nor windir the guard refuses); the fallback ignores a relocated ProgramData and uses the documented default (ADR-0006 §18.9 item 13).",
+    "Host conditions on the PC: job 53 ran with a Steam game running (process trees set Idle by exact PID; DWM average 31.6%); Credential Manager 172 names after vs 173 before, none Heimdall-like (observed, not ours); job 55 Credential Manager 173/173."
+  ],
+  "platforms": {
+    "macos": {
+      "label": "macos-arm64 (build host, controller) at aa87c34c, exit build 4: the macOS row of record (run 2026-11-24T17:16:52Z-17:47:38Z with every other track paused); ran at aa87c34c (exit build 4; C10 after it changes the evidence tooling and the case index only (no Rust code); product drift 0 files aa87c34c..fffc8f8f); ran at aa87c34c (exit build 4; C10 after it changes the evidence tooling and the case index only (no Rust code); product drift 0 files aa87c34c..0a5def03)",
+      "logs": [
+        "exit-aa87c34c/macos/check.txt",
+        "exit-aa87c34c/macos/observations.txt",
+        "exit-aa87c34c/macos/features.txt"
+      ],
+      "commands_logs": [
+        "exit-aa87c34c/macos/commands.txt"
+      ],
+      "facts": [
+        "exit-aa87c34c/macos/host.txt"
+      ],
+      "artifact_digest": "f9b6e290279d32b87a27ee44515bb3e1b75771d6e1583ea39ad785f95af64893",
+      "run_commit": "aa87c34c50b77bb5fa4d50d182131832943492c2",
+      "run_commit_reason": "exit build 4; C10 after it changes the evidence tooling and the case index only (no Rust code)",
+      "run_commit_drift": {
+        "range": "aa87c34c50b77bb5fa4d50d182131832943492c2..0a5def0357548cad7f5dbf55427607153a551722",
+        "count": 0,
+        "files": []
+      }
+    },
+    "linux": {
+      "label": "linux-x86_64 (devbox, the runner; headless) at a10eec63, exit build 1 (13 batches, 140 targets), with the C9 fixture-sshd targets re-run at 842044c7, exit build 3 (4 batches); product code as at the final exit build except C7 978c2be4 (the shared OpenSSH fill's SystemDrive fallback: Windows-only callers), with C8, C9, C9.1 and C11 test and testkit only; the two agent-forwarding tests re-run at aa87c34c, exit build 4 (supporting: exit-aa87c34c/linux-fwd)",
+      "logs": [
+        "exit-a10eec63/linux-b01/tests.txt",
+        "exit-a10eec63/linux-b02/tests.txt",
+        "exit-a10eec63/linux-b03/tests.txt",
+        "exit-a10eec63/linux-b04/tests.txt",
+        "exit-a10eec63/linux-b05/tests.txt",
+        "exit-a10eec63/linux-b06/tests.txt",
+        "exit-a10eec63/linux-b07/tests.txt",
+        "exit-a10eec63/linux-b08/tests.txt",
+        "exit-a10eec63/linux-b09/tests.txt",
+        "exit-a10eec63/linux-b10/tests.txt",
+        "exit-a10eec63/linux-b11/tests.txt",
+        "exit-a10eec63/linux-b12/tests.txt",
+        "exit-a10eec63/linux-b13/tests.txt",
+        "exit-842044c7/linux-c1/tests.txt",
+        "exit-842044c7/linux-c2/tests.txt",
+        "exit-842044c7/linux-c3/tests.txt",
+        "exit-842044c7/linux-c4/tests.txt"
+      ],
+      "commands_logs": [
+        "exit-a10eec63/linux-batches.txt",
+        "exit-a10eec63/linux-b01/commands.txt",
+        "exit-a10eec63/linux-b02/commands.txt",
+        "exit-a10eec63/linux-b03/commands.txt",
+        "exit-a10eec63/linux-b04/commands.txt",
+        "exit-a10eec63/linux-b05/commands.txt",
+        "exit-a10eec63/linux-b06/commands.txt",
+        "exit-a10eec63/linux-b07/commands.txt",
+        "exit-a10eec63/linux-b08/commands.txt",
+        "exit-a10eec63/linux-b09/commands.txt",
+        "exit-a10eec63/linux-b10/commands.txt",
+        "exit-a10eec63/linux-b11/commands.txt",
+        "exit-a10eec63/linux-b12/commands.txt",
+        "exit-a10eec63/linux-b13/commands.txt",
+        "exit-842044c7/linux-c1/commands.txt",
+        "exit-842044c7/linux-c2/commands.txt",
+        "exit-842044c7/linux-c3/commands.txt",
+        "exit-842044c7/linux-c4/commands.txt"
+      ],
+      "facts": [
+        "exit-a10eec63/linux-b01/host.txt",
+        "exit-842044c7/linux-c1/host.txt"
+      ],
+      "artifact_digest": "741093c0671c8b1366b5e5a5aaa53ce6208186f95c7a654914e2e36b3cf2d156"
+    },
+    "windows": {
+      "label": "windows-11-x86_64 (controller) at 842044c7, exit build 3 (PC job 58); windows-11-x86_64 (native msvc, local mode); ran at 842044c7 (PC rows at 842044c7; the exit build's Windows-compiled delta is the removal of route_m04.rs's dead local guard (its only caller is cfg(unix)); product drift 0 files 842044c7..fffc8f8f); ran at 842044c7 (PC rows at 842044c7; the exit build's Windows-compiled delta is the removal of route_m04.rs's dead local guard (its only caller is cfg(unix)); product drift 0 files 842044c7..0a5def03)",
+      "logs": [
+        "exit-842044c7/windows/tests.txt"
+      ],
+      "commands_logs": [
+        "exit-842044c7/windows/commands.txt"
+      ],
+      "facts": [
+        "exit-842044c7/windows/host.txt"
+      ],
+      "artifact_digest": "ce12f28537c55b538648de3f4637e272f47bacb1ede969867e3aa4e7f83506b0",
+      "run_commit": "842044c74931a5bfb4c69cd0d4296aae43559eb1",
+      "run_commit_reason": "PC rows at 842044c7; the exit build's Windows-compiled delta is the removal of route_m04.rs's dead local guard (its only caller is cfg(unix))",
+      "run_commit_drift": {
+        "range": "842044c74931a5bfb4c69cd0d4296aae43559eb1..0a5def0357548cad7f5dbf55427607153a551722",
+        "count": 0,
+        "files": []
+      }
+    },
+    "windows-controller": {
+      "label": "windows-11-x86_64 (controller journey: heimdall.exe, DPAPI K_mgmt, named-pipe session agent, in-box OpenSSH; fixture Linux runner in a scratch directory of the existing WSL distribution) at 842044c7, exit build 3 (PC job 58 step 4); ran at 842044c7 (PC rows at 842044c7; the exit build's Windows-compiled delta is the removal of route_m04.rs's dead local guard (its only caller is cfg(unix)); product drift 0 files 842044c7..fffc8f8f); ran at 842044c7 (PC rows at 842044c7; the exit build's Windows-compiled delta is the removal of route_m04.rs's dead local guard (its only caller is cfg(unix)); product drift 0 files 842044c7..0a5def03)",
+      "logs": [
+        "exit-842044c7/windows-controller/tests.txt"
+      ],
+      "commands_logs": [
+        "exit-842044c7/windows-controller/commands.txt"
+      ],
+      "facts": [
+        "exit-842044c7/windows-controller/host.txt"
+      ],
+      "artifact_digest": "980452b67041dcbf63714e6552214001197c99d4bf0a62e46d351888cfa5d2c7",
+      "run_commit": "842044c74931a5bfb4c69cd0d4296aae43559eb1",
+      "run_commit_reason": "PC rows at 842044c7; the exit build's Windows-compiled delta is the removal of route_m04.rs's dead local guard (its only caller is cfg(unix))",
+      "run_commit_drift": {
+        "range": "842044c74931a5bfb4c69cd0d4296aae43559eb1..0a5def0357548cad7f5dbf55427607153a551722",
+        "count": 0,
+        "files": []
+      }
+    },
+    "runner-crosshost": {
+      "label": "macos-arm64 controller + linux-x86_64 runner on another host (the devbox) at a10eec63, exit build 1: the cross-host journey, product CLI on both, management through an ssh forward to a fixture sshd on the runner's loopback; product code as at the final exit build except C7 978c2be4 (Windows-only callers); the journey's own runner sshd (crosshost-runner.sh) is untouched by C9 and C11",
+      "logs": [
+        "exit-a10eec63/runner-crosshost/tests.txt"
+      ],
+      "commands_logs": [
+        "exit-a10eec63/runner-crosshost/commands.txt"
+      ],
+      "facts": [
+        "exit-a10eec63/runner-crosshost/host.txt"
+      ],
+      "artifact_digest": "25c9263ffec7aa951ad0bed0df2971787f54d25720a92539f1a5f0ee437eb890"
+    }
+  },
+  "extra_rows": {},
+  "records": {
+    "A24": {
+      "case_id": "A24",
+      "path": "tests/evidence/m06-a24-runner-without-controller.json",
+      "requirement_ids": [
+        "R-EN-05",
+        "R-AU-08"
+      ],
+      "summary": "A paired remote Linux runner continues approved onward SSH while the controller is gone: readiness with its earliest bound, conditions and residuals; new onward SSH to a managed pair and a fixed pair; managed access fails at the predicted bound once the issuer is stopped and the route blocked; a forwarded agent is never inherited; no silent controller socket (R-EN-05, R-AU-08).",
+      "limitations": [
+        "Blocked: the arm64 runner row and the runner lifecycle rows (m06-plan §7).",
+        "The Windows controller row is the windows-controller journey: heimdall.exe on the PC driving a fixture Linux runner in a scratch directory of the PC's existing WSL distribution (the runner is Unix-only in V1).",
+        "The Windows controller row is the windows-controller journey at 842044c7 (PC job 58, step 4): heimdall.exe on the PC driving a fixture Linux runner in a scratch directory of the PC's existing WSL distribution (the runner is Unix-only in V1). PC job 53's step 4 at a10eec63 (10/10) is supporting evidence. Windows is an owner controller only (ADR-0012 §2.6).",
+        "\"No silent controller socket\" rests on the cross-host step a24_no_controller_socket (three ordered observations: the controller gone by exact PID before the onward login; no established connection from the controller host or on the forward's port; no management session in the fixture sshd's log) and the clean-launch exact-set test; the runner runtime is non-dumpable, so its descriptor table is not read.",
+        "The run-refusal step for an undetermined IdentityAgent on an unattended runner is unit-test evidence only: the journeys' runner grant comes from the test adapter, so no existing-access pair exists to drive it (w5o item 14, accepted by the orchestrator)."
+      ]
+    },
+    "A25": {
+      "case_id": "A25",
+      "path": "tests/evidence/m06-a25-roles-invitations.json",
+      "requirement_ids": [
+        "R-EN-08",
+        "R-SE-06"
+      ],
+      "summary": "Paired management roles are authenticated and bounded: limited clients cannot widen or reach a shell, PTY or forwarding; limited roles need a verified sshd policy; invitations cannot be replayed, delayed or rolled back; request IDs of two clients stay separate; widening is confirmed runner-locally; replaced keys are refused with no reset; version and capability mismatches are explicit (R-EN-08, R-SE-06).",
+      "limitations": [
+        "Blocked: the arm64 runner row; limited roles on a runner whose default sshd policy fails a check (owner-only there).",
+        "Not in a container (ruling E1): the limited management client's evidence is the single-host limited-client tests (e2e_exit_m06 a25_roles_invitations_decisions, a25_pairing_invite_join_through_the_product_cli) and the cross-host steps a25_limited_after_verification and a25_sshd_policy_unverified; no Linux container ran the product client with its own K_mgmt.",
+        "The limited management client is not run in a container (ruling E1): its evidence is the single-host limited-client steps (e2e_exit_m06 a25 steps 6a-6d: viewer status and requester ensure through the product CLI) and the cross-host steps a25_limited_after_verification and a25_sshd_policy_verified/unverified.",
+        "A25 also requires the product-CLI pairing journey and the two runner-local lift journeys (a_delivered_cutoff_on_a_policy_less_runner_is_lifted_locally, a_delivered_pause_of_a_held_policy_is_named_by_access_resume)."
+      ]
+    },
+    "A26": {
+      "case_id": "A26",
+      "path": "tests/evidence/m06-a26-iroh-routes-trust.json",
+      "requirement_ids": [
+        "R-SS-05",
+        "R-SS-07",
+        "R-SS-08",
+        "R-SE-04",
+        "R-DI-07"
+      ],
+      "summary": "Direct, jump and Iroh routes to one destination with host trust unchanged: failover only before the identification string, exposure bounded by the approved policy, revocation applied only after the live connection closes, host pins never defeated, removal leaves nothing (R-SS-05, R-SS-07, R-SS-08, R-SE-04, R-DI-07).",
+      "limitations": [
+        "Loopback Iroh only in the cargo rows. Deferred (ADR-0015, ruling E1): the container Iroh direct and private-relay mechanism rows and the profile's traffic capture; Iroh is a preview built from source only.",
+        "Blocked: the verified-store persistence and restart journey, on owner input B3 (a disposable macOS standard account for the Keychain dialer); the n0-public capture row, on the owner's authorization of the one bounded capture (n0-public stays outside V1 until it runs); Windows steps that may bind a non-loopback address (the owner at the console). Deferred (m06-plan §5): a direct path across real NATs.",
+        "Iroh is a preview, built from source only (--features iroh; ADR-0015): the release is built without it. Loopback Iroh only in the cargo rows; no public relay, no non-loopback listener, no real NAT.",
+        "Deferred with decision (ADR-0015): the container private-relay mechanism rows and the profile's own traffic capture. Blocked: the verified-store persistence journey (macOS Keychain dialer) on owner input B3 (a disposable macOS standard account); the n0-public capture row on the owner's authorization; Windows steps that may bind a non-loopback address on the owner at the console. Deferred (m06-plan §5): a direct path across real NATs.",
+        "Route verification (ssh -G) and the jump leg inherit the user's environment (crates/app/src/routes_verify.rs:66-78, crates/app/src/routes_legs.rs:98-104); a Windows process without ProgramData fails closed there (HOST_PIN_DEFEATED: unreadable): a stated limitation; threading the shared fill through both is follow-up M06-F6 (exit review R02)."
+      ]
+    },
+    "T06": {
+      "case_id": "M06-T06",
+      "path": "tests/evidence/m06-t06-second-controller.json",
+      "requirement_ids": [
+        "R-EN-08",
+        "R-SE-06",
+        "R-EN-05"
+      ],
+      "summary": "Control from a second enrolled controller while the first is gone: typed narrowing from either owner, issuance only for the issuing controller's own grants on destinations that trust its CA, and explicit refusals for a wrong role, an invitation replay, a route substitution, an untrusted issuer and a renewal without an issuer.",
+      "limitations": [
+        "Blocked: the arm64 runner row; the Windows controller row, on owner input B2 (a second Windows account for the second controller).",
+        "Blocked: the arm64 runner row; the Windows controller row, on owner input B2 (a second Windows account for the second controller). The Windows controller's own evidence is A24's journey."
+      ]
+    },
+    "A07": {
+      "case_id": "A07",
+      "path": "tests/evidence/m06-a07-runner-disconnected.json",
+      "requirement_ids": [
+        "R-AU-04",
+        "R-RT-02",
+        "R-SE-07"
+      ],
+      "summary": "The A07 runner rows: revoke, pause and cutoff while the runner is disconnected, with typed effects and per-component residuals; reconnecting with uncertain time still narrows; the issuer's barrier; namespaced acknowledgements; no stale reactivation; a fresh work ID is refused after a reconciled cutoff (R-AU-04, R-RT-02, R-SE-07).",
+      "limitations": [
+        "The runner rows of A07 only; the local rows are earlier milestones' records.",
+        "Blocked: the arm64 runner row.",
+        "Residuals (ruling E4, U0-Q14): a runner's revocation residuals carry the new_authentication component only; the other RevocationResiduals components are not reported for a runner, so the record claims nothing about them on the runner path.",
+        "Namespaced acknowledgements (gap 3): model and single-host evidence only; the cross-host journey has no step that asserts them.",
+        "Pending approval while disconnected (gap 4): this leg is not asserted on the runner path. The approval-race leg is covered locally by model_revocation::a07_a_pending_approval_cannot_complete_after_a_revoke and model_revocation::a07_revoking_an_awaiting_grant_ends_its_operation_at_once (tests/model/revocation.rs), integration_store::decisions_complete_once_and_go_stale_when_the_generation_moves (tests/integration/store.rs), integration_managed_adapter::stale_approval_cannot_reactivate_after_revoke (tests/integration/managed_adapter.rs) and integration_runner_effects_m06::a_cutoff_delivered_after_the_decision_was_issued_makes_its_approval_stale (tests/integration/runner_effects_m06.rs).",
+        "The end-to-end fresh-work refusal is attributed: the cross-host step a07_cutoff_refused asserts the fresh work ID is refused POLICY_CUTOFF (the cutoff alone, after acknowledgement and with time certain, the delivered pause lifted at the runner), with nothing issued; a07_fresh_work_refused, after the reconciled pause and cutoff together, asserts the refusal without attributing it to one of them.",
+        "The runner rows of A07 only; the local rows are earlier milestones' records (m03-a07-revocation.json's deferred disconnected-runner row is closed here)."
+      ]
+    },
+    "M06 exit cases (m06-plan §3)": {
+      "case_id": "m06-exit-claims",
+      "path": "tests/evidence/m06-exit-claims.json",
+      "requirement_ids": [
+        "R-AU-04",
+        "R-AU-08",
+        "R-DI-07",
+        "R-EN-05",
+        "R-EN-08",
+        "R-RT-02",
+        "R-SE-04",
+        "R-SE-06",
+        "R-SE-07",
+        "R-SS-05",
+        "R-SS-07",
+        "R-SS-08"
+      ],
+      "summary": "m06-plan §3: every M06 exit case per platform, all rows from one build. Blocked while any owner-input row of m06-plan §7 is blocked; never verified while a container, persistence or capture row has no run (the lowest-row rule).",
+      "limitations": [
+        "Exit bar (ruling E6, the M05 bar): every row verified, or blocked on a named owner input, or deferred_with_decision with the decision cited; docs/architecture/m06-exit.md lists each blocked row and its input.",
+        "RC01's fix (W5 scoped re-check) was read by the orchestrator only (not independent); ADR-0009 §2 allows one re-check per wave, and it was spent. Its revert proof is recorded in commit 5bd0bdbe (M06 wave 5.5): the reviewer's two probes and the runner owner's own policy remove."
+      ]
+    }
+  }
+}
