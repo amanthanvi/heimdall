@@ -37,7 +37,10 @@ What it measures, each with at least SAMPLES samples (a floor) and P50/P95:
                      the selected view's title ("[2 Destinations]", "[1 Overview]"), and the
                      frame ends at the last byte before 20 ms of quiet after that (the quiet
                      itself is not counted). Output that does not show the effect never ends a
-                     sample (review M08-W2-R07); no effect within 2 s is an error.
+                     sample (review M08-W2-R07); no effect within 2 s is an error. A key whose
+                     title is already on screen before it is written is not sent: that sample
+                     is dropped and counted as missed (RC04). Both kinds are reported under
+                     "missed" and counted in "errors".
                      under FAST CONCURRENT OPERATIONS (ruled 2026-11-23, W2): a second session
                      keeps policy-covered ensures in flight for profile `slow`. Those ensures
                      do not contact the provider, so its delaying proxy is not in their path,
@@ -324,9 +327,20 @@ class Bench:
         # selected view's title in the header (review M08-W2-R07): output that does not show it
         # (a background redraw) never ends a sample. The frame then ends at the last byte before
         # 20 ms of quiet; a key whose effect does not appear within 2 s is an error.
+        # A sample also needs the effect to arrive after its key (review M08-W2-RC04): when the
+        # key's title is already on screen before the key is written (the TUI and the expected
+        # alternation diverged after a miss), the sample is dropped and counted as missed, and
+        # the next key re-synchronises.
         first, frame, errors = [], [], 0
+        missed = {"title_already_shown": 0, "no_effect_within_2s": 0}
         for i in range(WARMUP + self.a.samples):
             key, title = (b"2", "[2 Destinations]") if i % 2 == 0 else (b"1", "[1 Overview]")
+            if title in screen.text():
+                if i >= WARMUP:
+                    errors += 1
+                    missed["title_already_shown"] += 1
+                screen.feed(self.drain(fd, 0.2))
+                continue
             t = time.perf_counter()
             os.write(fd, key)
             t_first = t_effect = None
@@ -344,8 +358,10 @@ class Bench:
                 if title in screen.text():
                     t_effect = time.perf_counter()
             if t_effect is None:
-                errors += 0 if i < WARMUP else 1
-                if i >= WARMUP and errors == 1:
+                if i >= WARMUP:
+                    errors += 1
+                    missed["no_effect_within_2s"] += 1
+                if i >= WARMUP and missed["no_effect_within_2s"] == 1:
                     with open(os.path.join(self.a.out, f"{name}-failure.txt"), "w", encoding="utf-8") as fh:
                         fh.write(screen.text())
                 screen.feed(self.drain(fd, 0.2))
@@ -381,7 +397,8 @@ class Bench:
         else:
             cond = "one TUI on a 120x40 pty, view keys 2 and 1 in turn; no background work (for comparison)"
         self.result[name.replace("frame", "first_byte")] = summary(first, errors, cond)
-        self.result[name] = summary(frame, errors, cond + "; timed only once the reconstructed screen shows the selected view's title; the frame ends at the last byte before 20 ms of quiet")
+        self.result[name] = summary(frame, errors, cond + "; timed only once the reconstructed screen shows the selected view's title, absent before the key; the frame ends at the last byte before 20 ms of quiet")
+        self.result[name]["missed"] = missed
 
     # ---- idle
     def runtime_pid(self):

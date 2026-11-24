@@ -23,10 +23,39 @@ import threading
 import time
 
 
-def relay(client, upstream_path, delay):
-    try:
+class Upstream:
+    """The upstream as checked at start-up (review M08-W2-RC07): its resolved path and the
+    socket file's identity. Every connection goes to that resolved path, never back through
+    a link, and is refused if the file there is no longer the one checked; on Linux the
+    connected peer must also run as this account (SO_PEERCRED)."""
+
+    def __init__(self, path):
+        self.real = os.path.realpath(path)
+        st = os.lstat(self.real)
+        self.ident = (st.st_dev, st.st_ino)
+
+    def open(self):
+        st = os.lstat(self.real)
+        if not stat.S_ISSOCK(st.st_mode) or (st.st_dev, st.st_ino) != self.ident or st.st_uid != os.getuid():
+            raise OSError("the upstream socket is not the one checked at start-up")
         up = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        up.connect(upstream_path)
+        try:
+            up.connect(self.real)
+            peercred = getattr(socket, "SO_PEERCRED", None)
+            if peercred is not None:
+                import struct
+                _, uid, _ = struct.unpack("3i", up.getsockopt(socket.SOL_SOCKET, peercred, struct.calcsize("3i")))
+                if uid != os.getuid():
+                    raise OSError("the upstream peer does not run as this account")
+        except OSError:
+            up.close()
+            raise
+        return up
+
+
+def relay(client, upstream, delay):
+    try:
+        up = upstream.open()
     except OSError:
         client.close()
         return
@@ -99,6 +128,42 @@ def self_test():
             for name, path, ok in cases:
                 if (upstream_refusal(path, a) is None) != ok:
                     bad.append(name)
+            # RC07: a link checked at start-up and swapped afterwards is not followed: the
+            # connection goes to the socket that was checked.
+            for sk in socks:
+                sk.listen(1)
+                sk.setblocking(False)
+            inner = os.path.join(a, "inner.sock")
+            os.symlink(os.path.join(a, "agent.sock"), inner)
+            if upstream_refusal(inner, a) is not None:
+                bad.append("a link inside to this run's socket is accepted")
+            checked = Upstream(inner)
+            os.unlink(inner)
+            os.symlink(os.path.join(b, "agent.sock"), inner)
+            conn = checked.open()
+            got = []
+            for d, sk in zip((a, b), socks):
+                try:
+                    c, _ = sk.accept()
+                    got.append(d)
+                    c.close()
+                except BlockingIOError:
+                    pass
+            conn.close()
+            if got != [a]:
+                bad.append("after the link is swapped, the connection still goes to the checked socket")
+            # RC07: the checked socket file replaced by another is refused at connect time.
+            socks[0].close()
+            os.unlink(os.path.join(a, "agent.sock"))
+            other = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            other.bind(os.path.join(a, "agent.sock"))
+            other.listen(1)
+            socks[0] = other
+            try:
+                checked.open().close()
+                bad.append("a replaced upstream socket is refused at connect time")
+            except OSError:
+                pass
         finally:
             os.rmdir(a + "-sibling")
             for sk in socks:
@@ -106,7 +171,7 @@ def self_test():
     for name in bad:
         print(f"FAIL {name}")
     # Not covered here: a socket owned by another account (making one needs a second account).
-    print(f"agent-delay self-test: {len(bad)} failed of 7")
+    print(f"agent-delay self-test: {len(bad)} failed of 10")
     return 1 if bad else 0
 
 
@@ -121,6 +186,7 @@ def main():
     if why:
         print(f"agent-delay: refused: {why}", file=sys.stderr)
         return 2
+    checked = Upstream(upstream)
     if os.path.exists(listen):
         os.unlink(listen)
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -130,7 +196,7 @@ def main():
     srv.listen(16)
     while True:
         c, _ = srv.accept()
-        threading.Thread(target=relay, args=(c, upstream, delay), daemon=True).start()
+        threading.Thread(target=relay, args=(c, checked, delay), daemon=True).start()
 
 
 if __name__ == "__main__":
