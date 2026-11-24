@@ -1,0 +1,431 @@
+### e2e_cli_m01
+
+running 24 tests
+test a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once ... ok
+test a06_service_killed_while_operation_wait_waits_then_the_new_socket_replays ... ok
+test decision_approve_without_a_terminal_or_non_interactive_sends_nothing_and_exits_3 ... ok
+test a06_caller_killed_while_the_service_runs_then_the_retry_converges_on_one_effect ... ok
+test human_output_goes_to_stdout_and_messages_to_stderr ... ok
+test eight_concurrent_clients_start_exactly_one_runtime ... ok
+test inspect_preview_and_require_capability_have_no_effect ... ok
+test json_usage_failures_render_exactly_one_usage_error_envelope ... ok
+test interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready ... ok
+test non_interactive_with_a_pending_decision_exits_3_with_decision_ref_and_no_prompt ... ok
+test on_demand_runtime_keeps_no_descriptor_inherited_through_its_client ... ok
+test operation_events_follow_resumes_from_cursor ... ok
+test owner_prompt_on_a_pty_eof_and_no_keep_it_pending_yes_completes_exactly_once ... ok
+test runtime_closes_every_descriptor_inherited_at_startup ... ok
+test service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable ... ok
+test test_configuration_requires_an_explicit_home ... ok
+test service_stop_sends_shutdown_over_the_control_endpoint_and_is_idempotent ... ok
+test time_confirmation_on_a_pty_clears_time_uncertain_without_moving_deadlines ... ok
+test usage_failures_keep_human_help_version_and_errors ... ok
+test w0_m02_cli_commands_report_not_available_and_never_panic ... ok
+test widening_resume_needs_an_owner_decision_completed_on_a_pty ... ok
+test unavailable_prepare_exits_5_once_and_the_same_key_replays_the_same_operation ... ok
+test every_exit_class_0_to_7_is_observed_through_the_real_binary ... ok
+test concurrent_start_stress_twenty_rounds_never_hang ... ok
+
+successes:
+
+---- concurrent_start_stress_twenty_rounds_never_hang stdout ----
+20 concurrent-start rounds in 23.882113712s
+
+
+successes:
+    a06_caller_killed_while_the_service_runs_then_the_retry_converges_on_one_effect
+    a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once
+    a06_service_killed_while_operation_wait_waits_then_the_new_socket_replays
+    concurrent_start_stress_twenty_rounds_never_hang
+    decision_approve_without_a_terminal_or_non_interactive_sends_nothing_and_exits_3
+    eight_concurrent_clients_start_exactly_one_runtime
+    every_exit_class_0_to_7_is_observed_through_the_real_binary
+    human_output_goes_to_stdout_and_messages_to_stderr
+    inspect_preview_and_require_capability_have_no_effect
+    interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready
+    json_usage_failures_render_exactly_one_usage_error_envelope
+    non_interactive_with_a_pending_decision_exits_3_with_decision_ref_and_no_prompt
+    on_demand_runtime_keeps_no_descriptor_inherited_through_its_client
+    operation_events_follow_resumes_from_cursor
+    owner_prompt_on_a_pty_eof_and_no_keep_it_pending_yes_completes_exactly_once
+    runtime_closes_every_descriptor_inherited_at_startup
+    service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable
+    service_stop_sends_shutdown_over_the_control_endpoint_and_is_idempotent
+    test_configuration_requires_an_explicit_home
+    time_confirmation_on_a_pty_clears_time_uncertain_without_moving_deadlines
+    unavailable_prepare_exits_5_once_and_the_same_key_replays_the_same_operation
+    usage_failures_keep_human_help_version_and_errors
+    w0_m02_cli_commands_report_not_available_and_never_panic
+    widening_resume_needs_an_owner_decision_completed_on_a_pty
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.88s
+
+### e2e_cli_m01 exit=0
+### e2e_cli_m02
+
+running 43 tests
+test json::identity_adopt_from_agent_fingerprint_chooses_one_listed_identity ... ok
+test json::setup_preview_apply_and_status_json_on_every_platform ... ok
+test json::a21_cli_doctor_json_validates_against_schema ... ok
+test json::a11_noninteractive_errors_exit_codes ... ok
+test json::a11_cli_listing_lapse_recorded_only_when_runtime_running ... ok
+test json::uninstall_with_incomplete_rollback_purge_state_is_refused_json ... ok
+test jsonschema_lite::tests::accepts_and_rejects_basic_shapes ... ok
+test jsonschema_lite::tests::one_of_requires_exactly_one_match ... ok
+test jsonschema_lite::tests::unique_items_detects_duplicates ... ok
+test jsonschema_lite::tests::unsupported_keywords_fail_loudly ... ok
+test json::uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items ... ok
+test json::uninstall_with_incomplete_rollback_keeps_the_quarantine_json ... ok
+test ssh::a01_no_key_export ... ok
+test ssh::a01_cli_adopt_observed_and_managed_aliases_then_ordinary_ssh_with_scratch_f ... ok
+test ssh::a01_no_remote_change ... ok
+test ssh::a01_unaffected_aliases_effective_config_identical_before_after ... ok
+test ssh::a35_identity_agent_overriding_ssh_auth_sock_is_reported_and_managed_alias_unaffected ... ok
+test ssh::a01_personal_profile_without_repository ... ok
+test ssh::a35_inherited_identity_fallback_agent_backed_reported_not_exclusive ... ok
+test ssh::a35_inherited_identity_fallback_file_backed_reported_not_exclusive ... ok
+test ssh::a35_matrix_ssh_git_scp_sftp_ordinary_alias_and_run_bound ... ok
+test ssh::a35_mutation_broken_identity_agent_is_detected ... ok
+test ssh::a35_too_many_keys_succeeds_for_managed_alias_only ... ok
+test terminal::pty_child ... ignored, child-mode entry of the pty tests, started by them
+test terminal::pty_child_runs_the_named_binary_at_the_pty_size ... ok
+test u9_usage_errors_exit_2_before_any_runtime_contact ... ok
+test ssh::a35_wrong_key_exclusive_selection_fails_without_fallback ... ok
+test ssh::host_key_substitution_fails_closed_and_nothing_written_to_known_hosts ... ok
+test unix::a21_cli_inert_config_still_prompts_for_allow_config_commands ... ok
+test unix::a21_cli_allow_config_commands_prompt_text_and_typed_yes ... ok
+test unix::a21_cli_inventory_wording_never_claims_completeness ... ok
+test unix::a22_cli_held_operation_status_retry_and_keep ... ok
+test unix::catalog_commands_round_trip_and_declare_interaction_follows_the_confirmation_contract ... ok
+test unix::a22_cli_setup_conflict_then_repair ... ok
+test unix::q02_cli_skipped_authorization_runs_no_evaluation_after_the_tree_becomes_readable ... ok
+test unix::multi_operation_repair_is_complete_only_when_doctor_reports_none_left ... ok
+test unix::pty_setup_apply_confirmation_eof_no_non_tty_yes_exactly_once ... ok
+test unix::setup_apply_snapshots_the_original_and_previews_the_restore_column ... ok
+test unix::uninstall_purge_state_with_a_typed_yes_discards_the_state ... ok
+test unix::uninstall_purge_state_is_refused_without_a_typed_yes_and_keeps_everything ... ok
+test unix::uninstall_purge_state_confirmed_then_rolls_back_and_purges ... ok
+test unix::uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses ... ok
+test json::uninstall_over_a_p_well_beyond_the_diff_bound_rolls_back_and_restores ... ok
+
+successes:
+
+---- ssh::a35_matrix_ssh_git_scp_sftp_ordinary_alias_and_run_bound stdout ----
+a35 matrix: ssh resolved to /usr/bin/ssh
+a35 matrix: scp resolved to /usr/bin/scp
+a35 matrix: sftp resolved to /usr/bin/sftp
+a35 matrix: git resolved to /usr/bin/git
+
+
+successes:
+    json::a11_cli_listing_lapse_recorded_only_when_runtime_running
+    json::a11_noninteractive_errors_exit_codes
+    json::a21_cli_doctor_json_validates_against_schema
+    json::identity_adopt_from_agent_fingerprint_chooses_one_listed_identity
+    json::setup_preview_apply_and_status_json_on_every_platform
+    json::uninstall_over_a_p_well_beyond_the_diff_bound_rolls_back_and_restores
+    json::uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items
+    json::uninstall_with_incomplete_rollback_keeps_the_quarantine_json
+    json::uninstall_with_incomplete_rollback_purge_state_is_refused_json
+    jsonschema_lite::tests::accepts_and_rejects_basic_shapes
+    jsonschema_lite::tests::one_of_requires_exactly_one_match
+    jsonschema_lite::tests::unique_items_detects_duplicates
+    jsonschema_lite::tests::unsupported_keywords_fail_loudly
+    ssh::a01_cli_adopt_observed_and_managed_aliases_then_ordinary_ssh_with_scratch_f
+    ssh::a01_no_key_export
+    ssh::a01_no_remote_change
+    ssh::a01_personal_profile_without_repository
+    ssh::a01_unaffected_aliases_effective_config_identical_before_after
+    ssh::a35_identity_agent_overriding_ssh_auth_sock_is_reported_and_managed_alias_unaffected
+    ssh::a35_inherited_identity_fallback_agent_backed_reported_not_exclusive
+    ssh::a35_inherited_identity_fallback_file_backed_reported_not_exclusive
+    ssh::a35_matrix_ssh_git_scp_sftp_ordinary_alias_and_run_bound
+    ssh::a35_mutation_broken_identity_agent_is_detected
+    ssh::a35_too_many_keys_succeeds_for_managed_alias_only
+    ssh::a35_wrong_key_exclusive_selection_fails_without_fallback
+    ssh::host_key_substitution_fails_closed_and_nothing_written_to_known_hosts
+    terminal::pty_child_runs_the_named_binary_at_the_pty_size
+    u9_usage_errors_exit_2_before_any_runtime_contact
+    unix::a21_cli_allow_config_commands_prompt_text_and_typed_yes
+    unix::a21_cli_inert_config_still_prompts_for_allow_config_commands
+    unix::a21_cli_inventory_wording_never_claims_completeness
+    unix::a22_cli_held_operation_status_retry_and_keep
+    unix::a22_cli_setup_conflict_then_repair
+    unix::catalog_commands_round_trip_and_declare_interaction_follows_the_confirmation_contract
+    unix::multi_operation_repair_is_complete_only_when_doctor_reports_none_left
+    unix::pty_setup_apply_confirmation_eof_no_non_tty_yes_exactly_once
+    unix::q02_cli_skipped_authorization_runs_no_evaluation_after_the_tree_becomes_readable
+    unix::setup_apply_snapshots_the_original_and_previews_the_restore_column
+    unix::uninstall_purge_state_confirmed_then_rolls_back_and_purges
+    unix::uninstall_purge_state_is_refused_without_a_typed_yes_and_keeps_everything
+    unix::uninstall_purge_state_with_a_typed_yes_discards_the_state
+    unix::uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses
+
+test result: ok. 42 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 24.36s
+
+### e2e_cli_m02 exit=0
+### e2e_cli_m03
+
+running 60 tests
+test access::destination_prefer_resolves_alias_and_journals_the_preference ... ok
+test access::internal_session_lock_state_reads_the_source_read_only ... ok
+test access::access_lock_behavior_refused_where_unavailable ... ok
+test access::connections_list_and_owner_close ... ok
+test access::m03_help_and_discovery_goldens ... ok
+test access::lock_behavior_results_labelled_signal_unverified_on_linux_only ... ok
+test enroll::enroll_commands_print_one_json_envelope ... ok
+test enroll::enroll_consent_shows_the_runtimes_lock_text_with_saved_limits ... ok
+test enroll::enroll_ctrl_c_between_step_and_result_prints_uncertain_message ... ok
+test access::access_ensure_strict_reports_strict_disconnect ... ok
+test enroll::enroll_preview_shows_disclosures_and_exact_line ... ok
+test enroll::enroll_status_shows_slot_free_late_write_and_held_next_step ... ok
+test enroll::enroll_reconcile_after_manual_recovery_never_redispatches ... ok
+test enroll::enroll_system_form_cli_shows_lines_and_never_claims_removed ... ok
+test access::revoke_output_lists_owned_connections_and_ordinary_note ... ok
+test enroll::enroll_step_pauses_at_the_runtime_inserted_pause_point ... ok
+test enroll::enroll_verify_absence_clears_late_write_only_after_not_after ... ok
+test enroll::foreign_remove_cli_refuses_redacted_bundle ... ok
+test enroll::enroll_verify_absence_line_present_names_enroll_remove ... ok
+test enroll::enroll_verify_approve_target_change_shows_key_diff_and_needs_decision ... ok
+test enroll::json_decision_approve_of_an_enrollment_shows_its_disclosures_before_the_prompt ... ok
+test enroll::terminal::pty_child ... ignored, child-mode entry of the enroll pty tests, started by them
+test internal_issuer_refuses_a_test_configuration_without_an_explicit_home ... ok
+test enroll::json_enroll_on_a_terminal_shows_disclosure_prose_before_the_prompt ... ok
+test issuer::issuer_cli_pty_child ... ignored, child-mode entry of the issuer pty cases, started by them
+test issuer::issuer_commands_json_envelopes_without_a_runtime_or_terminal ... ok
+test enroll::json_remove_on_a_terminal_shows_the_removal_consent_before_the_prompt ... ok
+test issuer::issuer_ceremonies_refuse_redirected_stdin_with_a_terminal_attached ... ok
+test enroll::enroll_decision_kinds_need_typed_yes ... ok
+test issuer::issuer_init_prints_passphrase_only_to_tty ... ok
+test issuer::issuer_status_bundle_unlock_json_envelopes ... ok
+test issuer::issuer_retire_typed_yes_and_r2b_deletion_on_scratch_store ... ok
+test issuer::recheck3_real_issuer_cancelled_load_cannot_cross_fence ... ok
+test issuer::recheck3_real_issuer_late_sign_cannot_cross_fence ... ok
+test issuer::replace_orphan_cli_warns_and_cross_checks_bundle ... ok
+test m03_cli_commands_answer_without_a_runtime_and_never_panic ... ok
+test m03_test_gates_are_validated_before_anything_else ... ok
+test no_m03_source_contains_the_wave_0_text ... ok
+test uninstall_doctor::doctor_reports_client_trace_family_unrecorded ... ok
+test issuer::residual_leader_shaped_sign_unconfirmed_stop_keeps_no_admission ... ok
+test uninstall_doctor::doctor_reports_enrollment_evidence_stale ... ok
+test uninstall_doctor::doctor_reports_managed_dir_unsafe ... ok
+test uninstall_doctor::doctor_reports_reverification_inconclusive ... ok
+test uninstall_doctor::pty::pty_child ... ignored, child-mode entry of the uninstall pty tests, started by them
+test uninstall_doctor::runtime_start_refused_while_the_purge_lock_is_held ... ok
+test uninstall_doctor::doctor_reports_slot_free_with_command ... ok
+test uninstall_doctor::status_shows_time_confirmation_chore_after_reboot ... ok
+test uninstall_doctor::uninstall_json_shows_the_preview_on_the_terminal ... ok
+test uninstall_doctor::uninstall_lists_remote_enrollments_and_refuses_purge_without_ack ... ok
+test uninstall_doctor::uninstall_fence_scope_end_to_end ... ok
+test uninstall_doctor::uninstall_plain_keep_remote_enrollments_is_the_acknowledgement ... ok
+test uninstall_doctor::uninstall_purge_keeping_enrollments_requires_fresh_bundle ... ok
+test uninstall_doctor::uninstall_purge_refuses_abandoned_foreign_system_form_removal ... ok
+test uninstall_doctor::uninstall_purge_race_with_concurrent_enrollment_keeps_state ... ok
+test uninstall_doctor::uninstall_purge_refuses_withdrawn_late_write ... ok
+test uninstall_doctor::uninstall_purge_refuses_unresolved_remote_step ... ok
+test uninstall_doctor::uninstall_states_store_item_fate ... ok
+test uninstall_refuses_purge_with_live_enrollments ... ok
+test issuer::recheck4_cancelling_stop_must_not_signal_unverified_child ... ok
+test issuer::recheck3_real_issuer_unconfirmed_stop_keeps_the_admission_held ... ok
+
+successes:
+
+---- access::internal_session_lock_state_reads_the_source_read_only stdout ----
+m03 observation: internal session-lock-state platform state=unavailable signal=none
+
+
+successes:
+    access::access_ensure_strict_reports_strict_disconnect
+    access::access_lock_behavior_refused_where_unavailable
+    access::connections_list_and_owner_close
+    access::destination_prefer_resolves_alias_and_journals_the_preference
+    access::internal_session_lock_state_reads_the_source_read_only
+    access::lock_behavior_results_labelled_signal_unverified_on_linux_only
+    access::m03_help_and_discovery_goldens
+    access::revoke_output_lists_owned_connections_and_ordinary_note
+    enroll::enroll_commands_print_one_json_envelope
+    enroll::enroll_consent_shows_the_runtimes_lock_text_with_saved_limits
+    enroll::enroll_ctrl_c_between_step_and_result_prints_uncertain_message
+    enroll::enroll_decision_kinds_need_typed_yes
+    enroll::enroll_preview_shows_disclosures_and_exact_line
+    enroll::enroll_reconcile_after_manual_recovery_never_redispatches
+    enroll::enroll_status_shows_slot_free_late_write_and_held_next_step
+    enroll::enroll_step_pauses_at_the_runtime_inserted_pause_point
+    enroll::enroll_system_form_cli_shows_lines_and_never_claims_removed
+    enroll::enroll_verify_absence_clears_late_write_only_after_not_after
+    enroll::enroll_verify_absence_line_present_names_enroll_remove
+    enroll::enroll_verify_approve_target_change_shows_key_diff_and_needs_decision
+    enroll::foreign_remove_cli_refuses_redacted_bundle
+    enroll::json_decision_approve_of_an_enrollment_shows_its_disclosures_before_the_prompt
+    enroll::json_enroll_on_a_terminal_shows_disclosure_prose_before_the_prompt
+    enroll::json_remove_on_a_terminal_shows_the_removal_consent_before_the_prompt
+    internal_issuer_refuses_a_test_configuration_without_an_explicit_home
+    issuer::issuer_ceremonies_refuse_redirected_stdin_with_a_terminal_attached
+    issuer::issuer_commands_json_envelopes_without_a_runtime_or_terminal
+    issuer::issuer_init_prints_passphrase_only_to_tty
+    issuer::issuer_retire_typed_yes_and_r2b_deletion_on_scratch_store
+    issuer::issuer_status_bundle_unlock_json_envelopes
+    issuer::recheck3_real_issuer_cancelled_load_cannot_cross_fence
+    issuer::recheck3_real_issuer_late_sign_cannot_cross_fence
+    issuer::recheck3_real_issuer_unconfirmed_stop_keeps_the_admission_held
+    issuer::recheck4_cancelling_stop_must_not_signal_unverified_child
+    issuer::replace_orphan_cli_warns_and_cross_checks_bundle
+    issuer::residual_leader_shaped_sign_unconfirmed_stop_keeps_no_admission
+    m03_cli_commands_answer_without_a_runtime_and_never_panic
+    m03_test_gates_are_validated_before_anything_else
+    no_m03_source_contains_the_wave_0_text
+    uninstall_doctor::doctor_reports_client_trace_family_unrecorded
+    uninstall_doctor::doctor_reports_enrollment_evidence_stale
+    uninstall_doctor::doctor_reports_managed_dir_unsafe
+    uninstall_doctor::doctor_reports_reverification_inconclusive
+    uninstall_doctor::doctor_reports_slot_free_with_command
+    uninstall_doctor::runtime_start_refused_while_the_purge_lock_is_held
+    uninstall_doctor::status_shows_time_confirmation_chore_after_reboot
+    uninstall_doctor::uninstall_fence_scope_end_to_end
+    uninstall_doctor::uninstall_json_shows_the_preview_on_the_terminal
+    uninstall_doctor::uninstall_lists_remote_enrollments_and_refuses_purge_without_ack
+    uninstall_doctor::uninstall_plain_keep_remote_enrollments_is_the_acknowledgement
+    uninstall_doctor::uninstall_purge_keeping_enrollments_requires_fresh_bundle
+    uninstall_doctor::uninstall_purge_race_with_concurrent_enrollment_keeps_state
+    uninstall_doctor::uninstall_purge_refuses_abandoned_foreign_system_form_removal
+    uninstall_doctor::uninstall_purge_refuses_unresolved_remote_step
+    uninstall_doctor::uninstall_purge_refuses_withdrawn_late_write
+    uninstall_doctor::uninstall_states_store_item_fate
+    uninstall_refuses_purge_with_live_enrollments
+
+test result: ok. 57 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 35.47s
+
+### e2e_cli_m03 exit=0
+### e2e_cli_m04_m05
+
+running 1 test
+test m04_m05_new_commands_refuse_as_not_available_without_a_runtime ... ok
+
+successes:
+
+successes:
+    m04_m05_new_commands_refuse_as_not_available_without_a_runtime
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+### e2e_cli_m04_m05 exit=0
+### e2e_cli_m05
+
+running 11 tests
+test an_imported_routed_destination_is_never_launched_by_its_bare_alias ... ok
+test default_profile_set_show_clear ... ok
+test full_trust_and_reconcile_prompts_are_bidi_free ... ok
+test export_then_import_with_the_dry_run_preview ... ok
+test m05_help_and_shell_script_goldens ... ok
+test hook_never_evaluates_repository_text ... ok
+test access_targets_stop_and_allow ... ok
+test hook_creates_no_decision_when_uncovered ... ok
+test project_trust_status_reconcile_untrust ... ok
+test workspace_paths_are_quoted_and_bidi_free ... ok
+test run_without_a_profile_reissues_after_the_trust_decision ... ok
+
+successes:
+
+successes:
+    access_targets_stop_and_allow
+    an_imported_routed_destination_is_never_launched_by_its_bare_alias
+    default_profile_set_show_clear
+    export_then_import_with_the_dry_run_preview
+    full_trust_and_reconcile_prompts_are_bidi_free
+    hook_creates_no_decision_when_uncovered
+    hook_never_evaluates_repository_text
+    m05_help_and_shell_script_goldens
+    project_trust_status_reconcile_untrust
+    run_without_a_profile_reissues_after_the_trust_decision
+    workspace_paths_are_quoted_and_bidi_free
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.31s
+
+### e2e_cli_m05 exit=0
+### e2e_cli_m07
+
+running 5 tests
+test diagnostic_redacts_mixed_case_windows_identifiers ... ok
+test status_counts_only_live_approvals_in_human_output ... ok
+test enrollment_wait_explains_an_interrupted_step ... ok
+test cli_standalone_access_and_stop ... ok
+test cli_sync_wait_explains_itself ... ok
+
+successes:
+
+successes:
+    cli_standalone_access_and_stop
+    cli_sync_wait_explains_itself
+    diagnostic_redacts_mixed_case_windows_identifiers
+    enrollment_wait_explains_an_interrupted_step
+    status_counts_only_live_approvals_in_human_output
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.83s
+
+### e2e_cli_m07 exit=0
+### e2e_consumer_m03
+
+running 7 tests
+test connect_uses_binding_endpoint_via_command_line ... ok
+test inherited_fork_after_authentication_yes_stays_in_foreground ... ok
+test run_ssh_conflicting_control_options_refused ... ok
+test run_ssh_with_f_refused_for_owned_connection ... ok
+test owned_launch_pins_fork_after_authentication_no ... ok
+test existing_access_ensure_bytes_match_base_goldens ... ok
+test connect_existing_access_pair_flow_unchanged_from_m02 ... ok
+
+successes:
+
+successes:
+    connect_existing_access_pair_flow_unchanged_from_m02
+    connect_uses_binding_endpoint_via_command_line
+    existing_access_ensure_bytes_match_base_goldens
+    inherited_fork_after_authentication_yes_stays_in_foreground
+    owned_launch_pins_fork_after_authentication_no
+    run_ssh_conflicting_control_options_refused
+    run_ssh_with_f_refused_for_owned_connection
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s
+
+### e2e_consumer_m03 exit=0
+### e2e_context_m05
+
+running 8 tests
+test a18_copy_clone_worktree_symlink_move_submodule ... ok
+test covered_only_creates_no_decision_when_uncovered ... ok
+test a02_trusted_week_zero_same_authority_prompts ... ok
+test a04_edits_branches_and_added_destination ... ok
+test mixed_groups_share_one_work_id_and_later_groups_are_capped ... ok
+test the_inspected_proposal_is_what_trust_workspace_accepts ... ok
+test restart_never_reprobes_an_admitted_context_request ... ok
+test equivalent_work_never_coalesces_across_contexts ... ok
+
+successes:
+
+successes:
+    a02_trusted_week_zero_same_authority_prompts
+    a04_edits_branches_and_added_destination
+    a18_copy_clone_worktree_symlink_move_submodule
+    covered_only_creates_no_decision_when_uncovered
+    equivalent_work_never_coalesces_across_contexts
+    mixed_groups_share_one_work_id_and_later_groups_are_capped
+    restart_never_reprobes_an_admitted_context_request
+    the_inspected_proposal_is_what_trust_workspace_accepts
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+
+### e2e_context_m05 exit=0
+### e2e_deadline_m03
+
+running 1 test
+test registration_failure_reasons_are_launch_failed_127 ... ok
+
+successes:
+
+successes:
+    registration_failure_reasons_are_launch_failed_127
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### e2e_deadline_m03 exit=0
+all-tests-exit=0
