@@ -1305,7 +1305,7 @@ fn fixture_sshd_session_has_a_scratch_home_and_no_account_startup_files() {
         "{shell0}"
     );
     eprintln!(
-        "observation test=fixture_sshd_session_env home=scratch zdotdir=scratch bash_env=empty \
+        "m06 observation: fixture-sshd-env home=scratch zdotdir=scratch bash_env=empty \
          login_shell={shell0}"
     );
 }
