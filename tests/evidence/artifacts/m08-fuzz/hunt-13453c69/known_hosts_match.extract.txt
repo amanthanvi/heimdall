@@ -1,0 +1,11 @@
+#2661	INITED cov: 129 ft: 646 corp: 203/39Kb exec/s: 0 rss: 98Mb
+#271924083	REDUCE cov: 129 ft: 647 corp: 204/40Kb lim: 70000 exec/s: 180201 rss: 546Mb L: 1159/5309 MS: 1 EraseBytes-
+#283235135	REDUCE cov: 129 ft: 647 corp: 204/40Kb lim: 70000 exec/s: 181794 rss: 546Mb L: 4374/5309 MS: 2 CMP-EraseBytes- DE: "\036\000\000\000\000\000\000\000"-
+#309491576	REDUCE cov: 129 ft: 647 corp: 204/40Kb lim: 70000 exec/s: 182698 rss: 546Mb L: 4480/5309 MS: 1 EraseBytes-
+#327182841	DONE   cov: 129 ft: 647 corp: 204/40Kb lim: 70000 exec/s: 181667 rss: 546Mb
+Done 327182841 runs in 1801 second(s)
+stat::number_of_executed_units: 327182841
+stat::average_exec_per_sec:     181667
+stat::new_units_added:          26
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              546

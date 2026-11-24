@@ -279,7 +279,7 @@ pub struct Fault {
 #[derive(Debug)]
 pub struct FaultFs<F> {
     inner: F,
-    fault: RefCell<Option<Fault>>,
+    faults: RefCell<Vec<Fault>>,
     seen: RefCell<Vec<Point>>,
     dead: Cell<bool>,
     fired: Cell<bool>,
@@ -288,9 +288,15 @@ pub struct FaultFs<F> {
 impl<F: Fs> FaultFs<F> {
     /// Wrap `inner` with one fault, or none.
     pub fn new(inner: F, fault: Option<Fault>) -> Self {
+        Self::with_faults(inner, fault.into_iter().collect())
+    }
+
+    /// Wrap `inner` with several faults, each at its own step: a failure and then a failure
+    /// of the cleanup that follows it (review M08-W1-R01).
+    pub fn with_faults(inner: F, faults: Vec<Fault>) -> Self {
         Self {
             inner,
-            fault: RefCell::new(fault),
+            faults: RefCell::new(faults),
             seen: RefCell::new(Vec::new()),
             dead: Cell::new(false),
             fired: Cell::new(false),
@@ -342,10 +348,11 @@ impl<F: Fs> FaultFs<F> {
         let nth = self.seen.borrow().iter().filter(|p| **p == point).count() as u32;
         self.seen.borrow_mut().push(point);
         let hit = self
-            .fault
+            .faults
             .borrow()
-            .clone()
-            .filter(|f| f.point == point && f.nth == nth);
+            .iter()
+            .find(|f| f.point == point && f.nth == nth)
+            .cloned();
         match hit {
             Some(f) if f.when == When::Before => Err(self.fire(&f.action)),
             Some(f) => {

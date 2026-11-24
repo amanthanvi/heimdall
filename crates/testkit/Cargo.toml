@@ -93,6 +93,15 @@ required-features = ["fixtures"]
 # built binary by `integration_testkit_fixtures`); no empty unit-test harness here.
 test = false
 
+# ⟨M07 W7b; ADR-0007 §12.52⟩ The scratch wrapper the debug pinned-client redirect
+# (HEIMDALL_TEST_PINNED_CLIENT) names for `connect`: it adds -F and the isolated options and
+# starts the real in-box ssh.exe (`heimdall_testkit::pinned_ssh`). Tests find it next to their
+# executable (`pinned_ssh::locate`) or through HM_PINNED_SSH. No feature: std and serde_json.
+[[bin]]
+name = "hm-pinned-ssh"
+path = "src/bin/hm-pinned-ssh.rs"
+test = false
+
 # Test targets hosted here (convention, m01-plan.md §0): real Cargo `[[test]]`
 # targets whose sources live under the repository `tests/` tree, hosted by the
 # crate that already has the needed dependency edges.

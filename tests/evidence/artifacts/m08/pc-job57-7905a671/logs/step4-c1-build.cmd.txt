@@ -1,0 +1,2 @@
+$env:RUSTUP_HOME='<R>\rustup'; $env:CARGO_HOME='<R>\cargo'; $env:CARGO_BUILD_JOBS='4'; $env:PATH='<R>\cargo\bin;'+$env:PATH; Set-Location '<R>\c1'; .\tools\packaging\build-release.ps1 -LinuxHelper '<R>\in\heimdall'; "exit $LASTEXITCODE"
+$env:RUSTUP_HOME='<R>\rustup'; $env:CARGO_HOME='<R>\cargo'; $env:CARGO_BUILD_JOBS='4'; $env:PATH='<R>\cargo\bin;'+$env:PATH; Set-Location '<R>\c1'; .\tools\packaging\build-release.ps1 -LinuxHelper '<R>\in\heimdall'; 'exit ' + $LASTEXITCODE

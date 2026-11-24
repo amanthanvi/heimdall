@@ -1981,17 +1981,11 @@ EXPECTED_CLAIMS = {
 }
 # Rows deferred with a recorded decision (not counted), never left "blocked". ADR-0007 §12.47:
 # item 7 (D7) withdrew §12.45's A22 file-symlink deferral (that row is now a platform_required
-# test); item 3 (D2, D3) defers the Windows TUI pty cases and the interactive connect pty case.
-CONNECT_ROW = ("windows-11 interactive connect after provider approval "
-               "(e2e_run_m02 a11::a11_interactive_connect_succeeds_after_provider_approval)")
-EXPECTED_DEFERRED_ROWS = {
-    "A21": {"windows-11 TUI pty cases (e2e_tui_m02::pty::search_never_probes, config_commands_authorization_requires_typed_yes)"},
-    "A11": {CONNECT_ROW},
-    "A27": {CONNECT_ROW},
-    # ADR-0007 §12.49 items 4 and 2: deferred with D2/D3 to M04's pseudoconsole drivers.
-    "A01": {"windows-11 personal profile without a repository (e2e_cli_m02 ssh::a01_personal_profile_without_repository)"},
-    "T06": {"windows-11 typed-yes purge refusal (exit 6) in the incomplete-rollback state"},
-}
+# test). Item 3 (D2, D3) and §12.49 items 2 and 4 deferred five Windows pseudoconsole rows
+# (A01, A11, A21, A27, T06) to M04; M07 wave 7 closed them with Windows ConPTY tests that are
+# platform_required (ADR-0007 §12.52), passed natively in PC jobs 49 (e3f6858b) and 50
+# (eb393d9b), so §12.52 item 3 removes the deferred rows: none is left.
+EXPECTED_DEFERRED_ROWS = {}
 
 EXPECTED_BLOCKED_INPUTS = {
     "A01": {"B2", "B3", "B9"},

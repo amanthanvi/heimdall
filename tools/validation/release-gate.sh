@@ -15,6 +15,10 @@
 #     `HEIMDALL_TEST_SESSION_LOCK=<abs scratch path>`, `HEIMDALL_TEST_SCRIPT_PAUSE_DIR=<abs
 #     scratch dir>`) run through `heimdall service run`, the command whose
 #     `testcfg::requested()` gate they join.
+#   * ⟨ADR-0007 section 12.52⟩ the debug pinned-client redirect (`HEIMDALL_TEST_PINNED_CLIENT`,
+#     in `LAUNCH_ENV`) also through `heimdall connect alpha` with the value naming a real
+#     scratch executable. ⟨M07 W7.3; M07-W7-R06 (b)⟩ The exit-2 and refusal-text check is the
+#     oracle: no marker check (see the probe's comment below for why one could never fire).
 #   * <M06 W5> the fixture K_iroh store (`HEIMDALL_TEST_IROH_KEY_STORE=<abs owner-only scratch
 #     dir>`) through `service run` and `service run --runner`; the store directory must stay
 #     empty. (The serve target port is product configuration, `transport enable --serve
@@ -146,6 +150,7 @@ value_for() {
         HEIMDALL_TEST_SESSION_LOCK) printf '%s/session-lock-state' "${vals}" ;;
         HEIMDALL_TEST_SCRIPT_PAUSE_DIR) printf '%s/script-pause' "${vals}" ;;
         HEIMDALL_TEST_PURGE_TRUSTED_TOP) printf '%s' "${vals}" ;;
+        HEIMDALL_TEST_PINNED_CLIENT) printf '%s/pinned-client' "${vals}" ;;
         HEIMDALL_TEST_IROH_KEY_STORE) printf '%s/iroh-key-store' "${vals}" ;;
         HEIMDALL_TEST_MGMT_STORE) printf 'fixture-file:%s/mgmt-store' "${vals}" ;;
         *) printf '1' ;;   # a variable this script does not know yet: any value must be refused
@@ -249,6 +254,22 @@ probe HEIMDALL_TEST_SCRIPT_PAUSE_DIR "enroll x" enroll x
 # ⟨ADR-0008 §17.33 item 14⟩ The purge's debug-only trusted top is read CLI-side by
 # `uninstall`: a release `uninstall` refuses it before anything else.
 probe HEIMDALL_TEST_PURGE_TRUSTED_TOP "uninstall" uninstall
+# ⟨M07 W7b; ADR-0007 §12.52⟩ The debug pinned-client redirect is in LAUNCH_ENV, so the loop
+# above already probes it through `run -- true` and `connect x`. This probe names a real
+# executable at that path (a debug build would accept it): a release `connect` refuses the
+# variable with exit 2 and the refusal text, the home untouched.
+# ⟨M07 W7.3; M07-W7-R06 (b)⟩ That check is the oracle; there is no marker check. The release
+# build refuses the variable first thing in `connect` (`testcfg::launch_hooks`), before it
+# reads the alias, selects a client or asks the runtime anything. A build that did not
+# refuse it would go on to ask a runtime about `alpha`, and in this empty scratch home it
+# stops there (no runtime, no destination), before any launch: a marker left by the named
+# program could never appear, so its absence would prove nothing. Reaching a launch would
+# need a runtime serving a destination `connect` knows in the scratch home, and a release
+# runtime there reads the account's real SSH configuration (release builds have no
+# redirect), which this script must not do.
+printf '#!/bin/sh\nexit 0\n' >"${vals}/pinned-client"
+chmod 700 "${vals}/pinned-client"
+probe HEIMDALL_TEST_PINNED_CLIENT "connect alpha (wrapper)" connect alpha
 # <M06 W5> The fixture K_iroh store (debug builds only): a release `service run` (the
 # runtime that would serve with the key) and `service run --runner` refuse it before
 # anything else. The store directory exists and is owner-only, so a build that

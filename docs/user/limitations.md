@@ -9,8 +9,15 @@ Short, and meant to be read once.
   from each other. Where real isolation exists, the matrix says which mechanism provides it.
 - **Some prompts are not Heimdall's to remove.** A password manager, a hardware key or a
   provider that insists on a touch or an unlock will still ask.
-- **Stopping access does not close what is already open.** A shell or a forward that is
-  connected keeps working until it ends. New connections stop at once.
+- **Stopping access does not close what is already open,** and neither does a certificate
+  expiring. A shell or a forward that is connected keeps working until it ends. New
+  connections stop at once.
+- **With OpenSSH connection sharing (`ControlMaster`), "already open" includes the shared
+  connection.** A program already attached to a shared master connection can open new
+  sessions and forwards over it after access stops or a certificate expires, until that
+  master connection exits (`ssh -O exit`, or the master process ending). `ssh -O stop` alone
+  does not end them. This is OpenSSH's behaviour, observed in a gate probe
+  (`g04-exp-g09-prelim-mux-preconnected-after-stop`), not something Heimdall can refuse.
 - **A certificate already issued stays valid until it expires,** including at a host that
   is offline when you revoke. Heimdall shows the latest such expiry.
 - **A sleeping or powered-off machine does no work.** Locking the screen does not stop

@@ -1025,6 +1025,10 @@ mod ledger_tests {
 // ADR-0007 §12.32 item 3: the repository root (`HM_REPO_ROOT`) for every test that reads
 // repository files. No feature: every test graph has it.
 pub mod repo;
+// ⟨M07 W7b; ADR-0007 §12.52⟩ `hm-pinned-ssh`, the scratch wrapper the debug pinned-client
+// redirect names for `connect`. No feature: std and serde_json only, so its program builds
+// in every graph of this package.
+pub mod pinned_ssh;
 
 // M02-U7 process fixtures (m02-plan §0, U7; ADR-0007 §9). Feature `fixtures`.
 #[cfg(feature = "fixtures")]

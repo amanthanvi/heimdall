@@ -455,6 +455,148 @@ fn a_written_pointer_that_is_gone_is_corrupt_and_nothing_is_removed() {
     }
 }
 
+// ---- Review M08-W1-R01: a failure, and then a failure of its own cleanup. ----
+
+fn two_faults(root: &Path, first: Option<Fault>) -> StateDir<FaultFs<RealFs>> {
+    // The cleanup's removal of the staged generation is the first call at Point::Cleanup.
+    let cleanup = Fault {
+        point: Point::Cleanup,
+        nth: 0,
+        when: When::Before,
+        action: Action::Error,
+    };
+    StateDir::new(
+        FaultFs::with_faults(RealFs, first.into_iter().chain([cleanup]).collect()),
+        root,
+    )
+}
+
+#[test]
+fn a_failed_cleanup_keeps_the_intent_so_start_up_removes_the_leftover() {
+    // An install whose copy fails, and whose cleanup then fails: the next start-up sees an
+    // interrupted first publication, removes the leftover and lets the install run again.
+    let dir = tempfile::tempdir().unwrap();
+    let failing = |d: &Path| -> Result<Vec<String>, String> {
+        std::fs::write(d.join(STORE), "partial").unwrap();
+        Err("copy failed".into())
+    };
+    let state = two_faults(dir.path(), None);
+    assert_eq!(
+        state.publish(plan(Operation::Install, "g-a", ENV_1, 0), failing),
+        Err(PublishError::Caller("copy failed".into()))
+    );
+    assert!(
+        dir.path().join(GENERATIONS).join("g-a").exists(),
+        "the cleanup failed, so the leftover is there"
+    );
+    let state = real(dir.path());
+    match state.open() {
+        Ok(Startup::FirstPublicationPending { recovered, .. }) => {
+            assert_eq!(recovered.removed_staged, Some(name("g-a")))
+        }
+        other => panic!("an install whose cleanup failed is pending, not corrupt: {other:?}"),
+    }
+    assert!(!dir.path().join(GENERATIONS).join("g-a").exists());
+    let current = state
+        .publish(plan(Operation::Install, "g-b", ENV_1, 0), store("install"))
+        .unwrap();
+    assert_eq!(serving(state.open()).name, current.name);
+
+    // A restore whose generation directory sync fails after its record is written, and
+    // whose cleanup then fails: the next start-up serves the old generation and removes the
+    // staged one, which never becomes residue with a complete restore record.
+    let (dir, old) = installed();
+    let sync = Fault {
+        point: Point::GenerationDirSync,
+        nth: 0,
+        when: When::Before,
+        action: Action::Error,
+    };
+    let state = two_faults(dir.path(), Some(sync));
+    assert!(matches!(
+        state.publish(next_plan(Operation::Restore), store("next")),
+        Err(PublishError::State(StateError::Io {
+            point: Point::GenerationDirSync,
+            ..
+        }))
+    ));
+    assert!(
+        dir.path()
+            .join(GENERATIONS)
+            .join("g-b")
+            .join(RECORD)
+            .exists(),
+        "the staged record is there"
+    );
+    let state = real(dir.path());
+    let current = serving(state.open());
+    assert_eq!(
+        (
+            current.name.as_str(),
+            current.recovered.removed_staged.clone()
+        ),
+        ("g-a", Some(name("g-b")))
+    );
+    assert_eq!(
+        state.residue().unwrap(),
+        vec![],
+        "the staged restore is not residue"
+    );
+    check_after_restart(
+        dir.path(),
+        &old,
+        Operation::Restore,
+        false,
+        "restore with a failed cleanup",
+    );
+}
+
+// ---- Review M08-W1-R02: an empty or stray-only generations/ is not a lost pointer. ----
+
+#[test]
+fn an_empty_generations_directory_with_stray_files_is_still_a_new_installation() {
+    let dir = tempfile::tempdir().unwrap();
+    // A first install that fails cleanly after creating generations/.
+    let fault = Fault {
+        point: Point::RecordSync,
+        nth: 0,
+        when: When::Before,
+        action: Action::Error,
+    };
+    assert!(
+        faulty(dir.path(), fault.point, fault.nth, fault.when, fault.action)
+            .publish(plan(Operation::Install, "g-a", ENV_1, 0), store("install"))
+            .is_err()
+    );
+    let generations = dir.path().join(GENERATIONS);
+    assert!(
+        generations.is_dir() && std::fs::read_dir(&generations).unwrap().next().is_none(),
+        "generations/ is left empty"
+    );
+    let state = real(dir.path());
+    assert_eq!(state.open(), Ok(Startup::Empty));
+    // Then a stray file, and a directory whose name is not a generation's.
+    std::fs::write(generations.join(".DS_Store"), "finder").unwrap();
+    std::fs::write(generations.join("g-x~"), "editor backup").unwrap();
+    std::fs::create_dir(generations.join("notes")).unwrap();
+    std::fs::write(
+        generations.join("g-file"),
+        "a file with a generation's name",
+    )
+    .unwrap();
+    assert_eq!(state.inspect(), Ok(Startup::Empty));
+    let current = state
+        .publish(plan(Operation::Install, "g-b", ENV_1, 0), store("install"))
+        .unwrap();
+    assert_eq!(serving(state.open()).name, current.name);
+    // A real generation directory with the pointer gone is still corrupt.
+    std::fs::remove_file(dir.path().join(CURRENT)).unwrap();
+    assert_eq!(
+        state.open(),
+        Err(StateError::Corrupt(CorruptReason::PointerMissing))
+    );
+}
+
 // ---- A real kill: a child process parks at the step and the parent kills it. ----
 
 const CHILD_ENV: &str = "HM_STATEGEN_FAULT_CHILD";

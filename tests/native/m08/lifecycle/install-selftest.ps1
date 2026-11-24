@@ -1,9 +1,9 @@
 # Self-test of tools\packaging\install.ps1 with fake archives (m08-plan U2a). The Windows
 # counterpart of install-selftest.sh.
 #
-# STATUS: rehearsed under PowerShell 7 on macOS only (the logic, not Windows file
-# semantics). NOT YET RUN ON WINDOWS; it runs on the PC under Windows PowerShell 5.1 and
-# PowerShell 7 in a later job. A macOS rehearsal is not evidence for Windows.
+# STATUS: run on the Windows PC under Windows PowerShell 5.1 and PowerShell 7 (jobs 31, 32
+# and 43; 60 checks at job 43). A run under PowerShell 7 on macOS rehearses the logic only
+# and is not evidence for Windows.
 #
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tests\native\m08\lifecycle\install-selftest.ps1
 #   $env:HM_INSTALL_UNDER_TEST = <file>   test that copy of install.ps1 (for a revert proof)
@@ -237,6 +237,108 @@ try {
     $snap = Snapshot $E6
     $r = Install $a3x $E6
     Check "W1-F1: an update whose older .previous helper holds a foreign file refuses before any write" (($r.Code -eq 1) -and ($r.Out -match "did not put there") -and ((Snapshot $E6) -eq $snap))
+
+    # --- W2 (review M08-W1-R04): a lost executable beside an older .previous executable
+    # that has no helper is not an interrupted update: the current helper is never paired
+    # with the older executable.
+    $L4 = Join-Path $T "prefix-r04"; [void](Install $a2 $L4)
+    [System.IO.File]::WriteAllText((Join-Path $L4 "heimdall.previous.exe"), "fake heimdall 1.0.0-nohelper")
+    [System.IO.File]::Delete((Join-Path $L4 "heimdall.exe"))
+    $r = Install $a2 $L4
+    $noMix = ($r.Out -notmatch "finished an interrupted update") -and ((PrevHelper $L4) -eq "")
+    Check "W2-R04: a lost executable beside an older .previous one is not finished as an interrupted update" (($r.Code -eq 0) -and $noMix -and ((Pair $L4) -eq (V "2.0.0")) -and ((PrevExe $L4) -eq "fake heimdall 1.0.0-nohelper"))
+    Check "W2 (PC job 47): with an executable alone under .previous, the install says so and does not promise a rollback" (($r.Out -notmatch "previous pair is kept") -and ($r.Out -match "without its WSL helper; install.ps1 -Rollback will refuse it"))
+    $r = Install $a2 $L4 @("-Rollback")
+    Check "W2-R04: and a rollback then refuses instead of installing the older executable with the newer helper" (($r.Code -eq 1) -and ((Pair $L4) -eq (V "2.0.0")) -and ($r.Out -match "run that archive's install.ps1 again"))
+
+    $LP = Join-Path $T "prefix-prevmsg"; [void](Install $a1 $LP)
+    $r = Install $a2 $LP
+    Check "W2 (PC job 47): with a complete pair under .previous, the install says -Rollback puts it back" (($r.Out -match "previous pair is kept under the .previous names") -and ($r.Out -notmatch "will refuse it"))
+
+    # --- W2.1 (review M08-W2-R01): the same state, then a run stopped after staging. Its leftover
+    # .heimdall.new.exe must not be read as an update interrupted between its renames.
+    $L4b = Join-Path $T "prefix-w2r01"; [void](Install $a2 $L4b)
+    [System.IO.File]::WriteAllText((Join-Path $L4b "heimdall.previous.exe"), "fake heimdall 1.0.0-nohelper")
+    [System.IO.File]::Delete((Join-Path $L4b "heimdall.exe"))
+    [void](Install $a2 $L4b @() @{ HM_INSTALL_TEST_STOP_AFTER = "1" })
+    Check "W2.1-R01: (a run stopped after staging leaves .heimdall.new.exe)" (Test-Path -LiteralPath (Join-Path $L4b ".heimdall.new.exe"))
+    $r = Install $a2 $L4b
+    Check "W2.1-R01: a rerun after a stop at staging is not finished as an interrupted update" (($r.Code -eq 0) -and ($r.Out -notmatch "finished an interrupted update") -and ((PrevHelper $L4b) -eq "") -and ((Pair $L4b) -eq (V "2.0.0")))
+    $r = Install $a2 $L4b @("-Rollback")
+    Check "W2.1-R01: and the rollback that follows refuses, pairing nothing" (($r.Code -eq 1) -and ((Pair $L4b) -eq (V "2.0.0")) -and -not (Test-Path -LiteralPath (Join-Path $L4b ".heimdall.updating")))
+    $L4c = Join-Path $T "prefix-w2r01-marker"; [void](Install $a1 $L4c)
+    [void](Install $a2 $L4c @() @{ HM_INSTALL_TEST_STOP_AFTER = "3a" })
+    Check "W2.1-R01: an update stopped after rename 3a leaves its marker" (Test-Path -LiteralPath (Join-Path $L4c ".heimdall.updating"))
+    $r = Install $a2 $L4c
+    Check "W2.1-R01: and the rerun finishes it and removes the marker" (($r.Code -eq 0) -and ($r.Out -match "finished an interrupted update") -and ((Pair $L4c) -eq (V "2.0.0")) -and ((PrevPair $L4c) -eq (V "1.0.0")) -and -not (Test-Path -LiteralPath (Join-Path $L4c ".heimdall.updating")))
+    $D7 = Join-Path $T "prefix-markdir"; [void](Install $a1 $D7)
+    [void][System.IO.Directory]::CreateDirectory((Join-Path $D7 ".heimdall.updating"))
+    $r = Install $a2 $D7
+    Check "W2.1-R01: a directory at the marker's name is refused and nothing changes" (($r.Code -eq 1) -and ($r.Out -match "left untouched") -and ((Pair $D7) -eq (V "1.0.0")))
+
+    # --- W2.2 (review M08-W2-RC01, the re-check's case C): the marker must not outlive its update.
+    # An install without a helper, an update stopped after 4b, a rerun, then a lost executable.
+    $C1 = Join-Path $T "prefix-rc01"; [void](Install $a1 $C1)
+    [System.IO.Directory]::Delete((Join-Path $C1 "linux-x86_64"), $true)
+    [System.IO.File]::WriteAllText((Join-Path $C1 "heimdall.exe"), "fake heimdall 1.0.0-nohelper")
+    [void](Install $a2 $C1 @() @{ HM_INSTALL_TEST_STOP_AFTER = "4b" })
+    Check "W2.2-RC01: an update of a helper-less install leaves no marker, even stopped after 4b" (((Pair $C1) -eq (V "2.0.0")) -and -not (Test-Path -LiteralPath (Join-Path $C1 ".heimdall.updating")))
+    [void](Install $a2 $C1)
+    [System.IO.File]::Delete((Join-Path $C1 "heimdall.exe"))
+    $r = Install $a2 $C1
+    Check "W2.2-RC01: case C: the rerun after the executable is lost is not finished as an interrupted update" (($r.Code -eq 0) -and ($r.Out -notmatch "finished an interrupted update") -and ((PrevHelper $C1) -eq "") -and ((Pair $C1) -eq (V "2.0.0")))
+    $r = Install $a2 $C1 @("-Rollback")
+    Check "W2.2-RC01: case C: the rollback after it refuses and pairs nothing" (($r.Code -eq 1) -and ((Pair $C1) -eq (V "2.0.0")) -and ((PrevExe $C1) -eq "fake heimdall 1.0.0-nohelper"))
+    # An ordinary update stopped after 4b keeps its marker; the "already installed" rerun removes it.
+    $C2 = Join-Path $T "prefix-rc01-4b"; [void](Install $a1 $C2)
+    [void](Install $a2 $C2 @() @{ HM_INSTALL_TEST_STOP_AFTER = "4b" })
+    Check "W2.2-RC01: (an update stopped after 4b leaves the complete new pair and its marker)" (((Pair $C2) -eq (V "2.0.0")) -and (Test-Path -LiteralPath (Join-Path $C2 ".heimdall.updating")))
+    $before = Snapshot $C2
+    $r = Install $a2 $C2 @("-Rollback")
+    Check "W2.2-RC01: -Rollback refuses while the marker is present, says why, and changes nothing" (($r.Code -eq 1) -and ($r.Out -match "update marker") -and ((Snapshot $C2) -eq $before))
+    $r = Install $a2 $C2
+    Check "W2.2-RC01: the already-installed rerun removes the leftover marker and says so" (($r.Code -eq 0) -and ($r.Out -match "already installed") -and ($r.Out -match "removed a leftover update marker") -and -not (Test-Path -LiteralPath (Join-Path $C2 ".heimdall.updating")))
+    $r = Install $a2 $C2 @("-Rollback")
+    Check "W2.2-RC01: then -Rollback puts the previous pair back" (($r.Code -eq 0) -and ((Pair $C2) -eq (V "1.0.0")) -and ((PrevPair $C2) -eq (V "2.0.0")))
+    # The marker is not removed when the installed pair does not match: a damaged helper.
+    $C3 = Join-Path $T "prefix-rc01-damaged"; [void](Install $a1 $C3)
+    [void](Install $a2 $C3 @() @{ HM_INSTALL_TEST_STOP_AFTER = "4b" })
+    [System.IO.File]::WriteAllText((Join-Path (Join-Path $C3 "linux-x86_64") "heimdall"), "damaged")
+    $r = Install $a2 $C3 @("-Rollback")
+    Check "W2.2-RC01: with the pair not matching, -Rollback still refuses on the marker" (($r.Code -eq 1) -and ($r.Out -match "update marker"))
+
+    # --- W2 (review M08-W1-R05): a repair whose last rename fails says what it left.
+    $L5 = Join-Path $T "prefix-r05"; [void](Install $a2 $L5)
+    [System.IO.File]::WriteAllText((P $L5 @("linux-x86_64", "heimdall")), "damaged helper")
+    $r = Install $a2 $L5 @() @{ HM_INSTALL_TEST_FAIL_AT = "4b" }
+    Check "W2-R05: a repair that fails at its last rename says the helper may be missing, not that both halves were put back" (($r.Code -eq 1) -and ($r.Out -match "the helper repair failed") -and ($r.Out -notmatch "executable and helper together") -and ((Exe $L5) -eq "fake heimdall 2.0.0"))
+    $r = Install $a2 $L5
+    Check "W2-R05: and running the script again repairs the helper" (($r.Code -eq 0) -and ((Pair $L5) -eq (V "2.0.0")))
+
+    # --- W2 (review M08-W1-R07): a staged helper that does not match the manifest is never
+    # put in place.
+    $L7 = Join-Path $T "prefix-r07"; [void](Install $a1 $L7)
+    $r = Install $a2 $L7 @() @{ HM_INSTALL_TEST_TAMPER_STAGED = "1" }
+    Check "W2-R07: a staged helper file that does not match the manifest stops the update before any rename" (($r.Code -eq 1) -and ($r.Out -match "staged helper file heimdall does not match") -and ((Pair $L7) -eq (V "1.0.0")) -and ((PrevExe $L7) -eq "") -and -not (Test-Path -LiteralPath (Join-Path $L7 ".heimdall.new.exe")) -and -not (Test-Path -LiteralPath (Join-Path $L7 ".linux-x86_64.new")))
+
+    # --- W2 (review M08-W1-R06): the live-process check compares resolved full paths. The
+    # process paths are handed in; the comparison is what is tested.
+    $L6 = Join-Path $T "prefix-r06"; [void](Install $a1 $L6)
+    $canon = Join-Path (Resolve-Path -LiteralPath $L6).ProviderPath "heimdall.exe"
+    # A link to the scratch directory, so the prefix passes through it (a prefix that is
+    # itself a link is refused before anything else, as before).
+    $LT = Join-Path $T "via-link"; [void][System.IO.Directory]::CreateDirectory($LT); Link (Join-Path $LT "up") $T
+    Push-Location $T
+    try { $r = Install $a2 "prefix-r06" @("-AssumeStopped") @{ HM_INSTALL_TEST_PROCESS_PATHS = "4242=$canon" } } finally { Pop-Location }
+    Check "W2-R06: a relative -Prefix still finds a process started from the installed executable" (($r.Code -eq 1) -and ($r.Out -match "a process started from") -and ((Pair $L6) -eq (V "1.0.0")))
+    $r = Install $a2 (P $LT @("up", "prefix-r06")) @("-AssumeStopped") @{ HM_INSTALL_TEST_PROCESS_PATHS = "4242=$canon" }
+    Check "W2-R06: a -Prefix that passes through a link (a junction on Windows) still finds it" (($r.Code -eq 1) -and ($r.Out -match "a process started from") -and ((Pair $L6) -eq (V "1.0.0")))
+    $viaLink = P $LT @("up", "prefix-r06", "heimdall.exe")
+    $r = Install $a2 $L6 @("-AssumeStopped") @{ HM_INSTALL_TEST_PROCESS_PATHS = "4242=$viaLink" }
+    Check "W2-R06: a process started through a link to the install directory is found" (($r.Code -eq 1) -and ($r.Out -match "a process started from") -and ((Pair $L6) -eq (V "1.0.0")))
+    $other = Join-Path (Join-Path $T "elsewhere") "heimdall.exe"
+    $r = Install $a2 $L6 @("-AssumeStopped") @{ HM_INSTALL_TEST_PROCESS_PATHS = "4242=$other" }
+    Check "W2-R06: a heimdall.exe elsewhere does not block the update" (($r.Code -eq 0) -and ((Pair $L6) -eq (V "2.0.0")))
 
     # Interrupted install after each step, then a rerun finishes it as a pair.
     foreach ($tag in "1", "2", "3a", "3b", "4a", "4b") {

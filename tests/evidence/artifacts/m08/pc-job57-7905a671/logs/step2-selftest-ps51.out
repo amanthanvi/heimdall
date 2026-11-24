@@ -1,0 +1,86 @@
+﻿ok   a fresh install puts the executable and the helper in place
+ok   it names the directory to add to PATH and edits nothing
+ok   installing the same version again changes nothing
+ok   an update keeps the previous executable and helper, as a pair
+ok   a rollback swaps both pairs
+ok   a damaged tree is refused (exit 1) and nothing changes
+ok   an incomplete tree is refused
+ok   an update is refused while a runtime runs, and says how to stop it
+ok   W01-R03: no output from the installed executable refuses the update (unknown is not none)
+ok   W01-R03: an error from the installed executable refuses the update
+ok   R04: a live process from the installed path refuses the update although status says none
+ok   R04: -AssumeStopped does not override a live process
+ok   W01-R03: -AssumeStopped is the stated way past a broken executable
+ok   W01-R01: a directory at .heimdall.new.exe is refused and keep.txt survives
+ok   W01-R01: a directory at .heimdall.swap.exe is refused on rollback and keep.txt survives
+ok   W01-R01: a junction (or link) at a staging name is refused and its target survives
+ok   W01-R01: a junction (or link) at the executable staging name is refused and its target survives
+ok   W01-R01: a staged helper directory holding a foreign file is not deleted
+ok   a leftover staged pair holding only the script's own files is cleared and the update completes
+ok   W0.3: a manifest naming 'linux-x86_64/../../outside.txt' is refused, nothing written
+ok   W0.3: a manifest naming '../outside.txt' is refused, nothing written
+ok   W0.3: a manifest naming '/outside.txt' is refused, nothing written
+ok   W0.3: a manifest naming 'linux-x86_64//x' is refused, nothing written
+ok   W0.3: a manifest naming 'linux-x86_64/./heimdall' is refused, nothing written
+ok   W0.3: a manifest naming 'a\b' is refused, nothing written
+ok   W0.3: a manifest naming 'c:x' is refused, nothing written
+ok   W0.3: a junction (or link) at a subdirectory inside a staged helper is refused; the file behind it survives
+ok   W0.3: (an archive whose helper has a subdirectory installs)
+ok   W0.3: and updating away from it keeps the pair, subdirectory included, under .previous
+ok   W01-R02: a failure between the two renames of an install undoes both halves
+ok   W01-R02: and the next run completes the update as a pair
+ok   W01-R02: (the killed state is the mixed one: new executable, no current helper)
+ok   W01-R02: a rerun after a kill between the renames repairs the pair, not 'already installed'
+ok   W01-R02: a matching executable with a different helper is repaired
+ok   W01-R02: a failure between the two renames of a rollback undoes both halves
+ok   W01-R02: a rollback killed after ra1, then rerun: both versions survive as complete pairs
+ok   W01-R02: a rollback killed after ra2, then rerun: both versions survive as complete pairs
+ok   W01-R02: a rollback killed after rb1, then rerun: both versions survive as complete pairs
+ok   W01-R02: a rollback killed after rb2, then rerun: both versions survive as complete pairs
+ok   W01-R02: a rollback killed after rc1, then rerun: both versions survive as complete pairs
+ok   W1-F1: an executable-only update keeps the whole old pair under .previous
+ok   W1-F1: an executable-only update then a rollback restores the complete old pair (both digests)
+ok   W1-F1: a helper-only repair fixes the helper in place and leaves .previous byte-identical
+ok   W1-F1: after an earlier full update, an executable-only update leaves .previous a matched pair
+ok   W1-F1: a rollback with an incomplete .previous pair refuses, names what is missing, and changes nothing
+ok   W1-F1: a rollback with no .previous helper directory refuses and changes nothing
+ok   W1-F1: an update whose older .previous helper holds a foreign file refuses before any write
+ok   W2-R04: a lost executable beside an older .previous one is not finished as an interrupted update
+ok   W2 (PC job 47): with an executable alone under .previous, the install says so and does not promise a rollback
+ok   W2-R04: and a rollback then refuses instead of installing the older executable with the newer helper
+ok   W2 (PC job 47): with a complete pair under .previous, the install says -Rollback puts it back
+ok   W2.1-R01: (a run stopped after staging leaves .heimdall.new.exe)
+ok   W2.1-R01: a rerun after a stop at staging is not finished as an interrupted update
+ok   W2.1-R01: and the rollback that follows refuses, pairing nothing
+ok   W2.1-R01: an update stopped after rename 3a leaves its marker
+ok   W2.1-R01: and the rerun finishes it and removes the marker
+ok   W2.1-R01: a directory at the marker's name is refused and nothing changes
+ok   W2.2-RC01: an update of a helper-less install leaves no marker, even stopped after 4b
+ok   W2.2-RC01: case C: the rerun after the executable is lost is not finished as an interrupted update
+ok   W2.2-RC01: case C: the rollback after it refuses and pairs nothing
+ok   W2.2-RC01: (an update stopped after 4b leaves the complete new pair and its marker)
+ok   W2.2-RC01: -Rollback refuses while the marker is present, says why, and changes nothing
+ok   W2.2-RC01: the already-installed rerun removes the leftover marker and says so
+ok   W2.2-RC01: then -Rollback puts the previous pair back
+ok   W2.2-RC01: with the pair not matching, -Rollback still refuses on the marker
+ok   W2-R05: a repair that fails at its last rename says the helper may be missing, not that both halves were put back
+ok   W2-R05: and running the script again repairs the helper
+ok   W2-R07: a staged helper file that does not match the manifest stops the update before any rename
+ok   W2-R06: a relative -Prefix still finds a process started from the installed executable
+ok   W2-R06: a -Prefix that passes through a link (a junction on Windows) still finds it
+ok   W2-R06: a process started through a link to the install directory is found
+ok   W2-R06: a heimdall.exe elsewhere does not block the update
+ok   interrupted after 1: version 1's executable and helper both survive
+ok   interrupted after 1: rerunning finishes the update, executable and helper together
+ok   interrupted after 2: version 1's executable and helper both survive
+ok   interrupted after 2: rerunning finishes the update, executable and helper together
+ok   interrupted after 3a: version 1's executable and helper both survive
+ok   interrupted after 3a: rerunning finishes the update, executable and helper together
+ok   interrupted after 3b: version 1's executable and helper both survive
+ok   interrupted after 3b: rerunning finishes the update, executable and helper together
+ok   interrupted after 4a: version 1's executable and helper both survive
+ok   interrupted after 4a: rerunning finishes the update, executable and helper together
+ok   interrupted after 4b: version 1's executable and helper both survive
+ok   interrupted after 4b: rerunning finishes the update, executable and helper together
+ok   an update succeeds while the old executable is held open, by renaming it aside
+install-selftest: PASS (85 checks)

@@ -1,0 +1,2 @@
+& '<R>\a1\install.ps1' -Prefix '<R>\p7e' -AssumeStopped ; 'exit ' + $LASTEXITCODE
+& '<R>\a2\install.ps1' -Prefix '<R>\p7e' -AssumeStopped ; 'exit ' + $LASTEXITCODE

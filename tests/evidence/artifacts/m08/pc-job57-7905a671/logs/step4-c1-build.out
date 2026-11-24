@@ -1,0 +1,108 @@
+provenance: x86_64-pc-windows-msvc: no iroh feature requested and no iroh crate in the selected graph
+== build-release: x86_64-pc-windows-msvc at 7905a6712a39 (tree clean: yes)
+   Compiling fallible-iterator v0.3.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling futures-core v0.3.34
+   Compiling ssh-key v0.6.7
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling async-trait v0.1.92
+   Compiling rusqlite v0.41.1
+   Compiling secrecy v0.10.3
+   Compiling slab v0.4.12
+   Compiling futures-task v0.3.34
+   Compiling ssh-agent-lib v0.6.0
+   Compiling futures-util v0.3.34
+   Compiling heimdall-store v0.1.0-m01 (<R>\c1\crates\store)
+   Compiling heimdall-project v0.1.0-m01 (<R>\c1\crates\project)
+   Compiling tokio-util v0.7.20
+   Compiling heimdall-registry v0.1.0-m01 (<R>\c1\crates\registry)
+   Compiling heimdall-ipc v0.1.0-m01 (<R>\c1\crates\ipc)
+   Compiling rustversion v1.0.23
+   Compiling heck v0.5.0
+   Compiling ident_case v1.0.1
+   Compiling strsim v0.11.1
+   Compiling darling_core v0.24.1
+   Compiling heimdall-app v0.1.0-m01 (<R>\c1\crates\app)
+   Compiling heimdall-sshconf v0.1.0-m01 (<R>\c1\crates\sshconf)
+   Compiling either v1.19.0
+   Compiling winapi v0.3.9
+   Compiling parking_lot_core v0.9.12
+   Compiling unicode-segmentation v1.13.3
+   Compiling glob v0.3.4
+   Compiling convert_case v0.10.0
+   Compiling itertools v0.14.0
+   Compiling darling_macro v0.24.1
+   Compiling castaway v0.2.4
+   Compiling strum_macros v0.28.0
+   Compiling static_assertions v1.1.0
+   Compiling unicode-width v0.2.3
+   Compiling ryu v1.0.23
+   Compiling scopeguard v1.2.0
+   Compiling lock_api v0.4.14
+   Compiling strum v0.28.0
+   Compiling compact_str v0.9.1
+   Compiling unicode-truncate v2.0.1
+   Compiling darling v0.24.1
+   Compiling derive_more-impl v2.1.1
+   Compiling lru v0.18.5
+   Compiling kasuari v0.4.13
+   Compiling fastrand v2.5.0
+   Compiling litrs v1.0.1
+   Compiling indoc v2.0.8
+   Compiling document-features v0.2.12
+   Compiling instability v0.3.14
+   Compiling tempfile v3.27.0
+   Compiling ratatui-core v0.1.2
+   Compiling crossterm_winapi v0.9.1
+   Compiling derive_more v2.1.1
+   Compiling parking_lot v0.12.5
+   Compiling bit-vec v0.10.1
+   Compiling quick-error v1.2.3
+   Compiling cpufeatures v0.3.1
+   Compiling wait-timeout v0.2.1
+   Compiling fnv v1.0.7
+   Compiling rusty-fork v0.3.1
+   Compiling chacha20 v0.10.2
+   Compiling bit-set v0.11.1
+   Compiling crossterm v0.29.0
+   Compiling rand v0.10.3
+   Compiling sharded-slab v0.1.7
+   Compiling heimdall-localenv v0.1.0-m01 (<R>\c1\crates\localenv)
+   Compiling heimdall-credential v0.1.0-m01 (<R>\c1\crates\credential)
+   Compiling heimdall-remote v0.1.0-m01 (<R>\c1\crates\remote)
+   Compiling heimdall-issuer v0.1.0-m01 (<R>\c1\crates\issuer)
+   Compiling rand_xorshift v0.5.0
+   Compiling line-clipping v0.3.8
+   Compiling thread_local v1.1.10
+   Compiling core_detect v1.0.0
+   Compiling clap_lex v1.1.1
+   Compiling regex-syntax v0.8.11
+   Compiling unarray v0.1.4
+   Compiling anstyle v1.0.14
+   Compiling clap_builder v4.6.7
+   Compiling proptest v1.12.0
+   Compiling tracing-subscriber v0.3.23
+   Compiling ratatui-widgets v0.3.2
+   Compiling heimdall-enroll v0.1.0-m01 (<R>\c1\crates\enroll)
+   Compiling heimdall-wsl v0.1.0-m01 (<R>\c1\crates\wsl)
+   Compiling heimdall-adapters v0.1.0-m01 (<R>\c1\crates\adapters)
+   Compiling ratatui-crossterm v0.1.2
+   Compiling clap_derive v4.6.7
+   Compiling heimdall-transport-iroh v0.1.0-m01 (<R>\c1\crates\transport-iroh)
+   Compiling etcetera v0.11.0
+   Compiling heimdall-runtime v0.1.0-m01 (<R>\c1\crates\runtime)
+   Compiling clap v4.6.7
+   Compiling ratatui v0.30.2
+   Compiling heimdall-testkit v0.1.0-m01 (<R>\c1\crates\testkit)
+   Compiling heimdall-launch v0.1.0-m01 (<R>\c1\crates\launch)
+   Compiling heimdall v0.1.0-m01 (<R>\c1\crates\heimdall)
+    Finished `release` profile [optimized] target(s) in 3m 47s
+provenance: staged the executable the build reported (sha256 5152a7a7c05f�)
+provenance: sbom for x86_64-pc-windows-msvc: 226 components; 25 removed as unselected; compiled set checked: yes
+verify_artifact: PASS (0 failure(s))
+verify_artifact: PASS (0 failure(s))
+== archive: target\release-artifacts\heimdall-0.1.0-m01-x86_64-pc-windows-msvc.zip
+== sha256:  7e47f12448af14b203a51e367a07389bb8865a18140042b5038a72861f6a7bfb
+== index:   target\release-artifacts\SHA256SUMS (external; commit it, never pack it)
+== not yet in the tree, so not packaged: LICENSE SECURITY.md
+exit 0

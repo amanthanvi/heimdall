@@ -1,0 +1,4 @@
+﻿7e47f12448af14b203a51e367a07389bb8865a18140042b5038a72861f6a7bfb  <R>\c1\target\release-artifacts\heimdall-0.1.0-m01-x86_64-pc-windows-msvc.zip
+5152a7a7c05f513a4d230d908aba371b655000f99c6824c474ceb336bf2b5068  <R>\c1\target\release-artifacts\heimdall-0.1.0-m01-x86_64-pc-windows-msvc\heimdall.exe
+7e47f12448af14b203a51e367a07389bb8865a18140042b5038a72861f6a7bfb  <R>\deeper\path\c2\target\release-artifacts\heimdall-0.1.0-m01-x86_64-pc-windows-msvc.zip
+5152a7a7c05f513a4d230d908aba371b655000f99c6824c474ceb336bf2b5068  <R>\deeper\path\c2\target\release-artifacts\heimdall-0.1.0-m01-x86_64-pc-windows-msvc\heimdall.exe
