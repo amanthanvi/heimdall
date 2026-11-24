@@ -49,14 +49,9 @@ while [ $# -gt 0 ]; do
 done
 # Release artifacts ship without the Iroh transport (ruling E2, option c): it is a preview,
 # built from source with --features iroh, with no support label.
-# The list is split as cargo splits it, on commas and whitespace (review M08-W2-R02); a
-# feature that turns iroh on through another one is caught by `check-features` below, and
-# what the build compiled is checked again by `build-record`.
-set -f
-for f in $(printf '%s' "$features" | tr ',' ' '); do
-    case "/$f/" in */iroh/*|*:iroh/*) echo "build-release: release artifacts are built without the iroh feature (the Iroh transport is a source-build preview)" >&2; exit 2 ;; esac
-done
-set +f
+# The feature list is judged by `provenance.py check-features` below, the one authoritative
+# check (review M08-W2-RC06): it splits the list as cargo does, refuses any iroh spelling, and
+# refuses a selected graph holding the iroh crate. `build-record` checks what was compiled.
 [ -n "$target" ] || usage
 
 zig_target=""
@@ -177,7 +172,9 @@ out="$repo/target/release-artifacts"
 stage="$out/$name"
 case "$stage" in "$repo"/target/release-artifacts/heimdall-*) rm -rf -- "$stage" ;; esac
 mkdir -p "$stage"
-install -m 0755 "target/$target/release/heimdall" "$stage/heimdall"
+# Exactly the executable this build produced, by the path cargo reported (review M08-W2-RC02).
+py stage-exe --target "$target" ${offline[@]+"${offline[@]}"} --build-messages "$messages" \
+    --expect "$repo/target/$target/release/heimdall" --out "$stage/heimdall" || exit 1
 
 # Release documents that exist in the tree are packaged; the candidate build (m08-plan U3b)
 # makes the list mandatory.

@@ -72,10 +72,8 @@ if (-not $version) { Fail 2 "no workspace version" }
 # characters a feature list uses.
 if ($Features -and ($Features -notmatch '^[A-Za-z0-9_,/-]+$')) { Fail 2 "-Features may hold only letters, digits, '_', '-', '/' and ','" }
 # Release artifacts ship without the Iroh transport (ruling E2, option c): a source-build preview.
-# (The list holds no whitespace, by the check above. A feature that turns iroh on through
-# another one is caught by `check-features` before the build and by `build-record` after it,
-# review M08-W2-R02.)
-foreach ($f in ($Features -split ',')) { if (($f -split '/') -contains 'iroh') { Fail 2 "release artifacts are built without the iroh feature (the Iroh transport is a source-build preview)" } }
+# The feature list is judged by `provenance.py check-features` before the build, the one
+# authoritative check (review M08-W2-RC06), and what was compiled by `build-record` after it.
 
 # rustc applies the last matching --remap-path-prefix, so the general one comes first.
 $sep = [char]0x1f
@@ -133,7 +131,11 @@ $name = "heimdall-$version-$target"
 $stage = Join-Path $out $name
 if ($stage.StartsWith((Join-Path $repo "target\release-artifacts\heimdall-")) -and (Test-Path $stage)) { Remove-Item -Recurse -Force -LiteralPath $stage }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
-Copy-Item "target\$target\release\heimdall.exe" (Join-Path $stage "heimdall.exe")
+# Exactly the executable this build produced, by the path cargo reported (review M08-W2-RC02).
+$stageArgs = @("stage-exe", "--target", $target, "--build-messages", $messages, "--expect", (Join-Path $repo "target\$target\release\heimdall.exe"), "--out", (Join-Path $stage "heimdall.exe"))
+if ($Offline) { $stageArgs += "--offline" }
+& python -I "$here\provenance.py" @stageArgs
+if ($LASTEXITCODE -ne 0) { Fail 1 "the executable to pack is not the one this build produced; nothing packed" }
 # The helper sits where the product looks for it: <exe dir>\<HELPER_DIR>\<HELPER_FILE>
 # (crates\wsl\src\spawn.rs, `helper_windows_path`).
 function SpawnConst([string]$n) {
