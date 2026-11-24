@@ -1,0 +1,5 @@
+# control_frame, round 2's closing run (2026-11-23, ending 14:56:29Z, 1800 s).
+# The raw log was rewritten by the defect hunt (its control_frame run started 2026-11-24 09:17Z)
+# before it was copied out. This is run-campaign.sh report's line for that run, saved on the
+# host at the time (/tmp, not in the repository), not raw libFuzzer lines.
+control_frame: exit 0 2026-11-23T14:56:29Z secs=1800 | cumulative 10800s | cov: 6284 ft: 14471 corp: 3032/166Kb | execs 59464418 | last new input at #59458338 | last run cov 5412 -> 6284 | findings 0 | stopping rule: not met

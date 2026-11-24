@@ -36,6 +36,14 @@ the `ssh -G` output reader take files and a child process, and have no target.
     A setup that fails or is killed part-way leaves no identity, so the runs that follow carry
     `build=unknown`, which the report never counts. `build-id show` prints the identity of the
     volume's sources under the current formula and writes nothing.
+  - **`13453c69d123f948` was computed before W2.1 widened the formula**, so it covers the linked
+    crates, the fuzz manifest, lock and targets only. Recomputed over the same volume sources with
+    `build-id show` on 2026-11-24, it is `888d8dd2babf0fc7`, with `toolchain-file=absent` (W2's
+    setup did not copy the product's toolchain file) and the toolchain line
+    `nightly=nightly-2026-11-15 rustc=rustc_1.102.0-nightly_(5f4effd57_2026-11-13)
+    cargo-fuzz=0.13.2 rustflags=-Clink-arg=-fuse-ld=lld`. The recorded identity and the run lines
+    keep `13453c69…`: the campaign of record will be set up afresh on the candidate's build under
+    the new formula.
 
 | Target | Boundary | Entry points |
 |---|---|---|
@@ -220,4 +228,17 @@ closing line is in `results.txt`. Round 2 was 3,600 s on eight targets, then 1,8
   Watch item: the sanitizer build's peak RSS reached 816 MB of the 1,024 MB limit in one hour; a
   longer run is the next evidence.
 - `gitedit_scan` stays **not met** while M08-W2-F1 is open.
+
+### The defect hunt on the merged build `13453c69d123f948` (2026-11-24, 08:47Z to 13:17Z)
+
+After F1 was closed, every target ran 1800 s more on the merged build (two at a time, in the
+capped container). Defect hunting, not the campaign of record, which runs on the candidate's build.
+- **Every run exited 0, with no finding on any target;** 0 artifacts on all 17.
+- The stopping rule is **not met** on any target, as expected: the counted time on this build is
+  1800 s per target (5400 s for `gitedit_scan`), below the 7200 s the rule needs.
+- **Peak RSS against the 1024 MB limit** (watch items, from each run's statistics):
+  `runtime_config` 934 MB, `project_manifest` 904 MB, `gitedit_scan` 737 MB, `issuer_protocol`
+  704 MB. The longer campaign of record is the next evidence on whether they stay under it.
+- Records: `tests/evidence/artifacts/m08-fuzz/hunt-13453c69/` (the report and one closing
+  extract per target), and `results.txt` to 13:17Z.
 

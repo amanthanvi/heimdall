@@ -69,3 +69,43 @@ issuer_protocol exit 0 2026-11-23T12:31:03Z secs=1800
 runtime_instance exit 0 2026-11-23T13:01:05Z secs=1800
 known_hosts_match exit 0 2026-11-23T13:01:05Z secs=1800
 registry_script exit 0 2026-11-23T13:31:06Z secs=1800
+control_frame exit 0 2026-11-23T14:26:26Z secs=3300
+project_manifest exit 0 2026-11-23T14:26:26Z secs=3300
+control_frame exit 0 2026-11-23T14:56:29Z secs=1800
+project_manifest exit 0 2026-11-23T14:56:29Z secs=1800
+sshconf_parse exit 0 2026-11-23T15:56:34Z secs=3600
+gitedit_scan exit 0 2026-11-23T15:56:35Z secs=3600
+agent_reply exit 0 2026-11-23T16:56:37Z secs=3600
+userauth_request exit 0 2026-11-23T16:56:37Z secs=3600
+runtime_config exit 0 2026-11-23T17:56:38Z secs=3600
+sshconf_eval exit 0 2026-11-23T17:56:39Z secs=3600
+issuer_backup exit 0 2026-11-23T18:56:40Z secs=3600
+issuer_protocol exit 0 2026-11-23T18:56:40Z secs=3600
+gitedit_scan exit 1 2026-11-23T18:56:46Z secs=1800 build=9dd72f8fd9e5c17c
+sshconf_parse exit 0 2026-11-23T19:26:42Z secs=1800 build=9dd72f8fd9e5c17c
+agent_reply exit 0 2026-11-23T19:56:43Z secs=1800 build=9dd72f8fd9e5c17c
+userauth_request exit 0 2026-11-23T19:56:43Z secs=1800 build=9dd72f8fd9e5c17c
+sshconf_eval exit 0 2026-11-23T20:26:45Z secs=1800 build=9dd72f8fd9e5c17c
+runtime_config exit 0 2026-11-23T20:26:45Z secs=1800 build=9dd72f8fd9e5c17c
+issuer_backup exit 0 2026-11-23T20:56:46Z secs=1800 build=9dd72f8fd9e5c17c
+issuer_protocol exit 0 2026-11-23T20:56:46Z secs=1800 build=9dd72f8fd9e5c17c
+# closed 2026-11-23T20:57:31Z build 9dd72f8fd9e5c17c (ruled 2026-11-23: history after M06 W5; round 3 not run)
+gitedit_scan exit 0 2026-11-24T08:44:55Z secs=3600 build=13453c69d123f948
+# moved 2026-11-24T08:46:37Z gitedit_scan oom-83ec233d (F1, build 9dd72f8fd9e5c17c) to artifacts-history; not a finding on build 13453c69d123f948
+gitedit_scan exit 0 2026-11-24T09:17:13Z secs=1800 build=13453c69d123f948
+sshconf_parse exit 0 2026-11-24T09:17:13Z secs=1800 build=13453c69d123f948
+agent_reply exit 0 2026-11-24T09:47:15Z secs=1800 build=13453c69d123f948
+control_frame exit 0 2026-11-24T09:47:15Z secs=1800 build=13453c69d123f948
+userauth_request exit 0 2026-11-24T10:17:17Z secs=1800 build=13453c69d123f948
+signing_request exit 0 2026-11-24T10:17:17Z secs=1800 build=13453c69d123f948
+registry_hm1 exit 0 2026-11-24T10:47:19Z secs=1800 build=13453c69d123f948
+project_manifest exit 0 2026-11-24T10:47:19Z secs=1800 build=13453c69d123f948
+sshconf_eval exit 0 2026-11-24T11:17:20Z secs=1800 build=13453c69d123f948
+runtime_config exit 0 2026-11-24T11:17:20Z secs=1800 build=13453c69d123f948
+frame_codec exit 0 2026-11-24T11:47:22Z secs=1800 build=13453c69d123f948
+registry_line exit 0 2026-11-24T11:47:22Z secs=1800 build=13453c69d123f948
+issuer_backup exit 0 2026-11-24T12:17:23Z secs=1800 build=13453c69d123f948
+issuer_protocol exit 0 2026-11-24T12:17:23Z secs=1800 build=13453c69d123f948
+runtime_instance exit 0 2026-11-24T12:47:25Z secs=1800 build=13453c69d123f948
+known_hosts_match exit 0 2026-11-24T12:47:25Z secs=1800 build=13453c69d123f948
+registry_script exit 0 2026-11-24T13:17:26Z secs=1800 build=13453c69d123f948

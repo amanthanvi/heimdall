@@ -1,0 +1,13 @@
+# M08-W2-F1 closure checks on fuzz build 13453c69d123f948 (2026-11-24). <volume> is the campaign
+# volume's mount point. The 3600 s run's raw log was rewritten by the defect hunt; its line here
+# is run-campaign.sh report's, saved on the host at the time.
+## 1. The whole gitedit_scan corpus replayed in the sanitizer build, -rss_limit_mb=1024 (libFuzzer's lines):
+#25190	INITED cov: 932 ft: 5722 corp: 1737/4251Kb exec/s: 4198 rss: 636Mb
+Done 25190 runs in 6 second(s)
+stat::peak_rss_mb:              636
+exit 0
+## 2. The old artifact alone:
+Executed <volume>/work/artifacts/gitedit_scan/oom-83ec233de3e57bb251bc802adc213196bf6ed430 in 4 ms
+stat::peak_rss_mb:              45
+## 3. 3600 s of fuzzing (report line; peak RSS 816 MB from the run's statistics, as recorded in fuzz/README.md):
+gitedit_scan: exit 0 2026-11-24T08:44:55Z secs=3600 build=13453c69d123f948 | counted 3600s (this build 3600s, declared earlier 0s; all runs 16200s) | cov: 962 ft: 6065 corp: 1890/8630Kb | execs 8936718 | last new input at #8935623 | last run cov 936 -> 962, ft 5724 -> 6065, new units 6114 | findings 1 | stopping rule: not met
