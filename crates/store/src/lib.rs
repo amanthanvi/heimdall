@@ -288,6 +288,8 @@ const REQUIRED_TABLES: &[&str] = &[
     "remote_widening",
     // schema version 12 (M06 wave 4: the controller's lift acknowledgements; ADR-0006 §18.8)
     "remote_lift_acks",
+    // schema version 14 (revision 7: the request fences; ADR-0014 H9, §3.6)
+    "request_fences",
 ];
 
 /// Columns added to existing tables that the current schema must contain
@@ -301,12 +303,21 @@ const REQUIRED_COLUMNS: &[(&str, &str)] = &[
     // schema version 13 (M06 wave 5: the widening record's origin; ADR-0006 §18.9 item 8)
     ("remote_widening", "origin"),
     ("remote_widening", "delta_digest"),
+    // schema version 14 (revision 7: the restore epoch; ADR-0014 H9, §3.6)
+    ("operations", "restore_epoch"),
+    ("decisions", "restore_epoch"),
+    ("remote_effect_outbox", "restore_epoch"),
+    ("idempotency", "request_epoch"),
 ];
 
 const META_SELF_ENVIRONMENT: &str = "self_environment_id";
 const META_AUTHORITY_GENERATION: &str = "authority_generation";
 /// ⟨M03⟩ ADR-0008 D10 item 1: the installation's Windows environment pipe token.
 const META_WINDOWS_PIPE_TOKEN: &str = "windows_environment_pipe_token";
+/// ⟨rev7⟩ ADR-0014 H9, §3.6 step 1: the current restore epoch (absent reads as 0; a restore
+/// writes it before its pointer moves). No reader or writer until U2b.
+#[allow(dead_code)]
+const META_RESTORE_EPOCH: &str = "restore_epoch";
 
 /// A Windows pipe token: 1 to 64 ASCII letters or digits (the credential crate's
 /// `pipe_token_ok`, which the store cannot name).
@@ -2086,7 +2097,8 @@ mod tests {
         // ⟨M06 wave 3⟩ 0011 adds one table and one defaulted column.
         // ⟨M06 wave 4⟩ 0012 adds one table.
         // ⟨M06 wave 5⟩ 0013 rebuilds `remote_widening` with its origin (rows kept).
-        assert_eq!(migrations::SCHEMA_VERSION, 13);
+        // ⟨rev7⟩ 0014 adds four defaulted columns, one table and two indexes.
+        assert_eq!(migrations::SCHEMA_VERSION, 14);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"
@@ -2881,5 +2893,104 @@ mod tests {
             len, 8000,
             "the read-write control did not replay the journal"
         );
+    }
+
+    /// ⟨rev7⟩ U0-Q9: catalog aliases are unique without ASCII case, checked at write. A new
+    /// destination, or a rename, into a case-variant of another destination's alias is a
+    /// conflict and changes nothing; a write that keeps a destination's own stored alias byte
+    /// for byte is not refused, so a legacy case-variant pair (written before revision 7)
+    /// stays readable and editable, and is listed once for `doctor`.
+    #[test]
+    fn catalog_aliases_are_unique_without_case_at_write() {
+        use heimdall_contract::ids::{AccountName, DestinationId, IdentityId};
+        use heimdall_domain::catalog::{DestinationDefinition, DestinationRecord};
+        let t0 = jiff::Timestamp::from_second(1_700_000_000).unwrap();
+        let destination = |n: u8, alias: &str, revision: u64| DestinationRecord {
+            id: DestinationId::parse(&format!("dest{n}")).unwrap(),
+            alias: alias.into(),
+            revision,
+            definition: DestinationDefinition::Managed {
+                hostname: "example.invalid".into(),
+                port: None,
+                account: AccountName::parse("git").unwrap(),
+                identity: IdentityId::from_random_bytes([n; 16]),
+                jump: None,
+            },
+            label: None,
+            updated_at: t0,
+        };
+        let s = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        s.transaction(|tx| {
+            tx.upsert_destination(&destination(1, "Work", 1))?;
+            for refused in [destination(2, "work", 1), destination(2, "WORK", 1)] {
+                assert!(matches!(
+                    tx.upsert_destination(&refused),
+                    Err(StoreError::GenerationConflict(_))
+                ));
+            }
+            tx.upsert_destination(&destination(2, "home", 1))?;
+            assert!(
+                matches!(
+                    tx.upsert_destination(&destination(2, "wORK", 2)),
+                    Err(StoreError::GenerationConflict(_))
+                ),
+                "a rename into a case-variant is refused"
+            );
+            // A change of case of the destination's own alias is no collision.
+            tx.upsert_destination(&destination(1, "work", 2))?;
+            assert_eq!(
+                tx.destinations_by_alias_ignoring_case("WORK")?
+                    .into_iter()
+                    .map(|d| d.alias)
+                    .collect::<Vec<_>>(),
+                ["work"]
+            );
+            assert!(tx.destination_alias_case_collisions()?.is_empty());
+            Ok(())
+        })
+        .unwrap();
+        // A legacy pair, as an earlier build could store it.
+        {
+            let c = s.lock();
+            let mut legacy = destination(3, "Lab", 1);
+            c.execute(
+                "INSERT INTO destinations (id, alias, revision, record_json) VALUES (?1, ?2, 1, ?3)",
+                rusqlite::params![
+                    legacy.id.as_str(),
+                    legacy.alias,
+                    serde_json::to_string(&legacy).unwrap()
+                ],
+            )
+            .unwrap();
+            legacy = destination(4, "lab", 1);
+            c.execute(
+                "INSERT INTO destinations (id, alias, revision, record_json) VALUES (?1, ?2, 1, ?3)",
+                rusqlite::params![
+                    legacy.id.as_str(),
+                    legacy.alias,
+                    serde_json::to_string(&legacy).unwrap()
+                ],
+            )
+            .unwrap();
+        }
+        s.transaction(|tx| {
+            let pairs = tx.destination_alias_case_collisions()?;
+            assert_eq!(pairs.len(), 1);
+            assert_eq!(
+                (pairs[0].0.alias.as_str(), pairs[0].1.alias.as_str()),
+                ("Lab", "lab")
+            );
+            // Each stays editable while it keeps its own alias.
+            let mut relabelled = destination(3, "Lab", 2);
+            relabelled.label = Some("kept".into());
+            tx.upsert_destination(&relabelled)?;
+            // Renaming into the other's case-variant is still refused.
+            assert!(matches!(
+                tx.upsert_destination(&destination(4, "LAB", 2)),
+                Err(StoreError::GenerationConflict(_))
+            ));
+            Ok(())
+        })
+        .unwrap();
     }
 }

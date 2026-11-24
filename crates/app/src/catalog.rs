@@ -841,13 +841,22 @@ fn apply_action(
             if let Some(refused) = route_checks(tx, &destination.id, &definition)? {
                 return Ok(Step::Refused(Box::new(refused)));
             }
-            if let Some(other) = tx.destination_by_alias(&destination.alias)?
-                && other.id != destination.id
+            // ⟨rev7, U0-Q9⟩ Aliases are unique without case, as `ssh_config` matches `Host`.
+            // A write that keeps this destination's own stored alias byte for byte is not
+            // refused, so a legacy case-variant pair stays editable (`doctor` reports it).
+            let keeps_own_alias = tx
+                .destination(&destination.id)?
+                .is_some_and(|s| s.alias == destination.alias);
+            if let Some(other) = tx
+                .destinations_by_alias_ignoring_case(&destination.alias)?
+                .into_iter()
+                .find(|other| other.id != destination.id)
+                && (!keeps_own_alias || other.alias == destination.alias)
             {
                 return Ok(Step::Refused(Box::new(
                     conflict_with(
                         ConflictKind::AliasCollision,
-                        "another destination already uses this alias",
+                        "another destination already uses this alias (aliases compare without case)",
                     )
                     .with_resource("destination", Some(other.id.to_string())),
                 )));

@@ -1767,6 +1767,47 @@ async fn catalog_alias_rename_keeps_destination_id() {
     assert_eq!(e.code, Code::UsageError);
 }
 
+/// ⟨rev7⟩ U0-Q9: through the catalog driver, a destination whose alias is a case-variant of
+/// another destination's alias is refused `CONFIG_CONFLICT` / `alias_collision`, naming the
+/// destination that holds it, and nothing is written; a change of case of a destination's
+/// own alias is allowed.
+#[tokio::test]
+async fn catalog_alias_case_variant_is_refused_at_write() {
+    let w = World::new().await;
+    let identity = w.catalog_alpha().await;
+    let e = w
+        .catalog(
+            &attended(),
+            CatalogRequest::UpsertDestination {
+                destination: DestinationSpec {
+                    id: DestinationId::parse("dst-beta").unwrap(),
+                    alias: "ALPHA".to_owned(),
+                    definition: DestinationDefinitionSpec::Observed,
+                    label: None,
+                },
+                request_id: rid("r-case"),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ConfigConflict);
+    assert_eq!(e.reason.as_deref(), Some("alias_collision"));
+    assert!(
+        w.store
+            .transaction(|tx| tx.destination(&DestinationId::parse("dst-beta").unwrap()))
+            .unwrap()
+            .is_none()
+    );
+    w.destination("r-own-case", "dst-alpha", "Alpha", &identity)
+        .await;
+    let d = w
+        .store
+        .transaction(|tx| tx.destination(&DestinationId::parse("dst-alpha").unwrap()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(d.alias, "Alpha");
+}
+
 #[tokio::test]
 async fn profile_upsert_bumps_revision_and_does_not_widen_existing_grant() {
     let w = World::new().await;

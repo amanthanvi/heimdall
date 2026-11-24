@@ -1045,7 +1045,7 @@ fn before_commit_failure_leaves_no_row() {
         .unwrap();
     assert_eq!((o, i), (None, None));
     // Opening a fresh store visits the migration points of every step (0001,
-    // 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013) first; then the
+    // 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014) first; then the
     // failed
     // transaction (before transaction, before commit) and the verifying one.
     assert_eq!(
@@ -1087,6 +1087,9 @@ fn before_commit_failure_leaves_no_row() {
             FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
             FaultPoint::AfterMigration,
+            FaultPoint::BeforeMigration,
+            FaultPoint::AfterMigration,
+            // ⟨rev7⟩ Migration 0014 adds one.
             FaultPoint::BeforeMigration,
             FaultPoint::AfterMigration,
             FaultPoint::BeforeTransaction,
@@ -1362,7 +1365,7 @@ fn truncated_file_is_corrupt_not_fresh() {
 
 #[test]
 fn newer_schema_is_refused_and_untouched() {
-    assert_eq!(SCHEMA_VERSION, 13); // M06 wave 5: 0013 rebuilds `remote_widening` (a table 0010 created) with its origin, rows kept; M06 wave 4 (0012 adds one table); M06 wave 3 (0011 adds one table and a defaulted column); M06 wave 2 (0010 adds one table); M06 wave 0 (0009 adds tables only); M04/M05 wave 0 made it 8
+    assert_eq!(SCHEMA_VERSION, 14); // rev7: 0014 adds four defaulted columns, one table and two indexes; M06 wave 5: 0013 rebuilds `remote_widening` (a table 0010 created) with its origin, rows kept; M06 wave 4 (0012 adds one table); M06 wave 3 (0011 adds one table and a defaulted column); M06 wave 2 (0010 adds one table); M06 wave 0 (0009 adds tables only); M04/M05 wave 0 made it 8
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&99u32.to_be_bytes())
@@ -4249,7 +4252,7 @@ mod m02 {
 
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
         assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 13); // M06 wave 5: 0013 rebuilds `remote_widening` (a table 0010 created) with its origin, rows kept; M06 wave 4 (0012 adds one table); M06 wave 3 (0011 adds one table and a defaulted column); M06 wave 2 (0010 adds one table); M06 wave 0 (0009 adds tables only); M04/M05 wave 0 made it 8
+        assert_eq!(SCHEMA_VERSION, 14); // rev7: 0014 adds four defaulted columns, one table and two indexes; M06 wave 5: 0013 rebuilds `remote_widening` (a table 0010 created) with its origin, rows kept; M06 wave 4 (0012 adds one table); M06 wave 3 (0011 adds one table and a defaulted column); M06 wave 2 (0010 adds one table); M06 wave 0 (0009 adds tables only); M04/M05 wave 0 made it 8
         let mut backup = db.as_os_str().to_owned();
         backup.push(".v4.backup");
         assert!(PathBuf::from(backup).exists(), "v4 file backed up first");
