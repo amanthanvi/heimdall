@@ -1,0 +1,127 @@
+{
+ "activate_covered": {
+  "conditions": "end to end including process start: the trusted project's hook, covered by its standing authority",
+  "errors": 0,
+  "max_ms": 75.1,
+  "min_ms": 16.63,
+  "p50_ms": 43.12,
+  "p95_ms": 62.97,
+  "samples": 200
+ },
+ "cli_inspect": {
+  "conditions": "end to end including process start; for information, not the budget",
+  "errors": 0,
+  "max_ms": 6.38,
+  "min_ms": 2.27,
+  "p50_ms": 3.63,
+  "p95_ms": 4.84,
+  "samples": 50
+ },
+ "cli_status": {
+  "conditions": "end to end including process start; for information, not the budget",
+  "errors": 0,
+  "max_ms": 16.25,
+  "min_ms": 10.88,
+  "p50_ms": 14.04,
+  "p95_ms": 15.86,
+  "samples": 50
+ },
+ "destinations": 100,
+ "ensure_replay": {
+  "conditions": "one open control session; the approved request ID replayed (answered from its record); 20 warm-up requests first",
+  "errors": 0,
+  "max_ms": 13.47,
+  "min_ms": 1.48,
+  "p50_ms": 4.19,
+  "p95_ms": 7.54,
+  "samples": 200
+ },
+ "ensure_warm": {
+  "conditions": "THE spec 15.1 row: one open control session; the profile covered by a standing personal policy (access allow); a new request ID each time; 20 warm-up requests first",
+  "errors": 0,
+  "max_ms": 67.33,
+  "min_ms": 11.59,
+  "p50_ms": 31.32,
+  "p95_ms": 49.85,
+  "samples": 200
+ },
+ "finished_at": "2026-11-23T22:58:27Z",
+ "idle": {
+  "cpu_method": "utime+stime ticks of the runtime process over the window",
+  "memory_method": "VmRSS of the runtime process (/proc/<pid>/status)",
+  "settle_s": 600,
+  "windows": [
+   {
+    "cpu_percent_of_one_core": 0.28,
+    "rss_mib": 25.1,
+    "seconds": 300.0,
+    "threads": 4
+   },
+   {
+    "cpu_percent_of_one_core": 0.22,
+    "rss_mib": 25.1,
+    "seconds": 300.0,
+    "threads": 4
+   },
+   {
+    "cpu_percent_of_one_core": 0.207,
+    "rss_mib": 25.1,
+    "seconds": 300.0,
+    "threads": 4
+   }
+  ]
+ },
+ "inspect_first": {
+  "conditions": "the first wrapper request after the world was built, on a new session (one sample)",
+  "errors": 0,
+  "max_ms": 1.71,
+  "min_ms": 1.71,
+  "p50_ms": 1.71,
+  "p95_ms": 1.71,
+  "samples": 1
+ },
+ "inspect_session": {
+  "conditions": "a new control session per sample (connect, hello, request); the runtime warm",
+  "errors": 0,
+  "max_ms": 2.4,
+  "min_ms": 0.88,
+  "p50_ms": 0.97,
+  "p95_ms": 1.53,
+  "samples": 200
+ },
+ "inspect_warm": {
+  "conditions": "one open control session, 20 warm-up requests first; process start excluded",
+  "errors": 0,
+  "max_ms": 2.96,
+  "min_ms": 0.81,
+  "p50_ms": 0.87,
+  "p95_ms": 1.13,
+  "samples": 200
+ },
+ "key_to_first_byte": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn; NO background work (the delaying agent proxy is not wired in this version)",
+  "errors": 0,
+  "max_ms": 2.95,
+  "min_ms": 0.42,
+  "p50_ms": 0.82,
+  "p95_ms": 1.6,
+  "samples": 200
+ },
+ "key_to_frame": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn; NO background work (the delaying agent proxy is not wired in this version); the frame ends at the last byte before 20 ms of quiet",
+  "errors": 0,
+  "max_ms": 3.26,
+  "min_ms": 0.5,
+  "p50_ms": 1.04,
+  "p95_ms": 1.92,
+  "samples": 200
+ },
+ "sample_floor": 200,
+ "schema": "heimdall-m08-bench/1",
+ "started_at": "2026-11-23T21:58:34Z",
+ "tui_first_frame": {
+  "conditions": "spawn to the first frame drawn from the runtime's listings (the Overview's 'N destinations,' line); 120x40 pty",
+  "errors": 200,
+  "samples": 0
+ }
+}
