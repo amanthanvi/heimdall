@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Selection",
+  "description": "The answer to a `select` request.",
+  "type": "object",
+  "properties": {
+    "items": {
+      "description": "The selected items that exist and are visible, each complete.",
+      "type": "array",
+      "items": true
+    },
+    "missing": {
+      "description": "The selector entries that matched nothing visible, as given.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "items"
+  ]
+}

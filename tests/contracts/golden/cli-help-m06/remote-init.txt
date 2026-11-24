@@ -5,10 +5,10 @@ Usage: heimdall remote init [OPTIONS] --owner-client <CLIENT> --owner-key <KEY>
 Options:
       --json                      Machine output: one JSON envelope on stdout (NDJSON for event streams)
       --owner-client <CLIENT>     The client ID the controller records for itself
-      --non-interactive           Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --non-interactive           Never open a browser, dialog, or terminal prompt. Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
       --owner-key <KEY>           The controller's management key (`ssh-ed25519 <base64>`)
       --expect-sha256 <HEX>       The expected SHA-256 of this runner's Heimdall executable (64 lowercase hex): the bootstrap's checksum step; refused before anything is written when it differs
-      --home <DIR>                Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+      --home <DIR>                Use this Heimdall home directory instead of the default [env: HEIMDALL_HOME=]
       --issuer-ca <KEY>           ⟨M06 W3⟩ The controller's CA public key (`ssh-ed25519 <base64>`): trusted for the owner client being enrolled, which also becomes this runner's time source, in the same confirmation. Absent when the controller has no issuer
       --iroh-endpoint <ENDPOINT>  ⟨M06 W3⟩ The controller device's Iroh endpoint ID (64 lowercase hex): the owner client is admitted to this runner over Iroh with it, in the same confirmation. Absent when the controller has no Iroh key. An endpoint already recorded is never replaced
       --offer-runtime-start       ⟨M06 W5; ADR-0012 §2.6, the 2026-11-22 bullets⟩ Passed by a controller's bootstrap (`environment add`): after the enrollment, say plainly whether this runner's runtime is running and, when it is not, offer to start it in this same attended terminal session with a typed `yes` (`service run --runner`, detached). Declined, it prints the next step. Without the flag nothing is offered or started

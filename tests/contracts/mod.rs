@@ -48,6 +48,9 @@ mod m03;
 mod rev5;
 // ⟨rev6⟩ ADR-0006 revision 6 (M06 wave 0).
 mod rev6;
+mod rev7;
+mod rev7_events;
+mod rev7_views;
 mod schema_export;
 
 use std::path::PathBuf;

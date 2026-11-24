@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateStatus",
+  "description": "⟨H3⟩ `heimdall state status`: read-only.",
+  "type": "object",
+  "properties": {
+    "current": {
+      "description": "The current generation's record, when the pointer names a readable one.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GenerationRecord"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "earlier_generations": {
+      "description": "Earlier generations kept as residue, each with its record.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/GenerationRecord"
+      }
+    },
+    "health": {
+      "description": "The store's health.",
+      "$ref": "#/$defs/StateHealth"
+    },
+    "ledger": {
+      "description": "The request ledger's state.",
+      "$ref": "#/$defs/LedgerHealth"
+    },
+    "migration_backups": {
+      "description": "Migration backups present.",
+      "type": "integer",
+      "format": "uint64",
+      "default": 0,
+      "minimum": 0
+    },
+    "schema_version": {
+      "description": "The store's schema version, when readable.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
+    },
+    "staged_leftover": {
+      "description": "A staged generation that never became current (removed at start-up).",
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "health",
+    "ledger"
+  ],
+  "$defs": {
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
+    "GenerationOperation": {
+      "description": "What created a store generation (ADR-0014 §3.6 \"The operation record\").",
+      "oneOf": [
+        {
+          "description": "A fresh installation.",
+          "type": "string",
+          "const": "install"
+        },
+        {
+          "description": "The adoption of an earlier build's flat store.",
+          "type": "string",
+          "const": "adopt"
+        },
+        {
+          "description": "`state restore`.",
+          "type": "string",
+          "const": "restore"
+        },
+        {
+          "description": "`state reset`.",
+          "type": "string",
+          "const": "reset"
+        }
+      ]
+    },
+    "GenerationRecord": {
+      "description": "A store generation's operation record, as `state status` reports it.",
+      "type": "object",
+      "properties": {
+        "backup_sha256": {
+          "description": "The backup it was restored from, by SHA-256, for a restore.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "description": "When.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "environment_id": {
+          "description": "Its environment ID.",
+          "$ref": "#/$defs/EnvironmentId"
+        },
+        "from_generation": {
+          "description": "The generation it replaced, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "generation": {
+          "description": "The generation's unique name.",
+          "type": "string"
+        },
+        "migrations": {
+          "description": "The schema migrations applied to it, in order (store schema versions).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "operation": {
+          "description": "What created it.",
+          "$ref": "#/$defs/GenerationOperation"
+        },
+        "restore_epoch": {
+          "description": "Its restore epoch.",
+          "$ref": "#/$defs/RestoreEpoch"
+        }
+      },
+      "required": [
+        "generation",
+        "operation",
+        "created_at",
+        "environment_id",
+        "restore_epoch"
+      ]
+    },
+    "LedgerHealth": {
+      "description": "The request ledger's state, as `state status` reports it.",
+      "oneOf": [
+        {
+          "description": "Readable; appends proceed.",
+          "type": "string",
+          "const": "ok"
+        },
+        {
+          "description": "A torn tail only, discarded on the next append.",
+          "type": "string",
+          "const": "torn_tail"
+        },
+        {
+          "description": "Damaged: every append is refused until `state repair`.",
+          "type": "string",
+          "const": "damaged"
+        },
+        {
+          "description": "Absent.",
+          "type": "string",
+          "const": "absent"
+        }
+      ]
+    },
+    "RestoreEpoch": {
+      "description": "A restore epoch (ADR-0014 §3.6 \"The restore epoch and the replay fence\"). Every restore\nraises it, durably, before its pointer moves; a store with no restore is at epoch 0, and\nevery reference minted before revision 7's migration belongs to epoch 0.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "StateHealth": {
+      "description": "The state store's health, as `state status` reports it.",
+      "oneOf": [
+        {
+          "description": "Readable, at this build's schema or migratable to it.",
+          "type": "string",
+          "const": "ok"
+        },
+        {
+          "description": "Damaged, or a pointer that is unreadable or names a missing or record-less\ngeneration (`STATE_UNAVAILABLE` / `state_corrupt`).",
+          "type": "string",
+          "const": "corrupt"
+        },
+        {
+          "description": "Newer than this build (`STATE_UNAVAILABLE` / `state_newer_than_build`).",
+          "type": "string",
+          "const": "newer_than_build"
+        }
+      ]
+    }
+  }
+}

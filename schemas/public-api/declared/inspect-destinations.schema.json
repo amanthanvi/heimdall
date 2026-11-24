@@ -1,0 +1,801 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DestinationListView",
+  "description": "`inspect destinations` data: every catalog destination.",
+  "type": "object",
+  "properties": {
+    "items": {
+      "description": "Every destination, ordered by ID.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DestinationView"
+      }
+    },
+    "preview": {
+      "description": "`inspect --preview`'s result. Omitted without a preview.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreviewView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "AliasDefinition": {
+      "description": "How an alias is defined.",
+      "oneOf": [
+        {
+          "description": "Rendered by Heimdall into P.",
+          "type": "string",
+          "const": "managed"
+        },
+        {
+          "description": "A catalog destination whose definition stays in the user's file.",
+          "type": "string",
+          "const": "observed"
+        },
+        {
+          "description": "Only in the user's configuration; not in the catalog.",
+          "type": "string",
+          "const": "user_only"
+        }
+      ]
+    },
+    "Capability": {
+      "description": "Credential capabilities a caller may request (spec §7.2).",
+      "oneOf": [
+        {
+          "description": "SSH user authentication.",
+          "type": "string",
+          "const": "ssh-authentication"
+        },
+        {
+          "description": "Git commit/tag signing (never implied by authentication; spec §7.2).",
+          "type": "string",
+          "const": "git-signing"
+        },
+        {
+          "description": "Agent forwarding (explicit, disabled by default; spec §8.5).",
+          "type": "string",
+          "const": "agent-forwarding"
+        }
+      ]
+    },
+    "Code": {
+      "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "OK"
+        },
+        {
+          "type": "string",
+          "const": "ACCESS_READY"
+        },
+        {
+          "type": "string",
+          "const": "ACCEPTED"
+        },
+        {
+          "type": "string",
+          "const": "APPROVAL_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "INTERACTION_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "PROVIDER_LOCKED"
+        },
+        {
+          "type": "string",
+          "const": "CAPABILITY_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_PAUSED"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_CUTOFF"
+        },
+        {
+          "type": "string",
+          "const": "CREDENTIAL_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "HOST_TRUST_CHANGED"
+        },
+        {
+          "type": "string",
+          "const": "DELEGATION_EXCEEDS_PARENT"
+        },
+        {
+          "type": "string",
+          "const": "OPERATION_CANCELLED"
+        },
+        {
+          "type": "string",
+          "const": "DESTINATION_UNREACHABLE"
+        },
+        {
+          "type": "string",
+          "const": "TIME_UNCERTAIN"
+        },
+        {
+          "type": "string",
+          "const": "UNSUPPORTED_CLIENT"
+        },
+        {
+          "type": "string",
+          "const": "SERVICE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "STATE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "BACKPRESSURE"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "CONFIG_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "RESYNC_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "DECISION_STALE"
+        },
+        {
+          "type": "string",
+          "const": "OUTCOME_UNKNOWN"
+        },
+        {
+          "type": "string",
+          "const": "USAGE_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "SCHEMA_UNSUPPORTED"
+        },
+        {
+          "type": "string",
+          "const": "NOT_FOUND"
+        },
+        {
+          "type": "string",
+          "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
+        }
+      ]
+    },
+    "ConnectionPolicyReport": {
+      "description": "`EnsureData.connection_policy` (§5 item 7; ADR-0008 D8 item 6).",
+      "type": "object",
+      "properties": {
+        "existing": {
+          "description": "Effective existing-connections mode.",
+          "$ref": "#/$defs/ExistingConnectionsMode"
+        },
+        "multiplexing": {
+          "description": "Effective multiplexing.",
+          "$ref": "#/$defs/MultiplexingMode"
+        },
+        "wording": {
+          "description": "The exact D8 disclosure sentence(s): human text, not a code.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "existing",
+        "multiplexing",
+        "wording"
+      ]
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
+    "DestinationPreferenceView": {
+      "description": "⟨M03⟩ A managed destination's pair preference.",
+      "type": "object",
+      "properties": {
+        "connection_policy": {
+          "description": "⟨M03; ADR-0008 §17.25 item 19⟩ The effective connection policy and its wording, for\na `managed_certificate` preference a standing policy covers. Omitted otherwise, and\nwhen the runtime has no wording source.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectionPolicyReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mechanism": {
+          "description": "The preferred mechanism.",
+          "$ref": "#/$defs/PreferredMechanism"
+        },
+        "projection": {
+          "description": "Whether the projection that renders it is applied.",
+          "$ref": "#/$defs/PairProjectionStatus"
+        }
+      },
+      "required": [
+        "mechanism",
+        "projection"
+      ]
+    },
+    "DestinationView": {
+      "description": "One catalog destination: its catalog fields, a managed definition's rendered fields,\nand, from the runtime, the latest route-health report of the route helper.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Managed: `User`. Omitted for an observed destination.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccountName"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alias": {
+          "description": "Its OpenSSH alias.",
+          "type": "string"
+        },
+        "definition": {
+          "description": "`managed` (rendered into the managed file) or `observed`.",
+          "$ref": "#/$defs/AliasDefinition"
+        },
+        "destination_id": {
+          "description": "The destination.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "host_pin_defeated": {
+          "description": "⟨M06 W5; D11⟩ The SSH setting the route helper found defeating the catalog host-key\npin, from the same report. Added by the same dispatcher step. Omitted when there is\nno report, or the report names none.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostPinDefeatedView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hostname": {
+          "description": "Managed: `HostName`. Omitted for an observed destination.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "identity_id": {
+          "description": "Managed: the adopted identity the alias uses. Omitted for an observed destination.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdentityId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "jump": {
+          "description": "⟨M04⟩ Managed: the single-hop jump destination. Omitted without one.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DestinationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "label": {
+          "description": "The owner's label. Omitted when none is set (today: `null`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "port": {
+          "description": "Managed: `Port`, when not ssh's default. Omitted otherwise (today: `null` for a\nmanaged destination without one).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "preference": {
+          "description": "⟨M03⟩ Managed: the stored pair preference. Omitted without a stored row, and for an\nobserved destination.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DestinationPreferenceView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "description": "Its catalog revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "route_health": {
+          "description": "⟨M06 W5; D11⟩ The per-pair route status: the route helper's latest report with at\nleast one attempt. Added today by the runtime's dispatcher\n(`heimdall_runtime::dispatch::add_route_health`), not by the inspect builder.\nOmitted when there is no report.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RouteHealthView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "updated_at": {
+          "description": "When it was last written.",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "destination_id",
+        "alias",
+        "revision",
+        "updated_at",
+        "definition"
+      ]
+    },
+    "ExistingConnectionsMode": {
+      "description": "What happens to owned dedicated connections at the admission deadline (ADR-0008\nD8 item 1). `strict` is narrowing; `graceful` (the default) is widening.",
+      "oneOf": [
+        {
+          "description": "Existing dedicated sessions may stay connected (spec §6.6 default).",
+          "type": "string",
+          "const": "graceful"
+        },
+        {
+          "description": "Owned connections are closed at the deadline.",
+          "type": "string",
+          "const": "strict"
+        }
+      ]
+    },
+    "HostPinDefeatedView": {
+      "description": "⟨M06 W5; D11⟩ The setting that defeated the destination's catalog host-key pin.",
+      "type": "object",
+      "properties": {
+        "reported_at": {
+          "description": "When it was reported.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "setting": {
+          "description": "One of [`crate::route::HOST_PIN_SETTINGS`].",
+          "type": "string"
+        }
+      },
+      "required": [
+        "setting",
+        "reported_at"
+      ]
+    },
+    "IdentityId": {
+      "description": "Adopted existing-access identity in the catalog (ADR-0007 §7; m02-plan §5\nitem 1). Runtime-generated at adoption; never derived from key material.",
+      "type": "string"
+    },
+    "MultiplexingMode": {
+      "description": "Owned multiplex masters (ADR-0008 D8 item 3). `disabled` is the default and\nnarrowing; `owned_masters` is widening.",
+      "oneOf": [
+        {
+          "description": "No master; P renders `ControlPath none`.",
+          "type": "string",
+          "const": "disabled"
+        },
+        {
+          "description": "The supervisor runs one owned master per pair slot.",
+          "type": "string",
+          "const": "owned_masters"
+        }
+      ]
+    },
+    "PairProjectionStatus": {
+      "description": "Whether the projection that renders a pair's preference is applied. Tagged by `state`.",
+      "oneOf": [
+        {
+          "description": "Not yet applied (`setup apply` pending).",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "pending"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "Applied at this projection generation.",
+          "type": "object",
+          "properties": {
+            "generation": {
+              "description": "The projection generation.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "state": {
+              "type": "string",
+              "const": "applied"
+            }
+          },
+          "required": [
+            "state",
+            "generation"
+          ]
+        }
+      ]
+    },
+    "PreferredMechanism": {
+      "description": "The pair mechanism a `SetPreference` catalog action selects.",
+      "oneOf": [
+        {
+          "description": "Managed certificates (needs a verified enrollment: `pair_not_enrolled`).",
+          "type": "string",
+          "const": "managed_certificate"
+        },
+        {
+          "description": "The adopted existing identity.",
+          "type": "string",
+          "const": "existing"
+        }
+      ]
+    },
+    "PreviewSnapshot": {
+      "description": "What a preview would resolve.",
+      "type": "object",
+      "properties": {
+        "deadline": {
+          "description": "The deadline that would be enforced.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "mechanism": {
+          "description": "The mechanism that would serve it. Omitted when no adapter is resolved (today:\n`null`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile": {
+          "description": "The profile.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "profile_revision": {
+          "description": "Its current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "requested": {
+          "description": "The requested scope.",
+          "$ref": "#/$defs/ScopeView"
+        }
+      },
+      "required": [
+        "profile",
+        "profile_revision",
+        "requested",
+        "deadline"
+      ]
+    },
+    "PreviewView": {
+      "description": "`inspect --preview`'s `preview` key: resolution without effects, added to the data of\nany subject but `export` when the request carries `preview`. Tagged by `outcome`.",
+      "oneOf": [
+        {
+          "description": "Existing authority covers the request.",
+          "type": "object",
+          "properties": {
+            "effective": {
+              "description": "The effective authority (the domain `EffectiveAuthority`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "allowed"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "effective"
+          ]
+        },
+        {
+          "description": "Only the delta needs an owner decision.",
+          "type": "object",
+          "properties": {
+            "covered": {
+              "description": "What existing authority already covers (the domain `EffectiveAuthority`,\nverbatim). Omitted when nothing is covered (today: `null`)."
+            },
+            "delta": {
+              "description": "What needs a decision (the domain `AuthorityDelta`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "approval_required"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "delta"
+          ]
+        },
+        {
+          "description": "Refused.",
+          "type": "object",
+          "properties": {
+            "code": {
+              "description": "The refusal's code.",
+              "$ref": "#/$defs/Code"
+            },
+            "message": {
+              "description": "The refusal's message.",
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "denied"
+            }
+          },
+          "required": [
+            "outcome",
+            "code",
+            "message"
+          ]
+        }
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "RouteAttempt": {
+      "description": "One tried route of an attempt.",
+      "type": "object",
+      "properties": {
+        "duration_ms": {
+          "description": "⟨rev6.5; ADR-0006 §18.9 item 11⟩ How long the attempt took, in milliseconds, at\nmost [`ROUTE_ATTEMPT_DURATION_MAX_MS`]; omitted when it was not measured.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "maximum": 600000,
+          "minimum": 0
+        },
+        "failure": {
+          "description": "Its failure; absent when this route was used.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RouteFailureClass"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "route": {
+          "description": "The route.",
+          "$ref": "#/$defs/RouteId"
+        }
+      },
+      "required": [
+        "route"
+      ]
+    },
+    "RouteEventKind": {
+      "description": "What a `route` event reports.",
+      "oneOf": [
+        {
+          "description": "`route.health`: one attempt's structured result, written for every attempt.",
+          "type": "string",
+          "const": "health"
+        },
+        {
+          "description": "`route.failed_over`: the subtype of `route.health` for an attempt that moved past\na failed route.",
+          "type": "string",
+          "const": "failed_over"
+        }
+      ]
+    },
+    "RouteFailureClass": {
+      "description": "Why one route attempt failed (ADR-0012 §5.5 item 4).",
+      "oneOf": [
+        {
+          "description": "Connect refused (or the jump leg exited) before identification.",
+          "type": "string",
+          "const": "refused"
+        },
+        {
+          "description": "Connect timed out.",
+          "type": "string",
+          "const": "timeout"
+        },
+        {
+          "description": "No SSH identification line within the route's bound.",
+          "type": "string",
+          "const": "identification_timeout"
+        },
+        {
+          "description": "The Iroh serving side refused admission before identification.",
+          "type": "string",
+          "const": "admission_refused"
+        },
+        {
+          "description": "A failure after the first forwarded byte: terminal for the attempt, never failed\nover.",
+          "type": "string",
+          "const": "terminal_after_forwarding"
+        },
+        {
+          "description": "⟨rev6.1⟩ The jump leg failed SSH host-key verification or authentication at the jump\nhost before identification: terminal, never failed over (ADR-0012 §5.5 item 3).",
+          "type": "string",
+          "const": "authentication_or_trust"
+        },
+        {
+          "description": "⟨M06 exit, Q-B⟩ The leg's driver is not in this build (an Iroh leg in a build without\nthe `iroh` feature): never dialed, failed over.",
+          "type": "string",
+          "const": "driver_unavailable"
+        }
+      ]
+    },
+    "RouteHealthPayload": {
+      "description": "Payload of `EventType::Route` (not emitted by wave 0), also readable through\n`inspect`. The helper's exit codes stay internal (ADR-0012 §1.5).",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "The account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "attempts": {
+          "description": "Each tried route, in order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RouteAttempt"
+          }
+        },
+        "destination": {
+          "description": "The destination.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "final_route": {
+          "description": "The route finally used; absent when none was.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RouteId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "description": "The kind.",
+          "$ref": "#/$defs/RouteEventKind"
+        }
+      },
+      "required": [
+        "kind",
+        "destination",
+        "account",
+        "attempts"
+      ]
+    },
+    "RouteHealthView": {
+      "description": "⟨M06 W5; D11⟩ The route helper's latest report for a destination.",
+      "type": "object",
+      "properties": {
+        "reported_at": {
+          "description": "When it was reported.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "result": {
+          "description": "The attempt's structured result (ADR-0012 §5.5 item 4).",
+          "$ref": "#/$defs/RouteHealthPayload"
+        }
+      },
+      "required": [
+        "result",
+        "reported_at"
+      ]
+    },
+    "RouteId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §5.1): one approved route of a destination. Reachability\ndata only; a route grants nothing and never changes host identity.",
+      "type": "string"
+    },
+    "ScopeView": {
+      "description": "A set of destination/account pairs and the capabilities permitted on them, as views\nshow a scope (the domain `Scope`'s wire form: two arrays, each sorted and unique).",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "description": "Capabilities permitted on every pair.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        },
+        "pairs": {
+          "description": "Destination/account pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        }
+      },
+      "required": [
+        "pairs",
+        "capabilities"
+      ]
+    }
+  }
+}

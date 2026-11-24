@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EventSnapshot",
+  "description": "⟨rev7⟩ The typed `data` of a whole snapshot (ADR-0013 §5.5, D4): read in one store\ntransaction at the head boundary, whole or refused. Each section holds exactly what the\nsubscription's log and visibility deliver, and a section the filter cannot maintain is\nomitted: `operations` only if the filter admits `operation_state_changed`,\n`pending_decisions` only if it admits `decision` (owner role only), and only `operation`\nwith `filter.operation_id`. Its items are the typed operation and decision views.",
+  "type": "object",
+  "properties": {
+    "authority_generation": {
+      "description": "The authority generation at the head boundary.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "environment_id": {
+      "description": "The environment the snapshot is of.",
+      "$ref": "#/$defs/EnvironmentId"
+    },
+    "operation": {
+      "description": "The one operation `filter.operation_id` names."
+    },
+    "operations": {
+      "description": "The open and unresolved operations the reader may see, at most\n[`SNAPSHOT_OPERATIONS_MAX`].",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": true
+    },
+    "pending_decisions": {
+      "description": "The pending decisions (owner role only), at most [`SNAPSHOT_DECISIONS_MAX`].",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": true
+    }
+  },
+  "required": [
+    "environment_id",
+    "authority_generation"
+  ],
+  "$defs": {
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    }
+  }
+}

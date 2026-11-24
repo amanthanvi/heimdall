@@ -1,0 +1,791 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WithPreview",
+  "description": "⟨rev7⟩ A subject's view typed elsewhere, with `inspect --preview`'s `preview` key beside\nits own keys (the ruling of 2026-11-24 on D1 question 5): the view's keys are flattened, so\nthe document is one flat object, and `preview` is omitted without a preview.",
+  "type": "object",
+  "properties": {
+    "enrollments": {
+      "description": "One entry per record.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EnrollmentView"
+      }
+    },
+    "preview": {
+      "description": "`inspect --preview`'s result. Omitted without a preview.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreviewView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "enrollments"
+  ],
+  "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "CaFingerprint": {
+      "description": "⟨M03⟩ A CA public key's fingerprint: `SHA256:` followed by exactly 43 characters\nof unpadded standard base64 (`A-Za-z0-9+/`), as `ssh-keygen -l` prints it\n(m03-plan §5 item 1). Validated on parse and on decode; compared exactly.",
+      "type": "string"
+    },
+    "Capability": {
+      "description": "Credential capabilities a caller may request (spec §7.2).",
+      "oneOf": [
+        {
+          "description": "SSH user authentication.",
+          "type": "string",
+          "const": "ssh-authentication"
+        },
+        {
+          "description": "Git commit/tag signing (never implied by authentication; spec §7.2).",
+          "type": "string",
+          "const": "git-signing"
+        },
+        {
+          "description": "Agent forwarding (explicit, disabled by default; spec §8.5).",
+          "type": "string",
+          "const": "agent-forwarding"
+        }
+      ]
+    },
+    "ClockMeasurement": {
+      "description": "A destination clock measurement (ADR-0008 D5 §6.5 item 4): the destination's\nclock lags local time by at most `behind_upper_ms`.",
+      "type": "object",
+      "properties": {
+        "behind_upper_ms": {
+          "description": "Upper bound of the destination clock's lag, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "measured_at": {
+          "description": "When measured (local wall time).",
+          "type": "string",
+          "format": "date-time"
+        },
+        "rtt_ms": {
+          "description": "Round trip of the measurement, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "behind_upper_ms",
+        "rtt_ms",
+        "measured_at"
+      ]
+    },
+    "Code": {
+      "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "OK"
+        },
+        {
+          "type": "string",
+          "const": "ACCESS_READY"
+        },
+        {
+          "type": "string",
+          "const": "ACCEPTED"
+        },
+        {
+          "type": "string",
+          "const": "APPROVAL_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "INTERACTION_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "PROVIDER_LOCKED"
+        },
+        {
+          "type": "string",
+          "const": "CAPABILITY_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_PAUSED"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_CUTOFF"
+        },
+        {
+          "type": "string",
+          "const": "CREDENTIAL_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "HOST_TRUST_CHANGED"
+        },
+        {
+          "type": "string",
+          "const": "DELEGATION_EXCEEDS_PARENT"
+        },
+        {
+          "type": "string",
+          "const": "OPERATION_CANCELLED"
+        },
+        {
+          "type": "string",
+          "const": "DESTINATION_UNREACHABLE"
+        },
+        {
+          "type": "string",
+          "const": "TIME_UNCERTAIN"
+        },
+        {
+          "type": "string",
+          "const": "UNSUPPORTED_CLIENT"
+        },
+        {
+          "type": "string",
+          "const": "SERVICE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "STATE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "BACKPRESSURE"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "CONFIG_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "RESYNC_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "DECISION_STALE"
+        },
+        {
+          "type": "string",
+          "const": "OUTCOME_UNKNOWN"
+        },
+        {
+          "type": "string",
+          "const": "USAGE_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "SCHEMA_UNSUPPORTED"
+        },
+        {
+          "type": "string",
+          "const": "NOT_FOUND"
+        },
+        {
+          "type": "string",
+          "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
+        }
+      ]
+    },
+    "DestinationClock": {
+      "description": "A pair's destination clock (ADR-0008 D7 item 3). Wire forms:\n`{\"measured\":{…}}` or `\"unmeasured\"`. Per pair the weakest is shown.",
+      "oneOf": [
+        {
+          "description": "A fresh measurement exists.",
+          "type": "object",
+          "properties": {
+            "measured": {
+              "$ref": "#/$defs/ClockMeasurement"
+            }
+          },
+          "required": [
+            "measured"
+          ]
+        },
+        {
+          "description": "No (fresh) measurement.",
+          "type": "string",
+          "const": "unmeasured"
+        }
+      ]
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
+    "EnrollmentForm": {
+      "description": "The trust form (ADR-0008 D5 §6.1, §6.9).",
+      "oneOf": [
+        {
+          "description": "A `cert-authority` line in the account's registry (the default).",
+          "type": "string",
+          "const": "account"
+        },
+        {
+          "description": "`TrustedUserCAKeys` plus `AuthorizedPrincipalsFile`, applied by the owner.",
+          "type": "string",
+          "const": "system"
+        }
+      ]
+    },
+    "EnrollmentHoldView": {
+      "description": "⟨ADR-0008 §17.25 item 4⟩ `EnrollmentView.hold`: why a record is `held`, and the\nowner's next step.",
+      "type": "object",
+      "properties": {
+        "next": {
+          "description": "The owner's next step: the commands (or manual instruction) that leave the\nhold, in the order shown. Omitted when empty.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "description": "The record's `hold.reason`: the `snake_case` wire name of\n`heimdall_domain::enrollment::HoldReason` (`principals_not_enforced`,\n`positive_refused`, `host_key_changed`, `lock_holder_unresolved`,\n`registry_line_damaged`, `registry_changed`, `registry_not_rewritable`,\n`post_write_check_failed`). A string, as `data.error.reason` is: readers\ntolerate unknown values.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    },
+    "EnrollmentId": {
+      "description": "⟨M03⟩ Enrollment record ID (m03-plan §5 item 1; ADR-0008 D5 §6.2). The remote\nmarker is `heimdall:<enrollment-id>`, so the ID is the add's idempotency key.",
+      "type": "string"
+    },
+    "EnrollmentState": {
+      "description": "The enrollment record's state (ADR-0008 D5 §6.2; revision 2's 20 states). The\nallowed transitions are `heimdall_domain::enrollment::transition`.",
+      "oneOf": [
+        {
+          "description": "Operation admitted, awaiting the owner decision.",
+          "type": "string",
+          "const": "planned"
+        },
+        {
+          "description": "The approved operation is running; nothing remote is known written.",
+          "type": "string",
+          "const": "applying"
+        },
+        {
+          "description": "The append may or may not have applied.",
+          "type": "string",
+          "const": "outcome_unknown"
+        },
+        {
+          "description": "Our marker or trust is present but wrong, or a check needs the owner.",
+          "type": "string",
+          "const": "held"
+        },
+        {
+          "description": "The exact line is present; no verification has passed yet.",
+          "type": "string",
+          "const": "applied_unverified"
+        },
+        {
+          "description": "System form: waiting for the owner to apply the sshd lines.",
+          "type": "string",
+          "const": "manual_pending"
+        },
+        {
+          "description": "The initial verification is running.",
+          "type": "string",
+          "const": "verifying"
+        },
+        {
+          "description": "Positive passed and negative refused with full evidence.",
+          "type": "string",
+          "const": "verified"
+        },
+        {
+          "description": "A later verification is running; never removes anything.",
+          "type": "string",
+          "const": "reverifying"
+        },
+        {
+          "description": "The initial verification failed; removing our line under the decision.",
+          "type": "string",
+          "const": "rollback_pending"
+        },
+        {
+          "description": "The rollback's removal may or may not have applied (rollback purpose).",
+          "type": "string",
+          "const": "rollback_unknown"
+        },
+        {
+          "description": "An explicit owner-decided removal is running.",
+          "type": "string",
+          "const": "removing"
+        },
+        {
+          "description": "The explicit removal may or may not have applied (removal purpose).",
+          "type": "string",
+          "const": "remove_unknown"
+        },
+        {
+          "description": "System form: the owner is to remove the sshd lines.",
+          "type": "string",
+          "const": "manual_removal_pending"
+        },
+        {
+          "description": "System form: the absence check runs.",
+          "type": "string",
+          "const": "removal_verifying"
+        },
+        {
+          "description": "Final: the rollback removed our line.",
+          "type": "string",
+          "const": "verification_failed"
+        },
+        {
+          "description": "Final: removed (system form: absence verified).",
+          "type": "string",
+          "const": "removed"
+        },
+        {
+          "description": "Final: nothing of ours remains as last observed.",
+          "type": "string",
+          "const": "withdrawn"
+        },
+        {
+          "description": "Final: refused before any write.",
+          "type": "string",
+          "const": "failed_unwritten"
+        },
+        {
+          "description": "The owner gave the account up; trust may remain (`pending_until_line_removed`).",
+          "type": "string",
+          "const": "abandoned"
+        }
+      ]
+    },
+    "EnrollmentView": {
+      "description": "One enrollment record in `inspect enrollments` (§5 item 3).",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "approved_target": {
+          "description": "The approved target.",
+          "$ref": "#/$defs/TargetSummary"
+        },
+        "ca_fingerprint": {
+          "description": "CA.",
+          "$ref": "#/$defs/CaFingerprint"
+        },
+        "destination_clock": {
+          "description": "The pair's clock.",
+          "$ref": "#/$defs/DestinationClock",
+          "default": "unmeasured"
+        },
+        "destination_id": {
+          "description": "Destination.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "enrollment_id": {
+          "description": "Enrollment.",
+          "$ref": "#/$defs/EnrollmentId"
+        },
+        "evidence_fresh_until": {
+          "description": "Evidence fresh until.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "form": {
+          "description": "Form.",
+          "$ref": "#/$defs/EnrollmentForm"
+        },
+        "hold": {
+          "description": "⟨ADR-0008 §17.25 item 4⟩ A `held` record's reason and next step, computed by\nthe app from the record's `hold`, so `enroll status` and the TUI show the\nsame commands. Additive: omitted when absent (every record that is not\n`held`, and a runtime that predates it).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnrollmentHoldView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "live_grants": {
+          "description": "Live grants under this enrollment's CA for the pair.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/GrantId"
+          }
+        },
+        "marker": {
+          "description": "Marker.",
+          "type": "string"
+        },
+        "open_operation_id": {
+          "description": "The open operation.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pair_residual_until": {
+          "description": "Per-pair residual (ADR-0008 D7 item 4).",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "possible_late_write": {
+          "description": "The `late_write` residual exists.",
+          "type": "boolean"
+        },
+        "registry": {
+          "description": "Registry (display).",
+          "$ref": "#/$defs/RegistryRef"
+        },
+        "removal_purpose": {
+          "description": "Removal purpose for `rollback_*` and `remove*` states.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RemovalPurpose"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "residual_status": {
+          "description": "The residual status.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResidualStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "description": "State.",
+          "$ref": "#/$defs/EnrollmentState"
+        },
+        "verified_at": {
+          "description": "When verified.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "enrollment_id",
+        "destination_id",
+        "account",
+        "form",
+        "ca_fingerprint",
+        "marker",
+        "state",
+        "registry",
+        "approved_target"
+      ]
+    },
+    "GrantId": {
+      "description": "Grant ID (spec §4.1 \"Grant\").",
+      "type": "string"
+    },
+    "OperationId": {
+      "description": "Durable operation ID (spec §4.1 \"Operation\").",
+      "type": "string"
+    },
+    "PreviewSnapshot": {
+      "description": "What a preview would resolve.",
+      "type": "object",
+      "properties": {
+        "deadline": {
+          "description": "The deadline that would be enforced.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "mechanism": {
+          "description": "The mechanism that would serve it. Omitted when no adapter is resolved (today:\n`null`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile": {
+          "description": "The profile.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "profile_revision": {
+          "description": "Its current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "requested": {
+          "description": "The requested scope.",
+          "$ref": "#/$defs/ScopeView"
+        }
+      },
+      "required": [
+        "profile",
+        "profile_revision",
+        "requested",
+        "deadline"
+      ]
+    },
+    "PreviewView": {
+      "description": "`inspect --preview`'s `preview` key: resolution without effects, added to the data of\nany subject but `export` when the request carries `preview`. Tagged by `outcome`.",
+      "oneOf": [
+        {
+          "description": "Existing authority covers the request.",
+          "type": "object",
+          "properties": {
+            "effective": {
+              "description": "The effective authority (the domain `EffectiveAuthority`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "allowed"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "effective"
+          ]
+        },
+        {
+          "description": "Only the delta needs an owner decision.",
+          "type": "object",
+          "properties": {
+            "covered": {
+              "description": "What existing authority already covers (the domain `EffectiveAuthority`,\nverbatim). Omitted when nothing is covered (today: `null`)."
+            },
+            "delta": {
+              "description": "What needs a decision (the domain `AuthorityDelta`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "approval_required"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "delta"
+          ]
+        },
+        {
+          "description": "Refused.",
+          "type": "object",
+          "properties": {
+            "code": {
+              "description": "The refusal's code.",
+              "$ref": "#/$defs/Code"
+            },
+            "message": {
+              "description": "The refusal's message.",
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "denied"
+            }
+          },
+          "required": [
+            "outcome",
+            "code",
+            "message"
+          ]
+        }
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "RegistryRef": {
+      "description": "A registry for people: its display path (always `/` separators; never parsed\nback) and how it was resolved.",
+      "type": "object",
+      "properties": {
+        "path_display": {
+          "description": "Display form only.",
+          "type": "string"
+        },
+        "resolved_by": {
+          "description": "Resolution.",
+          "$ref": "#/$defs/RegistryResolvedBy"
+        }
+      },
+      "required": [
+        "path_display",
+        "resolved_by"
+      ]
+    },
+    "RegistryResolvedBy": {
+      "description": "How a registry path was resolved (ADR-0008 D5 §6.1).",
+      "oneOf": [
+        {
+          "description": "Given explicitly (`--registry-path`).",
+          "type": "string",
+          "const": "explicit"
+        },
+        {
+          "description": "`$HOME/.ssh/authorized_keys` on the remote.",
+          "type": "string",
+          "const": "remote_home"
+        }
+      ]
+    },
+    "RemovalPurpose": {
+      "description": "Why a record is in a removal state.",
+      "oneOf": [
+        {
+          "description": "A failed initial verification's rollback (`rollback_*`).",
+          "type": "string",
+          "const": "rollback"
+        },
+        {
+          "description": "An explicit owner-decided removal (`remove*`).",
+          "type": "string",
+          "const": "explicit_removal"
+        }
+      ]
+    },
+    "ResidualStatus": {
+      "description": "A remote residual's status (ADR-0008 D7 item 3; §17.1 item 10).",
+      "oneOf": [
+        {
+          "description": "Before the completion bound (or, unmeasured, before `latest_valid_before`).",
+          "type": "string",
+          "const": "pending_until"
+        },
+        {
+          "description": "Measured, and the bound passed on safe time: closed.",
+          "type": "string",
+          "const": "bounded_complete"
+        },
+        {
+          "description": "Unmeasured, and `latest_valid_before` passed on safe time. Never shown as\ncleared.",
+          "type": "string",
+          "const": "nominally_expired"
+        },
+        {
+          "description": "No bound exists (a key-only restore).",
+          "type": "string",
+          "const": "unbounded_unknown"
+        }
+      ]
+    },
+    "ScopeView": {
+      "description": "A set of destination/account pairs and the capabilities permitted on them, as views\nshow a scope (the domain `Scope`'s wire form: two arrays, each sorted and unique).",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "description": "Capabilities permitted on every pair.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        },
+        "pairs": {
+          "description": "Destination/account pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        }
+      },
+      "required": [
+        "pairs",
+        "capabilities"
+      ]
+    },
+    "TargetSummary": {
+      "description": "The approved target in a view: host, port, user and host-key fingerprint.",
+      "type": "object",
+      "properties": {
+        "host_key_fingerprint": {
+          "description": "The host key's fingerprint.",
+          "type": "string"
+        },
+        "hostname": {
+          "description": "`HostName`.",
+          "type": "string"
+        },
+        "port": {
+          "description": "`Port`.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "user": {
+          "description": "`User`.",
+          "$ref": "#/$defs/AccountName"
+        }
+      },
+      "required": [
+        "hostname",
+        "port",
+        "user",
+        "host_key_fingerprint"
+      ]
+    }
+  }
+}

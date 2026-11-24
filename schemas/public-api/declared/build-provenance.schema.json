@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BuildProvenance",
+  "description": "⟨H7⟩ What build this is (ADR-0014 §4.4): in the version output and `inspect\ncapabilities` once attached (U3).",
+  "type": "object",
+  "properties": {
+    "commit": {
+      "description": "The source commit, 40 lowercase hex.",
+      "type": "string"
+    },
+    "features": {
+      "description": "The enabled cargo features, sorted.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "profile": {
+      "description": "The cargo profile (`release`, `debug`).",
+      "type": "string"
+    },
+    "target": {
+      "description": "The target triple.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "commit",
+    "target",
+    "profile"
+  ]
+}

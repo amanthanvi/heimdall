@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ResponseTooLarge",
+  "description": "⟨rev7⟩ The typed detail of a `USAGE_ERROR` / `response_too_large` refusal (ADR-0013 §4,\nD19). **Standalone, not attached:** `ErrorDetail` gains these fields in the change that\nemits them (U3, PC4), with the CLI and the wrapper.",
+  "type": "object",
+  "properties": {
+    "limit_bytes": {
+      "description": "The frame or budget limit the answer would exceed, in bytes.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "narrow": {
+      "description": "The narrowing to use (`filter.operation_id`, `filter.types`, `select`, `page`).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "resource": {
+      "description": "A legacy over-limit item met by a page or a point `inspect`, by ID, with its\nremediation through the existing catalog command.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResourceRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "section": {
+      "description": "The section that is over its cap (a snapshot's `operations`, `pending_decisions`).",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "limit_bytes"
+  ],
+  "$defs": {
+    "ResourceRef": {
+      "description": "A reference to the resource an error concerns. Opaque IDs only; never a secret.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Opaque identifier, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "Resource kind (`operation`, `binding`, `grant`, `policy`, `destination`,\n`environment`, `endpoint`, `config`, `store`, `clock`, `decision`, and\nsince M02 `projection`, `identity`, `provider`, `executable`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    }
+  }
+}

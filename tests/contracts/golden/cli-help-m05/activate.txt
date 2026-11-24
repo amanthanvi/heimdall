@@ -1,11 +1,10 @@
-Activate the profile the working directory's workspace names; the shell hook (M05; ADR-0011 §3.2)
+Activate the profile the working directory's workspace names; the shell hook
 
 Usage: heimdall activate [OPTIONS] --cwd <PATH>
 
 Options:
-      --hook             Run as the shell hook: noninteractive, never prompts, activates only what is already covered
       --json             Machine output: one JSON envelope on stdout (NDJSON for event streams)
       --cwd <PATH>       The directory the shell is in
-      --non-interactive  Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
-      --home <DIR>       Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+      --non-interactive  Never open a browser, dialog, or terminal prompt. Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --home <DIR>       Use this Heimdall home directory instead of the default [env: HEIMDALL_HOME=]
   -h, --help             Print help

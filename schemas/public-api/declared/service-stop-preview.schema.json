@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StopPreview",
+  "description": "⟨H2⟩ What stopping the runtime interrupts (ADR-0014 §3.2 item 2, §3.3): read-only,\ncomplete, changes nothing. An emergency restart prints the same list.",
+  "type": "object",
+  "properties": {
+    "environment_endpoints": {
+      "description": "WSL bridges and container endpoints that become unavailable inside their\nenvironment.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/StopPreviewItem"
+      }
+    },
+    "held_bindings": {
+      "description": "Bindings with a live holder: the child keeps running, its endpoint is gone until\nrestart.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "in_memory_keys": {
+      "description": "Working keys held only in memory: gone, re-issued within their terms after restart.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "issuer_key_access": {
+      "description": "The macOS note: the issuer may lose access to its CA key after an update of a build\nwithout a Developer ID signature, and whether an offline backup is recorded.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IssuerKeyAccessNote"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "migration_backups": {
+      "description": "Migration backups present (residue, ADR-0014 §3.4).",
+      "type": "integer",
+      "format": "uint64",
+      "default": 0,
+      "minimum": 0
+    },
+    "open_operations": {
+      "description": "Operations not yet terminal: they settle or are reported, and are recovered or\nreported after restart.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "owned_connections": {
+      "description": "Owned multiplexing masters and dedicated connections, and what happens to each.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/StopPreviewItem"
+      }
+    },
+    "remote": {
+      "description": "The transport and runner state that stops (a served Iroh endpoint; a runner issues\nnothing while down).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/StopPreviewItem"
+      }
+    },
+    "running": {
+      "description": "Whether a runtime is serving now (nothing is interrupted when none is).",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "running",
+    "open_operations",
+    "held_bindings",
+    "in_memory_keys"
+  ],
+  "$defs": {
+    "IssuerKeyAccessNote": {
+      "description": "The macOS update note of a [`StopPreview`].",
+      "type": "object",
+      "properties": {
+        "may_lose_access": {
+          "description": "Whether the issuer may lose access to its CA key after an update.",
+          "type": "boolean"
+        },
+        "offline_backup_recorded": {
+          "description": "Whether an offline recovery bundle is recorded.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "may_lose_access",
+        "offline_backup_recorded"
+      ]
+    },
+    "StopPreviewItem": {
+      "description": "One interrupted item of a [`StopPreview`]: its kind, its ID, and what happens to it.",
+      "type": "object",
+      "properties": {
+        "effect": {
+          "description": "What stopping does to it (`closed`, `left_to_client`, `unavailable_until_restart`).",
+          "type": "string"
+        },
+        "id": {
+          "description": "Its opaque ID.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "The item's kind (`connection`, `master`, `wsl_bridge`, `container_endpoint`,\n`iroh_endpoint`, `runner`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "effect"
+      ]
+    }
+  }
+}

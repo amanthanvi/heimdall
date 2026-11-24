@@ -226,6 +226,78 @@ pub struct ErrorData {
     pub setup: Option<Box<crate::setup::SetupResult>>,
 }
 
+/// ⟨rev7⟩ The typed detail of a `USAGE_ERROR` / `response_too_large` refusal (ADR-0013 §4,
+/// D19). **Standalone, not attached:** `ErrorDetail` gains these fields in the change that
+/// emits them (U3, PC4), with the CLI and the wrapper.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ResponseTooLarge {
+    /// The frame or budget limit the answer would exceed, in bytes.
+    pub limit_bytes: u64,
+    /// The section that is over its cap (a snapshot's `operations`, `pending_decisions`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+    /// The narrowing to use (`filter.operation_id`, `filter.types`, `select`, `page`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub narrow: Option<String>,
+    /// A legacy over-limit item met by a page or a point `inspect`, by ID, with its
+    /// remediation through the existing catalog command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource: Option<ResourceRef>,
+}
+
+/// ⟨rev7⟩ The typed detail of a `USAGE_ERROR` / `item_too_large` refusal (ADR-0013 §6.4,
+/// D20). **Standalone, not attached** (U3, PC11).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ItemTooLarge {
+    /// The field over its bound (`pairs`, `routes`, `relays`, `label`, the whole `item`).
+    pub field: String,
+    /// The bound: bytes for a byte bound, entries for a count bound.
+    pub bound: u64,
+    /// Whether the bound counts bytes or entries.
+    pub unit: BoundUnit,
+    /// The item, by kind and ID, when it has one yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource: Option<ResourceRef>,
+}
+
+/// ⟨rev7⟩ What an [`ItemTooLarge`] bound counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum BoundUnit {
+    /// Serialized bytes.
+    Bytes,
+    /// List entries.
+    Entries,
+}
+
+/// ⟨rev7⟩ The most live-access entries a `destination_has_live_access` refusal lists
+/// (ADR-0013 D13).
+pub const LIVE_ACCESS_LISTED_MAX: usize = 32;
+
+/// ⟨rev7⟩ The typed detail of a `CONFIG_CONFLICT` / `destination_has_live_access` refusal
+/// (ADR-0013 D13). **Standalone, not attached** (U3 with U8b).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LiveAccessRefusal {
+    /// Up to [`LIVE_ACCESS_LISTED_MAX`] live or unresolved entries.
+    pub live: Vec<LiveAccessEntry>,
+    /// How many there are in all.
+    pub total: u64,
+}
+
+/// ⟨rev7⟩ One live or unresolved entry of a [`LiveAccessRefusal`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LiveAccessEntry {
+    /// The grant, binding or operation, by kind and opaque ID.
+    pub resource: ResourceRef,
+    /// The work it belongs to, when it has an actual work reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_id: Option<crate::ids::WorkId>,
+    /// `heimdall access stop --work <work_id>`, only for an entry with a work reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remediation: Option<String>,
+}
+
 /// Stable values of [`ErrorDetail::reason`] (m02-plan §5 item 14). The conflict
 /// kinds ([`crate::setup::ConflictKind`]) and the manual reasons
 /// ([`crate::setup::manual_reason`]) are reasons too, with the same spelling.
@@ -887,6 +959,135 @@ pub mod reason {
 
     /// ⟨M06⟩ Every `remote_pending` reason (no code: a pending state, never an error).
     pub const M06_PENDING: &[&str] = &[IROH_ADMISSION_CLOSING];
+
+    // --- ⟨rev7⟩ revision 7 (ADR-0013 D2, D6, D8, D12, D13, D19, D20, D21; ADR-0014 H4, H10,
+    // H13, H14; the contract owner's rulings on U0-Q3, Q5, Q6, Q8 and D20) -----------------
+    // **Declared, not emitted:** each joins an emitter in its own later change (U3, U2b).
+    // `route_undetermined` (M03) and `controller_dependency` / `dependency_provenance_unknown`
+    // (M06, the unattended launch refusal of U0-Q4) already exist and are not repeated.
+
+    /// ⟨rev7⟩ `USAGE_ERROR`: a page token that is malformed, tampered with, or issued for
+    /// another reader, environment, query or sort (ADR-0013 §6.2, D21).
+    pub const PAGE_TOKEN_INVALID: &str = "page_token_invalid";
+    /// ⟨rev7⟩ `USAGE_ERROR`: an empty selector, one over 64 entries, or `select` together
+    /// with `page` (ADR-0013 §6.1, D21).
+    pub const SELECTOR_INVALID: &str = "selector_invalid";
+    /// ⟨rev7⟩ `USAGE_ERROR`: a response that would not fit one frame (ADR-0013 §4, D19). A read
+    /// is refused before anything is sent (`effect_status: none`, next `narrow_request`); a
+    /// reply after dispatch keeps its operation's true effect and reference (next `observe`).
+    pub const RESPONSE_TOO_LARGE: &str = "response_too_large";
+    /// ⟨rev7⟩ `USAGE_ERROR`: a catalog or import write whose item exceeds a revision-7 bound,
+    /// a byte bound or a count bound (ADR-0013 §6.4, D20; the ruling on ASK-D20); the detail
+    /// ([`super::ItemTooLarge`]) names the field and the bound. A store that already exceeds a
+    /// bound is reported, never truncated.
+    pub const ITEM_TOO_LARGE: &str = "item_too_large";
+    /// ⟨rev7⟩ `RESYNC_REQUIRED` (page mode) and a `resync_required` event or subscribe
+    /// `resync_reason`: retention removed events the reader had not received (ADR-0013 §5.4).
+    pub const HISTORY_TRIMMED: &str = "history_trimmed";
+    /// ⟨rev7⟩ `RESYNC_REQUIRED` (page mode), a `resync_required` event or `resync_reason`: an
+    /// event that does not fit one frame (ADR-0013 §5.4, §5.6).
+    pub const EVENT_TOO_LARGE: &str = "event_too_large";
+    /// ⟨rev7⟩ `RESYNC_REQUIRED` (page mode) or `resync_reason`: a cursor beyond the head,
+    /// malformed, of an unknown version, or another reader's or environment's (ADR-0013 §5.3).
+    pub const CURSOR_INVALID: &str = "cursor_invalid";
+    /// ⟨rev7⟩ `SERVICE_UNAVAILABLE`: no runtime is advertised (ADR-0013 §8, D12; H14).
+    pub const RUNTIME_NOT_RUNNING: &str = "runtime_not_running";
+    /// ⟨rev7⟩ `SERVICE_UNAVAILABLE`: an advertised runtime whose process is live with its
+    /// recorded start time but whose endpoint does not answer (ADR-0014 H14).
+    pub const RUNTIME_UNREACHABLE: &str = "runtime_unreachable";
+    /// ⟨rev7⟩ `SERVICE_UNAVAILABLE`: the endpoint, its owner, its peer or the hello did not
+    /// verify (ADR-0013 §8 "Discovery", D12).
+    pub const ENDPOINT_UNTRUSTED: &str = "endpoint_untrusted";
+    /// ⟨rev7⟩ `CONFIG_CONFLICT`: `destination remove` while access to the destination is live
+    /// or unresolved (ADR-0013 D13; `data.error.live` lists up to 32 entries plus `total`).
+    pub const DESTINATION_HAS_LIVE_ACCESS: &str = "destination_has_live_access";
+    /// ⟨rev7⟩ `CAPABILITY_UNAVAILABLE`: the mechanism cannot meet the request's minimum
+    /// (U0-Q3: "ask for less").
+    pub const MECHANISM_MINIMUM_UNMET: &str = "mechanism_minimum_unmet";
+    /// ⟨rev7⟩ `CAPABILITY_UNAVAILABLE`: the person denied the approval (U0-Q3: stop, do not
+    /// ask again).
+    pub const DECISION_DENIED: &str = "decision_denied";
+    /// ⟨rev7⟩ `CAPABILITY_UNAVAILABLE`: M06's confirming probe could not run here (a limited
+    /// role's join, or a policy recheck; on Windows today). Named from its emission site,
+    /// `heimdall_app::remote_env::probes_unavailable` (U0-Q3).
+    pub const PROBES_UNAVAILABLE: &str = "probes_unavailable";
+    /// ⟨rev7⟩ `DESTINATION_UNREACHABLE`: M06's confirming probe ran and could not decide
+    /// (`heimdall_app::remote_env`, the join's and the recheck's inconclusive probe; ruled
+    /// 2026-11-24).
+    pub const PROBE_INCONCLUSIVE: &str = "probe_inconclusive";
+    /// ⟨rev7⟩ `STATE_UNAVAILABLE`: the state store, or its generation pointer or record, is
+    /// damaged (ADR-0014 H4, §3.6); unsafe operations stop and the choices are named.
+    pub const STATE_CORRUPT: &str = "state_corrupt";
+    /// ⟨rev7⟩ `STATE_UNAVAILABLE`: the state store is newer than this build (ADR-0014 H4).
+    pub const STATE_NEWER_THAN_BUILD: &str = "state_newer_than_build";
+    /// ⟨rev7⟩ `STATE_UNAVAILABLE`: the request ledger is damaged, so every append is refused
+    /// until the attended `state repair` (U0-Q8).
+    pub const LEDGER_DAMAGED: &str = "ledger_damaged";
+    /// ⟨rev7⟩ `CREDENTIAL_EXPIRED`: the authority was ended by a restore (ADR-0014 H4, §3.6).
+    pub const STATE_RESTORED_AUTHORITY_ENDED: &str = "state_restored_authority_ended";
+    /// ⟨rev7⟩ `CAPABILITY_UNAVAILABLE`: a management client quarantined by a restore, until
+    /// reauthorized (ADR-0014 H10).
+    pub const CLIENT_QUARANTINED_AFTER_RESTORE: &str = "client_quarantined_after_restore";
+    /// ⟨rev7⟩ `CAPABILITY_UNAVAILABLE`: an invitation voided by a restore (ADR-0014 H10).
+    pub const INVITATION_VOID_AFTER_RESTORE: &str = "invitation_void_after_restore";
+    /// ⟨rev7⟩ `CAPABILITY_UNAVAILABLE`: exposure or admission state disabled by a restore
+    /// (ADR-0014 H10).
+    pub const EXPOSURE_DISABLED_AFTER_RESTORE: &str = "exposure_disabled_after_restore";
+    /// ⟨rev7⟩ `REQUEST_STALE` (declared code): a mutating request whose epoch is not the
+    /// current one (ADR-0014 H13, §3.6 step 3; U0-Q5); and `DECISION_STALE` (`fix_request`): a
+    /// decision reference minted under an older epoch with no carried record (§3.6 step 2).
+    pub const RESTORE_EPOCH_STALE: &str = "restore_epoch_stale";
+    /// ⟨rev7⟩ `REQUEST_STALE` (declared code): a request ID the ledger fenced at a restore or
+    /// a repair; it is never executed again (ADR-0014 §3.6 step 4; U0-Q5, Q8).
+    pub const RESTORED_BEFORE_COMPLETION: &str = "restored_before_completion";
+
+    /// ⟨rev7⟩ Revision 7's reasons under the codes of the table, each `(reason, code)`.
+    pub const REV7: &[(&str, Code)] = &[
+        (PAGE_TOKEN_INVALID, Code::UsageError),
+        (SELECTOR_INVALID, Code::UsageError),
+        (RESPONSE_TOO_LARGE, Code::UsageError),
+        (ITEM_TOO_LARGE, Code::UsageError),
+        (HISTORY_TRIMMED, Code::ResyncRequired),
+        (EVENT_TOO_LARGE, Code::ResyncRequired),
+        (CURSOR_INVALID, Code::ResyncRequired),
+        (RUNTIME_NOT_RUNNING, Code::ServiceUnavailable),
+        (RUNTIME_UNREACHABLE, Code::ServiceUnavailable),
+        (ENDPOINT_UNTRUSTED, Code::ServiceUnavailable),
+        (DESTINATION_HAS_LIVE_ACCESS, Code::ConfigConflict),
+        (MECHANISM_MINIMUM_UNMET, Code::CapabilityUnavailable),
+        (DECISION_DENIED, Code::CapabilityUnavailable),
+        (PROBES_UNAVAILABLE, Code::CapabilityUnavailable),
+        (PROBE_INCONCLUSIVE, Code::DestinationUnreachable),
+        (STATE_CORRUPT, Code::StateUnavailable),
+        (STATE_NEWER_THAN_BUILD, Code::StateUnavailable),
+        (LEDGER_DAMAGED, Code::StateUnavailable),
+        (STATE_RESTORED_AUTHORITY_ENDED, Code::CredentialExpired),
+        (
+            CLIENT_QUARANTINED_AFTER_RESTORE,
+            Code::CapabilityUnavailable,
+        ),
+        (INVITATION_VOID_AFTER_RESTORE, Code::CapabilityUnavailable),
+        (EXPOSURE_DISABLED_AFTER_RESTORE, Code::CapabilityUnavailable),
+        // A decision reference minted under an older epoch (ADR-0014 §3.6 step 2); under
+        // `REQUEST_STALE` for a request (`REV7_DECLARED_CODE`).
+        (RESTORE_EPOCH_STALE, Code::DecisionStale),
+    ];
+
+    /// ⟨rev7⟩ Revision 7's reasons under the declared code `REQUEST_STALE`
+    /// ([`crate::lifecycle::REQUEST_STALE`]; ruling on ASK-CODE), each `(reason, code)`.
+    pub const REV7_DECLARED_CODE: &[(&str, &str)] = &[
+        (RESTORE_EPOCH_STALE, crate::lifecycle::REQUEST_STALE),
+        (RESTORED_BEFORE_COMPLETION, crate::lifecycle::REQUEST_STALE),
+    ];
+
+    /// ⟨rev7⟩ The two resync reasons that are not error reasons: `subscriber_lagged` (a live
+    /// `resync_required` event when the 256-event buffer overran; it ends the stream) and
+    /// `backlog_too_long` (a subscribe `resync_reason` when the missed backlog is over 500
+    /// events). With [`HISTORY_TRIMMED`], [`EVENT_TOO_LARGE`] and [`CURSOR_INVALID`] they are
+    /// every resync reason (ADR-0013 §5.3, §5.4).
+    pub const SUBSCRIBER_LAGGED: &str = "subscriber_lagged";
+    /// ⟨rev7⟩ See [`SUBSCRIBER_LAGGED`].
+    pub const BACKLOG_TOO_LONG: &str = "backlog_too_long";
 }
 
 /// ⟨M05⟩ Warning codes revision 5 adds for M05 (m05-plan §4 item 9).

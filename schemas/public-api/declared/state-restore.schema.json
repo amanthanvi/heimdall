@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RestoreReport",
+  "description": "⟨H3⟩ `heimdall state restore --backup <file>`: attended, typed confirmation. It recovers\nidentity and configuration and no authority (ADR-0014 §3.6); this is its report (§3.6\n\"The restore protocol\" item 6).",
+  "type": "object",
+  "properties": {
+    "carried_forward": {
+      "description": "Whether the replaced generation was readable, so its more restrictive states and\nlater terminal records were carried forward.",
+      "type": "boolean"
+    },
+    "ended": {
+      "description": "What the restore ended, quarantined and voided.",
+      "$ref": "#/$defs/StateRestoredPayload"
+    },
+    "fenced_requests": {
+      "description": "Requests fenced from the ledger (`REQUEST_STALE` / `restored_before_completion`).",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "generation": {
+      "description": "The new current generation's record.",
+      "$ref": "#/$defs/GenerationRecord"
+    },
+    "ledger_readable": {
+      "description": "Whether the request ledger was readable.",
+      "type": "boolean"
+    },
+    "left_behind": {
+      "description": "The earlier generation left behind, whole, under its own name.",
+      "type": "string"
+    },
+    "remote_effects_pending": {
+      "description": "Remote effects of ending recovered authority, pending until acknowledged.",
+      "type": "integer",
+      "format": "uint64",
+      "default": 0,
+      "minimum": 0
+    },
+    "remote_residue": {
+      "description": "Remote residue the restore cannot remove (opaque references).",
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "generation",
+    "left_behind",
+    "ended",
+    "fenced_requests",
+    "ledger_readable",
+    "carried_forward"
+  ],
+  "$defs": {
+    "ClientId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §3.6, §3.7): a paired management client, minted by the\nrunner at invitation (`cl_<32 hex>`). It names the enrollment line\n(`heimdall-mgmt:<cid>`) and the bridge's argv; it is never a credential and never a\nrequest field that sets a caller (ADR-0006 §18).",
+      "type": "string"
+    },
+    "DecisionId": {
+      "description": "Server-issued decision record ID (ADR-0006 §3.1 attended confirmation).",
+      "type": "string"
+    },
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
+    "GenerationOperation": {
+      "description": "What created a store generation (ADR-0014 §3.6 \"The operation record\").",
+      "oneOf": [
+        {
+          "description": "A fresh installation.",
+          "type": "string",
+          "const": "install"
+        },
+        {
+          "description": "The adoption of an earlier build's flat store.",
+          "type": "string",
+          "const": "adopt"
+        },
+        {
+          "description": "`state restore`.",
+          "type": "string",
+          "const": "restore"
+        },
+        {
+          "description": "`state reset`.",
+          "type": "string",
+          "const": "reset"
+        }
+      ]
+    },
+    "GenerationRecord": {
+      "description": "A store generation's operation record, as `state status` reports it.",
+      "type": "object",
+      "properties": {
+        "backup_sha256": {
+          "description": "The backup it was restored from, by SHA-256, for a restore.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "description": "When.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "environment_id": {
+          "description": "Its environment ID.",
+          "$ref": "#/$defs/EnvironmentId"
+        },
+        "from_generation": {
+          "description": "The generation it replaced, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "generation": {
+          "description": "The generation's unique name.",
+          "type": "string"
+        },
+        "migrations": {
+          "description": "The schema migrations applied to it, in order (store schema versions).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "operation": {
+          "description": "What created it.",
+          "$ref": "#/$defs/GenerationOperation"
+        },
+        "restore_epoch": {
+          "description": "Its restore epoch.",
+          "$ref": "#/$defs/RestoreEpoch"
+        }
+      },
+      "required": [
+        "generation",
+        "operation",
+        "created_at",
+        "environment_id",
+        "restore_epoch"
+      ]
+    },
+    "GrantId": {
+      "description": "Grant ID (spec §4.1 \"Grant\").",
+      "type": "string"
+    },
+    "OperationId": {
+      "description": "Durable operation ID (spec §4.1 \"Operation\").",
+      "type": "string"
+    },
+    "PolicyId": {
+      "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
+      "type": "string"
+    },
+    "RestoreEpoch": {
+      "description": "A restore epoch (ADR-0014 §3.6 \"The restore epoch and the replay fence\"). Every restore\nraises it, durably, before its pointer moves; a store with no restore is at epoch 0, and\nevery reference minted before revision 7's migration belongs to epoch 0.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "StateRestoredPayload": {
+      "description": "⟨H4, H10⟩ The payload of a `state_restored` event: what the restore ended\n(ADR-0014 §3.6's table). Counts and opaque IDs only.",
+      "type": "object",
+      "properties": {
+        "clients_quarantined": {
+          "description": "Management clients quarantined until reauthorized\n(`client_quarantined_after_restore`).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ClientId"
+          }
+        },
+        "decisions_closed": {
+          "description": "Pending decisions closed as stale.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/DecisionId"
+          }
+        },
+        "exposure_disabled": {
+          "description": "Exposure and admission state disabled (`exposure_disabled_after_restore`), by kind.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "grants_ended": {
+          "description": "Grants (with their bindings, slots and owned connections) ended, each with a\ntombstone.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/GrantId"
+          }
+        },
+        "invitations_voided": {
+          "description": "Invitations voided (`invitation_void_after_restore`), by opaque ID.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "operations_closed": {
+          "description": "Operations closed as stale (`restored_before_completion`).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/OperationId"
+          }
+        },
+        "policies_paused": {
+          "description": "Standing policies paused, with a cutoff at the restore time.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PolicyId"
+          }
+        },
+        "restore_epoch": {
+          "description": "The restore epoch after the restore.",
+          "$ref": "#/$defs/RestoreEpoch"
+        }
+      },
+      "required": [
+        "restore_epoch"
+      ]
+    }
+  }
+}
