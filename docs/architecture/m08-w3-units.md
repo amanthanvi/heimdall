@@ -24,6 +24,18 @@ Workers never commit or push (AGENTS.md).
 | 5 | **The candidate commit** (U3b's start) | the integrator | `1.0.0-rc.1` set once, with U8's claims-table update (ASK-VERSION); the frozen feature set (default, no `iroh`); `examples/` packaged | 1 to 4 merged to `main` | — |
 | 6 | **U3b, U4b, U5b, U8** | the integrator, with PC and devbox jobs | per m08-w3-plan W3-2 to W3-6 | 5 | per W3-1 |
 
+**W3 closes at its review, and W4 follows (the orchestrator, 2026-11-25).**
+- **W3** is U3c, U2b-1, U1b and U2b-2 with follow-ups A and B, to `065f3a45`, plus the fixes
+  for the W3 independent review's findings.
+  - The scoped re-check covers only those fixes.
+  - The merge candidate is `065f3a45`, plus the fixes, plus the documentation and evidence
+    commits. It gets one gate, and Windows and devbox runs for the fix diff only. U2b-2's PC
+    job 65 and its devbox run (`devbox-u2b2/`) stand.
+  - Then `m08/w3` merges to main. That unblocks M07's W10 readers, and its rebuild on U2b-1.
+- **W4** is everything after: U2b-3 (in two slices, U2b-3a and U2b-3b), U2b-4, GRANT-LIVE, U6b,
+  U7b and rows 5 and 6 above. It has its own independent review and re-check at the W4
+  candidate. Units 4 to 6 in the table above move to W4.
+
 **H13's reader side and M07.** H13 is one change, owned by U2b-2. Its readers today are M07's:
 - the TUI's request paths (`crates/heimdall/src/tui/worker.rs`, `tui/m05.rs`, `tui/m07.rs`);
 - the reference wrapper (`examples/reference-wrapper/reference_wrapper.py`);
