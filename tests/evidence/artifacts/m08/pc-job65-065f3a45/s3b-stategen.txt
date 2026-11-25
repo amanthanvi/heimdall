@@ -1,0 +1,55 @@
+   Compiling getrandom v0.4.3
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling once_cell v1.21.4
+   Compiling tempfile v3.27.0
+   Compiling heimdall-stategen v0.1.0-m01 (<R>\c1\crates\stategen)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.39s
+     Running unittests src\lib.rs (target\debug\deps\heimdall_stategen-49cb52ef5e60c0ed.exe)
+
+running 12 tests
+test ledger::tests::retention_follows_the_idempotency_contract ... ok
+test ledger::tests::digests_separate_keys_and_unfenced_selects_by_record ... ok
+test record::tests::a_cut_or_altered_record_does_not_decode ... ok
+test record::tests::names_cannot_leave_the_generations_directory ... ok
+test record::tests::pointer_is_exact ... ok
+test ledger::tests::a_failed_append_is_an_error_so_the_request_does_not_proceed ... ok
+test ledger::tests::a_damaged_record_makes_the_ledger_unreadable_and_untrimmed ... ok
+test ledger::tests::an_append_to_a_damaged_ledger_is_refused_and_writes_nothing ... ok
+test ledger::tests::append_read_and_a_torn_tail ... ok
+test ledger::tests::a_final_record_of_zeros_is_a_torn_tail ... ok
+test ledger::tests::the_directory_is_synced_until_one_sync_has_succeeded ... ok
+test ledger::tests::trim_drops_only_what_ended_and_survives_a_stop_at_each_step ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running ..\..\tests\adversarial\stategen_switch_faults.rs (target\debug\deps\adversarial_stategen_switch_faults-3b3267f07894a4b6.exe)
+
+running 18 tests
+test a_directory_no_intent_names_is_never_removed ... ok
+test an_empty_generations_directory_with_stray_files_is_still_a_new_installation ... ok
+test child_publish ... ok
+test inspect_writes_nothing_and_open_removes_the_leftover ... ok
+test a_failed_cleanup_keeps_the_intent_so_start_up_removes_the_leftover ... ok
+test migration_notes_never_touch_the_record_and_ignore_a_cut_line ... ok
+test reset_then_restart_serves_the_new_generation ... ok
+test an_interrupted_install_is_run_again ... ok
+test a_written_pointer_that_is_gone_is_corrupt_and_nothing_is_removed ... ok
+test adoption_killed_at_each_step_then_older_build_then_newer_build ... ok
+test restore_restore_reset_keeps_every_earlier_generation ... ok
+test staging_refuses_an_unclosed_database_and_unreported_files ... ok
+test a_pointer_that_was_never_written_is_discarded_and_run_again ... ok
+test a_failure_while_completing_the_intent_leaves_the_switch_done ... ok
+test unreadable_or_dangling_pointer_stops_and_never_picks_another_generation ... ok
+test a_failure_while_writing_the_switching_mark_leaves_the_old_generation ... ok
+test switch_survives_a_kill_at_each_step ... ok
+test switch_interrupted_before_and_after_each_sync_and_the_rename ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.78s
+
+   Doc-tests heimdall_stategen
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
