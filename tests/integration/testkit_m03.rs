@@ -746,7 +746,10 @@ fn faults_each_produce_the_intended_transport_failure() {
         assert!(faults.applied(), "{kind:?}");
         let expected: &[&str] = match kind {
             FaultKind::StopBetweenAttempts => &["Connection closed", "Connection reset"],
-            FaultKind::ClosePortBetweenAttempts => &["Connection refused"],
+            // ⟨M08 F-PORTFLAKE⟩ The port is closed when connection 1 ends. A connect that
+            // lands in the listener's backlog just before the socket is dropped is reset, not
+            // refused (seen under load in M07's gate; 5/5 alone): both mean "port closed".
+            FaultKind::ClosePortBetweenAttempts => &["Connection refused", "Connection reset"],
             FaultKind::MaxStartupsBetweenAttempts | FaultKind::MaxStartupsDuringNegative => {
                 &["Connection closed", "Connection reset"]
             }

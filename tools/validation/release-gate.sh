@@ -223,7 +223,10 @@ fi
 # release feature set has no `test-config`), and every HEIMDALL_TEST_* variable probed below is
 # refused at run time by testcfg (exit 2). The first is checked here from cargo's graph.
 probe_count=$((probe_count + 1))
-if cargo tree -q --locked --no-default-features -p heimdall -e normal -i heimdall-testkit >/dev/null 2>&1; then
+# (`cargo tree -i` of a workspace member outside the graph prints nothing and exits 0, so the
+# probe reads its output, not its exit code.)
+kit_tree="$(cargo tree -q --locked --no-default-features -p heimdall -e normal -i heimdall-testkit 2>&1)"
+if [ -n "${kit_tree}" ]; then
     fail_count=$((fail_count + 1))
     status=1
     echo "release-gate: the test kit is in the release feature set's graph: FAIL"

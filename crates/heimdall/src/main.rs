@@ -11,7 +11,9 @@
 // test kit, which a release build never has: a debug build without the default feature
 // `test-config` is not a supported configuration.
 #[cfg(all(debug_assertions, not(feature = "test-config")))]
-compile_error!("a debug build of heimdall needs the default feature `test-config`; a release build is built with --no-default-features");
+compile_error!(
+    "a debug build of heimdall needs the default feature `test-config`; a release build is built with --no-default-features"
+);
 
 mod activate_cmd;
 mod catalog_cmd;

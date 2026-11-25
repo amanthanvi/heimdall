@@ -200,6 +200,18 @@ Each lands with its emitters, every in-tree reader and its goldens (ADR-0013 §1
     family as the implementer.
 - One scoped re-check.
 
+## 2b. Follow-ups carried in W3
+
+- **F-LOCKFLAKE:** the M03 lock-harness self-test's timeouts of about 1 s under load
+  (`tests/native/m03/selftest.sh`, `lock_harness_records_unverified_lock_as_blocked`).
+  Test-only. Assigned by the orchestrator.
+- **F-PORTFLAKE** (added 2026-11-24, with U3c): in `integration_testkit_m03`,
+  `faults_each_produce_the_intended_transport_failure`'s `ClosePortBetweenAttempts` case got
+  `Connection reset` instead of `Connection refused` under load in M07's gate. It passed 5/5
+  alone. **Fixed with U3c:** a connect that lands in the backlog of the listener being closed is
+  reset, not refused, and both mean "port closed", so the test accepts both for this fault
+  only. The other faults' expectations are unchanged.
+
 ## 3. Order of the first days
 
 1. U3c, by the integrator, merged first (small, and it frees the release graph).
