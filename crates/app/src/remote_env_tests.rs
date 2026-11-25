@@ -368,6 +368,9 @@ fn approval_required(decision_ref: &str) -> Envelope<serde_json::Value> {
         message: "pending runner-local decision".into(),
         reason: None,
         entries: Vec::new(),
+        field: None,
+        bound: None,
+        unit: None,
     };
     Envelope {
         state: OperationState::AwaitingApproval,
@@ -1141,6 +1144,9 @@ fn runner_errors_pass_through_and_bundles_round_trip() {
         message: "role".into(),
         reason: Some(reason::ROLE_INSUFFICIENT.into()),
         entries: Vec::new(),
+        field: None,
+        bound: None,
+        unit: None,
     };
     let envelope = Envelope {
         state: OperationState::Failed,
@@ -2007,6 +2013,9 @@ async fn the_endpoint_announcement_reports_each_runner() {
                         message: "not admitted".into(),
                         reason: None,
                         entries: Vec::new(),
+                        field: None,
+                        bound: None,
+                        unit: None,
                     },
                     setup: None,
                 })

@@ -93,35 +93,257 @@ fn relay_refused(position: usize, why: heimdall_contract::route::RelayUrlRefusal
     .with_effect(EffectStatus::None)
 }
 
+// --- ⟨rev7; ADR-0013 §6.4, D20; ruling R-A of 2026-11-25⟩ address strings ----------------
+
+/// An address string that is not one: `USAGE_ERROR`, next `fix_request`, effect `none`. The
+/// text itself is never quoted.
+fn address_invalid(message: &str) -> OpError {
+    OpError::new(Code::UsageError, message.to_owned()).with_effect(EffectStatus::None)
+}
+
+/// Whether `ip` is a link-local unicast IPv6 address (`fe80::/10`).
+fn link_local(ip: &std::net::Ipv6Addr) -> bool {
+    ip.segments()[0] & 0xffc0 == 0xfe80
+}
+
+/// ⟨rev7; ruling R-A⟩ One `direct_addresses` entry of an Iroh route in its one spelling: a
+/// socket address (`ip:port`, an IPv6 address bracketed), as `std::net::SocketAddr` displays
+/// it (the port kept, IPv6 compressed and in lowercase). A zone is accepted only on a
+/// link-local IPv6 address (`fe80::/10`), as the numeric scope `SocketAddr` parses and the
+/// dialer already dials (`[fe80::1%2]:22`); an interface-name zone is not a socket address
+/// (std refuses it, as it did before), and a zone on any other address is refused. A zone of
+/// `0` is no zone.
+///
+/// # Errors
+/// `USAGE_ERROR` / `item_too_large` over
+/// [`MAX_ADDRESS_BYTES`](heimdall_contract::bounds::MAX_ADDRESS_BYTES); otherwise `USAGE_ERROR`
+/// with next `fix_request` for a text that is not such an address.
+pub fn canonical_socket_address(text: &str) -> Result<String, OpError> {
+    crate::catalog::bounded_bytes(
+        "direct_addresses",
+        text.len(),
+        heimdall_contract::bounds::MAX_ADDRESS_BYTES,
+        None,
+    )?;
+    let addr: std::net::SocketAddr = text.parse().map_err(|_| {
+        address_invalid(
+            "a direct address is ip:port (an IPv6 address in brackets, a zone only on a \
+             link-local address); nothing was recorded",
+        )
+    })?;
+    if let std::net::SocketAddr::V6(v6) = &addr
+        && v6.scope_id() != 0
+        && !link_local(v6.ip())
+    {
+        return Err(address_invalid(
+            "a zone is accepted only on a link-local (fe80::/10) IPv6 address; nothing was \
+             recorded",
+        ));
+    }
+    Ok(addr.to_string())
+}
+
+/// ⟨rev7; ruling R-A, and its reading for binds (2026-11-25)⟩ A `BindScope::Interface`
+/// address in its one spelling: a bare IP address (no port) as `std::net::IpAddr` displays it.
+/// **No zone in 1.0:** the Iroh bind planner binds no zoned address, so a zone (`%…`, any
+/// value) is refused here, at write, rather than accepted and refused when the transport
+/// starts; a stated limitation (`docs/user/limitations.md`). A direct address keeps its
+/// numeric link-local zone ([`canonical_socket_address`]): the dialer dials it.
+///
+/// # Errors
+/// `USAGE_ERROR` / `item_too_large` over
+/// [`MAX_ADDRESS_BYTES`](heimdall_contract::bounds::MAX_ADDRESS_BYTES); otherwise `USAGE_ERROR`
+/// with next `fix_request` for a text that is not a bare IP address, a zone included.
+pub fn canonical_interface_address(text: &str) -> Result<String, OpError> {
+    crate::catalog::bounded_bytes(
+        "address",
+        text.len(),
+        heimdall_contract::bounds::MAX_ADDRESS_BYTES,
+        None,
+    )?;
+    if text.contains('%') {
+        return Err(address_invalid(
+            "an interface bind address takes no zone in this release (the transport cannot \
+             bind a zoned address); nothing was recorded",
+        ));
+    }
+    let ip: std::net::IpAddr = text.parse().map_err(|_| {
+        address_invalid("an interface address is an IP address; nothing was recorded")
+    })?;
+    Ok(ip.to_string())
+}
+
+/// ⟨rev7⟩ `exposure` with its interface bind address in its one spelling
+/// ([`canonical_interface_address`]); every other bind is returned as it is.
+///
+/// # Errors
+/// [`canonical_interface_address`]'s.
+pub fn with_canonical_bind(exposure: &ExposurePolicy) -> Result<ExposurePolicy, OpError> {
+    use heimdall_contract::route::BindScope;
+    let BindScope::Interface { address } = &exposure.bind else {
+        return Ok(exposure.clone());
+    };
+    Ok(ExposurePolicy {
+        bind: BindScope::Interface {
+            address: canonical_interface_address(address)?,
+        },
+        ..exposure.clone()
+    })
+}
+
+/// ⟨rev7; D20⟩ An exposure policy in its one spelling, within its bounds: every relay URL at
+/// most [`RELAY_URL_MAX_BYTES`](heimdall_contract::route::RELAY_URL_MAX_BYTES)
+/// (`item_too_large`, naming its position) and in its normal form, at most
+/// [`MAX_RELAYS_PER_ROUTE`](heimdall_contract::bounds::MAX_RELAYS_PER_ROUTE) distinct relays,
+/// and the interface bind address canonical.
+///
+/// # Errors
+/// `USAGE_ERROR` (`item_too_large` over a bound).
+pub fn canonical_exposure(exposure: &ExposurePolicy) -> Result<ExposurePolicy, OpError> {
+    use heimdall_contract::route::{InfrastructureProfile, RELAY_URL_MAX_BYTES};
+    if let InfrastructureProfile::Custom { relays } = &exposure.infrastructure {
+        for (i, relay) in relays.iter().enumerate() {
+            crate::catalog::bounded_bytes(
+                &format!("relays[{}]", i + 1),
+                relay.len(),
+                RELAY_URL_MAX_BYTES,
+                None,
+            )?;
+        }
+    }
+    let normal = exposure
+        .with_normalized_relays()
+        .map_err(|(i, why)| relay_refused(i + 1, why))?;
+    crate::catalog::bounded_entries(
+        "relays",
+        relay_count(&normal),
+        heimdall_contract::bounds::MAX_RELAYS_PER_ROUTE,
+        None,
+    )?;
+    with_canonical_bind(&normal)
+}
+
+/// The relays a policy names.
+fn relay_count(exposure: &ExposurePolicy) -> usize {
+    match &exposure.infrastructure {
+        heimdall_contract::route::InfrastructureProfile::Custom { relays } => relays.len(),
+        _ => 0,
+    }
+}
+
+/// ⟨rev7; D20⟩ `route` with its direct addresses in their one spelling
+/// ([`canonical_socket_address`]), at most
+/// [`MAX_DIRECT_ADDRESSES_PER_ROUTE`](heimdall_contract::bounds::MAX_DIRECT_ADDRESSES_PER_ROUTE).
+fn canonical_route(route: &RouteSpec) -> Result<RouteSpec, OpError> {
+    let RouteSpec::Iroh {
+        endpoint,
+        direct_addresses,
+        external_roost,
+    } = route
+    else {
+        return Ok(route.clone());
+    };
+    Ok(RouteSpec::Iroh {
+        endpoint: endpoint.clone(),
+        direct_addresses: canonical_direct_addresses(direct_addresses)?,
+        external_roost: *external_roost,
+    })
+}
+
+/// ⟨rev7; D20, ruling R-A⟩ An Iroh route's direct addresses, each in its one spelling
+/// ([`canonical_socket_address`]), in the order given, at most
+/// [`MAX_DIRECT_ADDRESSES_PER_ROUTE`](heimdall_contract::bounds::MAX_DIRECT_ADDRESSES_PER_ROUTE)
+/// of them (the CLI checks `route add --address` with it before sending, as the runtime does).
+///
+/// # Errors
+/// `USAGE_ERROR` / `item_too_large` over a bound, or [`canonical_socket_address`]'s.
+pub fn canonical_direct_addresses(addresses: &[String]) -> Result<Vec<String>, OpError> {
+    crate::catalog::bounded_entries(
+        "direct_addresses",
+        addresses.len(),
+        heimdall_contract::bounds::MAX_DIRECT_ADDRESSES_PER_ROUTE,
+        None,
+    )?;
+    addresses
+        .iter()
+        .map(|a| canonical_socket_address(a))
+        .collect()
+}
+
+/// ⟨rev7; D20⟩ The bounds of a destination's whole approved list after a change that adds a
+/// route: at most [`MAX_ROUTES_PER_DESTINATION`](heimdall_contract::bounds::MAX_ROUTES_PER_DESTINATION)
+/// routes, [`MAX_RELAYS_PER_DESTINATION`](heimdall_contract::bounds::MAX_RELAYS_PER_DESTINATION)
+/// relays over all of them, [`MAX_CONSENTS_PER_ROUTE`](heimdall_contract::bounds::MAX_CONSENTS_PER_ROUTE)
+/// consents on each, and the destination with its routes at most
+/// [`MAX_ITEM_BYTES`](heimdall_contract::bounds::MAX_ITEM_BYTES) serialized. A change that only
+/// removes or reorders routes is never refused by them, so a legacy over-limit list can always
+/// be narrowed.
+pub(crate) fn check_list_bounds(
+    record: &heimdall_domain::catalog::DestinationRecord,
+    list: &[DestinationRoute],
+) -> Result<(), OpError> {
+    use heimdall_contract::bounds as b;
+    let at = || Some(("destination", record.id.to_string()));
+    crate::catalog::bounded_entries("routes", list.len(), b::MAX_ROUTES_PER_DESTINATION, at())?;
+    let relays = list
+        .iter()
+        .map(|r| r.exposure.as_ref().map_or(0, relay_count))
+        .sum();
+    crate::catalog::bounded_entries("relays", relays, b::MAX_RELAYS_PER_DESTINATION, at())?;
+    for r in list {
+        crate::catalog::bounded_entries(
+            "consents",
+            r.consents.len(),
+            b::MAX_CONSENTS_PER_ROUTE,
+            at(),
+        )?;
+    }
+    crate::catalog::bounded_item(&(record, list), at())
+}
+
+/// ⟨rev7; D20⟩ A `route add`'s route and exposure in their one spelling, within their bounds:
+/// [`canonical_route`] and [`canonical_exposure`].
+fn canonical_add(
+    route: &RouteSpec,
+    exposure: Option<&ExposurePolicy>,
+) -> Result<(RouteSpec, Option<ExposurePolicy>), OpError> {
+    Ok((
+        canonical_route(route)?,
+        exposure.map(canonical_exposure).transpose()?,
+    ))
+}
+
 /// ⟨rev6.5; ADR-0006 §18.9 item 9⟩ `request` with the relay URLs of a `route add` in their
 /// one spelling (`heimdall_contract::route::normalize_relay_url`), **before any record is
 /// made of it**: the decision's delta, its digest and the retry lookup are all computed
 /// from the result, so two spellings of one URL are one request. Every other request is
-/// returned as it is.
+/// returned as it is. ⟨rev7; D20, ruling R-A⟩ Likewise its direct addresses and interface
+/// bind address ([`canonical_socket_address`], [`canonical_interface_address`]), and its
+/// per-route bounds (direct addresses, relays) are checked here, so an over-bound request
+/// makes no record.
 ///
 /// # Errors
 /// `USAGE_ERROR` naming the refused URL's position and class (a scheme the relay transport
-/// does not accept, userinfo, a query string, a fragment, or a malformed URL).
+/// does not accept, userinfo, a query string, a fragment, or a malformed URL), an address that
+/// is not one (`fix_request`), or `item_too_large` over a bound.
 pub fn normalized(request: &RouteRequest) -> Result<std::borrow::Cow<'_, RouteRequest>, OpError> {
     let RouteRequest::Add {
         destination,
         route,
-        exposure: Some(exposure),
+        exposure,
         request_id,
     } = request
     else {
         return Ok(std::borrow::Cow::Borrowed(request));
     };
-    let normal = exposure
-        .with_normalized_relays()
-        .map_err(|(i, why)| relay_refused(i + 1, why))?;
-    if &normal == exposure {
+    let (normal_route, normal_exposure) = canonical_add(route, exposure.as_ref())?;
+    if &normal_route == route && &normal_exposure == exposure {
         return Ok(std::borrow::Cow::Borrowed(request));
     }
     Ok(std::borrow::Cow::Owned(RouteRequest::Add {
         destination: destination.clone(),
-        route: route.clone(),
-        exposure: Some(normal),
+        route: normal_route,
+        exposure: normal_exposure,
         request_id: request_id.clone(),
     }))
 }
@@ -228,6 +450,8 @@ enum Outcome {
     Done(RouteChange),
     NotFound,
     Conflict(&'static str, Option<&'static str>),
+    /// ⟨rev7; D20⟩ A bound the changed list would break (`item_too_large`).
+    Refused(Box<OpError>),
 }
 
 /// `route add|remove|prefer` over the state store (module docs).
@@ -251,6 +475,7 @@ impl RouteOps<'_> {
             Outcome::Done(c) => Ok(c),
             Outcome::NotFound => Err(not_found(destination)),
             Outcome::Conflict(m, r) => Err(conflict(m, r)),
+            Outcome::Refused(e) => Err(*e),
         }
     }
 
@@ -327,19 +552,16 @@ impl RouteOps<'_> {
         // ⟨rev6.5; ADR-0006 §18.9 item 9⟩ Only a relay URL in its one spelling is ever
         // compared with an approval or stored: the runtime normalises the request before it
         // records anything ([`normalized`]); a caller that did not is refused here.
-        if let Some(e) = exposure {
-            match e.with_normalized_relays() {
-                Ok(normal) if &normal == e => {}
-                Ok(_) => {
-                    return Err(OpError::new(
-                        Code::UsageError,
-                        "a relay URL of this request is not in its normal form; nothing was \
-                         recorded",
-                    )
-                    .with_effect(EffectStatus::None));
-                }
-                Err((i, why)) => return Err(relay_refused(i + 1, why)),
-            }
+        // ⟨rev7; D20, ruling R-A⟩ So are its direct addresses and interface bind address,
+        // and its per-route bounds hold.
+        let (normal_route, normal_exposure) = canonical_add(route, exposure)?;
+        if &normal_route != route || normal_exposure.as_ref() != exposure {
+            return Err(OpError::new(
+                Code::UsageError,
+                "a relay URL or address of this request is not in its normal form; nothing was \
+                 recorded",
+            )
+            .with_effect(EffectStatus::None));
         }
         // A widening add runs only with an approval of exactly its delta.
         let dry_run = matches!(approval, Approval::DryRun);
@@ -396,6 +618,10 @@ impl RouteOps<'_> {
                 consents: consent_id.iter().cloned().collect(),
                 identification_timeout_ms: None,
             });
+            // ⟨rev7; D20⟩ The destination's bounds over its whole list, before any write.
+            if let Err(e) = check_list_bounds(&record, &list) {
+                return Ok(Outcome::Refused(Box::new(e)));
+            }
             let mut view = crate::catalog::route_view(tx)?;
             view.routes = tx.all_destination_routes()?;
             if let Err(e) = heimdall_domain::routes::check_route_list(&view, destination, &list) {
@@ -989,5 +1215,374 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!((again.route, again.already_present), (added.route, true));
+    }
+
+    // --- ⟨rev7; D20, ruling R-A⟩ address strings and route bounds ---------------------------
+
+    /// `route add` as the runtime runs it (`supervise_transport`'s IPC handler): the request
+    /// put in its one spelling first ([`normalized`]), then executed.
+    fn add_as_the_runtime_does(
+        store: &Store,
+        destination: &str,
+        route: RouteSpec,
+        exposure: Option<ExposurePolicy>,
+    ) -> Result<serde_json::Value, OpError> {
+        let request = RouteRequest::Add {
+            destination: d(destination),
+            route,
+            exposure,
+            request_id: heimdall_contract::ids::RequestId::parse("r-u32").unwrap(),
+        };
+        let request = normalized(&request)?;
+        RouteOps { store }.execute(&request, None, t())
+    }
+
+    fn iroh_at(addresses: &[&str]) -> RouteSpec {
+        RouteSpec::Iroh {
+            endpoint: IrohEndpointId::parse(&"cd".repeat(32)).unwrap(),
+            direct_addresses: addresses.iter().map(|a| (*a).to_owned()).collect(),
+            external_roost: false,
+        }
+    }
+
+    fn stored(store: &Store, destination: &str) -> Vec<DestinationRoute> {
+        store
+            .transaction(|tx| tx.destination_routes(&d(destination)))
+            .unwrap()
+    }
+
+    fn stored_addresses(store: &Store, destination: &str) -> Vec<Vec<String>> {
+        stored(store, destination)
+            .into_iter()
+            .filter_map(|r| match r.route {
+                RouteSpec::Iroh {
+                    direct_addresses, ..
+                } => Some(direct_addresses),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn reason_of(e: &OpError) -> Option<&str> {
+        e.reason.as_deref()
+    }
+
+    fn assert_fix_request(e: &OpError, what: &str) {
+        assert_eq!(e.code, Code::UsageError, "{what}: {e:?}");
+        assert_eq!(e.next.action, "fix_request", "{what}");
+        assert_eq!(e.effect_status, EffectStatus::None, "{what}");
+    }
+
+    /// ⟨ruling R-A⟩ A direct address is stored as `SocketAddr` displays it: an IPv4 one as
+    /// given, a non-canonical IPv6 spelling compressed and in lowercase, the port kept; a
+    /// link-local IPv6 address with a numeric zone is accepted. A zone on any other address,
+    /// an interface-name zone and garbage are `USAGE_ERROR` with `fix_request`; an entry over
+    /// 64 bytes is `item_too_large`. A refusal writes nothing.
+    #[test]
+    fn direct_addresses_are_stored_canonically_and_refused_otherwise() {
+        let store = store_with(&[("lab", None)]);
+        add_as_the_runtime_does(
+            &store,
+            "lab",
+            iroh_at(&[
+                "127.0.0.1:40001",
+                "[2001:0DB8:0000:0000:0000:0000:0000:0001]:022",
+                "[fe80::1%2]:22",
+            ]),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            stored_addresses(&store, "lab"),
+            vec![vec![
+                "127.0.0.1:40001".to_owned(),
+                "[2001:db8::1]:22".to_owned(),
+                "[fe80::1%2]:22".to_owned(),
+            ]]
+        );
+        let before = stored(&store, "lab");
+        for (text, what) in [
+            ("[2001:db8::1%3]:22", "a zone on a global address"),
+            ("[fe80::1%eth0]:22", "an interface-name zone"),
+            ("not-an-address", "garbage"),
+            ("10.0.0.1", "no port"),
+        ] {
+            let e = add_as_the_runtime_does(&store, "lab", iroh_at(&[text]), None).unwrap_err();
+            assert_fix_request(&e, what);
+            assert_eq!(reason_of(&e), None, "{what}");
+            assert_eq!(stored(&store, "lab"), before, "{what}: nothing was written");
+        }
+        let long = format!("[fe80::1%{}]:22", "0".repeat(60));
+        assert!(long.len() > heimdall_contract::bounds::MAX_ADDRESS_BYTES);
+        let e = add_as_the_runtime_does(&store, "lab", iroh_at(&[&long]), None).unwrap_err();
+        assert_eq!(reason_of(&e), Some(reason::ITEM_TOO_LARGE));
+        assert_fix_request(&e, "an entry over 64 bytes");
+        assert_eq!(stored(&store, "lab"), before);
+        // The functions alone, as the CLI calls them.
+        assert_eq!(
+            canonical_socket_address("[FE80:0:0:0:0:0:0:1%0]:22").unwrap(),
+            "[fe80::1]:22",
+            "zone 0 is no zone"
+        );
+        // A route that bypassed the runtime's normalisation is refused, never stored as given.
+        let e = RouteOps { store: &store }
+            .add(&d("lab"), &iroh_at(&["[2001:0db8::1]:22"]), None, None, t())
+            .unwrap_err();
+        assert_eq!(e.code, Code::UsageError);
+        assert_eq!(stored(&store, "lab"), before);
+    }
+
+    /// ⟨ruling R-A and its reading for binds⟩ `BindScope::Interface.address`: a bare IP
+    /// address in its one spelling and no zone in 1.0 (a link-local numeric zone included:
+    /// the bind planner cannot bind it), `item_too_large` over 64 bytes, `fix_request`
+    /// otherwise; stored canonically through `route add`'s exposure.
+    #[test]
+    fn interface_bind_addresses_are_canonical() {
+        use heimdall_contract::route::{BindScope, InfrastructureProfile};
+        for (given, canonical) in [
+            ("192.0.2.7", "192.0.2.7"),
+            ("2001:0DB8:0000::0001", "2001:db8::1"),
+            ("FE80::0001", "fe80::1"),
+        ] {
+            assert_eq!(
+                canonical_interface_address(given).unwrap(),
+                canonical,
+                "{given}"
+            );
+        }
+        for (given, what) in [
+            (
+                "fe80::0001%7",
+                "a link-local numeric zone (no zoned bind in 1.0)",
+            ),
+            ("fe80::1%0", "a zero zone"),
+            ("2001:db8::1%7", "a zone on a global address"),
+            ("fe80::1%eth0", "an interface-name zone"),
+            ("192.0.2.7%1", "a zone on IPv4"),
+            ("fe80::1%", "an empty zone"),
+            ("fe80::1%+1", "a signed zone"),
+            ("192.0.2.7:22", "a port"),
+            ("[fe80::1]", "brackets"),
+            ("garbage", "garbage"),
+        ] {
+            let e = canonical_interface_address(given).unwrap_err();
+            assert_fix_request(&e, what);
+            assert_eq!(reason_of(&e), None, "{what}");
+        }
+        let long = format!("fe80::1%{}", "0".repeat(60));
+        let e = canonical_interface_address(&long).unwrap_err();
+        assert_eq!(reason_of(&e), Some(reason::ITEM_TOO_LARGE));
+        // Through `route add`: recorded in its one spelling (a widening, so the precheck the
+        // runtime runs before it records a decision; the decision's delta names it too).
+        let store = store_with(&[("lab", None)]);
+        let exposure = ExposurePolicy {
+            bind: BindScope::Interface {
+                address: "2001:0DB8::0001".into(),
+            },
+            infrastructure: InfrastructureProfile::None,
+            ..ExposurePolicy::default()
+        };
+        let request = RouteRequest::Add {
+            destination: d("lab"),
+            route: iroh_at(&[]),
+            exposure: Some(exposure),
+            request_id: heimdall_contract::ids::RequestId::parse("r-bind").unwrap(),
+        };
+        let RouteRequest::Add {
+            exposure: Some(normal),
+            ..
+        } = normalized(&request).unwrap().into_owned()
+        else {
+            panic!("an add");
+        };
+        assert_eq!(
+            normal.bind,
+            BindScope::Interface {
+                address: "2001:db8::1".into()
+            }
+        );
+        let delta = RouteOps::add_delta(&iroh_at(&[]), Some(&normal)).unwrap();
+        assert_eq!(
+            delta.bind_after,
+            BindScope::Interface {
+                address: "2001:db8::1".into()
+            }
+        );
+        let mut garbage = normal.clone();
+        garbage.bind = BindScope::Interface {
+            address: "fe80::1%eth0".into(),
+        };
+        let e = normalized(&RouteRequest::Add {
+            destination: d("lab"),
+            route: iroh_at(&[]),
+            exposure: Some(garbage),
+            request_id: heimdall_contract::ids::RequestId::parse("r-bind2").unwrap(),
+        })
+        .unwrap_err();
+        assert_fix_request(&e, "an interface-name zone through route add");
+        assert!(stored(&store, "lab").is_empty(), "nothing was written");
+    }
+
+    fn relay(i: usize) -> String {
+        format!("https://relay{i:02}.example.invalid/")
+    }
+
+    fn with_relays(n: std::ops::Range<usize>) -> ExposurePolicy {
+        ExposurePolicy {
+            infrastructure: heimdall_contract::route::InfrastructureProfile::Custom {
+                relays: n.map(relay).collect(),
+            },
+            ..ExposurePolicy::default()
+        }
+    }
+
+    /// ⟨D20⟩ Every route bound refuses a `route add` through the runtime's path with
+    /// `USAGE_ERROR` / `item_too_large`, writing nothing: 4 direct addresses, 9 relays on one
+    /// route, a relay URL over 2,048 bytes, a 9th route, and a 17th relay over the
+    /// destination's routes. Removing and preferring are never refused by a bound.
+    #[test]
+    fn over_bound_route_adds_are_refused_and_change_nothing() {
+        use heimdall_contract::bounds::{
+            MAX_RELAYS_PER_DESTINATION, MAX_RELAYS_PER_ROUTE, MAX_ROUTES_PER_DESTINATION,
+        };
+        let store = store_with(&[("lab", None), ("far", None)]);
+        let before = stored(&store, "lab");
+        let too_long = format!("https://r.example.invalid/{}", "p".repeat(2048));
+        let mut long_relay = with_relays(0..1);
+        long_relay.infrastructure = heimdall_contract::route::InfrastructureProfile::Custom {
+            relays: vec![too_long],
+        };
+        for (route, exposure, field, what) in [
+            (
+                iroh_at(&["127.0.0.1:1", "127.0.0.1:2", "127.0.0.1:3", "127.0.0.1:4"]),
+                None,
+                "direct_addresses",
+                "4 direct addresses",
+            ),
+            (
+                iroh_at(&[]),
+                Some(with_relays(0..MAX_RELAYS_PER_ROUTE + 1)),
+                "relays",
+                "9 relays on a route",
+            ),
+            (
+                iroh_at(&[]),
+                Some(long_relay),
+                "relays[1]",
+                "a relay URL over 2,048 bytes",
+            ),
+        ] {
+            let e = add_as_the_runtime_does(&store, "lab", route, exposure).unwrap_err();
+            assert_eq!(reason_of(&e), Some(reason::ITEM_TOO_LARGE), "{what}: {e:?}");
+            assert_fix_request(&e, what);
+            assert!(e.message.starts_with(field), "{what}: {}", e.message);
+            assert_eq!(stored(&store, "lab"), before, "{what}: nothing was written");
+        }
+        // Up to the destination's bound of routes (the implicit one counts), then refused.
+        for i in 1..MAX_ROUTES_PER_DESTINATION {
+            add_as_the_runtime_does(&store, "lab", direct(&format!("10.0.0.{i}")), None).unwrap();
+        }
+        let full = stored(&store, "lab");
+        assert_eq!(full.len(), MAX_ROUTES_PER_DESTINATION);
+        let e = add_as_the_runtime_does(&store, "lab", direct("10.0.0.99"), None).unwrap_err();
+        assert_eq!(reason_of(&e), Some(reason::ITEM_TOO_LARGE));
+        assert!(e.message.starts_with("routes"), "{}", e.message);
+        assert_eq!(
+            e.resource.as_deref().map(|r| r.id.as_deref()),
+            Some(Some("lab"))
+        );
+        assert_eq!(stored(&store, "lab"), full, "nothing was written");
+        // Relays over all of a destination's routes: 8 + 8 fit, one more does not. (The
+        // relay routes are recorded directly: a relay route is a widening, whose decision
+        // path is not this test's.)
+        let relay_route = |n: u8, relays: std::ops::Range<usize>| DestinationRoute {
+            id: heimdall_contract::ids::RouteId::from_random_bytes([n; 16]),
+            route: RouteSpec::Iroh {
+                endpoint: IrohEndpointId::parse(&format!("{n:02x}").repeat(32)).unwrap(),
+                direct_addresses: Vec::new(),
+                external_roost: false,
+            },
+            exposure: Some(with_relays(relays)),
+            consents: Vec::new(),
+            identification_timeout_ms: None,
+        };
+        let far = store
+            .transaction(|tx| tx.destination(&d("far")))
+            .unwrap()
+            .unwrap();
+        let mut list = heimdall_domain::routes::approved_routes(&far, None);
+        list.push(relay_route(1, 0..MAX_RELAYS_PER_ROUTE));
+        list.push(relay_route(
+            2,
+            MAX_RELAYS_PER_ROUTE..MAX_RELAYS_PER_DESTINATION,
+        ));
+        assert!(check_list_bounds(&far, &list).is_ok(), "16 relays fit");
+        list.push(relay_route(3, 16..17));
+        let e = check_list_bounds(&far, &list).unwrap_err();
+        assert_eq!(reason_of(&e), Some(reason::ITEM_TOO_LARGE));
+        assert!(e.message.starts_with("relays"), "{}", e.message);
+        // A full (or legacy over-full) list can always be narrowed and reordered.
+        let ops = RouteOps { store: &store };
+        ops.prefer(&d("lab"), &full[3].id, t()).unwrap();
+        ops.remove(&d("lab"), &full[3].id, t()).unwrap();
+        assert_eq!(stored(&store, "lab").len(), MAX_ROUTES_PER_DESTINATION - 1);
+    }
+
+    /// ⟨D20⟩ A legacy route list over a bound (9 routes, one with an address that does not
+    /// parse, written before the bounds) stays readable by ID, is never rewritten by an
+    /// unrelated write (a route added to another destination), and can be narrowed; a new
+    /// route on it is refused.
+    #[test]
+    fn a_legacy_over_limit_route_list_stays_readable_and_unrewritten() {
+        let store = store_with(&[("old", None), ("other", None)]);
+        let old = store
+            .transaction(|tx| tx.destination(&d("old")))
+            .unwrap()
+            .unwrap();
+        let mut legacy = heimdall_domain::routes::approved_routes(&old, None);
+        legacy.push(DestinationRoute {
+            id: heimdall_contract::ids::RouteId::from_random_bytes([0x70; 16]),
+            route: RouteSpec::Iroh {
+                endpoint: IrohEndpointId::parse(&"ef".repeat(32)).unwrap(),
+                direct_addresses: vec!["[2001:0DB8::1]:22".into(), "not an address".into()],
+                external_roost: false,
+            },
+            exposure: None,
+            consents: Vec::new(),
+            identification_timeout_ms: None,
+        });
+        for i in 0..8u8 {
+            legacy.push(DestinationRoute {
+                id: heimdall_contract::ids::RouteId::from_random_bytes([0x80 + i; 16]),
+                route: direct(&format!("10.1.0.{i}")),
+                exposure: None,
+                consents: Vec::new(),
+                identification_timeout_ms: None,
+            });
+        }
+        store
+            .transaction(|tx| tx.put_destination_routes(&d("old"), &legacy, t()))
+            .unwrap();
+        let raw = || {
+            store
+                .transaction(|tx| tx.all_destination_routes())
+                .unwrap()
+                .remove(&d("old"))
+                .unwrap()
+        };
+        assert_eq!(raw(), legacy, "readable by ID, as stored");
+        add_as_the_runtime_does(&store, "other", direct("10.2.0.1"), None).unwrap();
+        assert_eq!(raw(), legacy, "an unrelated write rewrites nothing");
+        let e = add_as_the_runtime_does(&store, "old", direct("10.1.0.99"), None).unwrap_err();
+        assert_eq!(reason_of(&e), Some(reason::ITEM_TOO_LARGE));
+        assert_eq!(raw(), legacy);
+        let ops = RouteOps { store: &store };
+        ops.remove(&d("old"), &legacy[2].id, t()).unwrap();
+        let after = raw();
+        assert_eq!(after.len(), legacy.len() - 1);
+        assert_eq!(
+            after[1], legacy[1],
+            "the unparseable entry is kept as stored"
+        );
     }
 }

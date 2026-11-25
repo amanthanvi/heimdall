@@ -212,6 +212,32 @@ pub struct ErrorDetail {
     /// that predates it reads an empty list.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entries: Vec<crate::doctor::ConfigProvenance>,
+    /// ⟨rev7⟩ A `USAGE_ERROR` / `item_too_large` refusal's [`ItemTooLarge`] detail (ADR-0013
+    /// §6.4, D20; m07-plan U3, PC11): the field over its bound (`pairs`, `routes`, `relays`,
+    /// `label`, the whole `item`). The item itself, when it has an ID, is `resource`.
+    /// Additive: set only on that refusal, omitted otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    /// ⟨rev7⟩ The [`ItemTooLarge`] bound `field` is over, counted in `unit`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound: Option<u64>,
+    /// ⟨rev7⟩ Whether `bound` counts bytes or entries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<BoundUnit>,
+}
+
+impl ErrorDetail {
+    /// ⟨rev7⟩ The typed [`ItemTooLarge`] detail of an `item_too_large` refusal, when the
+    /// detail carries one (its `field`, `bound` and `unit`, with [`Self::resource`]).
+    #[must_use]
+    pub fn item_too_large(&self) -> Option<ItemTooLarge> {
+        Some(ItemTooLarge {
+            field: self.field.clone()?,
+            bound: self.bound?,
+            unit: self.unit?,
+            resource: self.resource.clone(),
+        })
+    }
 }
 
 /// The `data` payload of an error envelope.
@@ -246,7 +272,8 @@ pub struct ResponseTooLarge {
 }
 
 /// ⟨rev7⟩ The typed detail of a `USAGE_ERROR` / `item_too_large` refusal (ADR-0013 §6.4,
-/// D20). **Standalone, not attached** (U3, PC11).
+/// D20). **Attached** (U3, PC11): [`ErrorDetail`] carries `field`, `bound` and `unit`, and its
+/// `resource` is the item ([`ErrorDetail::item_too_large`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ItemTooLarge {
     /// The field over its bound (`pairs`, `routes`, `relays`, `label`, the whole `item`).
@@ -1200,5 +1227,47 @@ mod tests {
         );
         let back: ErrorDetail = serde_json::from_value(v).unwrap();
         assert_eq!(back, detail);
+    }
+
+    /// ⟨rev7; D20, PC11⟩ An `item_too_large` refusal carries [`ItemTooLarge`] in the detail
+    /// (`field`, `bound`, `unit`, the item in `resource`); every other detail omits them, and a
+    /// detail that predates them reads as none.
+    #[test]
+    fn item_too_large_is_attached_and_additive() {
+        let old = r#"{"code":"USAGE_ERROR","effect_status":"none","retryable":false,
+            "next":{"action":"fix_request"},"message":"m"}"#;
+        let mut detail: ErrorDetail = serde_json::from_str(old).unwrap();
+        assert_eq!(detail.item_too_large(), None);
+        let v = serde_json::to_value(&detail).unwrap();
+        for k in ["field", "bound", "unit"] {
+            assert!(v.get(k).is_none(), "{k}: {v}");
+        }
+        detail.reason = Some(reason::ITEM_TOO_LARGE.to_owned());
+        detail.resource = Some(ResourceRef {
+            kind: "profile".to_owned(),
+            id: Some("work".to_owned()),
+        });
+        detail.field = Some("pairs".to_owned());
+        detail.bound = Some(200);
+        detail.unit = Some(BoundUnit::Entries);
+        let v = serde_json::to_value(&detail).unwrap();
+        assert_eq!(v["field"], "pairs");
+        assert_eq!(v["bound"], 200);
+        assert_eq!(v["unit"], "entries");
+        assert_eq!(
+            v["resource"],
+            serde_json::json!({"kind": "profile", "id": "work"})
+        );
+        let back: ErrorDetail = serde_json::from_value(v).unwrap();
+        assert_eq!(back, detail);
+        assert_eq!(
+            back.item_too_large(),
+            Some(ItemTooLarge {
+                field: "pairs".to_owned(),
+                bound: 200,
+                unit: BoundUnit::Entries,
+                resource: detail.resource.clone(),
+            })
+        );
     }
 }

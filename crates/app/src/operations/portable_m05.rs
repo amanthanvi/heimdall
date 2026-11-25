@@ -85,10 +85,57 @@ pub(crate) fn validate_bundle(bundle: &PortableBundle) -> Result<(), BundleError
 /// # Errors
 /// `USAGE_ERROR`.
 pub fn parse_import_bundle(bytes: &[u8]) -> Result<PortableBundle, crate::error::OpError> {
-    parse_bundle(bytes).map_err(|e| {
-        crate::error::OpError::new(heimdall_contract::Code::UsageError, e.to_string())
-            .with_effect(heimdall_contract::envelope::EffectStatus::None)
-    })
+    match parse_bundle(bytes) {
+        Ok(bundle) => {
+            check_bounds(&bundle)?;
+            Ok(bundle)
+        }
+        Err(e) => {
+            // ⟨rev7; D20⟩ A bundle refused only because an item is over a bound is named so
+            // (`item_too_large`), as the runtime names it.
+            if matches!(e, BundleError::Invalid)
+                && let Ok(typed) = serde_json::from_slice::<PortableBundle>(bytes)
+            {
+                check_bounds(&typed)?;
+            }
+            Err(
+                crate::error::OpError::new(heimdall_contract::Code::UsageError, e.to_string())
+                    .with_effect(heimdall_contract::envelope::EffectStatus::None),
+            )
+        }
+    }
+}
+
+/// ⟨rev7; ADR-0013 §6.4, D20⟩ The write-time item bounds of an import, before anything is
+/// planned or written: each destination's alias and host name at most 255 bytes, and each
+/// profile at most [`MAX_PROFILE_PAIRS`](heimdall_contract::bounds::MAX_PROFILE_PAIRS)
+/// distinct pairs (a bundle row allows more, up to its own entry bound). One item over a bound
+/// refuses the whole import (`USAGE_ERROR` / `item_too_large`, naming the item), so nothing is
+/// written.
+///
+/// # Errors
+/// `USAGE_ERROR` / `item_too_large`.
+pub(crate) fn check_bounds(bundle: &PortableBundle) -> Result<(), crate::error::OpError> {
+    use crate::catalog::{bounded_bytes, bounded_entries};
+    /// The catalog's alias and host-name bound (`heimdall_app::catalog`).
+    const NAME_BYTES: usize = 255;
+    for d in &bundle.destinations {
+        let at = || Some(("destination", d.id.to_string()));
+        bounded_bytes("alias", d.alias.len(), NAME_BYTES, at())?;
+        if let Some(h) = &d.hostname {
+            bounded_bytes("hostname", h.len(), NAME_BYTES, at())?;
+        }
+    }
+    for p in &bundle.profiles {
+        let distinct: BTreeSet<&str> = p.pairs.iter().map(String::as_str).collect();
+        bounded_entries(
+            "pairs",
+            distinct.len(),
+            heimdall_contract::bounds::MAX_PROFILE_PAIRS,
+            Some(("profile", p.id.to_string())),
+        )?;
+    }
+    Ok(())
 }
 
 // --- export ---------------------------------------------------------------------------

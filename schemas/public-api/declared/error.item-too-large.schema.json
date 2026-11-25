@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ItemTooLarge",
-  "description": "⟨rev7⟩ The typed detail of a `USAGE_ERROR` / `item_too_large` refusal (ADR-0013 §6.4,\nD20). **Standalone, not attached** (U3, PC11).",
+  "description": "⟨rev7⟩ The typed detail of a `USAGE_ERROR` / `item_too_large` refusal (ADR-0013 §6.4,\nD20). **Attached** (U3, PC11): [`ErrorDetail`] carries `field`, `bound` and `unit`, and its\n`resource` is the item ([`ErrorDetail::item_too_large`]).",
   "type": "object",
   "properties": {
     "bound": {

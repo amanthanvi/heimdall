@@ -2258,12 +2258,36 @@ pub(super) fn pin_binding_context(
 
 /// ⟨M05⟩ `inspect policies` (ADR-0011 §4.4): every standing policy with its personal
 /// `default` flag, pause, cutoff and applied revisions (cause, decision, time).
-pub(super) fn policies_view(
+///
+/// ⟨rev7; S2, ruled 2026-11-25⟩ The rows a `pages/1` form reads: every policy for the whole
+/// read (`Rows::All`); for a page, at most `take` policies after the position by ID
+/// ([`Txn::policies_after`]); for a selection, each ID by point lookup. Each listed policy is
+/// rendered as in the whole read. A form answers `items` alone, so the managed set's
+/// `default_profiles` are read only by the whole read.
+pub(super) fn policies_view_of(
     tx: &mut Txn<'_>,
     own: &heimdall_contract::ids::EnvironmentId,
+    rows: &super::pages_m07::Rows,
 ) -> heimdall_store::Result<PoliciesView> {
+    use super::pages_m07::Rows;
+    let policies = match rows {
+        Rows::All => tx.policies()?,
+        Rows::After { after, take } => tx.policies_after(after.as_deref(), *take)?,
+        Rows::Pick { ids, .. } => {
+            let mut out: Vec<heimdall_domain::policy::StandingPolicy> = Vec::new();
+            for id in ids {
+                if let Ok(id) = PolicyId::parse(id)
+                    && let Some(p) = tx.policy(&id)?
+                    && !out.iter().any(|o| o.id == p.id)
+                {
+                    out.push(p);
+                }
+            }
+            out
+        }
+    };
     let mut items = Vec::new();
-    for p in tx.policies()? {
+    for p in policies {
         let history = tx
             .policy_history(&p.id)?
             .into_iter()
@@ -2293,6 +2317,12 @@ pub(super) fn policies_view(
             },
             cutoff_at: p.cutoff_at,
             history,
+        });
+    }
+    if !matches!(rows, Rows::All) {
+        return Ok(PoliciesView {
+            items,
+            default_profiles: Vec::new(),
         });
     }
     // ⟨M05⟩ Revision 5.1 (§17.9): the default-profile preferences of the managed set.

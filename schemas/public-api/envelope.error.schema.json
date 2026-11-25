@@ -87,6 +87,21 @@
       "description": "Work binding ID (spec §4.1 \"Work binding\").",
       "type": "string"
     },
+    "BoundUnit": {
+      "description": "⟨rev7⟩ What an [`ItemTooLarge`] bound counts.",
+      "oneOf": [
+        {
+          "description": "Serialized bytes.",
+          "type": "string",
+          "const": "bytes"
+        },
+        {
+          "description": "List entries.",
+          "type": "string",
+          "const": "entries"
+        }
+      ]
+    },
     "Code": {
       "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
       "oneOf": [
@@ -293,6 +308,15 @@
       "description": "Error detail (`data.error`, primitives-draft §1).",
       "type": "object",
       "properties": {
+        "bound": {
+          "description": "⟨rev7⟩ The [`ItemTooLarge`] bound `field` is over, counted in `unit`.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
         "code": {
           "description": "Same code as the envelope.",
           "$ref": "#/$defs/Code"
@@ -307,6 +331,13 @@
           "items": {
             "$ref": "#/$defs/ConfigProvenance"
           }
+        },
+        "field": {
+          "description": "⟨rev7⟩ A `USAGE_ERROR` / `item_too_large` refusal's [`ItemTooLarge`] detail (ADR-0013\n§6.4, D20; m07-plan U3, PC11): the field over its bound (`pairs`, `routes`, `relays`,\n`label`, the whole `item`). The item itself, when it has an ID, is `resource`.\nAdditive: set only on that refusal, omitted otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "message": {
           "description": "Human text; may change without breaking callers; never contains secrets.",
@@ -337,6 +368,17 @@
         "retryable": {
           "description": "Whether an unchanged retry may succeed later.",
           "type": "boolean"
+        },
+        "unit": {
+          "description": "⟨rev7⟩ Whether `bound` counts bytes or entries.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundUnit"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [

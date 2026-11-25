@@ -1,9 +1,12 @@
 //! ⟨rev7⟩ Write-time item bounds (ADR-0013 §6.4, D20; the contract owner's ruling on ASK-D20
-//! and Q13). **Declared, not enforced yet:** every ingress (CLI and IPC catalog writes,
-//! `import`, setup adoption, enrollment, runtime-created records) refuses an item over a bound
-//! with `USAGE_ERROR` / [`ITEM_TOO_LARGE`](crate::envelope::reason::ITEM_TOO_LARGE) in the
-//! change that enforces it (U3, PC11). A store that already exceeds a bound is reported, never
-//! truncated; a legacy over-limit row stays readable by ID.
+//! and Q13). **Enforced** (m07-plan U3, PC11; U3-2): every ingress (CLI and IPC catalog writes,
+//! `import`, setup adoption through the catalog, enrollment, `route add`, `transport
+//! enable|adopt_roost`, and the runtime's own route-list writes) refuses an item over a bound
+//! with `USAGE_ERROR` / [`ITEM_TOO_LARGE`](crate::envelope::reason::ITEM_TOO_LARGE) before any
+//! write (`heimdall_app::catalog::item_too_large`). A store that already exceeds a bound is
+//! never truncated or rewritten; a legacy over-limit row stays readable by ID. The refusal
+//! carries the typed detail [`ItemTooLarge`](crate::envelope::ItemTooLarge) in `ErrorDetail`'s
+//! `field`, `bound` and `unit`, with the item in its `resource`.
 //!
 //! The per-field bounds that existed before revision 7 are cited, not repeated: aliases and
 //! host names 255 bytes (`heimdall_app::catalog`), labels
@@ -33,11 +36,13 @@ pub const MAX_CONSENTS_PER_ROUTE: usize = 4;
 pub const MAX_DIRECT_ADDRESSES_PER_ROUTE: usize = 3;
 /// ⟨review U0-RC01; ruled 2026-11-24⟩ An address string, in bytes: each `direct_addresses`
 /// entry of an Iroh route and a `BindScope::Interface` address (covers IPv6 with a zone ID).
-/// **Declared, not enforced:** at write time (U3, PC11) each is parsed as an IP address with
-/// an optional zone and stored in its canonical text form; an unparseable entry or one over
-/// this bound is refused with `USAGE_ERROR` (`item_too_large` over the bound, next
-/// `fix_request` for an unparseable entry). A stored value that does not parse or exceeds the
-/// bound is reported, never rewritten.
+/// **Enforced** (U3, PC11; ruling R-A of 2026-11-25): at write time a direct address is parsed
+/// as a socket address and stored as `std::net::SocketAddr` displays it, an interface address
+/// as a bare IP address as `std::net::IpAddr` displays it; a zone only as a numeric scope on a
+/// link-local IPv6 address (`heimdall_app::routes::ops::canonical_socket_address`,
+/// `canonical_interface_address`). An unparseable entry or one over this bound is refused with
+/// `USAGE_ERROR` (`item_too_large` over the bound, next `fix_request` for an unparseable
+/// entry). A stored value that does not parse or exceeds the bound is never rewritten.
 pub const MAX_ADDRESS_BYTES: usize = 64;
 /// A destination's pinned host keys (three key types through a rotation).
 pub const MAX_HOST_KEYS_PER_DESTINATION: usize = 8;

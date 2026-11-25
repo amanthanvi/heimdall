@@ -2727,7 +2727,7 @@ release --request-id` arrive with their checks); H11 (M08 U3c), H12 and H15 (U2b
 | D15 | The spec text below (§19.7), for the contract owner to apply | — | the orchestrator |
 | D16–D18 | §19.6 | — | ratification |
 | D19 | `response_too_large`; `ResponseTooLarge` | `contract::envelope` | U3 (PC4) |
-| D20 | The bounds (§19.5) and `item_too_large` | `contract::bounds` | U3 (PC11) |
+| D20 | The bounds (§19.5) and `item_too_large` | `contract::bounds` | U3 (PC11): enforced at every ingress in U3-2 (`heimdall_app::catalog::item_too_large`; addresses by ruling R-A, 2026-11-25) |
 | D21 | `page_token_invalid`, `selector_invalid`; `route_undetermined` exists | `envelope::reason` | U3 |
 
 ### 19.3 ADR-0014's deltas
@@ -2960,6 +2960,16 @@ these readings landed in U3-1a; the contract owner ruled them on 2026-11-25:
   "not found, or not visible to this session", never that the item does not exist), while the
   whole read of `environments` for a non-owner keeps its `CAPABILITY_UNAVAILABLE`: that reveals
   only the rule, not whether an environment exists (ruled 2026-11-25).
+- **R-A's reading for binds (U3-2):** a `BindScope::Interface.address` is a bare IP address in
+  `std::net::IpAddr`'s spelling and takes **no zone in 1.0**, refused at write (`USAGE_ERROR`,
+  next `fix_request`), because the Iroh bind planner binds no zoned address: a bind is never
+  accepted and then refused at transport start (a stated limitation). A `direct_addresses` entry
+  keeps the numeric zone on a link-local IPv6 address, as `std::net::SocketAddr` parses it and
+  the dialer dials it (ruled 2026-11-25).
+- **D20's "reported, never truncated" (U3-2):** a record already over a bound stays readable in
+  full and is never rewritten; every write to it, and every use the bound affects, is refused
+  `USAGE_ERROR` / `item_too_large`, naming the field and the bound (`ErrorDetail.field`, `bound`,
+  `unit`). There is no new finding or field for such a record in 1.0 (ruled 2026-11-25).
 
 U3-1b also adds `inspect`'s `select` and `page` forms to the primitive index (D7; wire only,
 `operations/1` and `pages/1`, answering `selection` and `page`), and reads the page tokens' key

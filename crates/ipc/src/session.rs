@@ -270,6 +270,9 @@ fn hello_reject(code: Code, message: &str, reason: Option<&str>) -> Box<Envelope
             message: message.to_owned(),
             reason: reason.map(str::to_owned),
             entries: Vec::new(),
+            field: None,
+            bound: None,
+            unit: None,
         },
     ))
 }
@@ -580,6 +583,9 @@ fn error_envelope(code: Code, effect_status: EffectStatus, message: &str) -> Env
             message: message.to_owned(),
             reason: None,
             entries: Vec::new(),
+            field: None,
+            bound: None,
+            unit: None,
         },
     )
 }

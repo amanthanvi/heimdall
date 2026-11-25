@@ -242,6 +242,23 @@ for v in ${M03_VARS}; do
     case " ${service_vars} " in *" ${v} "*) ;; *) service_vars="${service_vars} ${v}" ;; esac
 done
 
+# ⟨M07 W10 U3-2⟩ Test-support features never reach a product build: the release graph of
+# `heimdall` (normal edges only, every target) enables no `test-support` feature of any crate
+# (the store's `Txn::damage_document_for_test` lives behind one; only dev-dependencies enable it).
+probe_count=$((probe_count + 1))
+if ! graph="$(cargo tree --locked --offline -p heimdall -e normal,features --target all --prefix none 2>&1)"; then
+    fail_count=$((fail_count + 1))
+    status=1
+    echo "release-gate: cannot read the release dependency graph: FAIL"
+elif printf '%s\n' "${graph}" | grep -q 'feature "test-support"'; then
+    fail_count=$((fail_count + 1))
+    status=1
+    echo "release-gate: a test-support feature is enabled in the release graph: FAIL"
+    printf '%s\n' "${graph}" | grep 'feature "test-support"' | sort -u | sed 's/^/    /'
+else
+    echo "release-gate: no test-support feature in the release graph of heimdall: PASS"
+fi
+
 echo "release-gate: probes (each: fresh scratch HEIMDALL_HOME, hard timeout 10 s, env -i)"
 for v in ${service_vars}; do
     probe "${v}" "service run" service run

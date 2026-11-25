@@ -256,8 +256,26 @@ impl From<ResolvedRouteBinding> for RouteBinding {
     }
 }
 
-/// ⟨M06 W3⟩ The route facts the helper plans from, read in one transaction: the catalog's
-/// destinations and pair preferences, and every stored route list.
+/// ⟨rev7⟩ The route facts the helper plans `destination`'s routes from, read in one
+/// transaction. ⟨rev7; ruled 2026-11-25 (U3-1b's Q2)⟩ By key, never by enumerating the
+/// catalog: the destination with its stored route list and pair preference, each hop its
+/// routes jump through, and the destinations jumping through it
+/// (`crate::catalog::route_view_of`), so a catalog at D20's maximum is planned without
+/// reading every destination, and no hop is ever cut from a scan.
+///
+/// # Errors
+/// The store's.
+pub fn route_catalog_view_of(
+    store: &heimdall_store::Store,
+    destination: &DestinationId,
+) -> heimdall_store::Result<RouteCatalogView> {
+    store.transaction(|tx| crate::catalog::route_view_of(tx, [destination]))
+}
+
+/// ⟨M06 W3⟩ The route facts of the whole catalog, read in one transaction: the catalog's
+/// destinations and pair preferences, and every stored route list. ⟨rev7⟩ The helper plans
+/// from [`route_catalog_view_of`] instead; this whole read stays for
+/// [`RouteHelperPorts::route_view`].
 ///
 /// # Errors
 /// The store's.
@@ -559,6 +577,15 @@ pub trait RouteHelperPorts: Send + Sync {
     /// The catalog's route facts (destinations, pair preferences, stored route lists).
     async fn route_view(&self) -> Result<RouteCatalogView, RouteHelperError>;
 
+    /// ⟨rev7; ruled 2026-11-25⟩ The route facts `pair`'s routes are planned from: what
+    /// [`route_connect`] reads. A port over the store reads them by key
+    /// ([`route_catalog_view_of`]: the destination, its hops and its jumpers); by default, the
+    /// whole [`Self::route_view`].
+    async fn route_view_of(&self, pair: &AccessPair) -> Result<RouteCatalogView, RouteHelperError> {
+        let _ = pair;
+        self.route_view().await
+    }
+
     /// The jump leg's catalog pin and access for `route` (ADR-0012 §5.4): the jump's pin file
     /// and `hm-dest-<jump>` alias, and for [`JumpAccess::Managed`] the binding's endpoint and
     /// the jump pair's certificate, for [`JumpAccess::Existing`] the jump identity's endpoint
@@ -604,7 +631,7 @@ where
     // this pair, whatever the implementation.
     let binding =
         select_route_binding(std::slice::from_ref(&binding), &args.pair(), &args.endpoint)?;
-    let view = ports.route_view().await?;
+    let view = ports.route_view_of(&args.pair()).await?;
     let mut plan = plan_routes(&view, &args.pair(), &binding)?;
     for (route, why) in &plan.refused {
         let _ = writeln!(
@@ -757,6 +784,122 @@ mod tests {
             endpoint: endpoint.into(),
             pairs: pairs.iter().cloned().collect(),
         }
+    }
+
+    /// ⟨rev7; ruled 2026-11-25 (U3-1b's Q2)⟩ The helper plans from the pair's records read by
+    /// key, never the whole catalog: over a store at D20's maximum for the destination (8
+    /// approved routes, jumps through 7 hops, each hop preferring managed certificates) among
+    /// 500 other destinations, one of them damaged so that any read of every destination
+    /// fails, the plan is the one the whole catalog gives. The chain rule's reverse lookup
+    /// holds too: once another destination jumps through `final`, its jump routes are refused
+    /// exactly as over the whole catalog.
+    #[test]
+    fn a_store_at_the_maximum_plans_a_route_without_reading_every_destination() {
+        use heimdall_contract::bounds::MAX_ROUTES_PER_DESTINATION;
+        use heimdall_store::ext_m07::PageTable;
+        let store =
+            heimdall_store::Store::open_in_memory(std::sync::Arc::new(heimdall_store::NoFaults))
+                .unwrap();
+        let record = |id: &str, account: &str, jump: Option<&str>| DestinationRecord {
+            id: d(id),
+            alias: format!("a-{id}"),
+            revision: 1,
+            definition: DestinationDefinition::Managed {
+                hostname: format!("{id}.lan"),
+                port: None,
+                account: AccountName::parse(account).unwrap(),
+                identity: heimdall_contract::ids::IdentityId::from_random_bytes([1; 16]),
+                jump: jump.map(d),
+            },
+            label: None,
+            updated_at: "2026-11-25T09:00:00Z".parse().unwrap(),
+        };
+        let now: heimdall_contract::Timestamp = "2026-11-25T09:00:00Z".parse().unwrap();
+        let hops: Vec<String> = (1..MAX_ROUTES_PER_DESTINATION)
+            .map(|i| format!("hop{i}"))
+            .collect();
+        store
+            .transaction(|tx| {
+                for i in 0..500 {
+                    tx.upsert_destination(&record(&format!("other{i:03}"), "x", None))?;
+                }
+                tx.upsert_destination(&record("final", "deploy", None))?;
+                for h in &hops {
+                    tx.upsert_destination(&record(h, "jump", None))?;
+                    tx.set_pair_preference(
+                        &heimdall_domain::enrollment::PairPreference {
+                            destination: d(h),
+                            account: AccountName::parse("jump").unwrap(),
+                            mechanism: PreferredMechanism::ManagedCertificate,
+                            projection: heimdall_domain::enrollment::ProjectionStatus::Pending,
+                            issuing_cas: std::collections::BTreeSet::new(),
+                        },
+                        now,
+                    )?;
+                }
+                let mut list: Vec<DestinationRoute> = hops
+                    .iter()
+                    .enumerate()
+                    .map(|(i, h)| {
+                        route(u8::try_from(i).unwrap() + 1, RouteSpec::Jump { via: d(h) })
+                    })
+                    .collect();
+                list.push(route(
+                    99,
+                    RouteSpec::Direct {
+                        host: "10.0.0.2".into(),
+                        port: None,
+                    },
+                ));
+                assert_eq!(list.len(), MAX_ROUTES_PER_DESTINATION);
+                tx.put_destination_routes(&d("final"), &list, now)
+            })
+            .unwrap();
+        let final_pair = pair("final", "deploy");
+        let mut pairs = vec![final_pair.clone()];
+        pairs.extend(hops.iter().map(|h| pair(h, "jump")));
+        let b = binding(1, "/run/hm/b.sock", &pairs);
+        let whole = route_catalog_view(&store).unwrap();
+        let expected = plan_routes(&whole, &final_pair, &b).unwrap();
+        assert_eq!(expected.routes.len(), MAX_ROUTES_PER_DESTINATION);
+        store
+            .transaction(|tx| tx.damage_document_for_test(PageTable::Destinations, "other250"))
+            .unwrap();
+        assert!(
+            route_catalog_view(&store).is_err(),
+            "a read of every destination meets the damaged one"
+        );
+        let keyed = route_catalog_view_of(&store, &d("final")).unwrap();
+        assert!(
+            keyed.destinations.len() <= MAX_ROUTES_PER_DESTINATION,
+            "only the pair's destination and its hops: {:?}",
+            keyed.destinations.keys().collect::<Vec<_>>()
+        );
+        let planned = plan_routes(&keyed, &final_pair, &b).unwrap();
+        assert_eq!(
+            format!("{:?}", planned.routes),
+            format!("{:?}", expected.routes)
+        );
+        assert_eq!(planned.refused, expected.refused);
+        // Another destination now jumps through `final`: its jump routes are a chain.
+        store
+            .transaction(|tx| {
+                tx.upsert_destination(&record("outer", "o", Some("final")))?;
+                tx.damage_document_for_test(PageTable::Destinations, "other250")
+            })
+            .unwrap();
+        let keyed = route_catalog_view_of(&store, &d("final")).unwrap();
+        let planned = plan_routes(&keyed, &final_pair, &b).unwrap();
+        assert_eq!(planned.routes.len(), 1, "only the direct route stands");
+        assert_eq!(planned.refused.len(), MAX_ROUTES_PER_DESTINATION - 1);
+        assert!(
+            planned
+                .refused
+                .iter()
+                .all(|(_, r)| *r == reason::ROUTE_CHAIN_UNSUPPORTED),
+            "{:?}",
+            planned.refused
+        );
     }
 
     #[test]

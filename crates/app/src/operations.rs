@@ -3926,7 +3926,10 @@ fn catalog_pairs(
     pairs: &BTreeSet<AccessPair>,
 ) -> heimdall_store::Result<Result<Vec<PreparePair>, OpError>> {
     let mut out = Vec::new();
-    let routes = crate::catalog::route_view(tx)?;
+    // ⟨rev7; ruled 2026-11-25⟩ Only the facts `pair_route` reads for these pairs, by key: each
+    // pair's destination, its hops and the destinations jumping through it, never every
+    // destination (`crate::catalog::route_view_of`).
+    let routes = crate::catalog::route_view_of(tx, pairs.iter().map(|p| &p.destination))?;
     for p in pairs {
         let Some(d) = tx.destination(&p.destination)? else {
             continue;
@@ -9615,8 +9618,10 @@ impl Operations {
     }
 
     /// The whole read of `req`'s subject for `caller`. ⟨rev7⟩ The arms with a keyset store
-    /// read (destinations, profiles, identities) read only `rows`; every other arm reads its
-    /// whole list, which a `pages/1` form cuts ([`pages_m07`]).
+    /// read (destinations, profiles, identities; ⟨S2⟩ operations, decisions, connections,
+    /// projections, enrollments, environments, policies) read only `rows`; the other arms
+    /// (grants, bindings) still read their whole list, which a `pages/1` form cuts
+    /// ([`pages_m07`]).
     async fn inspect_rows(
         &self,
         caller: &Caller,
@@ -9713,7 +9718,13 @@ impl Operations {
                             let dir_of = |tag: &str| {
                                 effects.as_ref().and_then(|e| e.container_directory(tag))
                             };
-                            let view = container_m04::environments_view(tx, &environment, &dir_of)?;
+                            // ⟨rev7; S2⟩ A page reads only its rows (`rows`).
+                            let view = container_m04::environments_view_of(
+                                tx,
+                                &environment,
+                                &dir_of,
+                                &rows,
+                            )?;
                             if let (Some(map), Ok(items)) =
                                 (data.as_object_mut(), serde_json::to_value(view.items))
                             {
@@ -9908,13 +9919,12 @@ impl Operations {
             }
             InspectSubject::Operations => {
                 self.write(move |tx, _| {
-                    let mut ops = tx.open_operations()?;
-                    ops.extend(tx.unresolved_operations()?);
+                    // ⟨rev7; S2⟩ Only `rows` (a page's `limit + 1` visible rows by keyset).
+                    let ops = rows.operations(tx, |o| visible_to(&o.key.caller, &ctx))?;
                     let counts = tx.operation_counts()?;
                     Ok(serde_json::json!({
                         "operations": ops
                             .iter()
-                            .filter(|o| visible_to(&o.key.caller, &ctx))
                             .map(operation_view)
                             .collect::<Vec<_>>(),
                         "counts": counts
@@ -9949,7 +9959,8 @@ impl Operations {
                     serde_json::json!({ "projections": [], "record": null })
                 } else {
                     self.write(move |tx, _| {
-                        let resources = tx.projection_resources(&environment)?;
+                        // ⟨rev7; S2⟩ Only `rows`.
+                        let resources = rows.projections(tx, &environment)?;
                         let record = tx.projection_record(&environment)?;
                         Ok(serde_json::json!({
                             "projections": resources,
@@ -9964,7 +9975,8 @@ impl Operations {
                     serde_json::json!({ "decisions": [] })
                 } else {
                     self.write(move |tx, emit| {
-                        let pending = tx.pending_decisions()?;
+                        // ⟨rev7; S2⟩ Only `rows`.
+                        let pending = rows.decisions(tx)?;
                         let mut decisions = Vec::with_capacity(pending.len());
                         for d in &pending {
                             // ⟨M06 W5 `w5o`; ADR-0006 §18.9 item 8⟩ A local widening record
@@ -10012,8 +10024,12 @@ impl Operations {
                 if !ctx.is_owner() {
                     serde_json::json!({ "enrollments": [] })
                 } else {
+                    // ⟨rev7; S2⟩ Only `rows` for a page or a selection.
                     let view = self
-                        .write(move |tx, _| enrollment_m03::enrollments_view_in(tx))
+                        .write(move |tx, _| match rows.enrollments(tx)? {
+                            None => enrollment_m03::enrollments_view_in(tx),
+                            Some(records) => enrollment_m03::enrollments_view_of(tx, records),
+                        })
                         .await?;
                     serde_json::to_value(view).map_err(|_| {
                         OpError::new(Code::InternalError, "enrollments could not be rendered")
@@ -10048,15 +10064,15 @@ impl Operations {
                 } else {
                     let view = self
                         .write(move |tx, _| {
-                            let mut connections = Vec::new();
-                            for c in tx.owned_connections()? {
+                            // ⟨rev7; S2⟩ Only `rows`; each row mapped to its entry, or dropped.
+                            let connections = rows.connections(tx, |tx, c| {
                                 let state = match c.state {
                                     OwnedConnectionState::Up => ConnectionState::Up,
                                     OwnedConnectionState::Closing => ConnectionState::Closing,
-                                    _ => continue,
+                                    _ => return Ok(None),
                                 };
                                 let Some(binding) = tx.binding(&c.binding)? else {
-                                    continue;
+                                    return Ok(None);
                                 };
                                 let from_mux = c
                                     .control_path
@@ -10076,7 +10092,7 @@ impl Operations {
                                         .next()
                                         .map(|p| p.destination.clone())
                                 }) else {
-                                    continue;
+                                    return Ok(None);
                                 };
                                 let grant = tx.grant(&c.grant)?;
                                 let origin = tx.grant_origin(&c.grant)?;
@@ -10112,7 +10128,7 @@ impl Operations {
                                     }
                                     _ => None,
                                 };
-                                connections.push(ConnectionEntry {
+                                Ok(Some(ConnectionEntry {
                                     id: c.id,
                                     kind: c.kind,
                                     binding_id: c.binding,
@@ -10122,8 +10138,8 @@ impl Operations {
                                     policy,
                                     closes_at,
                                     state,
-                                });
-                            }
+                                }))
+                            })?;
                             Ok(ConnectionsView { connections })
                         })
                         .await?;
@@ -10139,8 +10155,9 @@ impl Operations {
                     serde_json::json!({ "items": [] })
                 } else {
                     let own = environment.clone();
+                    // ⟨rev7; S2⟩ A page reads only its rows (`rows`).
                     let view = self
-                        .write(move |tx, _| trust_m05::policies_view(tx, &own))
+                        .write(move |tx, _| trust_m05::policies_view_of(tx, &own, &rows))
                         .await?;
                     serde_json::to_value(view)
                         .map_err(|_| internal("the policies could not be rendered"))?

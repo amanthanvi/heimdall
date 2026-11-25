@@ -218,9 +218,155 @@ fn source_of(spec: &IdentitySourceSpec) -> Option<IdentitySource> {
     }
 }
 
+// --- ⟨rev7⟩ D20: write-time item bounds (ADR-0013 §6.4; PC11) ---------------------------
+
+/// ⟨rev7⟩ `USAGE_ERROR` / `item_too_large`, effect `none`, next `fix_request` (ADR-0013 §6.4,
+/// D20): `field` is over `bound` (bytes or entries), carried as the typed detail
+/// (`data.error.field`, `bound`, `unit`; PC11) and named in the message, with the item in
+/// `resource` when it has an ID. Nothing is written. The value itself is never quoted.
+pub(crate) fn item_too_large(
+    field: &str,
+    bound: usize,
+    unit: heimdall_contract::envelope::BoundUnit,
+    resource: Option<(&str, String)>,
+) -> OpError {
+    let words = match unit {
+        heimdall_contract::envelope::BoundUnit::Entries => "entries",
+        _ => "bytes",
+    };
+    let e = OpError::new(
+        Code::UsageError,
+        format!("{field} is over its bound of {bound} {words}; nothing was changed"),
+    )
+    .with_reason(heimdall_contract::envelope::reason::ITEM_TOO_LARGE)
+    .with_effect(EffectStatus::None)
+    .with_item_bound(field, u64::try_from(bound).unwrap_or(u64::MAX), unit);
+    match resource {
+        Some((kind, id)) => e.with_resource(kind, Some(id)),
+        None => e,
+    }
+}
+
+/// ⟨rev7⟩ `field` holds at most `bound` entries ([`item_too_large`] otherwise).
+pub(crate) fn bounded_entries(
+    field: &str,
+    n: usize,
+    bound: usize,
+    resource: Option<(&str, String)>,
+) -> Result<(), OpError> {
+    if n > bound {
+        return Err(item_too_large(
+            field,
+            bound,
+            heimdall_contract::envelope::BoundUnit::Entries,
+            resource,
+        ));
+    }
+    Ok(())
+}
+
+/// ⟨rev7⟩ `field` is at most `bound` bytes ([`item_too_large`] otherwise).
+pub(crate) fn bounded_bytes(
+    field: &str,
+    len: usize,
+    bound: usize,
+    resource: Option<(&str, String)>,
+) -> Result<(), OpError> {
+    if len > bound {
+        return Err(item_too_large(
+            field,
+            bound,
+            heimdall_contract::envelope::BoundUnit::Bytes,
+            resource,
+        ));
+    }
+    Ok(())
+}
+
+/// ⟨rev7⟩ Every list item's serialized form is at most
+/// [`MAX_ITEM_BYTES`](heimdall_contract::bounds::MAX_ITEM_BYTES) (field `item`). The per-field
+/// bounds keep a maximal item well under it (the maximal-record tests); this is the backstop
+/// for the fields with no bound of their own (an identity's endpoint, a key file's path).
+pub(crate) fn bounded_item<T: serde::Serialize>(
+    item: &T,
+    resource: Option<(&str, String)>,
+) -> Result<(), OpError> {
+    let n = serde_json::to_vec(item).map_or(usize::MAX, |b| b.len());
+    bounded_bytes(
+        "item",
+        n,
+        heimdall_contract::bounds::MAX_ITEM_BYTES,
+        resource,
+    )
+}
+
+/// A label's byte bound ([`MAX_LABEL_BYTES`](heimdall_contract::catalog::MAX_LABEL_BYTES)).
+fn bounded_label(label: Option<&String>, resource: (&str, String)) -> Result<(), OpError> {
+    bounded_bytes(
+        "label",
+        label.map_or(0, String::len),
+        heimdall_contract::catalog::MAX_LABEL_BYTES,
+        Some(resource),
+    )
+}
+
+/// ⟨rev7; D20⟩ The byte and entry bounds of a catalog request, checked before anything else
+/// so an over-bound field is `item_too_large` (not the generic shape refusal) and nothing is
+/// admitted: an alias and a host name 255 bytes, a label
+/// [`MAX_LABEL_BYTES`](heimdall_contract::catalog::MAX_LABEL_BYTES), a public key
+/// [`MAX_PUBLIC_KEY_BYTES`](heimdall_contract::catalog::MAX_PUBLIC_KEY_BYTES), a profile's
+/// pairs [`MAX_PROFILE_PAIRS`](heimdall_contract::bounds::MAX_PROFILE_PAIRS), and an import's
+/// items the same ([`crate::operations::portable_m05::check_bounds`]).
+fn check_bounds(req: &CatalogRequest) -> Result<(), OpError> {
+    match req {
+        CatalogRequest::UpsertDestination { destination, .. } => {
+            let at = || Some(("destination", destination.id.to_string()));
+            bounded_bytes("alias", destination.alias.len(), MAX_ALIAS_BYTES, at())?;
+            bounded_label(
+                destination.label.as_ref(),
+                ("destination", destination.id.to_string()),
+            )?;
+            if let DestinationDefinitionSpec::Managed { hostname, .. } = &destination.definition {
+                bounded_bytes("hostname", hostname.len(), MAX_HOSTNAME_BYTES, at())?;
+            }
+        }
+        CatalogRequest::AdoptIdentity { identity, .. } => {
+            bounded_bytes(
+                "public_key",
+                identity.public_key.len(),
+                heimdall_contract::catalog::MAX_PUBLIC_KEY_BYTES,
+                None,
+            )?;
+            bounded_bytes(
+                "label",
+                identity.label.as_ref().map_or(0, String::len),
+                heimdall_contract::catalog::MAX_LABEL_BYTES,
+                None,
+            )?;
+        }
+        CatalogRequest::UpsertProfile { profile, .. } => {
+            let at = || Some(("profile", profile.id.to_string()));
+            bounded_entries(
+                "pairs",
+                profile.pairs.len(),
+                heimdall_contract::bounds::MAX_PROFILE_PAIRS,
+                at(),
+            )?;
+            bounded_label(profile.label.as_ref(), ("profile", profile.id.to_string()))?;
+        }
+        CatalogRequest::ApplyImport { bundle, .. } => {
+            crate::operations::portable_m05::check_bounds(bundle)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 /// The boundary rules the wire types cannot express (beyond
 /// `CatalogRequest::validate`).
 fn check_request(req: &CatalogRequest) -> Result<(), OpError> {
+    // ⟨rev7; D20⟩ The item bounds first: an over-bound field is `item_too_large`.
+    check_bounds(req)?;
     req.validate().map_err(|e| usage(&e.to_string()))?;
     // ⟨M04, M05⟩ Revision 5 (ADR-0006 §17): ⟨M04 U6⟩ a route's `jump` is checked in the
     // upsert's own transaction (`route_checks`); ⟨M05⟩ U7: a bundle is checked as a file's
@@ -782,6 +928,68 @@ pub(crate) fn route_view(tx: &mut Txn<'_>) -> heimdall_store::Result<RouteCatalo
     Ok(view)
 }
 
+/// ⟨rev7; ruled 2026-11-25 (U3-1b's Q2)⟩ The route facts of `destinations` alone, read by key
+/// in the caller's transaction, never by enumerating the catalog: each destination with its
+/// stored route list and its managed pair's preference, then each hop its approved routes
+/// jump through (the same facts), and the destinations that jump through it
+/// ([`Txn::destinations_jumping_through`], the reverse lookup `check_jump`'s chain rule
+/// reads; two suffice, since the rule asks whether one other exists). Every decision
+/// [`RouteCatalogView`] makes for these destinations' pairs reads the same facts as over the
+/// whole catalog. The reads stay within D20's bounds: per destination, at most
+/// [`MAX_ROUTES_PER_DESTINATION`](heimdall_contract::bounds::MAX_ROUTES_PER_DESTINATION) hops
+/// and two jumpers.
+pub(crate) fn route_view_of<'a>(
+    tx: &mut Txn<'_>,
+    destinations: impl IntoIterator<Item = &'a DestinationId>,
+) -> heimdall_store::Result<RouteCatalogView> {
+    fn load(
+        tx: &mut Txn<'_>,
+        view: &mut RouteCatalogView,
+        id: &DestinationId,
+    ) -> heimdall_store::Result<()> {
+        if view.destinations.contains_key(id) {
+            return Ok(());
+        }
+        let Some(d) = tx.destination(id)? else {
+            return Ok(());
+        };
+        if let DestinationDefinition::Managed { account, .. } = &d.definition {
+            let pair = AccessPair {
+                destination: d.id.clone(),
+                account: account.clone(),
+            };
+            if let Some(p) = tx.pair_preference(&pair)? {
+                view.mechanisms.insert(pair, p.mechanism);
+            }
+        }
+        let routes = tx.destination_routes(id)?;
+        if !routes.is_empty() {
+            view.routes.insert(id.clone(), routes);
+        }
+        view.destinations.insert(id.clone(), d);
+        Ok(())
+    }
+    let mut view = RouteCatalogView::default();
+    for id in destinations {
+        load(tx, &mut view, id)?;
+        let hops: Vec<DestinationId> = view
+            .approved_routes(id)
+            .into_iter()
+            .filter_map(|r| match r.route {
+                heimdall_contract::route::RouteSpec::Jump { via } => Some(via),
+                _ => None,
+            })
+            .collect();
+        for hop in &hops {
+            load(tx, &mut view, hop)?;
+        }
+        for jumper in tx.destinations_jumping_through(id, 2)? {
+            load(tx, &mut view, &jumper)?;
+        }
+    }
+    Ok(view)
+}
+
 /// ⟨M04 U6⟩ The in-scope pairs another in-scope pair uses as its managed jump
 /// (`heimdall_domain::catalog::jump_pairs_in_scope`), read in the caller's transaction:
 /// the one input of `extension_profile` that request creation and the independent
@@ -954,6 +1162,12 @@ fn apply_action(
                         label: destination.label.clone(),
                         updated_at: now,
                     };
+                    // ⟨rev7; D20⟩ The record's serialized form (the backstop).
+                    if let Err(e) =
+                        bounded_item(&record, Some(("destination", record.id.to_string())))
+                    {
+                        return Ok(Step::Refused(Box::new(e)));
+                    }
                     #[cfg(test)]
                     if tests::alias_taken_by_another_writer(&record.alias) {
                         return Err(heimdall_store::StoreError::DestinationAliasTaken);
@@ -1017,6 +1231,10 @@ fn apply_action(
                         updated_at: now,
                         ..stored.clone()
                     };
+                    if let Err(e) = bounded_item(&record, Some(("identity", record.id.to_string())))
+                    {
+                        return Ok(Step::Refused(Box::new(e)));
+                    }
                     tx.upsert_identity(&record)?;
                     if endpoint_changed
                         && tx
@@ -1044,6 +1262,9 @@ fn apply_action(
                         adopted_at: now,
                         updated_at: now,
                     };
+                    if let Err(e) = bounded_item(&record, None) {
+                        return Ok(Step::Refused(Box::new(e)));
+                    }
                     tx.upsert_identity(&record)?;
                     record
                 }
@@ -1097,6 +1318,11 @@ fn apply_action(
                         scope,
                         label: profile.label.clone(),
                     };
+                    if let Err(e) =
+                        bounded_item(&definition, Some(("profile", definition.id.to_string())))
+                    {
+                        return Ok(Step::Refused(Box::new(e)));
+                    }
                     tx.upsert_profile(&definition)?;
                     definition
                 }
@@ -1695,6 +1921,310 @@ mod tests {
         assert!(parse_public_key(&format!("ssh-rsa {b64}")).is_none());
         assert!(parse_public_key("ssh-ed25519 !!!").is_none());
         assert!(parse_public_key(&format!("ssh-ed25519 {b64}\nssh-ed25519 {b64}")).is_none());
+    }
+
+    // --- ⟨rev7; D20⟩ write-time item bounds through the catalog's IPC entry point ---------
+
+    mod bounds {
+        use std::sync::Arc;
+
+        use heimdall_contract::catalog::{
+            DestinationDefinitionSpec, DestinationSpec, IdentitySourceSpec, IdentitySpec,
+            ProfileSpec,
+        };
+        use heimdall_contract::ids::{AccountName, EnvironmentId, ProfileId, RequestId};
+        use heimdall_contract::project::{
+            PORTABLE_BUNDLE_SCHEMA, PortableBundle, PortableDestination, PortableProfile,
+        };
+        use heimdall_contract::request::AccessPairRef;
+        use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+        use heimdall_domain::time::{SyncStatus, TimePolicy};
+        use heimdall_store::Store;
+        use heimdall_testkit::{ScriptedTimeSync, VirtualClock};
+
+        use super::super::*;
+        use crate::ensure::NoStageHook;
+        use crate::operations::{Limits, OperationsConfig};
+
+        fn env() -> EnvironmentId {
+            EnvironmentId::from_random_bytes([0x44; 16])
+        }
+
+        async fn start() -> (Operations, Arc<Store>) {
+            let store =
+                Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+            store
+                .transaction(|tx| tx.init_self_environment(&env()))
+                .unwrap();
+            let ops = Operations::start(OperationsConfig {
+                store: store.clone(),
+                clock: VirtualClock::at("2026-11-25T09:00:00Z".parse().unwrap()),
+                time_sync: ScriptedTimeSync::new(SyncStatus::Synchronized),
+                time_policy: TimePolicy::default(),
+                environment: env(),
+                adapters: Vec::new(),
+                stage_hook: Arc::new(NoStageHook),
+                limits: Limits::default(),
+                default_window: std::time::Duration::from_secs(3600),
+                projection: None,
+            })
+            .await
+            .unwrap();
+            (ops, store)
+        }
+
+        fn owner() -> Caller {
+            Caller::unattended(CallerContext {
+                principal: PrincipalRef::UnixUser { uid: 501 },
+                role: ClientRole::Owner,
+                remote_client: None,
+            })
+        }
+
+        /// Everything an ingress could write: the catalog's rows and every operation.
+        fn state(store: &Store) -> String {
+            store
+                .transaction(|tx| {
+                    Ok(format!(
+                        "{:?}|{:?}|{:?}|{:?}|{:?}",
+                        tx.destinations()?,
+                        tx.identities()?,
+                        tx.profiles()?,
+                        tx.open_operations()?,
+                        tx.operation_counts()?,
+                    ))
+                })
+                .unwrap()
+        }
+
+        fn assert_item_too_large(e: &OpError, field: &str, what: &str) {
+            assert_eq!(e.code, Code::UsageError, "{what}: {e:?}");
+            assert_eq!(
+                e.reason.as_deref(),
+                Some(heimdall_contract::envelope::reason::ITEM_TOO_LARGE),
+                "{what}: {e:?}"
+            );
+            assert_eq!(e.effect_status, EffectStatus::None, "{what}");
+            assert_eq!(e.next.action, "fix_request", "{what}");
+            assert!(e.message.starts_with(field), "{what}: {}", e.message);
+            // ⟨PC11⟩ The typed detail: the field and its bound, on the wire.
+            let d = e.detail();
+            assert_eq!(d.field.as_deref(), Some(field), "{what}");
+            let Some(typed) = d.item_too_large() else {
+                panic!("{what}: no typed detail");
+            };
+            assert!(e.message.contains(&format!("{} ", typed.bound)), "{what}");
+        }
+
+        fn pairs(n: usize) -> std::collections::BTreeSet<AccessPairRef> {
+            (0..n)
+                .map(|i| AccessPairRef {
+                    destination: DestinationId::parse(&format!("dst-{i:04}")).unwrap(),
+                    account: AccountName::parse("deploy").unwrap(),
+                })
+                .collect()
+        }
+
+        fn rid(s: &str) -> RequestId {
+            RequestId::parse(s).unwrap()
+        }
+
+        /// ⟨D20⟩ Each catalog write over a bound (a profile's pairs, an alias, a host name, a
+        /// label, a public key) is `USAGE_ERROR` / `item_too_large` naming its field, before
+        /// anything is admitted: the store is unchanged and no operation exists. A profile at
+        /// its bound is accepted.
+        #[tokio::test]
+        async fn over_bound_catalog_writes_are_refused_and_change_nothing() {
+            use heimdall_contract::bounds::MAX_PROFILE_PAIRS;
+            let (ops, store) = start().await;
+            let before = state(&store);
+            let profile =
+                |n: usize, label: Option<String>, r: &str| CatalogRequest::UpsertProfile {
+                    profile: ProfileSpec {
+                        id: ProfileId::parse("big").unwrap(),
+                        pairs: pairs(n),
+                        label,
+                    },
+                    request_id: rid(r),
+                };
+            let destination = |alias: String, hostname: String, label: Option<String>, r: &str| {
+                CatalogRequest::UpsertDestination {
+                    destination: DestinationSpec {
+                        id: DestinationId::parse("dst-big").unwrap(),
+                        alias,
+                        definition: DestinationDefinitionSpec::Managed {
+                            hostname,
+                            port: None,
+                            account: AccountName::parse("deploy").unwrap(),
+                            identity: heimdall_contract::ids::IdentityId::from_random_bytes(
+                                [1; 16],
+                            ),
+                            jump: None,
+                        },
+                        label,
+                    },
+                    request_id: rid(r),
+                }
+            };
+            let cases: Vec<(&str, &str, CatalogRequest)> = vec![
+                (
+                    "pairs",
+                    "201 pairs",
+                    profile(MAX_PROFILE_PAIRS + 1, None, "r1"),
+                ),
+                (
+                    "label",
+                    "a 257-byte profile label",
+                    profile(1, Some("\"".repeat(257)), "r2"),
+                ),
+                (
+                    "alias",
+                    "a 256-byte alias",
+                    destination("a".repeat(256), "h".into(), None, "r3"),
+                ),
+                (
+                    "hostname",
+                    "a 256-byte host name",
+                    destination("a".into(), "h".repeat(256), None, "r4"),
+                ),
+                (
+                    "label",
+                    "a 257-byte destination label",
+                    destination("a".into(), "h".into(), Some("l".repeat(257)), "r5"),
+                ),
+                (
+                    "public_key",
+                    "a public key over 16 KiB",
+                    CatalogRequest::AdoptIdentity {
+                        identity: IdentitySpec {
+                            source: IdentitySourceSpec::PublicKeyFile {
+                                path: "/fixture/id.pub".to_owned(),
+                            },
+                            public_key: format!(
+                                "ssh-ed25519 {}",
+                                "A".repeat(heimdall_contract::catalog::MAX_PUBLIC_KEY_BYTES)
+                            ),
+                            label: None,
+                        },
+                        request_id: rid("r6"),
+                    },
+                ),
+            ];
+            for (field, what, req) in cases {
+                let e = ops.catalog(&owner(), req).await.unwrap_err();
+                assert_item_too_large(&e, field, what);
+                assert_eq!(state(&store), before, "{what}: nothing was written");
+            }
+            // The profile names its item.
+            let e = ops
+                .catalog(&owner(), profile(MAX_PROFILE_PAIRS + 1, None, "r7"))
+                .await
+                .unwrap_err();
+            assert_eq!(
+                e.resource
+                    .as_deref()
+                    .map(|r| (r.kind.as_str(), r.id.as_deref())),
+                Some(("profile", Some("big")))
+            );
+            // At its bound, accepted.
+            ops.catalog(&owner(), profile(MAX_PROFILE_PAIRS, None, "r8"))
+                .await
+                .unwrap();
+            let stored = store
+                .transaction(|tx| tx.profile(&ProfileId::parse("big").unwrap()))
+                .unwrap()
+                .unwrap();
+            assert_eq!(stored.scope.pairs.len(), MAX_PROFILE_PAIRS);
+        }
+
+        fn bundle(profile_pairs: usize) -> PortableBundle {
+            PortableBundle {
+                schema: PORTABLE_BUNDLE_SCHEMA.to_owned(),
+                created_at: "2026-11-25T09:00:00Z".parse().unwrap(),
+                redacted: false,
+                destinations: vec![PortableDestination {
+                    id: DestinationId::parse("dst-imported").unwrap(),
+                    alias: "imported".to_owned(),
+                    hostname: Some("imported.example.invalid".to_owned()),
+                    port: None,
+                    account: Some(AccountName::parse("deploy").unwrap()),
+                    host_key_fingerprints: Vec::new(),
+                    jump: None,
+                }],
+                identities: Vec::new(),
+                profiles: vec![PortableProfile {
+                    id: ProfileId::parse("imported").unwrap(),
+                    pairs: (0..profile_pairs)
+                        .map(|i| format!("dst-{i:04}:deploy"))
+                        .collect(),
+                }],
+                reestablish: Vec::new(),
+            }
+        }
+
+        /// ⟨m07-plan U3 "Bounds and refusals"; D20⟩ An import with one item over a bound (a
+        /// profile of 201 pairs, within the bundle's own entry bound) is refused
+        /// `item_too_large` naming the profile, through the IPC entry point (a dry run and a
+        /// real import) and the CLI's file parse, and nothing is written: not the profile, and
+        /// not the bundle's valid destination either.
+        #[tokio::test]
+        async fn over_limit_import_is_refused() {
+            use heimdall_contract::bounds::MAX_PROFILE_PAIRS;
+            let (ops, store) = start().await;
+            let before = state(&store);
+            for (dry_run, r) in [(true, "i1"), (false, "i2")] {
+                let e = ops
+                    .catalog(
+                        &owner(),
+                        CatalogRequest::ApplyImport {
+                            bundle: bundle(MAX_PROFILE_PAIRS + 1),
+                            dry_run,
+                            request_id: rid(r),
+                        },
+                    )
+                    .await
+                    .unwrap_err();
+                assert_item_too_large(&e, "pairs", "an over-limit import");
+                assert_eq!(
+                    e.resource
+                        .as_deref()
+                        .map(|r| (r.kind.as_str(), r.id.as_deref())),
+                    Some(("profile", Some("imported")))
+                );
+                assert_eq!(
+                    state(&store),
+                    before,
+                    "dry run {dry_run}: nothing was written"
+                );
+            }
+            // The CLI's path: the file's bytes are refused the same way before anything is sent.
+            let bytes = serde_json::to_vec(&bundle(MAX_PROFILE_PAIRS + 1)).unwrap();
+            let e = crate::operations::portable_m05::parse_import_bundle(&bytes).unwrap_err();
+            assert_item_too_large(&e, "pairs", "the CLI's file parse");
+            // An alias over its bound is the bundle's shape refusal there, and named so.
+            let mut long = bundle(1);
+            long.destinations[0].alias = "a".repeat(256);
+            let bytes = serde_json::to_vec(&long).unwrap();
+            let e = crate::operations::portable_m05::parse_import_bundle(&bytes).unwrap_err();
+            assert_item_too_large(&e, "alias", "a 256-byte alias in a file");
+            // At the bound the same bundle imports.
+            ops.catalog(
+                &owner(),
+                CatalogRequest::ApplyImport {
+                    bundle: bundle(MAX_PROFILE_PAIRS),
+                    dry_run: false,
+                    request_id: rid("i3"),
+                },
+            )
+            .await
+            .unwrap();
+            assert!(
+                store
+                    .transaction(|tx| tx.profile(&ProfileId::parse("imported").unwrap()))
+                    .unwrap()
+                    .is_some()
+            );
+        }
     }
 
     #[test]

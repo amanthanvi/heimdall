@@ -223,40 +223,129 @@ pub fn environments_view(
     own: &EnvironmentId,
     directory_of: &dyn Fn(&str) -> Option<PathBuf>,
 ) -> heimdall_store::Result<EnvironmentsView> {
-    let label = tx.environment(own)?.and_then(|e| e.label);
-    let mut items = vec![EnvironmentView::new(
-        own.clone(),
-        EnvironmentKindView::NativeSession,
-        label,
-        EnvironmentState::Active,
-        RealizationView::Native,
-    )];
+    let mut items = vec![native_entry(tx, own)?];
     for row in tx.managed_environments()? {
-        if row.controller != *own {
-            continue;
+        if let Some(view) = managed_item(tx, own, &row, directory_of)? {
+            items.push(view);
         }
-        let dir = match &row.realization {
-            EnvironmentRealization::Container { dir_tag, .. } => directory_of(dir_tag),
-            _ => None,
-        };
-        items.push(environment_view(tx, &row, dir.as_deref())?);
     }
     // ⟨M04 U3b; reading I-6⟩ A distribution served in Mode A only has no environment record:
     // it is listed with its projection namespace as the ID (never an `ensure` target), its
     // state read as not running until the caller asks the WSL host. A Mode B distribution is
     // its environment's row above, which carries both modes.
     for rec in tx.wsl_distributions()? {
-        if rec.mode_b.is_none()
-            && (rec.mode_a || rec.cleanup_pending)
-            && let Some(view) = crate::operations::wsl_m04::distribution_view(
-                &rec,
-                crate::ports::RunningState::Unknown,
-            )
-        {
+        if let Some(view) = mode_a_only_item(&rec) {
             items.push(view);
         }
     }
     Ok(EnvironmentsView { items })
+}
+
+/// ⟨rev7; S2, ruled 2026-11-25⟩ [`environments_view`] for the rows a `pages/1` form reads:
+/// the whole read for [`Rows::All`](super::pages_m07::Rows::All); for a page, each of the
+/// view's three sources (the native entry, this runtime's managed rows, the Mode-A-only
+/// distributions) read by keyset after the position, at most `take` rows each, so the page
+/// (cut by ID from their union) is exactly the whole read's; for a selection, each ID by
+/// point lookup. The items, their visibility and their content are the whole read's.
+///
+/// # Errors
+/// A store error.
+pub(super) fn environments_view_of(
+    tx: &mut Txn<'_>,
+    own: &EnvironmentId,
+    directory_of: &dyn Fn(&str) -> Option<PathBuf>,
+    rows: &super::pages_m07::Rows,
+) -> heimdall_store::Result<EnvironmentsView> {
+    use super::pages_m07::{Rows, keyset_map};
+    let mut items = Vec::new();
+    match rows {
+        Rows::All => return environments_view(tx, own, directory_of),
+        Rows::After { after, take } => {
+            let after = after.as_deref();
+            if after.is_none_or(|a| own.as_str() > a) {
+                items.push(native_entry(tx, own)?);
+            }
+            for row in tx.managed_environments_after(own, after, *take)? {
+                if let Some(view) = managed_item(tx, own, &row, directory_of)? {
+                    items.push(view);
+                }
+            }
+            items.extend(keyset_map(
+                tx,
+                after,
+                *take,
+                |tx, after, take| tx.mode_a_distributions_after(after, take),
+                |rec| {
+                    rec.namespace
+                        .as_ref()
+                        .map(|n| n.as_str().to_owned())
+                        .unwrap_or_default()
+                },
+                |_, rec| Ok(mode_a_only_item(&rec)),
+            )?);
+        }
+        Rows::Pick { ids, .. } => {
+            for id in ids {
+                if id == own.as_str() {
+                    items.push(native_entry(tx, own)?);
+                    continue;
+                }
+                if let Ok(env) = EnvironmentId::parse(id)
+                    && let Some(row) = tx.managed_environment(&env)?
+                    && let Some(view) = managed_item(tx, own, &row, directory_of)?
+                {
+                    items.push(view);
+                    continue;
+                }
+                for rec in tx.distributions_with_namespace(id)? {
+                    if let Some(view) = mode_a_only_item(&rec) {
+                        items.push(view);
+                    }
+                }
+            }
+        }
+    }
+    Ok(EnvironmentsView { items })
+}
+
+/// The view's native entry: this runtime's own environment.
+fn native_entry(tx: &mut Txn<'_>, own: &EnvironmentId) -> heimdall_store::Result<EnvironmentView> {
+    let label = tx.environment(own)?.and_then(|e| e.label);
+    Ok(EnvironmentView::new(
+        own.clone(),
+        EnvironmentKindView::NativeSession,
+        label,
+        EnvironmentState::Active,
+        RealizationView::Native,
+    ))
+}
+
+/// A managed row's item, or `None` for a row another runtime manages.
+fn managed_item(
+    tx: &mut Txn<'_>,
+    own: &EnvironmentId,
+    row: &ManagedEnvironment,
+    directory_of: &dyn Fn(&str) -> Option<PathBuf>,
+) -> heimdall_store::Result<Option<EnvironmentView>> {
+    if row.controller != *own {
+        return Ok(None);
+    }
+    let dir = match &row.realization {
+        EnvironmentRealization::Container { dir_tag, .. } => directory_of(dir_tag),
+        _ => None,
+    };
+    environment_view(tx, row, dir.as_deref()).map(Some)
+}
+
+/// A distribution served in Mode A only, by its namespace (the reading above), or `None`.
+fn mode_a_only_item(
+    rec: &heimdall_domain::environment::WslDistributionRecord,
+) -> Option<EnvironmentView> {
+    if rec.mode_b.is_none() && (rec.mode_a || rec.cleanup_pending) {
+        crate::operations::wsl_m04::distribution_view(rec, crate::ports::RunningState::Unknown)
+    } else {
+        None
+    }
 }
 
 impl Operations {

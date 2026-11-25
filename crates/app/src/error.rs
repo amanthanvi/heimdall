@@ -55,12 +55,29 @@ pub struct OpError {
     /// names the refused `IdentityFile` lines, as the CLI's pre-launch refusal does.
     /// Display paths and line numbers only; empty for every other error.
     pub entries: Vec<heimdall_contract::doctor::ConfigProvenance>,
+    /// ⟨rev7; D20, PC11⟩ An `item_too_large` refusal's field and bound (wire
+    /// `data.error.field`, `bound`, `unit`; the item is [`Self::resource`]). `None` for every
+    /// other error. Boxed so the error stays small.
+    pub item_bound: Option<Box<ItemBound>>,
     /// ⟨M06 W5 `w5v`, the integrator's item 5⟩ Not on the wire: this controller built the
     /// error itself, for a fault of its own before anything reached the runner
     /// (`remote_env::controller_fault`, `remote_env::on_this_controller`). Never set from
     /// an answer: [`OpError::from_detail`] (a refusal the runner sent) leaves it `false`,
     /// so a runner's text can never be classed as this controller's fault.
     pub controller_local: bool,
+}
+
+/// ⟨rev7; D20, PC11⟩ The field an `item_too_large` refusal names and its bound
+/// ([`heimdall_contract::envelope::ItemTooLarge`] without the item, which is the error's
+/// `resource`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemBound {
+    /// The field over its bound.
+    pub field: String,
+    /// The bound, in `unit`s.
+    pub bound: u64,
+    /// Bytes or entries.
+    pub unit: heimdall_contract::envelope::BoundUnit,
 }
 
 impl OpError {
@@ -76,6 +93,7 @@ impl OpError {
             operation_id: None,
             reason: None,
             entries: Vec::new(),
+            item_bound: None,
             controller_local: false,
         }
     }
@@ -95,6 +113,23 @@ impl OpError {
         entries: Vec<heimdall_contract::doctor::ConfigProvenance>,
     ) -> Self {
         self.entries = entries;
+        self
+    }
+
+    /// ⟨rev7; D20, PC11⟩ Attach an `item_too_large` refusal's field and bound
+    /// (`data.error.field`, `bound`, `unit`).
+    #[must_use]
+    pub fn with_item_bound(
+        mut self,
+        field: &str,
+        bound: u64,
+        unit: heimdall_contract::envelope::BoundUnit,
+    ) -> Self {
+        self.item_bound = Some(Box::new(ItemBound {
+            field: field.to_owned(),
+            bound,
+            unit,
+        }));
         self
     }
 
@@ -199,6 +234,9 @@ impl OpError {
             // no-interaction refusal names its refused lines; a launcher's pre-launch
             // refusal sets `entries` on the detail it renders.
             entries: self.entries.clone(),
+            field: self.item_bound.as_ref().map(|b| b.field.clone()),
+            bound: self.item_bound.as_ref().map(|b| b.bound),
+            unit: self.item_bound.as_ref().map(|b| b.unit),
         }
     }
 
@@ -216,6 +254,13 @@ impl OpError {
             operation_id,
             reason: detail.reason,
             entries: detail.entries,
+            // ⟨rev7⟩ Kept only whole: a detail with all three names an item's bound.
+            item_bound: match (detail.field, detail.bound, detail.unit) {
+                (Some(field), Some(bound), Some(unit)) => {
+                    Some(Box::new(ItemBound { field, bound, unit }))
+                }
+                _ => None,
+            },
             // An answer is never this controller's own fault (the field's docs).
             controller_local: false,
         }

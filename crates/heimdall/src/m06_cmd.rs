@@ -513,14 +513,24 @@ fn parse_endpoint(text: &str) -> Result<heimdall_contract::ids::IrohEndpointId, 
 /// runtime runs the same check before it records anything. The message names the flag's
 /// position and the class, never the URL (a refused one may hold a credential).
 fn relay_policy(relays: &[String]) -> Result<heimdall_contract::route::ExposurePolicy, OpError> {
-    heimdall_contract::route::ExposurePolicy {
+    let given = heimdall_contract::route::ExposurePolicy {
         infrastructure: heimdall_contract::route::InfrastructureProfile::Custom {
             relays: relays.to_vec(),
         },
         ..heimdall_contract::route::ExposurePolicy::default()
+    };
+    // ⟨rev7; D20⟩ An over-long URL is `item_too_large`, as the runtime answers it.
+    if relays
+        .iter()
+        .any(|r| r.len() > heimdall_contract::route::RELAY_URL_MAX_BYTES)
+    {
+        return heimdall_app::routes::ops::canonical_exposure(&given);
     }
-    .with_normalized_relays()
-    .map_err(|(i, why)| usage(&format!("--relay {} is refused: {}", i + 1, why.message())))
+    let policy = given
+        .with_normalized_relays()
+        .map_err(|(i, why)| usage(&format!("--relay {} is refused: {}", i + 1, why.message())))?;
+    // ⟨rev7; D20⟩ At most 8 distinct relays per route (`item_too_large`).
+    heimdall_app::routes::ops::canonical_exposure(&policy)
 }
 
 /// Send `request` to the runtime (started when none runs: these are effectful), requiring
@@ -594,14 +604,13 @@ fn route_request(command: RouteCommand) -> Result<heimdall_contract::route::Rout
                     via: parse_destination(&j)?,
                 },
                 (None, None, Some(e)) => {
-                    for addr in &a.addresses {
-                        if addr.parse::<std::net::SocketAddr>().is_err() {
-                            return Err(usage("--address takes ip:port"));
-                        }
-                    }
+                    // ⟨rev7; D20, ruling R-A⟩ Each `--address` in its one spelling, within
+                    // its bounds, as the runtime checks it (`item_too_large` over a bound).
+                    let direct_addresses =
+                        heimdall_app::routes::ops::canonical_direct_addresses(&a.addresses)?;
                     RouteSpec::Iroh {
                         endpoint: parse_endpoint(&e)?,
-                        direct_addresses: a.addresses,
+                        direct_addresses,
                         external_roost: false,
                     }
                 }
@@ -998,6 +1007,17 @@ impl heimdall_app::routes::RouteHelperPorts for HelperPorts<'_> {
     {
         heimdall_store::Store::open_read_only(&self.db, Arc::new(heimdall_store::NoFaults))
             .and_then(|s| heimdall_app::routes::route_catalog_view(&s))
+            .map_err(|_| heimdall_app::routes::RouteHelperError::Unavailable)
+    }
+
+    /// ⟨rev7; ruled 2026-11-25⟩ The pair's route facts by key, never the whole catalog.
+    async fn route_view_of(
+        &self,
+        pair: &heimdall_domain::scope::AccessPair,
+    ) -> Result<heimdall_domain::catalog::RouteCatalogView, heimdall_app::routes::RouteHelperError>
+    {
+        heimdall_store::Store::open_read_only(&self.db, Arc::new(heimdall_store::NoFaults))
+            .and_then(|s| heimdall_app::routes::route_catalog_view_of(&s, &pair.destination))
             .map_err(|_| heimdall_app::routes::RouteHelperError::Unavailable)
     }
 
@@ -6491,6 +6511,88 @@ mod tests {
                 refused.message
             );
             assert!(!refused.message.contains("hunter2"), "{bad}");
+        }
+    }
+
+    /// ⟨rev7; D20, ruling R-A⟩ `route add --iroh <E> --address …` sends each address in its
+    /// one spelling and refuses, before any contact, an address that is not one (`USAGE_ERROR`,
+    /// `fix_request`), an entry over 64 bytes, a fourth address and a ninth relay (each
+    /// `item_too_large`).
+    #[test]
+    fn route_add_addresses_are_canonical_and_bounded() {
+        use heimdall_contract::route::{RouteRequest, RouteSpec};
+        let parse = |line: &[&str]| {
+            let mut argv = vec!["heimdall", "route", "add", "lab", "--iroh", EP];
+            argv.extend_from_slice(line);
+            match Cli::try_parse_from(&argv).map(|c| c.command) {
+                Ok(Some(Command::Route(r))) => route_request(r),
+                other => panic!("{line:?}: {other:?}"),
+            }
+        };
+        let request = parse(&[
+            "--address",
+            "192.0.2.1:22",
+            "--address",
+            "[2001:0DB8:0000::0001]:2222",
+            "--address",
+            "[fe80::1%3]:22",
+        ])
+        .unwrap();
+        let RouteRequest::Add {
+            route: RouteSpec::Iroh {
+                direct_addresses, ..
+            },
+            ..
+        } = request
+        else {
+            panic!("an Iroh add");
+        };
+        assert_eq!(
+            direct_addresses,
+            ["192.0.2.1:22", "[2001:db8::1]:2222", "[fe80::1%3]:22"]
+        );
+        let long = format!("[fe80::1%{}]:22", "0".repeat(60));
+        let relays: Vec<String> = (0..9)
+            .map(|i| format!("https://relay{i}.invalid./"))
+            .collect();
+        let mut nine = Vec::new();
+        for r in &relays {
+            nine.extend(["--relay", r.as_str()]);
+        }
+        let four = [
+            "--address",
+            "192.0.2.1:1",
+            "--address",
+            "192.0.2.1:2",
+            "--address",
+            "192.0.2.1:3",
+            "--address",
+            "192.0.2.1:4",
+        ];
+        for (line, reason, what) in [
+            (
+                vec!["--address", "[2001:db8::1%3]:22"],
+                None,
+                "a global zone",
+            ),
+            (
+                vec!["--address", "[fe80::1%eth0]:22"],
+                None,
+                "an interface zone",
+            ),
+            (vec!["--address", "lab:22"], None, "a host name"),
+            (
+                vec!["--address", long.as_str()],
+                Some("item_too_large"),
+                "over 64 bytes",
+            ),
+            (four.to_vec(), Some("item_too_large"), "four addresses"),
+            (nine, Some("item_too_large"), "nine relays"),
+        ] {
+            let e = parse(&line).unwrap_err();
+            assert_eq!(e.code, Code::UsageError, "{what}");
+            assert_eq!(e.reason.as_deref(), reason, "{what}");
+            assert_eq!(e.next.action, "fix_request", "{what}");
         }
     }
 

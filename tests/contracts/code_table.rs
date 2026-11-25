@@ -190,6 +190,9 @@ fn error_envelope_golden_json_for_every_code() {
             message: "m".to_owned(),
             reason: None,
             entries: Vec::new(),
+            field: None,
+            bound: None,
+            unit: None,
         };
         let env = Envelope::failed(None, detail);
         let v = serde_json::to_value(&env).unwrap();

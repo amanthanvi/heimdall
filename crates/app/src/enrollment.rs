@@ -812,6 +812,13 @@ pub fn proposed_target(
         return None;
     }
     step::host_key_algorithms(&key.key_type)?;
+    // ⟨rev7; ADR-0013 §6.4, D20⟩ A key whose line is over the pin bound is not pinnable: the
+    // record keeps its approved key and stays held.
+    if key.key_type.len() + 1 + key.key_b64.len()
+        > heimdall_contract::bounds::MAX_HOST_KEY_LINE_BYTES
+    {
+        return None;
+    }
     let approved_key = key.approved();
     if approved_key.algorithm == approved.host_key.algorithm
         && approved_key.key == approved.host_key.key
@@ -1026,6 +1033,13 @@ mod tests {
         assert_eq!(p.hostname, t.hostname);
         assert!(proposed_target(&t, &eval(&[("AAAA", false)])).is_none());
         assert!(proposed_target(&t, &eval(&[("BBBB", false), ("CCCC", false)])).is_none());
+        // ⟨rev7; D20⟩ A changed key whose line is over the pin bound is not proposed (the record
+        // keeps its approved key and stays held); one at the bound is.
+        let at =
+            "B".repeat(heimdall_contract::bounds::MAX_HOST_KEY_LINE_BYTES - "ssh-ed25519 ".len());
+        assert!(proposed_target(&t, &eval(&[(&at, false)])).is_some());
+        let over = format!("{at}B");
+        assert!(proposed_target(&t, &eval(&[(&over, false)])).is_none());
     }
 
     /// ⟨M04 U6; reading I-5⟩ The route-aware comparison: direct is the enrolled target

@@ -10,6 +10,11 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# ⟨M07 W10 U3-2⟩ Test support only (`Txn::damage_document_for_test`): enabled by dev-dependencies,
+# never by a product build; the release gate checks the release graph does not enable it.
+test-support = []
+
 [dependencies]
 heimdall-contract = { workspace = true }
 heimdall-domain = { workspace = true }

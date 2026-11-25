@@ -864,3 +864,127 @@ fn the_sshd_port_is_validated_recorded_with_the_serve_consent_and_changed_only_t
         22
     );
 }
+
+/// ⟨rev7; ruling R-A; D20⟩ `transport enable`'s interface bind address is recorded in its one
+/// spelling: the delta a decision is bound to names it so, the approval of that delta executes
+/// a request in another spelling of the same address, and the endpoint's policy reads it so. A
+/// zone on a global address, an interface-name zone or garbage is `USAGE_ERROR` with
+/// `fix_request`, over 64 bytes `item_too_large`, before any key or record. `adopt_roost` over
+/// a route bound (9 relays; a 9th route) is `item_too_large` and records nothing.
+#[test]
+fn interface_binds_are_canonical_and_transport_bounds_refuse() {
+    let store = store();
+    let f = Fakes::new();
+    let o = ops(&store, &f);
+    let given = ExposurePolicy {
+        bind: BindScope::Interface {
+            address: "2001:0DB8:0000::0001".into(),
+        },
+        ..ExposurePolicy::default()
+    };
+    let canonical = BindScope::Interface {
+        address: "2001:db8::1".into(),
+    };
+    let request = TransportRequest::Enable {
+        serve: false,
+        exposure: Some(given.clone()),
+        request_id: heimdall_contract::ids::RequestId::parse("r-bind").unwrap(),
+    };
+    let delta = o.delta_of(&request).unwrap().unwrap();
+    assert_eq!(delta.bind_after, canonical);
+    for (address, reason, what) in [
+        (
+            "fe80::1%2",
+            None,
+            "a link-local zone (no zoned bind in 1.0)",
+        ),
+        ("2001:db8::1%2", None, "a zone on a global address"),
+        ("fe80::1%eth0", None, "an interface-name zone"),
+        ("garbage", None, "garbage"),
+        (
+            "fe80::1%000000000000000000000000000000000000000000000000000000000002",
+            Some(reason::ITEM_TOO_LARGE),
+            "over 64 bytes",
+        ),
+    ] {
+        let bad = ExposurePolicy {
+            bind: BindScope::Interface {
+                address: address.into(),
+            },
+            ..ExposurePolicy::default()
+        };
+        let e = o.enable_delta(false, Some(&bad)).unwrap_err();
+        assert_eq!(
+            (e.code, e.reason.as_deref()),
+            (Code::UsageError, reason),
+            "{what}"
+        );
+        assert_eq!(e.next.action, "fix_request", "{what}");
+        let e = run(o.enable(false, Some(bad), None, now())).unwrap_err();
+        assert_eq!(
+            (e.code, e.reason.as_deref()),
+            (Code::UsageError, reason),
+            "{what}"
+        );
+    }
+    assert_eq!(f.calls.lock().unwrap().created, 0, "no key for a refusal");
+    let approved = ApprovedWidening {
+        decision: DecisionId::from_random_bytes([5; 16]),
+        delta,
+    };
+    let enabled = run(o.enable(false, Some(given), Some(&approved), now())).unwrap();
+    assert_eq!(enabled.exposure.bind, canonical);
+    assert_eq!(
+        store.transaction(endpoint_state).unwrap().policy.bind,
+        canonical
+    );
+
+    // adopt_roost: a dialer policy with 9 relays, then a destination already at 8 routes.
+    let lab = destination("lab");
+    store.transaction(|tx| tx.upsert_destination(&lab)).unwrap();
+    let nine: Vec<String> = (0..9)
+        .map(|i| format!("https://relay{i}.example.invalid/"))
+        .collect();
+    let nine: Vec<&str> = nine.iter().map(String::as_str).collect();
+    let roost = endpoint(b'd');
+    let policy = relays(&nine);
+    let approved = ApprovedWidening {
+        decision: DecisionId::from_random_bytes([6; 16]),
+        delta: TransportOps::adopt_delta(&roost, Some(&policy)),
+    };
+    let e = run(o.adopt_roost(&lab.id, &roost, Some(policy), Some(&approved), now())).unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some(reason::ITEM_TOO_LARGE), "{e:?}");
+    assert!(e.message.starts_with("relays"), "{}", e.message);
+    let mut full = heimdall_domain::routes::approved_routes(&lab, None);
+    for i in 1..heimdall_contract::bounds::MAX_ROUTES_PER_DESTINATION {
+        full.push(DestinationRoute {
+            id: RouteId::from_random_bytes([u8::try_from(i).unwrap(); 16]),
+            route: RouteSpec::Direct {
+                host: format!("10.9.0.{i}"),
+                port: None,
+            },
+            exposure: None,
+            consents: Vec::new(),
+            identification_timeout_ms: None,
+        });
+    }
+    store
+        .transaction(|tx| tx.put_destination_routes(&lab.id, &full, now()))
+        .unwrap();
+    let approved = ApprovedWidening {
+        decision: DecisionId::from_random_bytes([7; 16]),
+        delta: TransportOps::adopt_delta(&roost, None),
+    };
+    let e = run(o.adopt_roost(&lab.id, &roost, None, Some(&approved), now())).unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some(reason::ITEM_TOO_LARGE), "{e:?}");
+    assert!(e.message.starts_with("routes"), "{}", e.message);
+    let e = o.adopt_checked(&lab.id, &roost, None).unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some(reason::ITEM_TOO_LARGE));
+    assert_eq!(
+        store
+            .transaction(|tx| tx.destination_routes(&lab.id))
+            .unwrap(),
+        full,
+        "nothing was written"
+    );
+}

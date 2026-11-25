@@ -3785,6 +3785,102 @@ async fn enroll_requires_attended_decision() {
     assert_eq!(w.receipts(&op).len(), before);
 }
 
+/// ⟨rev7; ADR-0013 §6.4, D20; m07-plan U3-2⟩ An enrollment whose approved target is over a
+/// bound is refused through the entry point the runtime dispatches to
+/// (`Operations::enrollment_request`): a pinned host key line over 1,536 bytes is
+/// `USAGE_ERROR` / `item_too_large` (effect `none`, next `fix_request`) with the typed detail
+/// (the field, the bound in bytes, the enrollment), at preview and at apply, and the store is
+/// unchanged: no enrollment record, operation, decision or event. (A host name over 255 bytes
+/// never reaches the bound: the plan refuses it first, `route_undetermined`.)
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn an_over_bound_enrollment_target_is_refused_and_changes_nothing() {
+    use heimdall_contract::envelope::{BoundUnit, reason};
+    let w = World::new().await;
+    let spec = w.spec();
+    // A valid preview first, so the apply below names a plan the runtime previewed.
+    let plan = w.preview(&spec).await;
+    let state = |w: &World| {
+        let env = w.env.clone();
+        (
+            serde_json::to_string(&w.records()).unwrap(),
+            w.stored_operation_text(),
+            w.tx(|tx| tx.pending_decisions()).len(),
+            w.tx(move |tx| tx.events_after(&env, 0, &Default::default(), 100_000))
+                .events
+                .len(),
+        )
+    };
+    let before = state(&w);
+    let served = w.target.evaluation.lock().unwrap().clone();
+    let mut long_key = served.host_keys[0].clone();
+    long_key.key_b64 = "A".repeat(1_536);
+    for (field, bound, over) in [(
+        "host_key",
+        heimdall_contract::bounds::MAX_HOST_KEY_LINE_BYTES,
+        {
+            let mut e = served.clone();
+            e.host_keys = vec![long_key.clone()];
+            e
+        },
+    )] {
+        *w.target.evaluation.lock().unwrap() = over;
+        let preview = w
+            .req(
+                &unattended(),
+                EnrollmentRequest::Preview { spec: spec.clone() },
+            )
+            .await
+            .expect_err("an over-bound preview is refused");
+        let apply = w
+            .req(
+                &attended(),
+                EnrollmentRequest::Apply {
+                    spec: spec.clone(),
+                    plan_digest: plan.plan_digest.clone(),
+                    request_id: RequestId::parse(&format!("req_ov_{field}")).unwrap(),
+                    interaction: InteractionMode::Interactive,
+                    wait: WaitMode::default(),
+                },
+            )
+            .await
+            .expect_err("an over-bound apply is refused");
+        for (what, e) in [("preview", preview), ("apply", apply)] {
+            assert_eq!(e.code, Code::UsageError, "{field} {what}: {e:?}");
+            assert_eq!(
+                e.reason.as_deref(),
+                Some(reason::ITEM_TOO_LARGE),
+                "{field} {what}"
+            );
+            assert_eq!(e.effect_status, heimdall_contract::EffectStatus::None);
+            assert_eq!(e.next.action, "fix_request", "{field} {what}");
+            let typed = e.detail().item_too_large().expect("the typed detail");
+            assert_eq!(typed.field, field, "{what}");
+            assert_eq!(typed.bound, u64::try_from(bound).unwrap(), "{field} {what}");
+            assert_eq!(typed.unit, BoundUnit::Bytes, "{field} {what}");
+            assert_eq!(
+                typed.resource.as_ref().map(|r| r.kind.as_str()),
+                Some("enrollment"),
+                "{field} {what}"
+            );
+            assert!(!e.message.contains("AAAA"), "the value is never quoted");
+        }
+        assert_eq!(state(&w), before, "{field}: nothing was written");
+    }
+    // The served target again: the same request now proceeds to its decision.
+    *w.target.evaluation.lock().unwrap() = served;
+    let e = w
+        .apply(
+            &attended(),
+            &spec,
+            &plan,
+            "req_ov_ok",
+            InteractionMode::Interactive,
+        )
+        .await;
+    assert_eq!(e.code, Code::ApprovalRequired, "{e:?}");
+}
+
 /// m03-plan U10 (D5 §6.3 item 3): a result whose token is not the outstanding one is
 /// `REQUEST_CONFLICT` (`step_token_mismatch`), and nothing is recorded.
 #[cfg(any(unix, windows))]

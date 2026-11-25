@@ -240,6 +240,9 @@ pub fn emit<T: serde::Serialize>(envelope: &Envelope<T>, json: bool) {
         if let Some(reason) = field(error, "reason") {
             eprintln!("reason: {}", sanitize_for_terminal(&reason));
         }
+        if let Some(line) = item_bound_line(error) {
+            eprintln!("{}", sanitize_for_terminal(&line));
+        }
         if let Some(effect) = field(error, "effect_status") {
             eprintln!("effect: {}", sanitize_for_terminal(&effect));
         }
@@ -272,6 +275,29 @@ pub fn emit<T: serde::Serialize>(envelope: &Envelope<T>, json: bool) {
             sanitize_for_terminal(&w.message)
         );
     }
+}
+
+/// ⟨rev7; D20, PC11⟩ An `item_too_large` refusal's typed detail in plain words: the field,
+/// its bound and the item, never the refused value (`too large: pairs may hold at most 200
+/// entries (profile work)`). `None` for a detail without one.
+pub(crate) fn item_bound_line(error: &serde_json::Value) -> Option<String> {
+    let field = error.get("field")?.as_str()?;
+    let bound = error.get("bound")?.as_u64()?;
+    let mut line = match error.get("unit")?.as_str()? {
+        "entries" => format!("too large: {field} may hold at most {bound} entries"),
+        "bytes" => format!("too large: {field} may be at most {bound} bytes"),
+        _ => format!("too large: {field} is over its bound of {bound}"),
+    };
+    if let Some(r) = error.get("resource") {
+        let kind = r.get("kind").and_then(serde_json::Value::as_str);
+        let id = r.get("id").and_then(serde_json::Value::as_str);
+        match (kind, id) {
+            (Some(kind), Some(id)) => line.push_str(&format!(" ({kind} {id})")),
+            (Some(kind), None) => line.push_str(&format!(" ({kind})")),
+            _ => {}
+        }
+    }
+    Some(line)
 }
 
 /// Private to the top-level status handler and populated only for human output.
@@ -575,6 +601,9 @@ pub fn emit_rendered(envelope: &Envelope<serde_json::Value>, json: bool, human: 
         }
         if let Some(reason) = field(error, "reason") {
             eprintln!("reason: {}", sanitize_for_terminal(&reason));
+        }
+        if let Some(line) = item_bound_line(error) {
+            eprintln!("{}", sanitize_for_terminal(&line));
         }
         if let Some(effect) = field(error, "effect_status") {
             eprintln!("effect: {}", sanitize_for_terminal(&effect));
@@ -1374,6 +1403,38 @@ mod tests {
         // A line that merely looks like it is a diff line like any other.
         assert!(own_removal_text("-~ removed x: 1 line, sha256 00").is_none());
         assert!(own_removal_text("~ removed x: 1 line, sha256 short").is_none());
+    }
+
+    /// ⟨rev7; D20, PC11⟩ The human rendering of an `item_too_large` refusal names the field
+    /// and the bound in plain words, from the typed detail; another error has no such line.
+    #[test]
+    fn an_item_too_large_refusal_names_the_field_and_the_bound() {
+        let e = heimdall_app::OpError::new(Code::UsageError, "m")
+            .with_reason(heimdall_contract::envelope::reason::ITEM_TOO_LARGE)
+            .with_item_bound(
+                "pairs",
+                200,
+                heimdall_contract::envelope::BoundUnit::Entries,
+            )
+            .with_resource("profile", Some("work".to_owned()));
+        let v = serde_json::to_value(e.detail()).unwrap();
+        assert_eq!(
+            item_bound_line(&v).as_deref(),
+            Some("too large: pairs may hold at most 200 entries (profile work)")
+        );
+        let e = heimdall_app::OpError::new(Code::UsageError, "m").with_item_bound(
+            "label",
+            256,
+            heimdall_contract::envelope::BoundUnit::Bytes,
+        );
+        let v = serde_json::to_value(e.detail()).unwrap();
+        assert_eq!(
+            item_bound_line(&v).as_deref(),
+            Some("too large: label may be at most 256 bytes")
+        );
+        let v = serde_json::to_value(heimdall_app::OpError::new(Code::UsageError, "m").detail())
+            .unwrap();
+        assert_eq!(item_bound_line(&v), None);
     }
 
     #[test]

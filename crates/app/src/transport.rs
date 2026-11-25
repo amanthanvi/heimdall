@@ -542,6 +542,48 @@ impl std::fmt::Debug for TransportOps<'_> {
     }
 }
 
+/// Why a roost cannot join a destination's routes.
+enum AdoptRefusal {
+    /// `NOT_FOUND` or `CONFIG_CONFLICT`.
+    Code(Code),
+    /// ⟨rev7; D20⟩ A bound of the destination's list (`item_too_large`).
+    Bound(Box<OpError>),
+}
+
+/// ⟨rev7; ruling R-A⟩ An endpoint's policy (`transport enable`) with its interface bind
+/// address in its one spelling; the minimal policy when none is named.
+fn canonical_endpoint_policy(exposure: Option<&ExposurePolicy>) -> Result<ExposurePolicy, OpError> {
+    exposure.map_or_else(
+        || Ok(ExposurePolicy::default()),
+        crate::routes::ops::with_canonical_bind,
+    )
+}
+
+/// ⟨rev7; D20, ruling R-A⟩ A roost route's dialer policy (`transport adopt_roost`): its
+/// interface bind address in its one spelling and at most
+/// [`MAX_RELAYS_PER_ROUTE`](heimdall_contract::bounds::MAX_RELAYS_PER_ROUTE) relays, each at
+/// most [`RELAY_URL_MAX_BYTES`](heimdall_contract::route::RELAY_URL_MAX_BYTES). (Its relay
+/// URLs are recorded as given, as before.)
+fn canonical_route_policy(exposure: &ExposurePolicy) -> Result<ExposurePolicy, OpError> {
+    if let InfrastructureProfile::Custom { relays } = &exposure.infrastructure {
+        for (i, relay) in relays.iter().enumerate() {
+            crate::catalog::bounded_bytes(
+                &format!("relays[{}]", i + 1),
+                relay.len(),
+                heimdall_contract::route::RELAY_URL_MAX_BYTES,
+                None,
+            )?;
+        }
+        crate::catalog::bounded_entries(
+            "relays",
+            relays.len(),
+            heimdall_contract::bounds::MAX_RELAYS_PER_ROUTE,
+            None,
+        )?;
+    }
+    crate::routes::ops::with_canonical_bind(exposure)
+}
+
 impl TransportOps<'_> {
     /// The delta `transport enable` would apply (what a decision must approve): from the
     /// recorded endpoint (or the minimal, non-serving one) to `serve` and `exposure`.
@@ -554,7 +596,7 @@ impl TransportOps<'_> {
         exposure: Option<&ExposurePolicy>,
     ) -> Result<ExposureDelta, OpError> {
         let state = self.store.transaction(endpoint_state)?;
-        let after = exposure.cloned().unwrap_or_default();
+        let after = canonical_endpoint_policy(exposure)?;
         Ok(exposure_delta(
             None,
             &state.policy,
@@ -579,7 +621,7 @@ impl TransportOps<'_> {
         approved: Option<&ApprovedWidening>,
         now: Timestamp,
     ) -> Result<EnableResult, OpError> {
-        let after = exposure.unwrap_or_default();
+        let after = canonical_endpoint_policy(exposure.as_ref())?;
         if let Some(already) = self.enable_checked(serve, &after)? {
             return Ok(already);
         }
@@ -607,6 +649,8 @@ impl TransportOps<'_> {
         serve: bool,
         after: &ExposurePolicy,
     ) -> Result<Option<EnableResult>, OpError> {
+        // ⟨rev7; ruling R-A⟩ Compared and recorded in its one spelling.
+        let after = &crate::routes::ops::with_canonical_bind(after)?;
         if !after.port_is_valid() {
             // ⟨ADR-0006 §18.7 item 5⟩ `0` is not a serve port.
             return Err(OpError::new(Code::UsageError, "port 0 is not a serve port")
@@ -952,7 +996,11 @@ impl TransportOps<'_> {
         endpoint: &IrohEndpointId,
         exposure: Option<&ExposurePolicy>,
     ) -> ExposureDelta {
-        let after = exposure.cloned().unwrap_or_default();
+        // ⟨rev7; ruling R-A⟩ The interface address in its one spelling, as `adopt_roost`
+        // records it (an address that is not one is refused there).
+        let after = exposure.map_or_else(ExposurePolicy::default, |e| {
+            crate::routes::ops::with_canonical_bind(e).unwrap_or_else(|_| e.clone())
+        });
         exposure_delta(
             Some(endpoint),
             &ExposurePolicy::default(),
@@ -986,6 +1034,9 @@ impl TransportOps<'_> {
             return Err(OpError::new(Code::UsageError, SSHD_PORT_NOT_FOR_A_DIALER)
                 .with_effect(EffectStatus::None));
         }
+        // ⟨rev7; D20, ruling R-A⟩ The roost route's policy in its one spelling, within the
+        // per-route bounds.
+        let exposure = exposure.as_ref().map(canonical_route_policy).transpose()?;
         let delta = Self::adopt_delta(endpoint, exposure.as_ref());
         let Some(approved) = consent_for(&delta, approved)? else {
             return Err(unconsented());
@@ -1031,7 +1082,10 @@ impl TransportOps<'_> {
             return Err(OpError::new(Code::UsageError, SSHD_PORT_NOT_FOR_A_DIALER)
                 .with_effect(EffectStatus::None));
         }
-        let policy = exposure.cloned().unwrap_or_default();
+        let policy = exposure
+            .map(canonical_route_policy)
+            .transpose()?
+            .unwrap_or_default();
         self.serve.check_policy(&policy).map_err(policy_refused)?;
         let route = Self::roost_route(
             &RouteId::from_random_bytes(random16()?),
@@ -1071,15 +1125,15 @@ impl TransportOps<'_> {
         destination: &DestinationId,
         route: &DestinationRoute,
         write: Option<(&RouteConsentRecord, Timestamp)>,
-    ) -> heimdall_store::Result<Result<(), Code>> {
+    ) -> heimdall_store::Result<Result<(), AdoptRefusal>> {
         let Some(record) = tx.destination(destination)? else {
-            return Ok(Err(Code::NotFound));
+            return Ok(Err(AdoptRefusal::Code(Code::NotFound)));
         };
         if !matches!(record.definition, DestinationDefinition::Managed { .. }) {
-            return Ok(Err(Code::NotFound));
+            return Ok(Err(AdoptRefusal::Code(Code::NotFound)));
         }
         let RouteSpec::Iroh { endpoint, .. } = &route.route else {
-            return Ok(Err(Code::ConfigConflict));
+            return Ok(Err(AdoptRefusal::Code(Code::ConfigConflict)));
         };
         let stored = tx.destination_routes(destination)?;
         let mut list = heimdall_domain::routes::approved_routes(&record, Some(&stored));
@@ -1087,13 +1141,17 @@ impl TransportOps<'_> {
             .iter()
             .any(|r| matches!(&r.route, RouteSpec::Iroh { endpoint: e, .. } if e == endpoint))
         {
-            return Ok(Err(Code::ConfigConflict));
+            return Ok(Err(AdoptRefusal::Code(Code::ConfigConflict)));
         }
         list.push(route.clone());
+        // ⟨rev7; D20⟩ The destination's bounds over its whole list, before any write.
+        if let Err(e) = crate::routes::ops::check_list_bounds(&record, &list) {
+            return Ok(Err(AdoptRefusal::Bound(Box::new(e))));
+        }
         let mut view = crate::catalog::route_view(tx)?;
         view.routes = tx.all_destination_routes()?;
         if heimdall_domain::routes::check_route_list(&view, destination, &list).is_err() {
-            return Ok(Err(Code::ConfigConflict));
+            return Ok(Err(AdoptRefusal::Code(Code::ConfigConflict)));
         }
         if let Some((consent, now)) = write {
             tx.put_destination_routes(destination, &list, now)?;
@@ -1104,17 +1162,18 @@ impl TransportOps<'_> {
 
     fn adopt_outcome(
         destination: &DestinationId,
-        outcome: Result<(), Code>,
+        outcome: Result<(), AdoptRefusal>,
     ) -> Result<(), OpError> {
         match outcome {
             Ok(()) => Ok(()),
-            Err(Code::NotFound) => Err(OpError::new(
+            Err(AdoptRefusal::Bound(e)) => Err(*e),
+            Err(AdoptRefusal::Code(Code::NotFound)) => Err(OpError::new(
                 Code::NotFound,
                 "no managed catalog destination with that ID",
             )
             .with_resource("destination", Some(destination.as_str().to_owned()))
             .with_effect(EffectStatus::None)),
-            Err(code) => Err(OpError::new(
+            Err(AdoptRefusal::Code(code)) => Err(OpError::new(
                 code,
                 "the roost cannot be added to this destination's routes",
             )

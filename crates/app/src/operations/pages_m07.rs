@@ -156,6 +156,210 @@ impl Rows {
     }
 }
 
+/// ⟨rev7; S2, ruled 2026-11-25⟩ A keyset read that keeps only some rows: `read(tx, after,
+/// take)` gives at most `take` rows after `after` by ID, and `map` turns each into its item or
+/// drops it. Chunks of `take` are read until `take` items are kept or the rows end, so a page
+/// never comes back short while rows remain, and when `map` keeps every row (the owner's
+/// reads) exactly `take` rows are read.
+pub(super) fn keyset_map<T, U>(
+    tx: &mut Txn<'_>,
+    after: Option<&str>,
+    take: usize,
+    mut read: impl FnMut(&mut Txn<'_>, Option<&str>, usize) -> heimdall_store::Result<Vec<T>>,
+    id: impl Fn(&T) -> String,
+    mut map: impl FnMut(&mut Txn<'_>, T) -> heimdall_store::Result<Option<U>>,
+) -> heimdall_store::Result<Vec<U>> {
+    let mut out = Vec::new();
+    let mut position = after.map(str::to_owned);
+    while out.len() < take {
+        let chunk = read(tx, position.as_deref(), take)?;
+        let full = chunk.len() == take;
+        for row in chunk {
+            position = Some(id(&row));
+            if let Some(item) = map(tx, row)? {
+                out.push(item);
+                if out.len() == take {
+                    break;
+                }
+            }
+        }
+        if !full {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+impl Rows {
+    /// ⟨S2⟩ The operations `inspect operations` lists (not settled) that `keep` keeps.
+    pub(super) fn operations(
+        &self,
+        tx: &mut Txn<'_>,
+        keep: impl Fn(&heimdall_domain::operation::OperationRecord) -> bool,
+    ) -> heimdall_store::Result<Vec<heimdall_domain::operation::OperationRecord>> {
+        match self {
+            Rows::All => {
+                let mut ops = tx.open_operations()?;
+                ops.extend(tx.unresolved_operations()?);
+                ops.retain(|o| keep(o));
+                Ok(ops)
+            }
+            Rows::After { after, take } => keyset_map(
+                tx,
+                after.as_deref(),
+                *take,
+                |tx, after, take| tx.listed_operations_after(after, take),
+                |o| o.id.to_string(),
+                |_, o| Ok(keep(&o).then_some(o)),
+            ),
+            Rows::Pick { ids, .. } => {
+                let mut out = Vec::new();
+                for id in ids {
+                    if let Ok(id) = heimdall_contract::ids::OperationId::parse(id)
+                        && let Some(o) = tx.operation(&id)?
+                        && !o.state.is_settled()
+                        && keep(&o)
+                        && !out
+                            .iter()
+                            .any(|x: &heimdall_domain::operation::OperationRecord| x.id == o.id)
+                    {
+                        out.push(o);
+                    }
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    /// ⟨S2⟩ The pending decision records.
+    pub(super) fn decisions(
+        &self,
+        tx: &mut Txn<'_>,
+    ) -> heimdall_store::Result<Vec<heimdall_domain::decision::DecisionRecord>> {
+        match self {
+            Rows::All => tx.pending_decisions(),
+            Rows::After { after, take } => tx.pending_decisions_after(after.as_deref(), *take),
+            Rows::Pick { ids, .. } => {
+                let mut out: Vec<heimdall_domain::decision::DecisionRecord> = Vec::new();
+                for id in ids {
+                    if let Ok(id) = heimdall_contract::ids::DecisionId::parse(id)
+                        && let Some(d) = tx.decision(&id)?
+                        && d.state == heimdall_domain::decision::DecisionState::Pending
+                        && !out.iter().any(|x| x.id == d.id)
+                    {
+                        out.push(d);
+                    }
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    /// ⟨S2⟩ The live owned connections (`up`, `closing`), each mapped to its item by `map`
+    /// (which drops a row it cannot list).
+    pub(super) fn connections<U>(
+        &self,
+        tx: &mut Txn<'_>,
+        mut map: impl FnMut(
+            &mut Txn<'_>,
+            heimdall_domain::managed::OwnedConnection,
+        ) -> heimdall_store::Result<Option<U>>,
+    ) -> heimdall_store::Result<Vec<U>> {
+        use heimdall_domain::managed::OwnedConnectionState as S;
+        let live =
+            |c: &heimdall_domain::managed::OwnedConnection| matches!(c.state, S::Up | S::Closing);
+        match self {
+            Rows::All => {
+                let mut out = Vec::new();
+                for c in tx.owned_connections()? {
+                    if live(&c)
+                        && let Some(item) = map(tx, c)?
+                    {
+                        out.push(item);
+                    }
+                }
+                Ok(out)
+            }
+            Rows::After { after, take } => keyset_map(
+                tx,
+                after.as_deref(),
+                *take,
+                |tx, after, take| tx.live_owned_connections_after(after, take),
+                |c| c.id.to_string(),
+                map,
+            ),
+            Rows::Pick { ids, .. } => {
+                let mut out = Vec::new();
+                let mut seen = BTreeSet::new();
+                for id in ids {
+                    if let Ok(id) = heimdall_contract::ids::ConnectionId::parse(id)
+                        && seen.insert(id.clone())
+                        && let Some(c) = tx.owned_connection(&id)?
+                        && live(&c)
+                        && let Some(item) = map(tx, c)?
+                    {
+                        out.push(item);
+                    }
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    /// ⟨S2⟩ `environment`'s projection resources.
+    pub(super) fn projections(
+        &self,
+        tx: &mut Txn<'_>,
+        environment: &EnvironmentId,
+    ) -> heimdall_store::Result<Vec<heimdall_domain::resource::ManagedResource>> {
+        match self {
+            Rows::All => tx.projection_resources(environment),
+            Rows::After { after, take } => {
+                tx.projection_resources_after(environment, after.as_deref(), *take)
+            }
+            Rows::Pick { ids, .. } => {
+                use heimdall_domain::resource::{OwnerRef, ResourceKind};
+                let mut out: Vec<heimdall_domain::resource::ManagedResource> = Vec::new();
+                for id in ids {
+                    if let Ok(id) = heimdall_contract::ids::ResourceId::parse(id)
+                        && let Some(r) = tx.resource(&id)?
+                        && r.kind == ResourceKind::ConfigProjection
+                        && matches!(&r.owner, OwnerRef::Projection { environment: e } if e == environment)
+                        && !out.iter().any(|x| x.id == r.id)
+                    {
+                        out.push(r);
+                    }
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    /// ⟨S2⟩ The enrollment records `inspect enrollments` lists, or `None` for the whole read
+    /// (its own reader, `enrollment_m03::enrollments_view_in`, lists them).
+    pub(super) fn enrollments(
+        &self,
+        tx: &mut Txn<'_>,
+    ) -> heimdall_store::Result<Option<Vec<heimdall_domain::enrollment::EnrollmentRecord>>> {
+        match self {
+            Rows::All => Ok(None),
+            Rows::After { after, take } => tx.enrollments_after(after.as_deref(), *take).map(Some),
+            Rows::Pick { ids, .. } => {
+                let mut out: Vec<heimdall_domain::enrollment::EnrollmentRecord> = Vec::new();
+                for id in ids {
+                    if let Ok(id) = heimdall_contract::ids::EnrollmentId::parse(id)
+                        && let Some(r) = tx.enrollment(&id)?
+                        && !out.iter().any(|x| x.id == r.id)
+                    {
+                        out.push(r);
+                    }
+                }
+                Ok(Some(out))
+            }
+        }
+    }
+}
+
 /// Where a list subject's items are in its whole-read answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Listing {

@@ -561,11 +561,16 @@ impl Operations {
                 lock_continuity_acknowledged: ack,
             }),
         };
-        heimdall_registry::plan::build(&catalog, &evaluation, &ca_view, spec.clone()).map_err(|r| {
-            OpError::new(r.code(), r.to_string())
-                .with_reason(r.reason())
-                .with_effect(EffectStatus::None)
-        })
+        let plan = heimdall_registry::plan::build(&catalog, &evaluation, &ca_view, spec.clone())
+            .map_err(|r| {
+                OpError::new(r.code(), r.to_string())
+                    .with_reason(r.reason())
+                    .with_effect(EffectStatus::None)
+            })?;
+        // ⟨rev7; ADR-0013 §6.4, D20⟩ The enrollment record's bounds, before a preview is
+        // remembered or an apply records anything.
+        target_bounds(&plan.approved_target, enrollment)?;
+        Ok(plan)
     }
 
     async fn enroll_preview(&self, spec: EnrollmentSpec) -> OpResult<serde_json::Value> {
@@ -1145,6 +1150,15 @@ pub(super) fn enrollments_view_in(tx: &mut Txn<'_>) -> heimdall_store::Result<En
             }
         }
     }
+    enrollments_view_of(tx, records)
+}
+
+/// ⟨rev7; S2⟩ The `inspect enrollments` view of `records` alone (a page's `limit + 1`
+/// records by keyset, or a selection's), each item as [`enrollments_view_in`] builds it.
+pub(super) fn enrollments_view_of(
+    tx: &mut Txn<'_>,
+    records: Vec<EnrollmentRecord>,
+) -> heimdall_store::Result<EnrollmentsView> {
     let mut out = Vec::new();
     for r in records {
         let pair = pair_of(&r);
@@ -1498,6 +1512,33 @@ fn stored_verify_request(
         }))
 }
 
+/// ⟨rev7; ADR-0013 §6.4, D20⟩ An approved target's write-time bounds (the enrollment item
+/// `inspect enrollments` lists): its host name at most 255 bytes, as a catalog host name, and
+/// its pinned host key's OpenSSH line (`<algorithm> <base64>`) at most
+/// [`MAX_HOST_KEY_LINE_BYTES`](heimdall_contract::bounds::MAX_HOST_KEY_LINE_BYTES).
+///
+/// # Errors
+/// `USAGE_ERROR` / `item_too_large`, naming the enrollment.
+pub(crate) fn target_bounds(
+    target: &heimdall_contract::enrollment::ApprovedTarget,
+    enrollment: &EnrollmentId,
+) -> Result<(), OpError> {
+    let at = || Some(("enrollment", enrollment.to_string()));
+    crate::catalog::bounded_bytes("hostname", target.hostname.len(), 255, at())?;
+    let line = target
+        .host_key
+        .algorithm
+        .len()
+        .saturating_add(1)
+        .saturating_add(target.host_key.key.len());
+    crate::catalog::bounded_bytes(
+        "host_key",
+        line,
+        heimdall_contract::bounds::MAX_HOST_KEY_LINE_BYTES,
+        at(),
+    )
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -1562,6 +1603,51 @@ mod tests {
             evidence: None,
             created_at: now,
             updated_at: now,
+        }
+    }
+
+    /// ⟨rev7; D20⟩ An enrollment's approved target is bounded before a preview is remembered
+    /// or an apply records anything (`enrollment_plan`): a 255-byte host name and a pinned
+    /// key line of 1,536 bytes pass; one byte more of either is `item_too_large`, naming the
+    /// enrollment. A maximal enrollment item leaves 4 KiB under the 64 KiB item bound.
+    #[test]
+    fn approved_targets_are_bounded_and_a_maximal_enrollment_fits() {
+        use heimdall_contract::bounds::{
+            ITEM_SPARE_BYTES, MAX_HOST_KEY_LINE_BYTES, MAX_ITEM_BYTES,
+        };
+        let id = EnrollmentId::parse(ID).unwrap();
+        let mut r = record(EnrollmentState::Verified, None);
+        r.target.hostname = "h".repeat(255);
+        r.target.host_key.algorithm = "ssh-rsa".to_owned();
+        r.target.host_key.key = "B".repeat(MAX_HOST_KEY_LINE_BYTES - "ssh-rsa ".len());
+        super::target_bounds(&r.target, &id).unwrap();
+        // Every bounded field at its bound at once (the others as a recorded enrollment has
+        // them: the registry path, digests and IDs have no D20 bound of their own).
+        let n = serde_json::to_vec(&r).unwrap().len();
+        assert!(
+            n + ITEM_SPARE_BYTES <= MAX_ITEM_BYTES,
+            "a maximal enrollment record is {n} bytes"
+        );
+        for (what, target) in [
+            ("hostname", {
+                let mut t = r.target.clone();
+                t.hostname.push('h');
+                t
+            }),
+            ("host_key", {
+                let mut t = r.target.clone();
+                t.host_key.key.push('B');
+                t
+            }),
+        ] {
+            let e = super::target_bounds(&target, &id).unwrap_err();
+            assert_eq!(e.code, heimdall_contract::Code::UsageError, "{what}");
+            assert_eq!(e.reason.as_deref(), Some("item_too_large"), "{what}");
+            assert!(e.message.starts_with(what), "{what}: {}", e.message);
+            assert_eq!(
+                e.resource.as_deref().and_then(|r| r.id.as_deref()),
+                Some(ID)
+            );
         }
     }
 

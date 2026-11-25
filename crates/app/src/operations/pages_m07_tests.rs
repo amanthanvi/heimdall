@@ -900,3 +900,993 @@ async fn two_first_pages_create_one_key() {
     assert_eq!(next.data["items"].as_array().map(Vec::len), Some(1));
     assert_eq!(store.read_page_token_key().unwrap().0, Some(key));
 }
+
+// --- ⟨rev7; D20⟩ maximal records and legacy rows (m07-plan U3 "Bounds and refusals") -----
+
+fn item_bytes(v: &impl serde::Serialize) -> usize {
+    serde_json::to_vec(v).unwrap().len()
+}
+
+/// The one item a point `inspect` (`select` by ID) answers, through the real view builder.
+async fn selected_item(ops: &Operations, subject: InspectSubject, id: &str) -> serde_json::Value {
+    let mut seen = Seen::default();
+    let data = inspect(ops, &owner(), selected(subject, &[id], &[]), &mut seen)
+        .await
+        .unwrap()
+        .data;
+    assert_eq!(data["missing"], serde_json::json!([]), "{data}");
+    data["items"][0].clone()
+}
+
+/// A string of exactly `n` bytes in an ID's alphabet, unique per `seed`.
+fn filled(seed: usize, n: usize) -> String {
+    let head = format!("{seed:04}");
+    format!("{head}{}", "x".repeat(n - head.len()))
+}
+
+/// ⟨D20⟩ Each catalog item kind at its bounds at once, at its worst-case escaping (a label of
+/// `"`), read back through the item's own view (`select` by ID), leaves `ITEM_SPARE_BYTES`
+/// under `MAX_ITEM_BYTES`: a profile of 200 pairs of 128-byte IDs; a destination (255-byte
+/// alias and host name, 128-byte jump and account) with its 8 approved routes, each an
+/// external-roost Iroh route with 3 canonical link-local addresses at their longest, an
+/// interface bind at its longest, 4 consents, and 16 relay URLs of 2,048 bytes over the
+/// destination; an identity with its label and a 4 KiB endpoint. ADR-0006 §19.5 puts the
+/// profile at 58,381 bytes and the destination with its routes (and a route-health view this
+/// crate does not build) at 58,569.
+#[tokio::test]
+async fn maximal_records_fit_an_item() {
+    use heimdall_contract::bounds::{
+        ITEM_SPARE_BYTES, MAX_CONSENTS_PER_ROUTE, MAX_DIRECT_ADDRESSES_PER_ROUTE, MAX_ITEM_BYTES,
+        MAX_PROFILE_PAIRS, MAX_RELAYS_PER_DESTINATION, MAX_RELAYS_PER_ROUTE,
+        MAX_ROUTES_PER_DESTINATION,
+    };
+    use heimdall_contract::catalog::MAX_LABEL_BYTES;
+    use heimdall_contract::ids::{
+        AccountName, ConsentId, IdentityId, IrohEndpointId, MAX_ID_LEN, RouteId,
+    };
+    use heimdall_contract::route::{
+        BindScope, DestinationRoute, ExposurePolicy, InfrastructureProfile, RELAY_URL_MAX_BYTES,
+        RouteSpec,
+    };
+    use heimdall_domain::scope::AccessPair;
+    let store = store();
+    let label = "\"".repeat(MAX_LABEL_BYTES);
+    let account = AccountName::parse(&filled(1, MAX_ID_LEN)).unwrap();
+    let profile = ProfileDefinition {
+        id: ProfileId::parse(&filled(0, MAX_ID_LEN)).unwrap(),
+        revision: u64::try_from(i64::MAX).unwrap(),
+        scope: Scope {
+            pairs: (0..MAX_PROFILE_PAIRS)
+                .map(|i| AccessPair {
+                    destination: DestinationId::parse(&filled(i, MAX_ID_LEN)).unwrap(),
+                    account: AccountName::parse(&filled(i, MAX_ID_LEN)).unwrap(),
+                })
+                .collect(),
+            capabilities: [
+                heimdall_contract::request::Capability::SshAuthentication,
+                heimdall_contract::request::Capability::GitSigning,
+                heimdall_contract::request::Capability::AgentForwarding,
+            ]
+            .into_iter()
+            .collect(),
+        },
+        label: Some(label.clone()),
+    };
+    let identity = heimdall_domain::catalog::IdentityRecord {
+        id: IdentityId::from_random_bytes([0xee; 16]),
+        revision: u64::try_from(i64::MAX).unwrap(),
+        source: heimdall_domain::catalog::IdentitySource::NativeAgent {
+            endpoint: heimdall_contract::provider::EndpointRef {
+                kind: heimdall_contract::provider::EndpointKind::UnixSocket,
+                locator: format!("/{}", "s".repeat(4095)),
+            },
+        },
+        public_key: "ssh-ed25519 AAAA".to_owned(),
+        fingerprint: format!("SHA256:{}", "A".repeat(43)),
+        interaction: heimdall_domain::catalog::InteractionProfile {
+            interaction: heimdall_contract::provider::InteractionKind::Unknown,
+            basis: heimdall_contract::provider::EvidenceBasis::Inferred,
+        },
+        label: Some(label.clone()),
+        adopted_at: t0(),
+        updated_at: t0(),
+    };
+    let destination = DestinationRecord {
+        id: DestinationId::parse(&filled(0, MAX_ID_LEN)).unwrap(),
+        alias: "a".repeat(255),
+        revision: u64::try_from(i64::MAX).unwrap(),
+        definition: DestinationDefinition::Managed {
+            hostname: "h".repeat(255),
+            port: Some(65535),
+            account,
+            identity: identity.id.clone(),
+            jump: Some(DestinationId::parse(&filled(2, MAX_ID_LEN)).unwrap()),
+        },
+        label: Some(label),
+        updated_at: t0(),
+    };
+    // The canonical link-local IPv6 maximum with the largest numeric zone (ruling R-A).
+    let v6 = |i: usize| format!("febf:ffff:ffff:ffff:ffff:ffff:ffff:{i:04x}%4294967295");
+    // The longest bind address 1.0 takes: no zone (R-A's reading for binds).
+    let bind_v6 = |i: usize| format!("febf:ffff:ffff:ffff:ffff:ffff:ffff:{i:04x}");
+    let relay = |i: usize| {
+        let head = format!("https://relay{i:02}.example.invalid/");
+        format!("{head}{}", "p".repeat(RELAY_URL_MAX_BYTES - head.len()))
+    };
+    let mut relays_left = MAX_RELAYS_PER_DESTINATION;
+    let routes: Vec<DestinationRoute> = (0..MAX_ROUTES_PER_DESTINATION)
+        .map(|i| {
+            let n = relays_left.min(MAX_RELAYS_PER_ROUTE);
+            relays_left -= n;
+            let byte = u8::try_from(i).unwrap();
+            DestinationRoute {
+                id: RouteId::from_random_bytes([byte; 16]),
+                route: RouteSpec::Iroh {
+                    endpoint: IrohEndpointId::parse(&format!("{byte:02x}").repeat(32)).unwrap(),
+                    direct_addresses: (0..MAX_DIRECT_ADDRESSES_PER_ROUTE)
+                        .map(|a| {
+                            let text = format!("[{}]:65535", v6(a));
+                            crate::routes::ops::canonical_socket_address(&text).unwrap()
+                        })
+                        .collect(),
+                    external_roost: true,
+                },
+                exposure: Some(ExposurePolicy {
+                    bind: BindScope::Interface {
+                        address: crate::routes::ops::canonical_interface_address(&bind_v6(i))
+                            .unwrap(),
+                    },
+                    infrastructure: InfrastructureProfile::Custom {
+                        relays: (0..n).map(|r| relay(i * 8 + r)).collect(),
+                    },
+                    direct_fallback: true,
+                    port: Some(65535),
+                    ..ExposurePolicy::default()
+                }),
+                consents: (0..MAX_CONSENTS_PER_ROUTE)
+                    .map(|c| {
+                        ConsentId::from_random_bytes([byte * 8 + u8::try_from(c).unwrap(); 16])
+                    })
+                    .collect(),
+                identification_timeout_ms: Some(u64::MAX),
+            }
+        })
+        .collect();
+    assert!(crate::routes::ops::check_list_bounds(&destination, &routes).is_ok());
+    {
+        let (p, i, d, r) = (
+            profile.clone(),
+            identity.clone(),
+            destination.clone(),
+            routes.clone(),
+        );
+        store
+            .transaction(move |tx| {
+                tx.upsert_profile(&p)?;
+                tx.upsert_identity(&i)?;
+                tx.upsert_destination(&d)?;
+                tx.put_destination_routes(&d.id, &r, t0())
+            })
+            .unwrap();
+    }
+    let ops = ops_on(store.clone(), env_id()).await;
+    let room = MAX_ITEM_BYTES - ITEM_SPARE_BYTES;
+    let p = item_bytes(&selected_item(&ops, InspectSubject::Profiles, profile.id.as_str()).await);
+    assert!(p <= room, "a maximal profile is {p} bytes");
+    assert!(p > 50_000, "{p}: the order of ADR-0006 §19.5's 58,381");
+    let view = selected_item(&ops, InspectSubject::Destinations, destination.id.as_str()).await;
+    let stored = store
+        .transaction(|tx| tx.destination_routes(&destination.id))
+        .unwrap();
+    let d = item_bytes(&view) + item_bytes(&stored);
+    assert!(
+        d <= room,
+        "a maximal destination with its routes is {d} bytes (view {}, routes {})",
+        item_bytes(&view),
+        item_bytes(&stored)
+    );
+    // ADR-0006 §19.5's 58,569 also counts 8 host-key pins of 1,536 bytes (no writer stores a
+    // pin in this build) and the runtime's route-health view (added by the dispatcher).
+    assert!(
+        d > 35_000,
+        "{d}: the order of ADR-0006 §19.5's routes (52,361) less the pins"
+    );
+    let i =
+        item_bytes(&selected_item(&ops, InspectSubject::Identities, identity.id.as_str()).await);
+    assert!(i <= room, "a maximal identity is {i} bytes");
+}
+
+/// ⟨D20⟩ A legacy row over a bound (a profile of 300 pairs, written before the bounds) stays
+/// readable by ID through the existing read path and is never rewritten by an unrelated write
+/// (another profile defined through the catalog); a write to it at its bound is accepted, one
+/// over it refused.
+#[tokio::test]
+async fn a_legacy_over_limit_row_stays_readable_and_unrewritten() {
+    use heimdall_contract::ids::{AccountName, RequestId};
+    use heimdall_domain::scope::AccessPair;
+    let store = store();
+    let legacy = ProfileDefinition {
+        id: ProfileId::parse("legacy").unwrap(),
+        revision: 3,
+        scope: Scope {
+            pairs: (0..300)
+                .map(|i| AccessPair {
+                    destination: DestinationId::parse(&format!("dst-{i:04}")).unwrap(),
+                    account: AccountName::parse("deploy").unwrap(),
+                })
+                .collect(),
+            capabilities: BTreeSet::new(),
+        },
+        label: None,
+    };
+    {
+        let l = legacy.clone();
+        store.transaction(move |tx| tx.upsert_profile(&l)).unwrap();
+    }
+    let ops = ops_on(store.clone(), env_id()).await;
+    let read = selected_item(&ops, InspectSubject::Profiles, "legacy").await;
+    assert_eq!(read["pairs"].as_array().unwrap().len(), 300);
+    assert_eq!(read["revision"], 3);
+    let raw = || {
+        store
+            .transaction(|tx| tx.profile(&ProfileId::parse("legacy").unwrap()))
+            .unwrap()
+            .unwrap()
+    };
+    let spec =
+        |id: &str, n: usize, r: &str| heimdall_contract::catalog::CatalogRequest::UpsertProfile {
+            profile: heimdall_contract::catalog::ProfileSpec {
+                id: ProfileId::parse(id).unwrap(),
+                pairs: (0..n)
+                    .map(|i| heimdall_contract::request::AccessPairRef {
+                        destination: DestinationId::parse(&format!("dst-{i:04}")).unwrap(),
+                        account: AccountName::parse("deploy").unwrap(),
+                    })
+                    .collect(),
+                label: None,
+            },
+            request_id: RequestId::parse(r).unwrap(),
+        };
+    ops.catalog(&owner(), spec("other", 2, "u1")).await.unwrap();
+    assert_eq!(raw(), legacy, "an unrelated write rewrites nothing");
+    let e = ops
+        .catalog(&owner(), spec("legacy", 201, "u2"))
+        .await
+        .unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some(reason::ITEM_TOO_LARGE));
+    assert_eq!(raw(), legacy);
+    // Its remediation through the existing catalog command: rewritten within the bound.
+    ops.catalog(&owner(), spec("legacy", 200, "u3"))
+        .await
+        .unwrap();
+    assert_eq!(raw().scope.pairs.len(), 200);
+}
+
+// --- ⟨rev7; S2, ruled 2026-11-25⟩ a page reads only its `limit + 1` rows ------------------
+
+fn seed_operation(store: &Store, n: u16, who: &Caller) -> String {
+    use heimdall_contract::canonical::RequestHash;
+    use heimdall_contract::envelope::EffectStatus;
+    use heimdall_contract::{
+        OperationState,
+        ids::{OperationId, RequestId},
+    };
+    use heimdall_domain::idempotency::{IdempotencyKey, IdempotencyRecord};
+    use heimdall_domain::operation::{EffectClass, OperationKind, OperationRecord};
+    let mut bytes = [0u8; 16];
+    bytes[..2].copy_from_slice(&n.to_be_bytes());
+    let mut hash = [0u8; 32];
+    hash[..2].copy_from_slice(&n.to_be_bytes());
+    let op = OperationRecord {
+        id: OperationId::from_random_bytes(bytes),
+        kind: OperationKind::Catalog,
+        environment: env_id(),
+        key: IdempotencyKey {
+            caller: who.context.clone(),
+            kind: OperationKind::Catalog,
+            request_id: RequestId::parse(&format!("s2-{n}")).unwrap(),
+        },
+        request_hash: RequestHash(hash),
+        effect_class: EffectClass::Local,
+        // Unresolved: listed, and never driven by anything in this test.
+        state: OperationState::OutcomeUnknown,
+        code: None,
+        effect_status: EffectStatus::Unknown,
+        result: None,
+        created_at: t0(),
+        updated_at: t0(),
+        cancellation: None,
+        recovery: Default::default(),
+    };
+    let idem = IdempotencyRecord {
+        key: op.key.clone(),
+        request_hash: op.request_hash,
+        operation_id: op.id.clone(),
+        created_at: t0(),
+        expires_at: None,
+    };
+    let id = op.id.to_string();
+    store
+        .transaction(move |tx| tx.insert_operation(&op, &idem))
+        .unwrap();
+    id
+}
+
+fn seed_decision(store: &Store, n: u16) -> String {
+    use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
+    let mut bytes = [0u8; 16];
+    bytes[..2].copy_from_slice(&n.to_be_bytes());
+    let id = heimdall_contract::ids::DecisionId::from_random_bytes(bytes);
+    let text = id.to_string();
+    store
+        .transaction(move |tx| {
+            let generation = tx.authority_generation()?;
+            tx.insert_decision(&DecisionRecord {
+                id,
+                kind: DecisionKind::ConfirmTime {
+                    boot_id: heimdall_domain::time::BootId("boot-s2".into()),
+                    observed_wall: t0(),
+                },
+                generation,
+                created_at: t0(),
+                expires_at: "2099-01-01T00:00:00Z".parse().unwrap(),
+                state: DecisionState::Pending,
+                decided_at: None,
+            })
+        })
+        .unwrap();
+    text
+}
+
+/// ⟨S2; ruled 2026-11-25⟩ For each subject with a keyset store read, a page of `limit` over a
+/// store of many rows reads only its `limit + 1` rows: the row just after them is damaged (it
+/// does not decode), and the page still answers, with `more`, while the whole read, which
+/// reaches that row, is refused. The next page, which must read the damaged row, is refused
+/// too. A limited role's page of operations holds only its own, page after page.
+#[tokio::test]
+async fn a_page_reads_only_its_limit_plus_one_rows() {
+    use heimdall_store::ext_m07::PageTable;
+    const ROWS: u16 = 40;
+    const LIMIT: u32 = 3;
+    let store = store();
+    let ops = ops_on(store.clone(), env_id()).await;
+    let mut cases: Vec<(InspectSubject, PageTable, Vec<String>)> = Vec::new();
+    let destinations: Vec<String> = (0..ROWS).map(|i| format!("dst-{i:04}")).collect();
+    seed_destinations(&store, destinations.clone());
+    cases.push((
+        InspectSubject::Destinations,
+        PageTable::Destinations,
+        destinations,
+    ));
+    let profiles: Vec<String> = (0..ROWS).map(|i| format!("prf-{i:04}")).collect();
+    {
+        let ids = profiles.clone();
+        store
+            .transaction(move |tx| {
+                for id in &ids {
+                    tx.upsert_profile(&ProfileDefinition {
+                        id: ProfileId::parse(id).unwrap(),
+                        revision: 1,
+                        scope: Scope::default(),
+                        label: None,
+                    })?;
+                }
+                Ok(())
+            })
+            .unwrap();
+    }
+    cases.push((InspectSubject::Profiles, PageTable::Profiles, profiles));
+    let identities: Vec<String> = (0..ROWS)
+        .map(|i| {
+            let mut b = [0u8; 16];
+            b[..2].copy_from_slice(&i.to_be_bytes());
+            let id = heimdall_contract::ids::IdentityId::from_random_bytes(b);
+            let record = heimdall_domain::catalog::IdentityRecord {
+                id: id.clone(),
+                revision: 1,
+                source: heimdall_domain::catalog::IdentitySource::PublicKeyFile {
+                    path: format!("/fixture/{i}.pub"),
+                },
+                public_key: "ssh-ed25519 AAAA".into(),
+                fingerprint: format!("SHA256:{i:043}"),
+                interaction: heimdall_domain::catalog::InteractionProfile {
+                    interaction: heimdall_contract::provider::InteractionKind::Unknown,
+                    basis: heimdall_contract::provider::EvidenceBasis::Inferred,
+                },
+                label: None,
+                adopted_at: t0(),
+                updated_at: t0(),
+            };
+            store.transaction(|tx| tx.upsert_identity(&record)).unwrap();
+            id.to_string()
+        })
+        .collect();
+    cases.push((
+        InspectSubject::Identities,
+        PageTable::Identities,
+        identities,
+    ));
+    let operations: Vec<String> = (0..ROWS)
+        .map(|i| seed_operation(&store, i, &owner()))
+        .collect();
+    cases.push((
+        InspectSubject::Operations,
+        PageTable::Operations,
+        operations.clone(),
+    ));
+    let decisions: Vec<String> = (0..ROWS).map(|i| seed_decision(&store, i)).collect();
+    cases.push((InspectSubject::Decisions, PageTable::Decisions, decisions));
+    let id_of = |subject: InspectSubject| match subject {
+        InspectSubject::Destinations => "destination_id",
+        InspectSubject::Profiles => "profile_id",
+        InspectSubject::Identities => "identity_id",
+        InspectSubject::Operations => "operation_id",
+        _ => "decision_id",
+    };
+    let mut seen = Seen::default();
+    for (subject, table, mut ids) in cases {
+        ids.sort();
+        // Undamaged, the first page is the first `LIMIT` IDs.
+        let first = inspect(&ops, &owner(), paged(subject, Some(LIMIT), None), &mut seen)
+            .await
+            .unwrap()
+            .data;
+        assert_eq!(
+            ids_of(std::slice::from_ref(&first), id_of(subject)),
+            ids[..3],
+            "{subject:?}"
+        );
+        // The row just after the page's `limit + 1`.
+        let damaged = ids[usize::try_from(LIMIT).unwrap() + 1].clone();
+        let d = damaged.clone();
+        assert_eq!(
+            store
+                .transaction(move |tx| tx.damage_document_for_test(table, &d))
+                .unwrap(),
+            1,
+            "{subject:?}"
+        );
+        let page = inspect(&ops, &owner(), paged(subject, Some(LIMIT), None), &mut seen)
+            .await
+            .unwrap_or_else(|e| panic!("{subject:?}: the page read the damaged row: {e:?}"))
+            .data;
+        assert_eq!(page["more"], true, "{subject:?}");
+        assert_eq!(page, first, "{subject:?}");
+        assert!(
+            inspect(&ops, &owner(), whole(subject), &mut seen)
+                .await
+                .is_err(),
+            "{subject:?}: the whole read reaches the damaged row"
+        );
+        let token: PageToken = serde_json::from_value(page["next_page_token"].clone()).unwrap();
+        assert!(
+            inspect(
+                &ops,
+                &owner(),
+                paged(subject, Some(LIMIT), Some(token)),
+                &mut seen
+            )
+            .await
+            .is_err(),
+            "{subject:?}: the next page reads it"
+        );
+    }
+    // A limited role pages its own operations only (the keyset read skips the others' rows
+    // and still fills each page).
+    let store = self::store();
+    let ops = ops_on(store.clone(), env_id()).await;
+    let mut own: Vec<String> = Vec::new();
+    for i in 0..ROWS {
+        if i % 3 == 0 {
+            own.push(seed_operation(&store, i, &requester()));
+        } else {
+            seed_operation(&store, i, &viewer());
+        }
+    }
+    own.sort();
+    let pages = traverse(
+        &ops,
+        &requester(),
+        InspectSubject::Operations,
+        Some(LIMIT),
+        &mut seen,
+    )
+    .await;
+    assert_eq!(ids_of(&pages, "operation_id"), own);
+    for p in &pages[..pages.len() - 1] {
+        assert_eq!(p["items"].as_array().unwrap().len(), 3, "a full page: {p}");
+    }
+}
+
+/// ⟨S2⟩ As [`a_page_reads_only_its_limit_plus_one_rows`], for the subjects whose rows need a
+/// grant, a binding, an issuer or a projection owner: connections, projections, enrollments.
+#[tokio::test]
+async fn connection_projection_and_enrollment_pages_read_only_limit_plus_one_rows() {
+    use heimdall_contract::GrantState;
+    use heimdall_contract::ids::{
+        AccountName, BindingId, CaFingerprint, ConnectionId, EnrollmentId, GrantId, IdentityId,
+        ResourceId, WorkId,
+    };
+    use heimdall_contract::issuer::{CaState, StoreKind};
+    use heimdall_contract::request::{Capability, DeadlineIntent};
+    use heimdall_domain::binding::{BindingRecord, BindingState};
+    use heimdall_domain::evidence::EnforcementEvidence;
+    use heimdall_domain::grant::{AuthorizationSource, GrantSnapshot};
+    use heimdall_domain::managed::{ConnectionKind, OwnedConnection, OwnedConnectionState};
+    use heimdall_domain::policy::AuthorityGeneration;
+    use heimdall_domain::projection::{FileIdentity, FileRole, ProjectionLocator, Sha256Hex};
+    use heimdall_domain::resource::{
+        ManagedResource, OwnerRef, ResourceGeneration, ResourceKind, ResourceState,
+    };
+    use heimdall_domain::scope::AccessPair;
+    use heimdall_store::ext_m07::PageTable;
+    const ROWS: u16 = 30;
+    const LIMIT: u32 = 3;
+    let bytes = |tag: u8, i: u16| {
+        let mut b = [tag; 16];
+        b[..2].copy_from_slice(&i.to_be_bytes());
+        b
+    };
+    let store = store();
+    let pair = AccessPair {
+        destination: DestinationId::parse("h1").unwrap(),
+        account: AccountName::parse("u1").unwrap(),
+    };
+    let grant = GrantSnapshot {
+        id: GrantId::from_random_bytes([0x61; 16]),
+        environment: env_id(),
+        scope: Scope {
+            pairs: [pair.clone()].into_iter().collect(),
+            capabilities: [Capability::SshAuthentication].into_iter().collect(),
+        },
+        starts_at: t0(),
+        deadline: heimdall_domain::time::Deadline {
+            intent: DeadlineIntent::Duration("2h".into()),
+            resolved_at: t0(),
+            effective: "2026-11-25T11:00:00Z".parse().unwrap(),
+        },
+        parent: None,
+        source: AuthorizationSource::StandingPolicy {
+            revision: PolicyRevision(1),
+        },
+        generation: AuthorityGeneration(0),
+        state: GrantState::Active,
+        enforcement: EnforcementEvidence::unknown(),
+    };
+    let binding = BindingRecord {
+        id: BindingId::from_random_bytes([0x62; 16]),
+        environment: env_id(),
+        grant: grant.id.clone(),
+        work_id: WorkId::parse("w").unwrap(),
+        owner: owner().context,
+        profile: ProfileId::parse("default").unwrap(),
+        profile_revision: 1,
+        scope: grant.scope.clone(),
+        mechanism: "managed_certificate".into(),
+        parent: None,
+        created_at: t0(),
+        released_at: None,
+        state: BindingState::Active,
+    };
+    let ca = CaFingerprint::parse(&format!("SHA256:{}", "C".repeat(43))).unwrap();
+    let mut connections = Vec::new();
+    let mut resources = Vec::new();
+    let mut enrollments = Vec::new();
+    {
+        let (grant, binding, ca) = (grant.clone(), binding.clone(), ca.clone());
+        let seeded = store
+            .transaction(move |tx| {
+                tx.insert_grant(&grant)?;
+                tx.insert_binding(&binding)?;
+                tx.insert_issuer(&heimdall_store::IssuerRecord {
+                    ca_fingerprint: ca.clone(),
+                    public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIfixture".into(),
+                    state: CaState::Active,
+                    store_kind: StoreKind::LinuxSecretService,
+                    backup_sha256: "ab".repeat(32),
+                    backup_created_at: t0(),
+                    restored_without_log: false,
+                    created_at: t0(),
+                    retired_at: None,
+                })?;
+                let mut out = (Vec::new(), Vec::new(), Vec::new());
+                for i in 0..ROWS {
+                    let c = OwnedConnection {
+                        id: ConnectionId::from_random_bytes(bytes(0x63, i)),
+                        kind: ConnectionKind::Master,
+                        binding: binding.id.clone(),
+                        grant: grant.id.clone(),
+                        pid: 4242,
+                        start_token: format!("start-{i}"),
+                        image: "/usr/bin/ssh".into(),
+                        control_path: Some(format!("/scratch/run/mux/m{i}")),
+                        generation: u64::from(i) + 1,
+                        state: OwnedConnectionState::Up,
+                        started_at: t0(),
+                    };
+                    out.0.push(c.id.to_string());
+                    tx.insert_owned_connection(&c)?;
+                    let locator = ProjectionLocator {
+                        role: FileRole::ManagedSsh,
+                        path: format!("/scratch/home/.ssh/heimdall-{i}"),
+                        identity: FileIdentity::Unix {
+                            dev: 1,
+                            ino: u64::from(i) + 1,
+                            birth: None,
+                        },
+                        sha256: Sha256Hex::of(format!("p{i}").as_bytes()),
+                    };
+                    let r = ManagedResource {
+                        id: ResourceId::from_random_bytes(bytes(0x64, i)),
+                        kind: ResourceKind::ConfigProjection,
+                        owner: OwnerRef::Projection {
+                            environment: env_id(),
+                        },
+                        generation: ResourceGeneration(1),
+                        desired: ResourceState::Present,
+                        observed: ResourceState::Present,
+                        last_operation: None,
+                        locator: locator.canonical().unwrap(),
+                        updated_at: t0(),
+                    };
+                    out.1.push(r.id.to_string());
+                    tx.put_projection_resource(&r, None)?;
+                    let id = EnrollmentId::from_random_bytes(bytes(0x65, i));
+                    let record = heimdall_domain::enrollment::EnrollmentRecord {
+                        marker: heimdall_domain::enrollment::marker_for(&id),
+                        id: id.clone(),
+                        destination: DestinationId::parse(&format!("dst-{i:04}")).unwrap(),
+                        account: AccountName::parse("deploy").unwrap(),
+                        ca_fingerprint: ca.clone(),
+                        form: heimdall_contract::enrollment::EnrollmentForm::Account,
+                        registry: heimdall_contract::enrollment::RegistryRef {
+                            path_display: "$HOME/.ssh/authorized_keys".into(),
+                            resolved_by:
+                                heimdall_contract::enrollment::RegistryResolvedBy::RemoteHome,
+                        },
+                        registry_canonical: heimdall_contract::enrollment::RegistryCanonical {
+                            path: None,
+                            resolved_by:
+                                heimdall_contract::enrollment::RegistryResolvedBy::RemoteHome,
+                        },
+                        line_sha256: "ab".repeat(32),
+                        target: heimdall_contract::enrollment::ApprovedTarget {
+                            hostname: format!("h{i}.example.invalid"),
+                            port: 22,
+                            user: AccountName::parse("deploy").unwrap(),
+                            proxy: heimdall_contract::enrollment::NoProxy::None,
+                            host_key: heimdall_contract::enrollment::ApprovedHostKey {
+                                algorithm: "ssh-ed25519".into(),
+                                key: "AAAA".into(),
+                                fingerprint: format!("SHA256:{}", "B".repeat(43)),
+                            },
+                        },
+                        existing_access: heimdall_domain::enrollment::ExistingAccessRecord {
+                            identity: IdentityId::from_random_bytes([7; 16]),
+                            endpoint: None,
+                            public_key_file: None,
+                        },
+                        hold: None,
+                        removal_origin: None,
+                        late_write: None,
+                        state: heimdall_contract::enrollment::EnrollmentState::Planned,
+                        verified_at: None,
+                        evidence: None,
+                        created_at: t0(),
+                        updated_at: t0(),
+                    };
+                    out.2.push(id.to_string());
+                    tx.insert_enrollment(&record)?;
+                }
+                Ok(out)
+            })
+            .unwrap();
+        connections.extend(seeded.0);
+        resources.extend(seeded.1);
+        enrollments.extend(seeded.2);
+    }
+    let ops = ops_on(store.clone(), env_id()).await;
+    let mut seen = Seen::default();
+    for (subject, table, mut ids, key, id) in [
+        (
+            InspectSubject::Connections,
+            PageTable::OwnedConnections,
+            connections,
+            "connections",
+            "id",
+        ),
+        (
+            InspectSubject::Projections,
+            PageTable::Resources,
+            resources,
+            "projections",
+            "id",
+        ),
+        (
+            InspectSubject::Enrollments,
+            PageTable::Enrollments,
+            enrollments,
+            "enrollments",
+            "enrollment_id",
+        ),
+    ] {
+        ids.sort();
+        let all = inspect(&ops, &owner(), whole(subject), &mut seen)
+            .await
+            .unwrap()
+            .data;
+        assert_eq!(
+            all[key].as_array().map(Vec::len),
+            Some(ids.len()),
+            "{subject:?}: every row is listed"
+        );
+        let pages = traverse(&ops, &owner(), subject, Some(LIMIT), &mut seen).await;
+        assert_eq!(
+            ids_of(&pages, id),
+            ids,
+            "{subject:?}: the pages list every row once"
+        );
+        let first = pages[0].clone();
+        let damaged = ids[usize::try_from(LIMIT).unwrap() + 1].clone();
+        assert_eq!(
+            store
+                .transaction(move |tx| tx.damage_document_for_test(table, &damaged))
+                .unwrap(),
+            1
+        );
+        let page = inspect(&ops, &owner(), paged(subject, Some(LIMIT), None), &mut seen)
+            .await
+            .unwrap_or_else(|e| panic!("{subject:?}: the page read the damaged row: {e:?}"))
+            .data;
+        assert_eq!(page, first, "{subject:?}");
+        assert!(
+            inspect(&ops, &owner(), whole(subject), &mut seen)
+                .await
+                .is_err(),
+            "{subject:?}: the whole read reaches the damaged row"
+        );
+    }
+}
+
+/// ⟨S2; U3-2b⟩ As [`a_page_reads_only_its_limit_plus_one_rows`], for environments and policies.
+/// The owner's environments are the union of three sources (the native entry, this runtime's
+/// managed rows, the distributions served in Mode A only, listed by namespace): the pages hold
+/// exactly the whole read's items, in ID order, each once, with the rows another runtime
+/// manages and the distributions the whole read leaves out (Mode B, no namespace, neither mode)
+/// left out too, and `select` answers each by its ID as the whole read lists it. A page reads
+/// only its `limit + 1` managed rows and policies: the row after them is damaged, the page
+/// still answers, the whole read and the next page are refused.
+#[tokio::test]
+async fn environment_and_policy_pages_read_only_limit_plus_one_rows() {
+    use heimdall_contract::environment::DistributionGuid;
+    use heimdall_domain::environment::{
+        EnvironmentRealization, ManagedEnvironment, ManagedState, WslDistributionRecord,
+    };
+    use heimdall_store::ext_m07::PageTable;
+    const ROWS: u16 = 30;
+    const LIMIT: u32 = 3;
+    let bytes = |tag: u8, i: u16| {
+        let mut b = [tag; 16];
+        b[..2].copy_from_slice(&i.to_be_bytes());
+        b
+    };
+    let store = store();
+    let ops = ops_on(store.clone(), env_id()).await;
+    let other_runtime = EnvironmentId::from_random_bytes([0x77; 16]);
+    let managed: Vec<String> = (0..ROWS)
+        .map(|i| EnvironmentId::from_random_bytes(bytes(0x00, i)).to_string())
+        .collect();
+    let guid = |tag: u8, i: u16| {
+        DistributionGuid::parse(&format!("{tag:02x}{i:06x}-0000-0000-0000-000000000000")).unwrap()
+    };
+    let wsl = |tag: u8, i: u16, namespace: Option<EnvironmentId>| WslDistributionRecord {
+        guid: guid(tag, i),
+        name: format!("d{tag}-{i}"),
+        mode_a: true,
+        mode_b: None,
+        cleanup_pending: false,
+        account: Some("u".to_owned()),
+        namespace,
+        updated_at: t0(),
+    };
+    let namespaces = {
+        let managed = managed.clone();
+        let other_runtime = other_runtime.clone();
+        store
+            .transaction(move |tx| {
+                let row =
+                    |id: EnvironmentId, controller: EnvironmentId, i: u16| ManagedEnvironment {
+                        environment: id,
+                        controller,
+                        realization: EnvironmentRealization::Container {
+                            label: format!("c{i}"),
+                            dir_tag: format!("{i:016x}"),
+                        },
+                        state: if i.is_multiple_of(2) {
+                            ManagedState::Active
+                        } else {
+                            ManagedState::Removed
+                        },
+                        created_at: t0(),
+                        updated_at: t0(),
+                    };
+                for (i, id) in (0..ROWS).zip(&managed) {
+                    tx.insert_managed_environment(&row(
+                        EnvironmentId::parse(id).unwrap(),
+                        env_id(),
+                        i,
+                    ))?;
+                    // Rows another runtime manages, interleaved by ID: never listed.
+                    tx.insert_managed_environment(&row(
+                        EnvironmentId::from_random_bytes(bytes(0x01, i)),
+                        other_runtime.clone(),
+                        i,
+                    ))?;
+                }
+                let mut listed = Vec::new();
+                for i in 0..ROWS {
+                    // Mode A only (some still owing cleanup after a disable): listed by namespace.
+                    let ns = EnvironmentId::from_random_bytes(bytes(0xf0, i));
+                    let mut rec = wsl(0xa0, i, Some(ns.clone()));
+                    if i.is_multiple_of(3) {
+                        rec.mode_a = false;
+                        rec.cleanup_pending = true;
+                    }
+                    tx.put_wsl_distribution(&rec)?;
+                    listed.push(ns.to_string());
+                    // Never listed: Mode B enabled, no namespace, neither mode.
+                    let mut b = wsl(
+                        0xb0,
+                        i,
+                        Some(EnvironmentId::from_random_bytes(bytes(0xf1, i))),
+                    );
+                    b.mode_b = Some(EnvironmentId::from_random_bytes(bytes(0x02, i)));
+                    tx.put_wsl_distribution(&b)?;
+                    tx.put_wsl_distribution(&wsl(0xc0, i, None))?;
+                    let mut n = wsl(
+                        0xd0,
+                        i,
+                        Some(EnvironmentId::from_random_bytes(bytes(0xf2, i))),
+                    );
+                    n.mode_a = false;
+                    tx.put_wsl_distribution(&n)?;
+                }
+                for i in 0..ROWS {
+                    tx.upsert_policy(
+                        &StandingPolicy {
+                            id: PolicyId::parse(&format!("pol-{i:04}")).unwrap(),
+                            revision: PolicyRevision(1),
+                            profile: ProfileId::parse("dev").unwrap(),
+                            workspace: None,
+                            scope: Scope::default(),
+                            environments: [env_id()].into_iter().collect(),
+                            max_window: Duration::from_secs(3600),
+                            pause: PauseState::Active,
+                            cutoff_at: None,
+                            source: PolicySource::SetupDefault,
+                            lock_behavior: Default::default(),
+                            connection: Default::default(),
+                            default: false,
+                        },
+                        false,
+                    )?;
+                }
+                Ok(listed)
+            })
+            .unwrap()
+    };
+    let mut environments: Vec<String> = managed.clone();
+    environments.push(env_id().to_string());
+    environments.extend(namespaces.iter().cloned());
+    environments.sort();
+    let policies: Vec<String> = (0..ROWS).map(|i| format!("pol-{i:04}")).collect();
+    let mut seen = Seen::default();
+    for (subject, mut ids, id) in [
+        (InspectSubject::Environments, environments, "environment_id"),
+        (InspectSubject::Policies, policies, "policy_id"),
+    ] {
+        ids.sort();
+        let all = inspect(&ops, &owner(), whole(subject), &mut seen)
+            .await
+            .unwrap()
+            .data;
+        let mut items: Vec<serde_json::Value> = all["items"].as_array().unwrap().clone();
+        items.sort_by(|a, b| a[id].as_str().cmp(&b[id].as_str()));
+        assert_eq!(
+            items
+                .iter()
+                .map(|i| i[id].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ids,
+            "{subject:?}: the whole read lists exactly these"
+        );
+        let pages = traverse(&ops, &owner(), subject, Some(LIMIT), &mut seen).await;
+        let paged_items: Vec<serde_json::Value> = pages
+            .iter()
+            .flat_map(|p| p["items"].as_array().unwrap().iter().cloned())
+            .collect();
+        assert_eq!(
+            paged_items, items,
+            "{subject:?}: the pages are the whole read"
+        );
+        for p in &pages[..pages.len() - 1] {
+            assert_eq!(p["items"].as_array().unwrap().len(), 3, "a full page: {p}");
+        }
+        // `select`: the first, a middle and the last item by ID, and one the read leaves out.
+        let pick = [
+            ids[0].as_str(),
+            ids[ids.len() / 2].as_str(),
+            ids[ids.len() - 1].as_str(),
+        ];
+        let left_out = EnvironmentId::from_random_bytes(bytes(0x01, 0)).to_string();
+        let mut asked: Vec<&str> = pick.to_vec();
+        asked.push(&left_out);
+        let chosen = inspect(&ops, &owner(), selected(subject, &asked, &[]), &mut seen)
+            .await
+            .unwrap()
+            .data;
+        let want: Vec<serde_json::Value> = pick
+            .iter()
+            .map(|p| items.iter().find(|i| i[id] == *p).unwrap().clone())
+            .collect();
+        assert_eq!(
+            chosen["items"],
+            serde_json::Value::Array(want),
+            "{subject:?}"
+        );
+        assert_eq!(
+            chosen["missing"],
+            serde_json::json!([left_out]),
+            "{subject:?}"
+        );
+    }
+    // A page reads only its `limit + 1` managed rows and policies.
+    for (subject, table, damaged) in [
+        (
+            InspectSubject::Environments,
+            PageTable::ManagedEnvironments,
+            managed[usize::try_from(LIMIT).unwrap() + 1].clone(),
+        ),
+        (
+            InspectSubject::Policies,
+            PageTable::Policies,
+            format!("pol-{:04}", LIMIT + 1),
+        ),
+    ] {
+        let first = inspect(&ops, &owner(), paged(subject, Some(LIMIT), None), &mut seen)
+            .await
+            .unwrap()
+            .data;
+        assert_eq!(
+            store
+                .transaction(move |tx| tx.damage_document_for_test(table, &damaged))
+                .unwrap(),
+            1,
+            "{subject:?}"
+        );
+        let page = inspect(&ops, &owner(), paged(subject, Some(LIMIT), None), &mut seen)
+            .await
+            .unwrap_or_else(|e| panic!("{subject:?}: the page read the damaged row: {e:?}"))
+            .data;
+        assert_eq!(page["more"], true, "{subject:?}");
+        assert_eq!(page, first, "{subject:?}");
+        assert!(
+            inspect(&ops, &owner(), whole(subject), &mut seen)
+                .await
+                .is_err(),
+            "{subject:?}: the whole read reaches the damaged row"
+        );
+        let token: PageToken = serde_json::from_value(page["next_page_token"].clone()).unwrap();
+        assert!(
+            inspect(
+                &ops,
+                &owner(),
+                paged(subject, Some(LIMIT), Some(token)),
+                &mut seen
+            )
+            .await
+            .is_err(),
+            "{subject:?}: the next page reads it"
+        );
+    }
+}

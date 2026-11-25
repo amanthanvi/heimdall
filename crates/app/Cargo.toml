@@ -38,6 +38,8 @@ sha2 = { workspace = true }
 # narrowing tests (U0b rows 20, 24). A feature of a pinned crate; no package enters the lock.
 tokio = { workspace = true, features = ["test-util"] }
 heimdall-testkit = { workspace = true, features = ["managed"] }
+# ⟨M07 W10 U3-2⟩ The store's test support (a damaged row for the bounded-read proofs).
+heimdall-store = { workspace = true, features = ["test-support"] }
 proptest = { workspace = true }
 
 # M01-U5 suites that carry proptest properties (plan §6.3 #3-#5, #7, #8). Hosted

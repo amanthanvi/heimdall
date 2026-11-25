@@ -33,6 +33,9 @@ Short, and meant to be read once.
 - **The Iroh transport is not in this release.** It is a preview you can build from source
   (`cargo build --features iroh`), with no support claim. Direct and jump routes work without it.
   A route can still list an Iroh leg; this release skips that leg and tries the route's others.
+- **An Iroh endpoint cannot bind a zoned IPv6 address.** An interface bind address takes no
+  zone (`%…`), so `fe80::1%2` is refused when you set it. A route's direct addresses can still
+  name a link-local address with a numeric zone.
 - **A remote runner you cannot reach hears about a revoke, pause or cutoff when it reconnects.**
   Until then its certificates already issued stay valid until they expire; the status view
   shows the latest such expiry.
