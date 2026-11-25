@@ -272,6 +272,31 @@ Each lands with its emitters, every in-tree reader and its goldens (ADR-0013 §1
     - `docs/api/local-protocol.md`, the skill ("keep the pair") and the wrapper's README.
     - The missing `routes/1` in `inspect capabilities`.
 
+- **GRANT-LIVE (orchestrator, 2026-11-25; found by M07 in U3-2 S2). A store unit, after U2b-3,
+  landing before the soak.**
+  - **The problem:** `Txn::grants_due` (`crates/store/src/lib.rs`) selects every grant whose
+    `deadline_effective <= ?1` and drops the terminal ones in Rust. Nothing deletes ended
+    grants. At least 11 product callers pass `Timestamp::MAX`: environments, operations (4),
+    container_m04, enrollment_m03, lock, managed_driver_m03 (2) and narrowing (2). So each lock
+    event, narrowing pass and enrollment parses every grant ever issued.
+  - **Store:**
+    - an indexed live-state column on `grants`, or an equivalent the store prefers, in a
+      migration after U2b's;
+    - adoption across the generations layout;
+    - a live-grant accessor;
+    - `grants_due(now)` bounded the same way.
+  - **Callers:** each caller that needs only live grants moves to the accessor. Diffs in
+    M07-owned files go to M07 through the orchestrator.
+  - **Tests:**
+    - a store with a large terminal history reads only the live rows;
+    - the deadline path reads only rows that are due and live.
+  - **Soak precondition:** a grant-history-growth workload shows per-operation latency and store
+    reads staying flat as the history grows. **The soak does not start until it does.**
+  - **Out of scope: pruning terminal grants (retention).** If it is needed for 1.0, it comes
+    with ADR-0005 §3.5's residual-counting reading: reserved or published entries stay counted.
+  - **Follow-on:** M07's later merged-keyset page unit for `grants`/`bindings` builds on this
+    column and index, after U3-3, and adds no migration of its own.
+
 ## 3. Order of the first days
 
 1. U3c, by the integrator, merged first (small, and it frees the release graph).
