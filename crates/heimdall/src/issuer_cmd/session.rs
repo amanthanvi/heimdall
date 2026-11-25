@@ -317,6 +317,16 @@ fn ceremony_failure(
                 .unwrap_or("the CA key store is unavailable: nothing was written"),
             a.refusal_reason(),
         ),
+        // ⟨M08-W3-F1⟩ The orphan refusal names the items and both ways out in its message;
+        // a single orphan is also the resource (kind `issuer`, its fingerprint).
+        CeremonyError::OrphansPresent(fingerprints) => {
+            let mut error = heimdall_app::OpError::new(e.code(), e.to_string())
+                .with_effect(heimdall_contract::EffectStatus::None);
+            if let [one] = fingerprints.as_slice() {
+                error = error.with_resource("issuer", Some(one.to_string()));
+            }
+            output::error_value(error.into_envelope())
+        }
         other => failure(other.code(), &other.to_string(), other.reason().as_deref()),
     };
     Outcome::of(env)

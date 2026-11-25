@@ -1003,7 +1003,7 @@ fn crash_between_store_and_register_leaves_orphan_reported() {
     let err = ceremony::init(&mut tty, &mut session, &rig.store, &options(&out2))
         .err()
         .unwrap();
-    assert_eq!(err, CeremonyError::OrphansPresent(1));
+    assert_eq!(err, CeremonyError::OrphansPresent(vec![fp]));
     assert!(tty.transcript.contains("--replace-orphan"));
     assert!(!out2.exists());
 }
