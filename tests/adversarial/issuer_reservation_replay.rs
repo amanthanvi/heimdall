@@ -207,8 +207,11 @@ fn enrollment(ca: &CaFingerprint) -> EnrollmentRecord {
 
 /// The world: a file database, a real K_ca in a scratch store, one verified enrollment for
 /// h1, one active grant, and the runtime's operations (replaced by [`World::restart`]).
+// ⟨M08 W3; PC job 64⟩ Fields drop in declaration order, so the temporary directory comes last:
+// every handle on its files (the store, the operations) is dropped first. On Windows an open
+// file cannot be deleted, and `TempDir`'s drop swallows the error, which left fixture
+// directories in TEMP.
 struct World {
-    dir: tempfile::TempDir,
     db: PathBuf,
     store: Arc<Store>,
     clock: Arc<VirtualClock>,
@@ -216,6 +219,7 @@ struct World {
     ca: CaFingerprint,
     grant: GrantId,
     keys: KeyVault,
+    dir: tempfile::TempDir,
 }
 
 async fn start(store: &Arc<Store>, clock: &Arc<VirtualClock>) -> Operations {

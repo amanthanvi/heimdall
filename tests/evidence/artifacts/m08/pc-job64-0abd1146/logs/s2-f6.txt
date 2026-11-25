@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running unittests src\lib.rs (target\debug\deps\heimdall_app-04232e38c28dfd59.exe)
+
+running 2 tests
+test routes::verify::tests::a_route_check_without_program_data_is_filled_or_starts_nothing ... ok
+test routes::legs::tests::a_jump_leg_without_program_data_is_filled_or_starts_nothing ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 163 filtered out; finished in 2.07s
+

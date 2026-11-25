@@ -1,0 +1,14 @@
+   Compiling tokio v1.54.1
+   Compiling tokio-util v0.7.20
+   Compiling heimdall-app v0.1.0-m01 (<R>\c1\crates\app)
+   Compiling heimdall-ipc v0.1.0-m01 (<R>\c1\crates\ipc)
+   Compiling heimdall-testkit v0.1.0-m01 (<R>\c1\crates\testkit)
+   Compiling heimdall-localenv v0.1.0-m01 (<R>\c1\crates\localenv)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.67s
+     Running unittests src\lib.rs (target\debug\deps\heimdall_localenv-263ba3eb013b630c.exe)
+
+running 1 test
+test sys::openssh_env::tests::the_fill_supplies_system_drive_and_program_data_without_the_callers_system_drive ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 84 filtered out; finished in 0.01s
+
