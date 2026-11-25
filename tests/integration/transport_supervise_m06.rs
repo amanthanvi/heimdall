@@ -407,8 +407,11 @@ impl Target {
 
 /// One test's world: a file database with two active clients, a scratch key directory, the
 /// fake sshd, and two client keys.
+// ⟨W3 review fixes; PC job 65⟩ Fields drop in declaration order, so the temporary directory
+// comes last: every handle on its files (the store and what holds it) is dropped first. On
+// Windows an open file cannot be deleted, and `TempDir`'s drop swallows the error, which leaves
+// fixture directories in TEMP (U1b's fix of `issuer_reservation_replay.rs`, PC job 64).
 struct World {
-    _dir: tempfile::TempDir,
     #[cfg_attr(not(unix), allow(dead_code))]
     db: PathBuf,
     keydir: PathBuf,
@@ -416,6 +419,7 @@ struct World {
     target: Target,
     c1: (ClientId, InMemoryKeySource, IrohEndpointId),
     c2: (ClientId, InMemoryKeySource, IrohEndpointId),
+    _dir: tempfile::TempDir,
 }
 
 fn client_key() -> (InMemoryKeySource, IrohEndpointId) {

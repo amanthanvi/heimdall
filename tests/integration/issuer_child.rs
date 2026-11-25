@@ -257,8 +257,11 @@ fn facts() -> IssuanceFacts {
 
 /// A world: the state database (a file unless `in_memory`), the operations, a real
 /// K_ca in a scratch store, one verified enrollment for h1, one active grant.
+// ⟨W3 review fixes; PC job 65⟩ Fields drop in declaration order, so the temporary directory
+// comes last: every handle on its files (the store and what holds it) is dropped first. On
+// Windows an open file cannot be deleted, and `TempDir`'s drop swallows the error, which leaves
+// fixture directories in TEMP (U1b's fix of `issuer_reservation_replay.rs`, PC job 64).
 struct World {
-    dir: tempfile::TempDir,
     db: PathBuf,
     store: Arc<Store>,
     clock: Arc<VirtualClock>,
@@ -267,6 +270,7 @@ struct World {
     ca_public: String,
     grant: GrantId,
     keys: KeyVault,
+    dir: tempfile::TempDir,
 }
 
 impl World {

@@ -198,51 +198,106 @@ impl Rig {
         c
     }
 
-    async fn start(&self, wiring: ProjectionWiring) -> Service {
+    async fn start(&self, wiring: ProjectionWiring) -> Served {
         self.start_configured(wiring, Config::default()).await
     }
 
-    async fn start_configured(&self, wiring: ProjectionWiring, config: Config) -> Service {
+    async fn start_configured(&self, wiring: ProjectionWiring, config: Config) -> Served {
         let mut o = ServiceOptions::with_clock(self.clock.clone(), self.sync.clone());
         o.projection = wiring;
         o.endpoint_prefix = "hmtest-".to_owned();
-        Service::start_with(
-            Paths::under(&self.home.root.join("rt")),
-            config,
-            o,
-            CancellationToken::new(),
+        Served::new(
+            Service::start_with(
+                Paths::under(&self.home.root.join("rt")),
+                config,
+                o,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap(),
         )
-        .await
-        .unwrap()
     }
 
-    async fn service(&self) -> Service {
+    async fn service(&self) -> Served {
         self.start(ProjectionWiring::Config(Box::new(self.projection())))
             .await
     }
 }
 
-/// A real control session to `service`'s operations through the real dispatcher.
+/// ⟨W3 review fixes; PC job 65's finding in `integration_request_epoch`⟩ A started `Service`
+/// with what the test's sessions spawned over it ([`Session::open`]): their serving tasks and
+/// the token that stops them. Each test ends with [`Served::stop`], so nothing holds the store
+/// when the rig's scratch home, with `state.db` in it, is deleted. On Windows an open file
+/// cannot be deleted, and the scratch home's drop then leaves the directory in TEMP.
+struct Served {
+    service: Service,
+    stop: CancellationToken,
+    sessions: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+}
+
+impl std::ops::Deref for Served {
+    type Target = Service;
+
+    fn deref(&self) -> &Service {
+        &self.service
+    }
+}
+
+impl Served {
+    fn new(service: Service) -> Served {
+        Served {
+            service,
+            stop: CancellationToken::new(),
+            sessions: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Stop every session's serving task and its event relay, and wait for the serving
+    /// tasks. Then drop the service and wait (bounded) until its store's last handle is
+    /// gone. The test drops its own handles on the store first.
+    async fn stop(self) {
+        self.stop.cancel();
+        let sessions = std::mem::take(&mut *self.sessions.lock().unwrap());
+        for session in sessions {
+            session.await.unwrap();
+        }
+        let store = Arc::downgrade(self.service.store());
+        drop(self);
+        let closed = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while store.strong_count() > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await;
+        assert!(
+            closed.is_ok(),
+            "the service's store is still held after its stop"
+        );
+    }
+}
+
+/// A real control session to `service`'s operations through the real dispatcher. Its
+/// serving task is the service's to stop ([`Served::stop`]).
 struct Session {
     client: ControlClient<tokio::io::DuplexStream>,
-    _served: tokio::task::JoinHandle<()>,
 }
 
 impl Session {
     async fn open(
-        service: &Service,
+        service: &Served,
         required: BTreeSet<String>,
         interaction: InteractionMode,
     ) -> Result<Session, Code> {
         let (server, stream) = tokio::io::duplex(1 << 20);
         let ops = service.operations().clone();
-        let relay = EventRelay::spawn(&ops, CancellationToken::new());
+        let relay = EventRelay::spawn(&ops, service.stop.clone());
         let dispatcher = OperationsDispatcher::new(
             ops,
             relay,
             Arc::new(heimdall_runtime::platform::SystemClock::try_new().unwrap()),
         );
         let env = service.environment().clone();
+        let stop = service.stop.clone();
         let served = tokio::spawn(async move {
             let _ = ControlConnection::new(server, ConnectionLimits::default())
                 .with_server_identity(
@@ -252,9 +307,10 @@ impl Session {
                         version: "test".into(),
                     },
                 )
-                .serve(owner_principal_info(), dispatcher, CancellationToken::new())
+                .serve(owner_principal_info(), dispatcher, stop)
                 .await;
         });
+        service.sessions.lock().unwrap().push(served);
         let client = ControlClient::handshake(
             stream,
             PeerInfo {
@@ -266,13 +322,10 @@ impl Session {
         )
         .await
         .map_err(|_| Code::SchemaUnsupported)?;
-        Ok(Session {
-            client,
-            _served: served,
-        })
+        Ok(Session { client })
     }
 
-    async fn setup_session(service: &Service, interaction: InteractionMode) -> Session {
+    async fn setup_session(service: &Served, interaction: InteractionMode) -> Session {
         Session::open(
             service,
             [capability::SETUP_V1.to_owned()].into_iter().collect(),
@@ -365,7 +418,7 @@ async fn e2e_setup_preview_apply_decide_restart_through_dispatcher() {
     let op = env.operation_id.clone().unwrap();
     assert!(!rig.home.config_dir.join("ssh_config").exists());
     drop(s);
-    drop(service);
+    service.stop().await;
 
     // Restart: the operation still waits; an attended session decides it.
     let service = rig.service().await;
@@ -399,7 +452,7 @@ async fn e2e_setup_preview_apply_decide_restart_through_dispatcher() {
         inspect.data
     );
     drop(s);
-    drop(service);
+    service.stop().await;
 
     // A second restart reconciles nothing and re-applies nothing: the result stands.
     let service = rig.service().await;
@@ -407,6 +460,7 @@ async fn e2e_setup_preview_apply_decide_restart_through_dispatcher() {
     let again = s.request(apply(&plan.plan_digest, "r-apply")).await;
     assert_eq!(again.code, Code::Ok);
     assert_eq!(again.data, replay.data);
+    service.stop().await;
 }
 
 #[tokio::test]
@@ -459,6 +513,7 @@ async fn e2e_setup_without_capability_is_schema_unsupported() {
     }
     drop(raw);
     let _ = served.await;
+    service.stop().await;
 }
 
 fn without_setup() -> BTreeSet<String> {
@@ -793,24 +848,28 @@ async fn simultaneous_setup_admissions_admit_exactly_one() {
             .state;
         assert_eq!(state, OperationState::Failed);
     }
+    drop((store, ops));
+    service.stop().await;
 }
 
 // --- catalog → ensure → bind through the dispatcher (existing-access adapters) ----------
 
 impl Rig {
-    async fn existing_access(&self) -> Service {
+    async fn existing_access(&self) -> Served {
         let mut o = ServiceOptions::with_clock(self.clock.clone(), self.sync.clone());
         o.projection = ProjectionWiring::Config(Box::new(self.projection()));
         o.existing_access = true;
         o.endpoint_prefix = "hmtest-".to_owned();
-        Service::start_with(
-            Paths::under(&self.home.root.join("rt")),
-            Config::default(),
-            o,
-            CancellationToken::new(),
+        Served::new(
+            Service::start_with(
+                Paths::under(&self.home.root.join("rt")),
+                Config::default(),
+                o,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap(),
         )
-        .await
-        .unwrap()
     }
 }
 
@@ -902,7 +961,7 @@ fn bind(binding: &str, request: &str) -> Request {
 
 /// Catalog an identity at the scratch decoy agent, the managed alias `alpha` and the
 /// profile `work`; apply the projection (approved).
-async fn catalog_and_project(rig: &Rig, service: &Service) -> (IdentityId, EndpointRef) {
+async fn catalog_and_project(rig: &Rig, service: &Served) -> (IdentityId, EndpointRef) {
     let mut s = Session::setup_session(service, InteractionMode::NonInteractive).await;
     let endpoint = EndpointRef {
         kind: agent_kind(),
@@ -1013,6 +1072,7 @@ async fn e2e_catalog_then_ensure_bind_carry_pairs_and_selection() {
         0,
         "no agent contact"
     );
+    service.stop().await;
 }
 
 /// ADR-0007 §12.24 item 1, through the real service and dispatcher: `inspect
@@ -1054,6 +1114,7 @@ async fn e2e_inspect_destinations_lists_the_catalog_through_the_dispatcher() {
     assert_eq!(items[0]["identity_id"], serde_json::json!(identity));
     assert_no_canary(&env.data.to_string());
     assert_eq!(rig.home.decoy_agent().contact_count(), 0);
+    service.stop().await;
 }
 
 #[tokio::test]
@@ -1112,7 +1173,7 @@ async fn declaration_changes_between_ensure_and_bind_are_seen_through_the_dispat
         assert_eq!(env.data["withdrawn"], true);
         if restart {
             drop(s);
-            drop(service);
+            service.stop().await;
             service = rig.existing_access().await;
             s = Session::setup_session(&service, InteractionMode::NonInteractive).await;
         }
@@ -1127,6 +1188,7 @@ async fn declaration_changes_between_ensure_and_bind_are_seen_through_the_dispat
         assert_eq!(p["interaction"], "unknown", "{variant} restart={restart}");
         assert_eq!(p["noninteractive"]["eligible"], false);
         assert!(p.get("declaration").is_none_or(serde_json::Value::is_null));
+        service.stop().await;
     }
 }
 
@@ -1243,6 +1305,7 @@ async fn e2e_setup_attended_apply_inspect_rollback_through_dispatcher() {
         resources.iter().all(|r| r["desired"] == "absent"),
         "{resources:?}"
     );
+    service.stop().await;
 }
 
 async fn inspect_projections(s: &mut Session) -> Envelope<serde_json::Value> {
@@ -1364,6 +1427,8 @@ async fn e2e_supervisor_cleaner_deletes_after_rollback_through_the_service() {
     let again = supervisor.cleanup_pass().await.unwrap();
     assert!(again.deleted.is_empty(), "{:?}", again.deleted);
     assert!(again.failed.is_empty());
+    drop(supervisor);
+    service.stop().await;
 }
 
 /// ADR-0007 §12.22 item 10 (W3b-gaps): `[setup] declaration_validity_days` is wired
@@ -1423,5 +1488,6 @@ async fn e2e_declaration_validity_days_come_from_the_configuration() {
             .unwrap()
             .unwrap();
         assert_eq!(declaration.expires_at, expected, "{days} days");
+        service.stop().await;
     }
 }

@@ -165,11 +165,16 @@ fn descriptor() -> AdapterDescriptor {
 }
 
 /// A scratch home, its seeded store, the clock and the fake adapter's effect ledger.
+// ⟨W3 review fixes; PC job 65⟩ Fields drop in declaration order, so the temporary directory
+// comes last. A test declares its `Rig` first, so the rig drops after every other local, and
+// each test stops what it started (`Running::stop`, `Runner::stop`) before it ends: nothing
+// holds `state.db` open when the directory is deleted. On Windows an open file cannot be
+// deleted, and `TempDir`'s drop swallows that failure, which left fixture directories in TEMP.
 struct Rig {
-    _tmp: tempfile::TempDir,
     home: PathBuf,
     clock: Arc<VirtualClock>,
     effects: PathBuf,
+    _tmp: tempfile::TempDir,
 }
 
 /// A served runtime.
@@ -1039,6 +1044,9 @@ struct Runner {
     stop: CancellationToken,
     /// The runtime's dispatcher with its request fence ([`Self::restart`]).
     dispatcher: OperationsDispatcher,
+    /// The paired sessions' serving tasks this rig spawned ([`Self::connect`]), awaited by
+    /// [`Self::stop`].
+    sessions: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl Runner {
@@ -1069,7 +1077,46 @@ impl Runner {
             state_dir: rig.state_dir(),
             stop,
             dispatcher,
+            sessions: std::sync::Mutex::new(Vec::new()),
         }
+    }
+
+    /// ⟨W3 review fixes; PC job 65⟩ Stop the runner and wait until nothing it started holds
+    /// the store, so the rig's `TempDir` finds `state.db` closed (the note on [`Rig`]). It
+    /// cancels the stop token and awaits every paired session it spawned. It then waits,
+    /// bounded, for the operations being driven (`Operations::running_operations`, as the
+    /// runtime's own shutdown does), drops the runner, and waits, bounded, until the store's
+    /// last handle is gone: an operation's leading task ends when its work does, and the
+    /// event relay's task, which holds no store, ends once cancelled. Each test that starts a
+    /// `Runner` calls this at its end.
+    async fn stop(self) {
+        self.stop.cancel();
+        let sessions = std::mem::take(&mut *self.sessions.lock().unwrap());
+        for session in sessions {
+            session.await.unwrap();
+        }
+        let settled = tokio::time::timeout(Duration::from_secs(10), async {
+            while self.ops.running_operations() > 0 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(
+            settled.is_ok(),
+            "operations still running at the runner's stop"
+        );
+        let store = Arc::downgrade(&self.store);
+        drop(self);
+        let closed = tokio::time::timeout(Duration::from_secs(10), async {
+            while store.strong_count() > 0 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await;
+        assert!(
+            closed.is_ok(),
+            "the store is still held after the runner's stop"
+        );
     }
 
     fn serve(
@@ -1187,9 +1234,10 @@ impl Runner {
                 },
             );
         let (dispatcher, stop) = (self.dispatcher.clone(), self.stop.clone());
-        tokio::spawn(async move {
+        let session = tokio::spawn(async move {
             let _ = conn.serve(paired_principal(), dispatcher, stop).await;
         });
+        self.sessions.lock().unwrap().push(session);
         let mut capabilities = client_capabilities();
         capabilities.insert(capability::REMOTE_CONTROL_V1.to_owned());
         ControlClient::handshake_hello(
@@ -1212,6 +1260,7 @@ impl Runner {
     }
 }
 
+// A test that fails before `Runner::stop` still cancels what the runner started.
 impl Drop for Runner {
     fn drop(&mut self) {
         self.stop.cancel();
@@ -1352,6 +1401,7 @@ async fn a_frame_refused_for_its_role_appends_nothing_to_the_ledger() {
     )
     .unwrap();
     assert_eq!(rig.ledger(), [Entry { epoch: 0, digest }]);
+    runner.stop().await;
 }
 
 /// ⟨M08 U2b-2 follow-up A⟩ A fenced request (ADR-0008 §17.27 item 2) from a connection that does
@@ -1462,4 +1512,5 @@ async fn a_requester_keeping_an_epoch_from_before_a_raise_is_refused_before_any_
     )
     .unwrap();
     assert_eq!(rig.ledger().last(), Some(&Entry { epoch: 1, digest }));
+    runner.stop().await;
 }

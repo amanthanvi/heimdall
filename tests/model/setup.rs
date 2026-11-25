@@ -425,8 +425,11 @@ impl StageSink for Tamper<'_> {
 }
 
 /// One test's scratch world.
+// ⟨W3 review fixes; PC job 65⟩ Fields drop in declaration order, so the scratch directory
+// comes last: every handle on its files (the store and what holds it) is dropped first. On
+// Windows an open file cannot be deleted, and the directory's drop swallows the error, which
+// leaves fixture directories in TEMP.
 struct World {
-    home: ScratchHome,
     store: Arc<Store>,
     clock: Arc<VirtualClock>,
     sync: Arc<ScriptedTimeSync>,
@@ -435,6 +438,7 @@ struct World {
     faults: Arc<dyn FaultHook>,
     limits: Limits,
     ops: Operations,
+    home: ScratchHome,
 }
 
 impl World {

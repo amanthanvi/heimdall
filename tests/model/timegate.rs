@@ -120,14 +120,18 @@ struct Model {
     policy: TimePolicy,
     faults: Arc<Armed>,
     store: Arc<Store>,
-    /// Database file for restarts that reopen the store; `None` = in memory.
-    file: Option<(tempfile::TempDir, PathBuf)>,
     gate: TimeGate,
     grant: GrantId,
     deadline: Deadline,
     /// Earliest owner cutoff set so far (N01; gap G11).
     cutoff: Option<Timestamp>,
     state: GrantState,
+    /// Database file for restarts that reopen the store; `None` = in memory.
+    // ⟨W3 review fixes; PC job 65⟩ Fields drop in declaration order, so the scratch directory
+    // comes last: every handle on its files (the store and what holds it) is dropped first. On
+    // Windows an open file cannot be deleted, and the directory's drop swallows the error, which
+    // leaves fixture directories in TEMP.
+    file: Option<(tempfile::TempDir, PathBuf)>,
 }
 
 impl Model {

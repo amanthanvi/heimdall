@@ -233,6 +233,16 @@ Each lands with its emitters, every in-tree reader and its goldens (ADR-0013 §1
   The `purge_sweep` test helpers that make state directories start no runtime, so they are
   unaffected. Windows proof: `uninstall_cmd::tests` rerun with the default TEMP, at the merge
   candidate.
+  - **H15 (corrected with the W3 review fixes, W3-R03):** H15 exercised on the normal path in
+    job 63; under a fault by
+    `state_store::tests::platform_fs_pointer_rename_interrupted_then_restart_serves_only_the_pointers_generation`
+    (`heimdall-runtime`'s unit tests), in the fix-diff PC run (pending). The switch set in
+    `adversarial_store_generations` runs over `RealFs`, not the production `PlatformFs`.
+
+- **The W3 review's residuals W3-R04 and W3-R05** are recorded in `docs/user/limitations.md`.
+  R04 is `purge_layout_removal_interrupted_leaves_state_corrupt` (`purge_sweep.rs`), and a
+  second `uninstall --purge-state` refuses too. R05 is an interrupted first install followed
+  by a pre-release build's flat store (`refused: WrongState`). Their recoveries are U2b-3a's.
 
 - **M07's page-token key (2026-11-25; M07 W10 U3-1/D2, `pages/1`; landed in M07's `bbe92261`
   on `m07/w10`):** 32 random bytes in the store's `meta` table, named **`page_token_hmac_key`**,

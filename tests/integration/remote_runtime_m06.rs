@@ -120,6 +120,11 @@ struct Rig {
     /// What a recheck's "`sshd -T` verifies now" answers on this runner (true at first): the
     /// rig never runs the account's sshd.
     sshd_verifies: Arc<std::sync::atomic::AtomicBool>,
+    /// The operations the dispatcher drives, for [`Self::stop`]'s wait.
+    ops: Operations,
+    /// The sessions' serving tasks this rig spawned ([`Self::connect`]), awaited by
+    /// [`Self::stop`].
+    sessions: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl Rig {
@@ -187,7 +192,7 @@ impl Rig {
             dispatcher = dispatcher.with_runner(Arc::new(
                 PairedRunner::new(
                     store.clone(),
-                    ops,
+                    ops.clone(),
                     clock.clone(),
                     RunnerOptions {
                         lines: Some(shared),
@@ -212,7 +217,46 @@ impl Rig {
             environment,
             dispatcher,
             stop,
+            ops,
+            sessions: std::sync::Mutex::new(Vec::new()),
         }
+    }
+
+    /// ⟨W3 review fixes; PC job 65's finding in `integration_request_epoch`⟩ Stop the rig and
+    /// wait until nothing it started holds the store. It cancels the stop token, awaits every
+    /// session it spawned, waits (bounded) for the operations being driven, drops the rig and
+    /// waits (bounded) until the store's last handle is gone. A test over a file store in a
+    /// `TempDir` calls it (after dropping its own handles on the store) before the directory
+    /// is deleted: on Windows an open `state.db` cannot be deleted, and `TempDir`'s drop
+    /// swallows that failure.
+    async fn stop(self) {
+        self.stop.cancel();
+        let sessions = std::mem::take(&mut *self.sessions.lock().unwrap());
+        for session in sessions {
+            session.await.unwrap();
+        }
+        let settled = tokio::time::timeout(Duration::from_secs(10), async {
+            while self.ops.running_operations() > 0 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(
+            settled.is_ok(),
+            "operations still running at the rig's stop"
+        );
+        let store = Arc::downgrade(&self.store);
+        drop(self);
+        let closed = tokio::time::timeout(Duration::from_secs(10), async {
+            while store.strong_count() > 0 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await;
+        assert!(
+            closed.is_ok(),
+            "the store is still held after the rig's stop"
+        );
     }
 
     async fn connect(
@@ -230,9 +274,10 @@ impl Rig {
             );
         let d = self.dispatcher.clone();
         let stop = self.stop.clone();
-        tokio::spawn(async move {
+        let session = tokio::spawn(async move {
             let _ = conn.serve(principal(), d, stop).await;
         });
+        self.sessions.lock().unwrap().push(session);
         ControlClient::handshake_hello(client_end, hello).await
     }
 
@@ -879,10 +924,8 @@ async fn paired_widening_is_confirmed_runner_locally_and_replays_its_result() {
     );
 
     // Durable: after a restart over the same state, the replay still returns the result.
-    rig.stop.cancel();
-    drop((a, v, local, unattended));
-    drop(rig);
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    drop((a, v, local, unattended, bound_viewer, bound));
+    rig.stop().await;
     let store = Arc::new(Store::open(&db, Arc::new(NoFaults)).unwrap());
     let rig = Rig::over(store, false, lines.clone()).await;
     let mut a = rig.connect(hello(Some(&owner), &[], false)).await.unwrap();
@@ -896,6 +939,8 @@ async fn paired_widening_is_confirmed_runner_locally_and_replays_its_result() {
             .len(),
         clients_after
     );
+    drop(a);
+    rig.stop().await;
 }
 
 /// ⟨M06 exit; ADR-0013 §7, D16's precondition⟩ Decision-backed replay **after a real store
@@ -1023,10 +1068,8 @@ async fn decision_backed_replay_after_a_store_restart_answers_each_record_state(
         .len();
 
     // A real restart over the same state file.
-    rig.stop.cancel();
     drop((a, local, records));
-    drop(rig);
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    rig.stop().await;
     let store = Arc::new(Store::open(&db, Arc::new(NoFaults)).unwrap());
     let rig = Rig::over(store, false, lines.clone()).await;
     // Sixteen minutes after t0: the first three are past their expiry, the pending and the
@@ -1108,6 +1151,8 @@ async fn decision_backed_replay_after_a_store_restart_answers_each_record_state(
     let still = records.by_decision(&claimed_id).unwrap().unwrap();
     assert_eq!(still.state, DecisionState::Approved);
     assert!(still.result.is_none());
+    drop((a, owner_local, records));
+    rig.stop().await;
 }
 
 /// ⟨ADR-0006 §18.7 item 16; ADR-0012 §3.2 "Limits"⟩ `Join.probe` through the real dispatcher,

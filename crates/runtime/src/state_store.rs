@@ -107,7 +107,8 @@ pub fn open_locked(
     open_locked_with(state_dir, &PlatformFs, faults, now)
 }
 
-/// [`open_locked`] with another file system (the fault tests' `FaultFs` around [`PlatformFs`]).
+/// [`open_locked`] with another file system: the switch-fault case's `FaultFs` around
+/// [`PlatformFs`] (review W3-R03; `tests::platform_fs_pointer_rename_interrupted_then_restart_serves_only_the_pointers_generation`).
 ///
 /// # Errors
 /// As [`open_locked`].
@@ -168,4 +169,149 @@ fn windows_generation_dirs_owner_only(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use heimdall_store::layout::stategen::generations::{CURRENT_TMP, GENERATIONS, INTENT};
+    use heimdall_store::layout::stategen::{Action, Fault, FaultFs, Operation, Point, When};
+    use heimdall_store::layout::{Began, Located};
+    use heimdall_store::{NoFaults, Store};
+
+    use super::*;
+
+    fn t0() -> Timestamp {
+        "2026-11-25T00:00:00Z".parse().unwrap()
+    }
+
+    /// The generation the pointer names, if any (read only).
+    fn pointed(state_dir: &Path) -> Option<String> {
+        match layout::locate(state_dir).unwrap() {
+            Located::Generation { current, .. } => Some(current.name.as_str().to_owned()),
+            Located::Flat(_) => None,
+        }
+    }
+
+    fn generations(state_dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = match std::fs::read_dir(state_dir.join(GENERATIONS)) {
+            Ok(rd) => rd
+                .map(|e| e.unwrap().file_name().into_string().unwrap())
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        names.sort();
+        names
+    }
+
+    /// ⟨review W3-R03; ADR-0014 §3.6 "Platforms", delta H15⟩ The switch's pointer rename
+    /// through the production file system ([`PlatformFs`]) under a fault, through
+    /// [`open_locked_with`]. On Windows that rename is
+    /// `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`
+    /// (`crate::platform::rename_replacing`); elsewhere it is `rename(2)`.
+    ///
+    /// The cases are a first install and an adoption of a flat store. In each, `FaultFs`
+    /// around `PlatformFs` fails or stops the process at the rename of the temporary pointer
+    /// over `CURRENT`, before the call or after it is made. The restart is `open_locked`
+    /// through `PlatformFs` alone. It serves only the generation the pointer names: the
+    /// faulted attempt's when its rename was made, and otherwise the first publication run
+    /// again. The staged leftover and the temporary pointer are gone, and the intent is
+    /// complete.
+    ///
+    /// The `After` cases make the write-through rename and then fault; the restart's own
+    /// renames are the ordinary path. The rename of the completed intent replaces an
+    /// existing file. No power is cut, so durability across power loss is not established
+    /// here.
+    #[test]
+    fn platform_fs_pointer_rename_interrupted_then_restart_serves_only_the_pointers_generation() {
+        let environment = EnvironmentId::from_random_bytes([1; 16]);
+        let mut cases = 0;
+        for adopt in [false, true] {
+            for when in [When::Before, When::After] {
+                for action in [Action::Error, Action::Dead] {
+                    let case = format!("adopt {adopt}, {when:?}, {action:?}");
+                    let dir = tempfile::tempdir().unwrap();
+                    // `Paths::ensure`, so the state directory is protected on Windows and the
+                    // generation directories inherit its owner-only entry.
+                    let paths = crate::Paths::under(&dir.path().join("hh"));
+                    paths.ensure().unwrap();
+                    let state = paths.state_dir.as_path();
+                    if adopt {
+                        let flat =
+                            Store::open(&state.join(layout::DB_FILE), Arc::new(NoFaults)).unwrap();
+                        flat.transaction(|tx| tx.init_self_environment(&environment))
+                            .unwrap();
+                    }
+                    let fs = FaultFs::new(
+                        PlatformFs,
+                        Some(Fault {
+                            point: Point::PointerRename,
+                            nth: 0,
+                            when,
+                            action: action.clone(),
+                        }),
+                    );
+                    let faulted = open_locked_with(state, &fs, Arc::new(NoFaults), t0());
+                    assert!(fs.fired(), "{case}: the rename was reached");
+                    assert!(faulted.is_err(), "{case}: the fault is reported");
+                    drop(faulted);
+                    let named = pointed(state);
+                    assert_eq!(
+                        named.is_some(),
+                        when == When::After,
+                        "{case}: only the rename makes a generation current"
+                    );
+
+                    let opened = open_locked(state, Arc::new(NoFaults), t0())
+                        .unwrap_or_else(|e| panic!("{case}: the restart: {e}"));
+                    let served = opened.current.name.as_str().to_owned();
+                    match &named {
+                        Some(name) => {
+                            assert_eq!(&served, name, "{case}: the pointer's generation");
+                            assert_eq!(opened.began, Began::Served, "{case}");
+                        }
+                        None => assert!(
+                            matches!(
+                                (adopt, opened.began),
+                                (false, Began::Installed) | (true, Began::Adopted { .. })
+                            ),
+                            "{case}: the first publication is run again: {:?}",
+                            opened.began
+                        ),
+                    }
+                    assert_eq!(pointed(state), Some(served.clone()), "{case}");
+                    assert_eq!(
+                        generations(state),
+                        vec![served.clone()],
+                        "{case}: only the pointer's generation is left"
+                    );
+                    assert!(
+                        !state.join(CURRENT_TMP).exists(),
+                        "{case}: the temporary pointer is left"
+                    );
+                    let intent = std::fs::read_to_string(state.join(INTENT)).unwrap();
+                    assert!(intent.contains(r#""state":"complete""#), "{case}: {intent}");
+                    let operation = if adopt {
+                        Operation::Adopt
+                    } else {
+                        Operation::Install
+                    };
+                    assert_eq!(opened.current.record.operation, operation, "{case}");
+                    if adopt {
+                        assert_eq!(
+                            opened
+                                .store
+                                .transaction(|tx| tx.self_environment())
+                                .unwrap(),
+                            Some(environment.clone()),
+                            "{case}: the adopted store is served"
+                        );
+                    }
+                    drop(opened);
+                    cases += 1;
+                }
+            }
+        }
+        assert_eq!(cases, 8);
+    }
 }

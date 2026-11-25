@@ -35,7 +35,22 @@ Short, and meant to be read once.
   no store it recognises and starts a new installation with a new identity, beside the one
   this release keeps. An earlier home that this release adopted is safe: the old build refuses
   it and changes nothing. Every released build knows the layout, so this concerns only
-  pre-release builds against the first candidate (ADR-0014 §3.2 item 8).
+  pre-release builds against the first candidate (ADR-0014 §3.2 item 8). The same build can
+  also stop this release from starting: if this release's first start on a new home is
+  interrupted before it finishes, and such a build then runs on that home and creates a store
+  of its own, this release refuses to start (`WrongState`) until you remove the file
+  `STAGING-INTENT` from Heimdall's state directory by hand. Nothing is lost: the next start
+  adopts that store.
+- **A purge that stops while it removes the state store's layout leaves Heimdall unable to
+  start.** If `heimdall uninstall --purge-state` crashes or meets a file-system error after it
+  has deleted the store and before it has removed the pointer file `CURRENT`, the runtime then
+  refuses to start (`state_corrupt`), and running `heimdall uninstall --purge-state` again is
+  refused too ("the state store's pointer is damaged"). Nothing you did not confirm deleting is
+  lost. Until `heimdall state reset` can recover this, the only way out is by hand: remove what
+  is left of `CURRENT`, `STAGING-INTENT`, `REQUEST-LEDGER`, the `generations` folder, and
+  `state.db` with its `-wal`, `-shm` and `-journal` files, and their `.tmp` files, from
+  Heimdall's state directory. After an error the purge's report lists what is left; after a
+  crash the next run says only that the pointer is damaged.
 - **A certificate request reserved just before the runtime restarts can be signed again within
   60 s of the restart,** for the same key and with the same limits. The second certificate is
   never published, and it is still counted as issued.

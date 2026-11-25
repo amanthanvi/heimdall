@@ -780,8 +780,11 @@ fn seed(store: &Store) {
         .unwrap();
 }
 
+// ⟨W3 review fixes; PC job 65⟩ Fields drop in declaration order, so the temporary directory
+// comes last: every handle on its files (the store and what holds it) is dropped first. On
+// Windows an open file cannot be deleted, and `TempDir`'s drop swallows the error, which leaves
+// fixture directories in TEMP (U1b's fix of `issuer_reservation_replay.rs`, PC job 64).
 struct World {
-    _dir: tempfile::TempDir,
     store: Arc<Store>,
     clock: Arc<VirtualClock>,
     sync: Arc<ScriptedTimeSync>,
@@ -790,6 +793,7 @@ struct World {
     effects: Arc<FixtureEffects>,
     issuer: Arc<FixtureIssuer>,
     ops: Operations,
+    _dir: tempfile::TempDir,
 }
 
 impl World {

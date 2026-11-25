@@ -453,13 +453,18 @@ pub fn state_db_of_home(home: &Path) -> heimdall_store::Result<PathBuf> {
 /// store's one write outside the lock holder
 /// (`heimdall_store::ext_runner::bridge_record_runner_downgrade`): set-only, idempotent, one
 /// `BEGIN IMMEDIATE` transaction with a bounded busy timeout, on an existing runner's
-/// database at this build's schema only (never created, migrated or repaired).
+/// database at this build's schema only (never created, migrated or repaired). ⟨review
+/// W3-R01⟩ The schema is read again inside that transaction, so a flat family that a
+/// runtime's start fenced for adoption after this function found it is refused, not
+/// written; the caller then queues the event, and the runtime records it in the generation
+/// it serves.
 ///
 /// # Errors
 ///
-/// No such database, another schema, not a runner's, the write lock not obtained in time,
-/// or the store's failure: nothing was recorded. The caller refuses its session all the
-/// same and notes the failure ([`note_unrecorded_downgrade`]).
+/// No such database, another schema (a family fenced for adoption included), not a
+/// runner's, the write lock not obtained in time, or the store's failure: nothing was
+/// recorded. The caller refuses its session all the same and notes the failure
+/// ([`note_unrecorded_downgrade`]).
 pub fn record_owner_only_in_home(
     home: &Path,
     cause: OwnerOnlyCause,
@@ -3256,5 +3261,184 @@ mod tests {
             }
             assert_eq!(standing(&store), Some(("unreadable".to_owned(), 1)));
         }
+    }
+}
+
+/// ⟨review W3-R01⟩ The bridge's write against a concurrent adoption (ADR-0012 §3.2 "How the
+/// downgrade is kept"; ADR-0014 §3.6 adoption). Outside the Unix-only module above, so it
+/// runs on every platform.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod adoption_window_tests {
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+
+    use heimdall_store::layout::{self, Began, Located, Opened};
+    use heimdall_store::{FaultAction, FaultHook, FaultPoint, NoFaults, StoreError};
+
+    use super::*;
+
+    /// The family's data files as they are on disk: the database, its write-ahead log and
+    /// its rollback journal, where they exist. The log's index (`-shm`) is shared memory that
+    /// every reader updates, not data, so it is not compared.
+    fn family_bytes(db: &Path) -> BTreeMap<String, Vec<u8>> {
+        let mut out = BTreeMap::new();
+        for suffix in ["", "-wal", "-journal"] {
+            let mut name = db.as_os_str().to_owned();
+            name.push(suffix);
+            if let Ok(bytes) = std::fs::read(PathBuf::from(name)) {
+                out.insert(suffix.to_owned(), bytes);
+            }
+        }
+        out
+    }
+
+    /// The hook of the bridge's store. At `BeforeTransaction` (the bridge has opened the
+    /// database and checked its schema; its `BEGIN IMMEDIATE` has not begun) the runtime's
+    /// start adopts the home's flat store through its own open and the production file
+    /// system (`crate::state_store::open_locked`): intent, fence, copy, publication,
+    /// completion. The hook keeps the served store and the flat family's bytes as the
+    /// adoption left them.
+    struct AdoptionInTheWindow {
+        state_dir: PathBuf,
+        flat: PathBuf,
+        now: Timestamp,
+        adopted: Mutex<Option<Opened>>,
+        fenced: Mutex<Option<BTreeMap<String, Vec<u8>>>>,
+    }
+
+    impl FaultHook for AdoptionInTheWindow {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            let mut adopted = self.adopted.lock().unwrap();
+            if point == FaultPoint::BeforeTransaction && adopted.is_none() {
+                let opened =
+                    crate::state_store::open_locked(&self.state_dir, Arc::new(NoFaults), self.now)
+                        .unwrap_or_else(|e| panic!("the adoption: {e}"));
+                *self.fenced.lock().unwrap() = Some(family_bytes(&self.flat));
+                *adopted = Some(opened);
+            }
+            FaultAction::Continue
+        }
+    }
+
+    fn downgrade(store: &Store) -> Option<(String, u64)> {
+        store
+            .transaction(|tx| tx.runner_downgrade())
+            .unwrap()
+            .map(|d| (d.cause, d.epoch))
+    }
+
+    /// ⟨review W3-R01⟩ The runtime's start adopts the flat store of a runner home (from a
+    /// build before generations) between the bridge's open and schema check and its
+    /// transaction. The store's fault hook runs the adoption there.
+    /// - **The write is refused.** The bridge's `BEGIN IMMEDIATE` transaction reads the
+    ///   schema again and finds the fence (`AdoptionFenced`).
+    /// - **The marker is queued.** The caller's one fallback for a write that fails
+    ///   (`m06_cmd::refuse_session`; its rule is tested there, by
+    ///   `a_downgrade_the_bridge_cannot_write_is_queued_and_the_next_admission_records_it`)
+    ///   is made here as it makes it: `note_unrecorded_downgrade` in the home's log
+    ///   directory.
+    /// - **The fenced flat family is byte-identical** to what the adoption left. A reader
+    ///   of it stays open throughout, as a runtime's connection would, so closing the
+    ///   bridge's connection checkpoints nothing into it.
+    /// - **The served generation carries the downgrade once the marker is applied**, as the
+    ///   design says. The runner's policy over the served store finds the marker from that
+    ///   generation's database (`marker_dir_of_db`). Until the marker is applied, it alone
+    ///   keeps the runner owner-only (`RunnerPolicy::marker_pending`). The runtime applies it
+    ///   at start (`PairedRunner::new`) and at each limited-role admission
+    ///   (`RunnerPolicy::drain_pending`). The row then stands in the served generation, the
+    ///   marker is gone, and the runner stays owner-only, after a restart too.
+    #[test]
+    fn a_bridge_write_after_the_adoption_fence_is_refused_and_reaches_the_served_generation_by_the_marker()
+     {
+        let at: Timestamp = "2026-11-25T09:00:00Z".parse().unwrap();
+        let cause = OwnerOnlyCause::SessionPty;
+        let dir = tempfile::tempdir().unwrap();
+        // The database reports its real path; the marker directory is found from it.
+        let home = dir.path().canonicalize().unwrap();
+        let paths = crate::Paths::under(&home);
+        paths.ensure().unwrap();
+        let flat = paths.state_dir.join(layout::DB_FILE);
+        init_runner(&Store::open(&flat, Arc::new(NoFaults)).unwrap()).unwrap();
+        // No pointer yet: the bridge resolves the flat family (`record_owner_only_in_home`).
+        assert_eq!(state_db_of_home(&home).unwrap(), flat);
+        let reader = Store::open_read_only(&flat, Arc::new(NoFaults)).unwrap();
+        let hook = Arc::new(AdoptionInTheWindow {
+            state_dir: paths.state_dir.clone(),
+            flat: flat.clone(),
+            now: at,
+            adopted: Mutex::new(None),
+            fenced: Mutex::new(None),
+        });
+
+        // `record_owner_only_in_home`'s write, with the hook.
+        let recorded = heimdall_store::ext_runner::bridge_record_runner_downgrade_with_faults(
+            &state_db_of_home(&home).unwrap(),
+            cause.token(),
+            at,
+            hook.clone(),
+        );
+        let opened = hook
+            .adopted
+            .lock()
+            .unwrap()
+            .take()
+            .expect("the adoption ran in the window");
+        assert!(
+            matches!(opened.began, Began::Adopted { .. }),
+            "{:?}",
+            opened.began
+        );
+        assert!(matches!(
+            layout::locate(&paths.state_dir).unwrap(),
+            Located::Generation { .. }
+        ));
+        assert_eq!(layout::db_path(&paths.state_dir).unwrap(), opened.db);
+        assert!(
+            matches!(recorded, Err(StoreError::AdoptionFenced)),
+            "the bridge's write was not refused: {recorded:?}"
+        );
+        let fenced = hook.fenced.lock().unwrap().take().unwrap();
+        assert!(fenced.contains_key(""), "{:?}", fenced.keys());
+        let after = family_bytes(&flat);
+        let sizes = |f: &BTreeMap<String, Vec<u8>>| -> Vec<(String, usize)> {
+            f.iter().map(|(k, v)| (k.clone(), v.len())).collect()
+        };
+        assert!(
+            after == fenced,
+            "the bridge wrote into the fenced flat family: sizes {:?} became {:?}",
+            sizes(&fenced),
+            sizes(&after)
+        );
+        drop(reader);
+
+        // The caller's fallback (`m06_cmd::refuse_session`): the event is queued.
+        note_unrecorded_downgrade(&paths.log_dir, cause, at).unwrap();
+        assert_eq!(
+            unrecorded_downgrade(&paths.log_dir).map(|n| n.cause),
+            Some(cause),
+            "the marker is not queued"
+        );
+
+        let served = Arc::new(opened.store);
+        assert_eq!(downgrade(&served), None);
+        // The policy finds the marker from the served generation's database, which lives in
+        // `generations/<name>/` (`marker_dir_of_db`): pending, it lowers the runner.
+        let policy = RunnerPolicy::with_store(ManagementPolicy::Verified, served.clone());
+        assert!(
+            policy.marker_pending(),
+            "the marker does not lower the runner"
+        );
+        policy.drain_pending(at);
+        assert_eq!(
+            downgrade(&served),
+            Some((cause.token().to_owned(), 1)),
+            "the served generation does not carry the downgrade"
+        );
+        assert_eq!(unrecorded_downgrade(&paths.log_dir), None);
+        assert_eq!(policy.current(), ManagementPolicy::OwnerOnly);
+        drop(policy);
+        let restarted = RunnerPolicy::with_store(ManagementPolicy::Verified, served.clone());
+        assert_eq!(restarted.current(), ManagementPolicy::OwnerOnly);
     }
 }
