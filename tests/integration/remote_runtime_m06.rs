@@ -1731,15 +1731,18 @@ async fn the_dispatcher_names_local_owner_required_for_a_paired_callers_attended
 #[cfg(unix)]
 #[tokio::test]
 async fn the_runner_marker_decides_what_a_started_runtime_serves() {
-    use heimdall_runtime::service::{STATE_DB_FILE, Service, ServiceOptions};
+    use heimdall_runtime::service::{Service, ServiceOptions};
     use heimdall_runtime::{Config, Paths};
     for runner in [true, false] {
         let tmp = tempfile::tempdir().unwrap();
         let paths = Paths::under(&tmp.path().join("hh"));
         paths.ensure().unwrap();
         if runner {
-            let store =
-                Store::open(&paths.state_dir.join(STATE_DB_FILE), Arc::new(NoFaults)).unwrap();
+            let store = Store::open(
+                &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
+                Arc::new(NoFaults),
+            )
+            .unwrap();
             init_runner(&store).unwrap();
         }
         let stop = CancellationToken::new();

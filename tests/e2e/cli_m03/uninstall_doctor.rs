@@ -952,7 +952,7 @@ fn doctor_reports_slot_free_with_command() {
             ),
         ],
     );
-    let db = home.join("state").join("state.db");
+    let db = heimdall_store::layout::db_path(&home.join("state")).unwrap();
     let before = std::fs::read(&db).unwrap();
     let out = doctor(&home, &account);
     let free = findings(&out, "slot_free");
@@ -1131,7 +1131,7 @@ fn status_shows_time_confirmation_chore_after_reboot() {
     let never = scratch.path().join("never-confirmed");
     seed_state(&never, &[]);
     for home in [&rebooted, &never] {
-        let db = home.join("state").join("state.db");
+        let db = heimdall_store::layout::db_path(&home.join("state")).unwrap();
         let before = std::fs::read(&db).unwrap();
         for args in [&["--json"][..], &["--json", "--non-interactive"][..]] {
             let out = run(home, &account, args, &[]);
@@ -1154,7 +1154,13 @@ fn status_shows_time_confirmation_chore_after_reboot() {
     // No CA registered (never confirmed): no chore.
     let no_ca = scratch.path().join("no-ca");
     std::fs::create_dir_all(no_ca.join("state")).unwrap();
-    drop(Store::open(&no_ca.join("state").join("state.db"), Arc::new(NoFaults)).unwrap());
+    drop(
+        Store::open(
+            &heimdall_store::layout::db_path(&no_ca.join("state")).unwrap(),
+            Arc::new(NoFaults),
+        )
+        .unwrap(),
+    );
     let out = run(&no_ca, &account, &["--json"], &[]);
     assert!(chores(&out).is_none(), "{out:?}");
     no_runtime(&no_ca, &out);
@@ -1513,7 +1519,13 @@ fn doctor_reports_client_trace_family_unrecorded() {
     // No CA: managed certificates are not set up, so the trace row does not matter.
     let no_ca = scratch.path().join("no-ca");
     std::fs::create_dir_all(no_ca.join("state")).unwrap();
-    drop(Store::open(&no_ca.join("state").join("state.db"), Arc::new(NoFaults)).unwrap());
+    drop(
+        Store::open(
+            &heimdall_store::layout::db_path(&no_ca.join("state")).unwrap(),
+            Arc::new(NoFaults),
+        )
+        .unwrap(),
+    );
     let out = doctor_with(&no_ca, &unrecorded);
     assert!(
         findings(&out, "client_trace_family_unrecorded").is_empty(),
@@ -1877,7 +1889,7 @@ fn uninstall_purge_race_with_concurrent_enrollment_keeps_state() {
     // The once-only lock disclosure is already acknowledged here, so the enrollment's
     // approval needs nothing but its typed yes.
     w.tx(|tx| tx.set_lock_disclosure_ack(Timestamp::now()).map(drop));
-    let db = w.home.root.join("state").join("state.db");
+    let db = heimdall_store::layout::db_path(&w.home.root.join("state")).unwrap();
     assert!(db.exists(), "the in-process runtime's store");
     let out_dir = w.home.scratch().subdir("u3-race").unwrap();
     let reg = w.registry_remote.clone();
@@ -2154,7 +2166,7 @@ fn uninstall_purge_refuses_unresolved_remote_step() {
     std::fs::write(&file, &bytes).unwrap();
     let sha = heimdall_issuer::backup::sha256_hex(&bytes);
     w.tx(|tx| tx.record_bundle_digest(&sha, bundle.created_at));
-    let db = w.home.root.join("state").join("state.db");
+    let db = heimdall_store::layout::db_path(&w.home.root.join("state")).unwrap();
 
     let arg = file.to_string_lossy().into_owned();
     let purge_out = dir.join("purge.json");

@@ -1302,9 +1302,9 @@ fn route_connect(ctx: &Ctx, args: &crate::cli::PlannedArgs) -> ExitCode {
             return ExitCode::Usage;
         }
     };
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
+    // ⟨M08 U2b-1⟩ The store the pointer names. A corrupt layout names none: an empty path,
+    // which every read-only open refuses.
+    let db = heimdall_store::layout::db_path(&paths.state_dir).unwrap_or_default();
     let rt = match crate::service_cmd::current_thread() {
         Ok(rt) => rt,
         Err(_) => return ExitCode::Unavailable,
@@ -1468,10 +1468,8 @@ impl heimdall_app::transport::EndpointAnnouncer for ManagementAnnouncer {
         environment: &EnvironmentId,
         endpoint: &heimdall_contract::ids::IrohEndpointId,
     ) -> Result<(), OpError> {
-        let db = self
-            .paths
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE);
+        let db = heimdall_store::layout::db_path(&self.paths.state_dir)
+            .map_err(|_| state_refusal("the installation's environment cannot be read"))?;
         let own = heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
             .and_then(|s| s.transaction(|tx| tx.self_environment()))
             .ok()
@@ -1546,10 +1544,8 @@ impl DriverSessions {
 #[async_trait::async_trait]
 impl ManagementSessions for DriverSessions {
     async fn open(&self, target: &SessionTarget) -> Result<Box<dyn ManagementSession>, OpError> {
-        let db = self
-            .paths
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE);
+        let db = heimdall_store::layout::db_path(&self.paths.state_dir)
+            .map_err(|_| state_refusal("the installation's environment cannot be read"))?;
         let own = heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
             .and_then(|s| s.transaction(|tx| tx.self_environment()))
             .ok()
@@ -1923,11 +1919,9 @@ fn try_writer(paths: &heimdall_runtime::Paths) -> Result<Option<Writer>, OpError
         Err(heimdall_runtime::instance::InstanceError::AlreadyRunning) => return Ok(None),
         Err(_) => return Err(state_refusal("the instance lock cannot be taken")),
     };
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
-    let store = heimdall_store::Store::open(&db, Arc::new(heimdall_store::NoFaults))
-        .map_err(|_| state_refusal("the state database cannot be opened"))?;
+    // ⟨M08 U2b-1⟩ Through the generation layout, under the lock just taken: the generation the
+    // pointer names, the flat store adopted, or a first install.
+    let store = open_locked_store(paths)?.store;
     let fresh = heimdall_app::ids::new_environment_id().map_err(|_| {
         OpError::new(
             Code::InternalError,
@@ -1943,6 +1937,19 @@ fn try_writer(paths: &heimdall_runtime::Paths) -> Result<Option<Writer>, OpError
         })
         .map_err(|_| state_refusal("the installation's environment cannot be recorded"))?;
     Ok(Some(Writer { _lock: lock, store }))
+}
+
+/// ⟨M08 U2b-1; ADR-0014 §3.6⟩ The store of `paths`, read-write, through the generation layout
+/// (`heimdall_runtime::state_store::open_locked`), **under the instance lock the caller holds**.
+fn open_locked_store(
+    paths: &heimdall_runtime::Paths,
+) -> Result<heimdall_store::layout::Opened, OpError> {
+    heimdall_runtime::state_store::open_locked(
+        &paths.state_dir,
+        Arc::new(heimdall_store::NoFaults),
+        heimdall_contract::Timestamp::now(),
+    )
+    .map_err(|_| state_refusal("the state database cannot be opened"))
 }
 
 /// ⟨rev6.3; ADR-0006 §18.7 item 6⟩ How a command that writes the controller's records writes
@@ -2812,14 +2819,15 @@ async fn wiring(ctx: &Ctx, write: bool) -> Result<Wiring, OpError> {
     let paths = ctx.paths().map_err(|e| {
         OpError::new(Code::UsageError, e.data.error.message.clone()).with_effect(EffectStatus::None)
     })?;
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
     let writes = if write {
         Some(record_writes(ctx, &paths).await?)
     } else {
         None
     };
+    // ⟨M08 U2b-1⟩ The database the pointer names, read after the writer, which may have
+    // adopted the flat store or installed the first generation under the lock.
+    let db = heimdall_store::layout::db_path(&paths.state_dir)
+        .map_err(|_| state_refusal("the state database cannot be located"))?;
     let environment = match &writes {
         Some(RecordWrites::Direct(w)) => w
             .store
@@ -3279,9 +3287,15 @@ fn environment_resume_issuance(ctx: &Ctx, environment: &str) -> ExitCode {
             return output::exit_code_for(env.code, false);
         }
     };
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
+    let db = match heimdall_store::layout::db_path(&paths.state_dir) {
+        Ok(db) => db,
+        Err(_) => {
+            return emit_error(
+                ctx,
+                state_refusal("the controller's records cannot be read"),
+            );
+        }
+    };
     let unrecorded = || {
         OpError::new(
             Code::NotFound,
@@ -3349,10 +3363,10 @@ fn environment_resume_issuance(ctx: &Ctx, environment: &str) -> ExitCode {
     let confirm = || TerminalConfirm { interactive: true }.ask(&text);
     let env = match heimdall_runtime::InstanceLock::try_acquire(&paths.state_dir) {
         Ok(lock) => {
-            // No runtime: the direct write, holding the lock.
-            let applied = heimdall_store::Store::open(&db, Arc::new(heimdall_store::NoFaults))
-                .map_err(|_| state_refusal("the state database cannot be opened"))
-                .and_then(|store| acknowledge_shown(&store, &environment, &shown, confirm, now()));
+            // No runtime: the direct write, holding the lock (⟨M08 U2b-1⟩ through the layout).
+            let applied = open_locked_store(&paths).and_then(|opened| {
+                acknowledge_shown(&opened.store, &environment, &shown, confirm, now())
+            });
             drop(lock);
             match applied {
                 Ok(data) => Envelope::ok(data),
@@ -3491,11 +3505,9 @@ fn remote_status_views(
     let Ok(paths) = ctx.paths() else {
         return Vec::new();
     };
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
-    let Ok(state) = heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
-    else {
+    let Ok(state) = heimdall_store::layout::db_path(&paths.state_dir).and_then(|db| {
+        heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
+    }) else {
         return Vec::new();
     };
     let now = heimdall_contract::Timestamp::now();
@@ -3571,11 +3583,7 @@ fn remote_lines(v: &heimdall_app::remote_status::RemoteStatus) -> String {
 /// This installation's K_iroh endpoint ID when a verified platform store holds its key
 /// (`heimdall_runtime::supervise_transport::held_endpoint`); `None` otherwise.
 fn own_iroh_endpoint(ctx: &Ctx) -> Option<heimdall_contract::ids::IrohEndpointId> {
-    let db = ctx
-        .paths()
-        .ok()?
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
+    let db = heimdall_store::layout::db_path(&ctx.paths().ok()?.state_dir).ok()?;
     let state =
         heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults)).ok()?;
     let environment = state.transaction(|tx| tx.self_environment()).ok()??;
@@ -3622,9 +3630,8 @@ fn show_key(ctx: &Ctx) -> ExitCode {
         let paths = ctx
             .paths()
             .map_err(|_| usage("cannot resolve the Heimdall directories"))?;
-        let db = paths
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE);
+        let db = heimdall_store::layout::db_path(&paths.state_dir)
+            .map_err(|_| state_refusal("the installation's environment cannot be read"))?;
         let environment = match self_environment(&db) {
             Some(environment) => environment,
             None => writer(&paths)?
@@ -4483,9 +4490,8 @@ fn state_db(ctx: &Ctx) -> Result<PathBuf, OpError> {
     let paths = ctx
         .paths()
         .map_err(|_| usage("cannot resolve the Heimdall directories"))?;
-    Ok(paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE))
+    heimdall_store::layout::db_path(&paths.state_dir)
+        .map_err(|_| state_refusal("the state database cannot be located"))
 }
 
 /// A read-only view of this runner's state (`None`: no state yet). Refuses an installation
@@ -4560,13 +4566,10 @@ fn runner_local_apply(
     };
     match heimdall_runtime::InstanceLock::try_acquire(&paths.state_dir) {
         Ok(lock) => {
-            // No runtime: the direct write, holding the lock.
-            let db = paths
-                .state_dir
-                .join(heimdall_runtime::service::STATE_DB_FILE);
-            let store = match heimdall_store::Store::open(&db, Arc::new(heimdall_store::NoFaults)) {
-                Ok(s) => s,
-                Err(_) => return refusal(state_refusal("the state database cannot be opened")),
+            // No runtime: the direct write, holding the lock (⟨M08 U2b-1⟩ through the layout).
+            let store = match open_locked_store(&paths) {
+                Ok(opened) => opened.store,
+                Err(e) => return refusal(e),
             };
             if !confirm(&confirmation) {
                 return not_confirmed();
@@ -5595,7 +5598,7 @@ mod tests {
         let paths = heimdall_runtime::Paths::under(dir.path());
         // The log directory is not there: the bridge creates it, owner-only.
         std::fs::create_dir_all(&paths.state_dir).unwrap();
-        let db = paired::state_db_of_home(dir.path());
+        let db = paired::state_db_of_home(dir.path()).unwrap();
 
         // No state database: refused, nothing created, the failure noted.
         goodbye(SessionFault::Pty, dir.path());
@@ -5649,7 +5652,7 @@ mod tests {
         std::fs::create_dir_all(&paths.state_dir).unwrap();
         let store = std::sync::Arc::new(
             heimdall_store::Store::open(
-                &paired::state_db_of_home(&home),
+                &paired::state_db_of_home(&home).unwrap(),
                 std::sync::Arc::new(heimdall_store::NoFaults),
             )
             .unwrap(),
@@ -5716,7 +5719,7 @@ mod tests {
         let paths = heimdall_runtime::Paths::under(&home);
         std::fs::create_dir_all(&paths.state_dir).unwrap();
         let store = heimdall_store::Store::open(
-            &paired::state_db_of_home(&home),
+            &paired::state_db_of_home(&home).unwrap(),
             std::sync::Arc::new(heimdall_store::NoFaults),
         )
         .unwrap();
@@ -6718,9 +6721,7 @@ mod tests {
         .unwrap();
         paths.ensure().unwrap();
         let store = heimdall_store::Store::open(
-            &paths
-                .state_dir
-                .join(heimdall_runtime::service::STATE_DB_FILE),
+            &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
             Arc::new(heimdall_store::NoFaults),
         )
         .unwrap();
@@ -6783,9 +6784,7 @@ mod tests {
         );
         let read = || {
             heimdall_store::Store::open_read_only(
-                &paths
-                    .state_dir
-                    .join(heimdall_runtime::service::STATE_DB_FILE),
+                &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
                 Arc::new(heimdall_store::NoFaults),
             )
             .unwrap()

@@ -261,6 +261,13 @@ path = "../../tests/e2e/m07_powershell_hook.rs"
 name = "e2e_cli_m07"
 path = "../../tests/e2e/cli_m07.rs"
 
+# ⟨M08 U2b-1⟩ The generation layout through the real binary (ADR-0014 §3.2 item 7, §3.6):
+# the candidate on a store one schema ahead refuses and touches nothing; Windows refuses a
+# generation directory that is not owner-only.
+[[test]]
+name = "e2e_store_generations"
+path = "../../tests/e2e/store_generations_cli.rs"
+
 [[test]]
 name = "e2e_wrapper_m07"
 path = "../../tests/e2e/wrapper_m07.rs"

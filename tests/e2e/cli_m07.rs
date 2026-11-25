@@ -537,7 +537,6 @@ async fn stop_test_runtime(home: &ScratchHome, root: &Path, (child, log): (Child
 async fn status_counts_only_live_approvals_in_human_output() {
     use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
     use heimdall_domain::time::BootId;
-    use heimdall_runtime::service::STATE_DB_FILE;
     use heimdall_store::{NoFaults, Store};
 
     let home = cli_scratch();
@@ -554,7 +553,8 @@ async fn status_counts_only_live_approvals_in_human_output() {
 
     let paths = Paths::under(&root);
     paths.ensure().unwrap();
-    Store::open(&paths.state_dir.join(STATE_DB_FILE), Arc::new(NoFaults))
+    let db = heimdall_store::layout::db_path(&paths.state_dir).unwrap();
+    Store::open(&db, Arc::new(NoFaults))
         .unwrap()
         .transaction(|tx| {
             let created_at = "1999-01-01T00:00:00Z".parse().unwrap();

@@ -506,13 +506,12 @@ fn isolation(paths: &SshPaths) -> Vec<OsString> {
     ]
 }
 
-/// The state store, opened read-only (never created, migrated or repaired).
+/// The state store, opened read-only (never created, migrated or repaired), where the
+/// pointer names it (⟨M08 U2b-1⟩ `heimdall_store::layout::db_path`).
 pub(crate) fn open_store(ctx: &Ctx) -> Result<Store, String> {
     let paths = ctx.paths().map_err(|_| "paths".to_owned())?;
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
-    Store::open_read_only(&db, std::sync::Arc::new(heimdall_store::NoFaults))
+    heimdall_store::layout::db_path(&paths.state_dir)
+        .and_then(|db| Store::open_read_only(&db, std::sync::Arc::new(heimdall_store::NoFaults)))
         .map_err(|e| e.to_string())
 }
 
@@ -1129,9 +1128,7 @@ pub(crate) const RUNNER_SSHD_POLICY_UNVERIFIABLE: &str = "runner_sshd_policy_unv
 /// cannot be opened (`doctor` reports that separately). Read-only.
 fn runner_owner_only_finding(ctx: &Ctx) -> Option<Finding> {
     let paths = ctx.paths().ok()?;
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
+    let db = heimdall_store::layout::db_path(&paths.state_dir).ok()?;
     if !db.exists() {
         return None;
     }
@@ -1182,15 +1179,17 @@ pub(crate) const RUNNER_DOWNGRADE_UNRECORDED: &str = "runner_downgrade_unrecorde
 fn runner_downgrade_unrecorded_finding(ctx: &Ctx) -> Option<Finding> {
     let paths = ctx.paths().ok()?;
     let noted = heimdall_runtime::paired::unrecorded_downgrade(&paths.log_dir)?;
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
     // Whether the downgrade stands all the same (a later event recorded it): only a row
     // that is read and absent says it does not.
-    let standing =
-        heimdall_store::Store::open_read_only(&db, std::sync::Arc::new(heimdall_store::NoFaults))
-            .ok()
-            .map(|store| heimdall_runtime::paired::recorded_owner_only(&store).is_some());
+    let standing = heimdall_store::layout::db_path(&paths.state_dir)
+        .and_then(|db| {
+            heimdall_store::Store::open_read_only(
+                &db,
+                std::sync::Arc::new(heimdall_store::NoFaults),
+            )
+        })
+        .ok()
+        .map(|store| heimdall_runtime::paired::recorded_owner_only(&store).is_some());
     Some(runner_downgrade_unrecorded_finding_of(noted, standing))
 }
 
@@ -1941,9 +1940,8 @@ mod tests {
         );
         let paths = ctx.paths().unwrap_or_else(|e| panic!("{e:?}"));
         paths.ensure().unwrap_or_else(|e| panic!("{e}"));
-        let db = paths
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE);
+        let db =
+            heimdall_store::layout::db_path(&paths.state_dir).unwrap_or_else(|e| panic!("{e}"));
         let store = Store::open(&db, std::sync::Arc::new(heimdall_store::NoFaults))
             .unwrap_or_else(|e| panic!("{e}"));
         assert!(transport_port_finding(&ctx).is_none(), "none recorded");

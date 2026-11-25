@@ -422,9 +422,12 @@ fn issuer_child_status(ctx: &Ctx) -> i32 {
     };
     let phases = ChildPhases::new(begun, &paths.state_dir, requested);
     phases.note("paths");
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
+    // ⟨M08 U2b-1⟩ The store the pointer names (the runtime that spawned this child holds the
+    // instance lock, so the pointer does not move meanwhile).
+    let Ok(db) = heimdall_store::layout::db_path(&paths.state_dir) else {
+        phases.note("environment_unreadable");
+        return EXIT_UNAVAILABLE;
+    };
     // The installation's environment, which scopes the product store's items.
     let environment =
         heimdall_store::Store::open_read_only(&db, std::sync::Arc::new(heimdall_store::NoFaults))
