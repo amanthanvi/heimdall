@@ -2068,7 +2068,11 @@ mod raw {
         pub fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
             self.seq += 1;
             let seq = self.seq;
-            self.send(&ClientMessage::Request { seq, request });
+            self.send(&ClientMessage::Request {
+                seq,
+                request,
+                request_epoch: None,
+            });
             self.reply(seq)
         }
     }

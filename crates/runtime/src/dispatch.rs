@@ -41,6 +41,15 @@
 //!   that clone when the connection ends, whatever the reason), so the fence is
 //!   released by `release` on the holding connection, when that connection ends
 //!   (the scope's `Drop`), or with the runtime.
+//! * ⟨M08 U2b-2; ADR-0014 §3.6 steps 2 to 4; H9, H13⟩ **The epoch and the replay fence.**
+//!   With a [`crate::request_fence::RequestFence`] ([`OperationsDispatcher::with_request_fence`],
+//!   which every serving runtime has), the dispatcher offers `request-epoch/1`, reports the
+//!   epoch in the hello, and checks every mutating request before anything else, attended or
+//!   not and whatever its session: a frame epoch that is not current is `REQUEST_STALE`
+//!   (`restore_epoch_stale`), a fenced key is answered from its fence, and the request ledger
+//!   is appended before the request reaches the application. The caller the check keys by is
+//!   the one the request is served as (a paired session's client included). Every answer to a
+//!   mutating request reports its `request_id` and `request_epoch`.
 //! * **Subscriptions.** The application's [`heimdall_app::events::SubscriptionStart`]
 //!   carries a live receiver of `SequencedEvent`s; the session wants
 //!   [`LiveEvent`]s. One runtime-wide [`EventRelay`] converts the application's
@@ -156,6 +165,8 @@ fn value_envelope<T: serde::Serialize>(env: Envelope<T>) -> Envelope<serde_json:
     let Envelope {
         schema_version,
         operation_id,
+        request_id,
+        request_epoch,
         state,
         code,
         data,
@@ -166,6 +177,8 @@ fn value_envelope<T: serde::Serialize>(env: Envelope<T>) -> Envelope<serde_json:
         Ok(data) => Envelope {
             schema_version,
             operation_id,
+            request_id,
+            request_epoch,
             state,
             code,
             data,
@@ -308,6 +321,10 @@ pub struct OperationsDispatcher {
     /// answer `driver_unavailable` (wave 0's landing) and `routes/1` and `transport-iroh/1`
     /// are not offered.
     route_transport: Option<Arc<crate::supervise_transport::RouteTransport>>,
+    /// ⟨M08 U2b-2⟩ The epoch check, the replay fence and the request ledger
+    /// ([`Self::with_request_fence`]); `None` (a dispatcher a test builds without a service):
+    /// no check, and `request-epoch/1` is not offered, so no frame carries an epoch.
+    fence: Option<Arc<crate::request_fence::RequestFence>>,
 }
 
 /// ⟨ADR-0008 §17.27 item 2⟩ One connection's identity for the uninstall fence. A
@@ -368,7 +385,16 @@ impl OperationsDispatcher {
             outbox_delivery: None,
             ensure_forwarding: None,
             route_transport: None,
+            fence: None,
         }
+    }
+
+    /// ⟨M08 U2b-2; ADR-0014 §3.6⟩ Check every mutating request through `fence` (module docs),
+    /// offer `request-epoch/1` and report the fence's epoch in the hello.
+    #[must_use]
+    pub fn with_request_fence(mut self, fence: Arc<crate::request_fence::RequestFence>) -> Self {
+        self.fence = Some(fence);
+        self
     }
 
     /// ⟨M06 W3 grant-path; ADR-0012 §4 item 2 ⟨2026-11-21⟩⟩ Forward the local owner's
@@ -571,6 +597,42 @@ impl OperationsDispatcher {
     pub fn with_service_control(mut self, stop: CancellationToken) -> Self {
         self.stop = Some(stop);
         self
+    }
+
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 steps 2 to 4⟩ Handle one request whose frame carried
+    /// `frame_epoch`: the request fence's check first (module docs), then [`Self::handle`],
+    /// and every answer to a mutating request reports its request ID and epoch. Without a
+    /// fence this is [`Self::handle`].
+    pub async fn handle_framed(
+        &self,
+        session: &SessionInfo,
+        request: Request,
+        frame_epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
+    ) -> Envelope<serde_json::Value> {
+        let Some(fence) = &self.fence else {
+            return self.handle(session, request).await;
+        };
+        // The caller the request is served as: a paired session's client, as the runner's
+        // role table resolved it at the hello, or the local owner.
+        let caller = match (&self.paired, &self.runner) {
+            (Some(paired), Some(runner)) => runner.caller(&session.principal, paired).context,
+            (None, _) => caller_for(session, self.clock.wall()).context,
+            // Unreachable by construction (a binding needs the runner); the paired path below
+            // refuses it before anything is read or written.
+            (Some(_), None) => return self.handle(session, request).await,
+        };
+        match fence
+            .admit(&caller, &request, frame_epoch, self.clock.wall())
+            .await
+        {
+            Err(refused) => *refused,
+            Ok(None) => self.handle(session, request).await,
+            Ok(Some(stamp)) => {
+                let mut env = self.handle(session, request).await;
+                stamp.apply(&mut env);
+                env
+            }
+        }
     }
 
     /// Handle one request for an already-authenticated session.
@@ -1222,7 +1284,28 @@ impl Dispatcher for OperationsDispatcher {
         'life1: 'async_trait,
         Self: 'async_trait,
     {
-        Box::pin(self.handle(session, request))
+        // ⟨M08 U2b-2⟩ A frame with no epoch: bound to the current one at receipt.
+        Box::pin(self.handle_framed(session, request, None))
+    }
+
+    /// ⟨M08 U2b-2; ADR-0014 H13⟩ The request fence's check, then the request ([`Self::handle_framed`]).
+    fn dispatch_request<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        session: &'life1 SessionInfo,
+        request: Request,
+        request_epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
+    ) -> Pin<Box<dyn Future<Output = Envelope<serde_json::Value>> + Send + 'async_trait>>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(self.handle_framed(session, request, request_epoch))
+    }
+
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 1⟩ The fence's epoch, read at start-up.
+    fn restore_epoch(&self) -> Option<heimdall_contract::lifecycle::RestoreEpoch> {
+        self.fence.as_ref().map(|f| f.epoch())
     }
 
     fn subscribe<'life0, 'life1, 'async_trait>(
@@ -1277,6 +1360,10 @@ impl Dispatcher for OperationsDispatcher {
         if self.route_transport.is_some() {
             offer.insert(capability::ROUTES_V1.to_owned());
             offer.insert(capability::TRANSPORT_IROH_V1.to_owned());
+        }
+        // ⟨M08 U2b-2; ADR-0014 H13⟩ The frame epoch is offered where it is checked.
+        if self.fence.is_some() {
+            offer.insert(capability::REQUEST_EPOCH_V1.to_owned());
         }
         offer
     }

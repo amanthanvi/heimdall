@@ -2237,6 +2237,7 @@ mod tests {
                 operation: Some(operation.clone()),
                 args: vec![word.to_owned()],
                 request_id: None,
+                request_epoch: None,
             })
             .ok()
             .unwrap();

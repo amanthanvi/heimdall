@@ -38,6 +38,9 @@ pub mod paired_endpoints;
 pub mod paired_lines;
 pub mod paths;
 pub mod platform;
+// ⟨M08 U2b-2⟩ The epoch check, the replay fence and the request ledger (ADR-0014 §3.6, H9,
+// H13).
+pub mod request_fence;
 // ⟨M06 U3⟩ (ADR-0012 §4): the runner runtime's issuance, time source, readiness, clean
 // launch and lifetime.
 pub mod runner;

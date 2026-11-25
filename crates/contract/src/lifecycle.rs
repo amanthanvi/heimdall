@@ -1,9 +1,11 @@
 //! ⟨rev7⟩ The lifecycle contract of M08 (ADR-0014 §3, §5, §7: H1–H7, H10, H13; the contract
-//! owner's rulings on U0-Q5, Q6 and Q8). **Declared, not served.** Every type here is
-//! standalone: no emitter builds it, and no live document carries it, until its unit lands
-//! (U2b for the state commands, the stop preview and the epoch; U6b for the support bundle;
-//! U3 for the build provenance). The CLI's new commands answer "not available in this
-//! build" until then.
+//! owner's rulings on U0-Q5, Q6 and Q8). **Declared, not served,** except the epoch (H13):
+//! every other type here is standalone, and no emitter builds it and no live document carries
+//! it until its unit lands (U2b for the state commands and the stop preview; U6b for the
+//! support bundle; U3 for the build provenance). The CLI's new commands answer "not available
+//! in this build" until then. ⟨M08 U2b-2⟩ [`RestoreEpoch`] is live: the hello's
+//! `restore_epoch`, the request frame's `request_epoch`, the envelope's `request_epoch`, and
+//! the code `REQUEST_STALE` (`crate::code::Code::RequestStale`).
 //!
 //! * [`SupportBundleManifest`] (H1): `manifest.json` of `heimdall-support-bundle/1`.
 //! * [`StopPreview`] (H2): `service stop --preview`, read-only, complete.
@@ -51,18 +53,24 @@ pub struct RestoreEpoch(pub u64);
 /// `REQUEST_STALE` / `restore_epoch_stale` before any store write or effect, attended or
 /// not; one with no epoch is bound to the current epoch at receipt, and a fence record for
 /// its key then answers `REQUEST_STALE` / `restored_before_completion`. Sent only on a
-/// session that negotiated [`crate::ipc::capability::REQUEST_EPOCH_V1`]: a client holding
-/// a kept epoch refuses (`SCHEMA_UNSUPPORTED`) instead of sending it to a runtime that does
-/// not offer it, and a fresh request with no kept epoch is sent without one.
+/// session that negotiated [`crate::ipc::capability::REQUEST_EPOCH_V1`] (a frame carrying it
+/// on any other session is refused `SCHEMA_UNSUPPORTED` and never dispatched): a client
+/// holding a kept epoch refuses (`SCHEMA_UNSUPPORTED`) instead of sending it to a runtime
+/// that does not offer it, and a fresh request with no kept epoch is sent without one.
 pub const REQUEST_EPOCH_FIELD: &str = "request_epoch";
 
-/// The name of the hello field that reports the runtime's current epoch (`ServerHello`).
+/// The name of the hello field that reports the runtime's current epoch (`ServerHello`;
+/// present when the session negotiated `request-epoch/1`, and read as 0 when absent).
 pub const HELLO_EPOCH_FIELD: &str = "restore_epoch";
 
+/// The name of the envelope field that reports the epoch a mutating answer's request was
+/// bound to, beside its `request_id` (U0-Q5).
+pub const ENVELOPE_EPOCH_FIELD: &str = "request_epoch";
+
 /// The code a stale request answers (ADR-0014 H13; ruling on U0-Q6): exit class 6
-/// (conflict), not retryable, effect `none`, next action `new_request_id`. **Declared in
-/// the reason table only** (ruling on ASK-CODE): `Code` gains it, with `schema show codes`
-/// and `codes.json`, in the change that adds its emitter and both harnesses' tables.
+/// (conflict), not retryable, effect `none`, next action `new_request_id`. ⟨M08 U2b-2⟩ In the
+/// code table (`crate::code::Code::RequestStale`) with its emitter, `schema show codes`,
+/// `codes.json` and both harnesses' tables (the ruling on ASK-CODE).
 pub const REQUEST_STALE: &str = "REQUEST_STALE";
 
 /// [`REQUEST_STALE`]'s exit class.

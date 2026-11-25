@@ -52,13 +52,15 @@ fn code_named(name: &str) -> &'static Code {
         .unwrap_or_else(|| panic!("no code {name}"))
 }
 
-/// m03-plan section 5: "The code table stays at 30 rows"; new reasons only.
+/// m03-plan section 5: "The code table stays at 30 rows"; new reasons only. ⟨rev7; M08
+/// U2b-2⟩ Revision 7 adds `REQUEST_STALE` (ADR-0006 section 19.3), the 31st row; M03 added
+/// none.
 #[test]
 fn contract_code_table_unchanged_30_rows() {
-    assert_eq!(Code::all().len(), 30);
+    assert_eq!(Code::all().len(), 31);
     let golden = load("tests/contracts/golden/code-table.golden.json");
     let rows = golden["rows"].as_array().unwrap();
-    assert_eq!(rows.len(), 30);
+    assert_eq!(rows.len(), 31);
     let golden_names: BTreeSet<&str> = rows.iter().map(|r| r["code"].as_str().unwrap()).collect();
     let code_names: BTreeSet<&str> = Code::all().iter().map(Code::as_str).collect();
     assert_eq!(golden_names, code_names);

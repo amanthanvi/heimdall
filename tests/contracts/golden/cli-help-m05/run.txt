@@ -18,6 +18,8 @@ Options:
           Use this Heimdall home directory instead of the default [env: HEIMDALL_HOME=]
       --request-id <REQUEST_ID>
           Idempotency request ID for the ensure and bind (a fresh one is minted and reported when absent). A retry with the same ID never relaunches by itself
+      --request-epoch <N>
+          The restore epoch the request ID was first sent with (the answer's `request_epoch`): give it with the same `--request-id` to retry. Without it, the runtime's current epoch is used
       --parent-binding <BINDING>
           Run the program with a narrower child binding of this parent binding: the program gets only the child's signing endpoint and no `HEIMDALL_*` variable. A wider scope or a later deadline is refused (`DELEGATION_EXCEEDS_PARENT`) and nothing is launched
       --scope <DEST:ACCOUNT>

@@ -50,6 +50,7 @@ fn server_hello() -> Option<Vec<u8>> {
         environment_id: EnvironmentId::from_random_bytes([5; 16]),
         role: Some(Role::Owner),
         remote_client: None,
+        restore_epoch: None,
     });
     encode_frame(&hello, MAX_HELLO_FRAME_BYTES).ok()
 }

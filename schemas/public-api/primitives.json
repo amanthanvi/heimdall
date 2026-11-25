@@ -175,6 +175,11 @@
           "next_action": "fix_request"
         },
         {
+          "code": "REQUEST_STALE",
+          "exit_code": 6,
+          "next_action": "new_request_id"
+        },
+        {
           "code": "OUTCOME_UNKNOWN",
           "exit_code": 7,
           "next_action": "reconcile"
@@ -304,6 +309,11 @@
           "next_action": "new_request_id"
         },
         {
+          "code": "REQUEST_STALE",
+          "exit_code": 6,
+          "next_action": "new_request_id"
+        },
+        {
           "code": "OUTCOME_UNKNOWN",
           "exit_code": 7,
           "next_action": "reconcile"
@@ -412,6 +422,11 @@
           "next_action": "new_request_id"
         },
         {
+          "code": "REQUEST_STALE",
+          "exit_code": 6,
+          "next_action": "new_request_id"
+        },
+        {
           "code": "OUTCOME_UNKNOWN",
           "exit_code": 7,
           "next_action": "reconcile"
@@ -508,6 +523,11 @@
           "code": "RESYNC_REQUIRED",
           "exit_code": 6,
           "next_action": "resync"
+        },
+        {
+          "code": "REQUEST_STALE",
+          "exit_code": 6,
+          "next_action": "new_request_id"
         },
         {
           "code": "OUTCOME_UNKNOWN",
@@ -619,6 +639,11 @@
         },
         {
           "code": "REQUEST_EXPIRED",
+          "exit_code": 6,
+          "next_action": "new_request_id"
+        },
+        {
+          "code": "REQUEST_STALE",
           "exit_code": 6,
           "next_action": "new_request_id"
         },

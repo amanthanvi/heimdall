@@ -10,8 +10,8 @@
 //! so are the reasons of a warning. A reader treats a reason it does not know as its code's
 //! defaults (ADR-0013 §3.2).
 //!
-//! A code that is declared but not yet in the code table ([`crate::lifecycle::REQUEST_STALE`],
-//! the ruling on ASK-CODE) is named in `declared_codes`.
+//! A code that is declared but not yet in the code table is named in `declared_codes`. None is
+//! now: `REQUEST_STALE` joined the table with its emitter (M08 U2b-2; the ruling on ASK-CODE).
 
 use std::collections::BTreeSet;
 
@@ -178,6 +178,10 @@ pub const NEXT_ACTIONS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// Codes declared in the reason table but not yet in the code table: none. `REQUEST_STALE`
+/// joined the code table with its emitter in M08 U2b-2 (the ruling on ASK-CODE).
+pub const DECLARED_CODES: &[&str] = &[];
+
 /// One answer of the table: a reason under one code, with the next action it carries.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Row {
@@ -198,9 +202,6 @@ fn code(c: &Code) -> &'static str {
 }
 
 fn default_next(code: &str) -> &'static str {
-    if code == crate::lifecycle::REQUEST_STALE {
-        return crate::lifecycle::REQUEST_STALE_NEXT;
-    }
     Code::parse(code).default_next_action()
 }
 
@@ -226,9 +227,6 @@ pub fn rows() -> Vec<Row> {
         for (r, c) in group {
             pairs.insert((r, code(c)));
         }
-    }
-    for (r, c) in reason::REV7_DECLARED_CODE {
-        pairs.insert((r, c));
     }
     pairs
         .into_iter()
@@ -281,6 +279,6 @@ pub fn table() -> serde_json::Value {
         "pending_reasons": pending,
         "resync_reasons": resync,
         "warning_reasons": warnings,
-        "declared_codes": [crate::lifecycle::REQUEST_STALE],
+        "declared_codes": DECLARED_CODES,
     })
 }

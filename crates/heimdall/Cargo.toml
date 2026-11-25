@@ -276,6 +276,13 @@ path = "../../tests/e2e/cli_m07.rs"
 name = "e2e_store_generations"
 path = "../../tests/e2e/store_generations_cli.rs"
 
+# ⟨M08 U2b-2⟩ The restore epoch through the real binary (ADR-0014 §3.6 step 3, H13; U0-Q5):
+# `--request-epoch` with `--request-id`, the pair every mutating answer reports, and the
+# refusal of a stale epoch before anything is written.
+[[test]]
+name = "e2e_request_epoch"
+path = "../../tests/e2e/request_epoch_cli.rs"
+
 [[test]]
 name = "e2e_wrapper_m07"
 path = "../../tests/e2e/wrapper_m07.rs"

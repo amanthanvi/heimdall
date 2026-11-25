@@ -1,7 +1,5 @@
 {
-  "declared_codes": [
-    "REQUEST_STALE"
-  ],
+  "declared_codes": [],
   "pending_reasons": [
     {
       "field": "iroh_admission.reason",

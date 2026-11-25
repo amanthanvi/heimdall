@@ -302,7 +302,8 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
     // things that reopen issuance for a runner, so the rows compare.
     ("remote_lift_acks", RecoveryClass::Rows),
     // ⟨rev7⟩ Migration 0014 (ADR-0014 H9, §3.6 step 4): request fences are replay records,
-    // like `idempotency`; no writer until U2b.
+    // like `idempotency`. ⟨M08 U2b-2⟩ Written by `crate::fence` (the restore's and the repair's
+    // writer, U2b-3; this slice's test seams) and purged with the markers.
     (
         "request_fences",
         RecoveryClass::Discarded("request replay fences; local"),
@@ -2724,6 +2725,7 @@ mod tests {
         ("layout.rs", include_str!("layout.rs")),
         ("lib.rs", include_str!("lib.rs")),
         ("migrations.rs", include_str!("migrations.rs")),
+        ("fence.rs", include_str!("fence.rs")),
     ];
 
     /// Every `mod` of `lib.rs` names an embedded source, so a new module cannot hide a writer

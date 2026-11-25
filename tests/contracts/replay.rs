@@ -46,20 +46,13 @@ use heimdall_store::{NoFaults, Store, Txn};
 
 /// Tables of the migrated schema with no reader an integration test can reach: neither a
 /// public reader of the store nor a revision 7 typed reader. Listed, with the same reason, in
-/// the corpus README's "Stored, not read".
-const NOT_READ: &[(&str, &str)] = &[(
-    "request_fences",
-    "no reader: migration 0014 creates it; its writer and reader are U2b's",
-)];
+/// the corpus README's "Stored, not read". ⟨M08 U2b-2⟩ None: `request_fences` has its reader
+/// (`Txn::request_fence`).
+const NOT_READ: &[(&str, &str)] = &[];
 
 /// `meta` key classes (as `META_RECOVERY` names them: an exact key, or a prefix ending in `:`)
 /// with no reader an integration test can reach. Listed in the corpus README too.
 const META_NOT_READ: &[(&str, &str)] = &[
-    (
-        "restore_epoch",
-        "no public reader: `Store::open` refuses a missing or non-canonical value, and no \
-         method returns it",
-    ),
     (
         "remote_revocation_claim_seq",
         "no reader: only `next_remote_claim_seq`, which reads it to advance it (a writer)",
@@ -94,6 +87,8 @@ const KEYS: &[(&str, &str)] = &[
         "idempotency_markers",
         "SELECT key_hash FROM idempotency_markers",
     ),
+    // ⟨M08 U2b-2⟩ The replay fence (ADR-0014 §3.6 step 4).
+    ("request_fences", "SELECT key_digest FROM request_fences"),
     (
         "profile_snapshots",
         "SELECT profile, CAST(revision AS TEXT) FROM profile_snapshots",
@@ -361,6 +356,13 @@ fn read_tables(tx: &mut Txn<'_>, keys: &BTreeMap<&str, Vec<Row>>, label: &str) -
     let got = k(t).iter().filter(|r| {
         let hash = KeyHash(id(RequestHash::from_hex(col(r, 0)), label, t));
         ok(tx.expired_key_marker(&hash), label, t).is_some()
+    });
+    n.insert(t, got.count());
+    // ⟨M08 U2b-2⟩ The replay fence: every stored record by its key's digest.
+    let t = "request_fences";
+    let got = k(t).iter().filter(|r| {
+        let digest = id(RequestHash::from_hex(col(r, 0)), label, t).0;
+        ok(tx.request_fence(&digest), label, t).is_some()
     });
     n.insert(t, got.count());
     let t = "grant_anchors";
@@ -640,6 +642,8 @@ fn read_meta(tx: &mut Txn<'_>, rows: &[Row], label: &str) -> (usize, usize) {
                     "self_environment_id" => {
                         ok(tx.self_environment(), label, t).is_some_and(|e| e.as_str() == *value)
                     }
+                    // ⟨M08 U2b-2⟩ The restore epoch's reader (ADR-0014 §3.6 step 1).
+                    "restore_epoch" => ok(tx.restore_epoch(), label, t).0.to_string() == *value,
                     "authority_generation" => {
                         ok(tx.authority_generation(), label, t).0.to_string() == *value
                     }
@@ -714,6 +718,7 @@ fn read_meta(tx: &mut Txn<'_>, rows: &[Row], label: &str) -> (usize, usize) {
 /// The `meta` key classes [`read_meta`] reads.
 const META_READ: &[&str] = &[
     "self_environment_id",
+    "restore_epoch",
     "authority_generation",
     "windows_environment_pipe_token",
     "event_tail:",

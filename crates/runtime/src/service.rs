@@ -424,6 +424,11 @@ pub struct ServiceOptions {
     /// `service run` wires the CLI's opener; `None` (the default): no host, so an outbox row
     /// waits and nothing is issued remotely. Never used by a remote runner.
     pub controller: Option<crate::controller_host::ControllerHostWiring>,
+    /// ⟨M08 U2b-2; test seam⟩ Where the request fence stops an admitted request
+    /// (`crate::request_fence::FenceHook`): the fault tests' stop between the ledger append
+    /// and the first store write. `None` (every production start): no stop.
+    #[doc(hidden)]
+    pub request_fence_hook: Option<crate::request_fence::FenceHook>,
 }
 
 /// ⟨M03⟩ wave 4: where the session-lock state comes from (ADR-0008 D9 item 3; U9).
@@ -562,6 +567,7 @@ impl ServiceOptions {
             runner: crate::paired::RunnerOptions::default(),
             transport: None,
             controller: None,
+            request_fence_hook: None,
         }
     }
 }
@@ -669,6 +675,9 @@ pub struct Service {
     transport_announcer: Option<Arc<dyn heimdall_app::transport::EndpointAnnouncer>>,
     /// ⟨M06 W3 host⟩ The hosted controller driver's wiring ([`ServiceOptions::controller`]).
     controller: Option<crate::controller_host::ControllerHostWiring>,
+    /// ⟨M08 U2b-2; ADR-0014 §3.6⟩ The epoch check, the replay fence and the request ledger
+    /// of every request this runtime serves.
+    fence: Arc<crate::request_fence::RequestFence>,
     shutdown: CancellationToken,
     _background: StopOnDrop,
     _lock: InstanceLock,
@@ -745,6 +754,26 @@ impl Service {
         tracing::info!(began = ?opened.began, "the state store was opened");
         let phases = phases.mark("store_ms");
         let store = Arc::new(opened.store);
+        // ⟨M08 U2b-2; ADR-0014 §3.6⟩ The request fence over this store and the state
+        // directory's request ledger, at the epoch the store records (read once: only a
+        // restore or a repair raises it, under this instance lock).
+        let fence = {
+            let s = store.clone();
+            let state_dir = paths.state_dir.clone();
+            let hook = options.request_fence_hook.clone();
+            blocking(move || {
+                crate::request_fence::RequestFence::open(s, &state_dir).map(|f| match hook {
+                    Some(h) => f.with_hook(h),
+                    None => f,
+                })
+            })
+            .await??
+        };
+        tracing::info!(
+            restore_epoch = fence.epoch().0,
+            "the request fence is ready"
+        );
+        let fence = Arc::new(fence);
 
         // 3. Environment identity: the recorded one, or a new random one at first
         //    start (recorded by `Operations::start`, never replaced).
@@ -1142,6 +1171,7 @@ impl Service {
             transport,
             transport_announcer,
             controller: options.controller,
+            fence,
             shutdown,
             _background: background,
             _lock: lock,
@@ -1172,6 +1202,7 @@ impl Service {
             transport,
             transport_announcer,
             controller,
+            fence,
             shutdown,
             _background,
             _lock,
@@ -1182,7 +1213,9 @@ impl Service {
         let mut dispatcher = OperationsDispatcher::new(operations.clone(), relay, clock.clone())
             .with_service_control(shutdown.clone())
             // ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The controller's records, written for the CLI.
-            .with_controller_records(store.clone());
+            .with_controller_records(store.clone())
+            // ⟨M08 U2b-2; ADR-0014 §3.6⟩ Every mutating request is checked first.
+            .with_request_fence(fence);
         // ⟨M06 W3 host⟩ The controller's driver (`crate::controller_host`): reconnect to the
         // recorded runners, drain the outbox, issue for the delivered grants. Never on a
         // runner; issuing through this runtime's issuer child when it has one.

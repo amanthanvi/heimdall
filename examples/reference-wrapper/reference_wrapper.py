@@ -18,7 +18,10 @@ HELLO_LIMIT = 16 * 1024
 CONTROL_LIMIT = 1024 * 1024
 PROTOCOL = 1
 SCHEMA = "1"
-CAPABILITIES = ("operations/1", "events/1", "schema-discovery/1")
+# `request-epoch/1` is offered, never required: a runtime that checks the restore epoch
+# negotiates it, and an older one is still served, with no epoch on any request.
+EPOCH_CAPABILITY = "request-epoch/1"
+CAPABILITIES = ("operations/1", "events/1", "schema-discovery/1", EPOCH_CAPABILITY)
 REQUESTS = {
     "inspect": {"op": "inspect"},
     "ensure": {"op": "ensure", "interaction": "non_interactive"},
@@ -31,6 +34,9 @@ REQUESTS = {
     "release": {"op": "release"},
     "revoke": {"op": "revoke"},
 }
+# The requests that change something: each carries the restore epoch its request ID was
+# minted under. Reads carry none.
+MUTATING = frozenset({"ensure", "bind", "delegate", "cancel", "release", "revoke"})
 EVENT_TYPES = frozenset({
     "operation_state_changed", "grant_state_changed", "policy_changed",
     "resource_changed", "credential_lifecycle", "decision", "runtime_lifecycle",
@@ -73,6 +79,7 @@ CODE_DEFAULTS = {
     "REQUEST_EXPIRED": CodeDefaults(6, "none", False, "new_request_id", False),
     "RESYNC_REQUIRED": CodeDefaults(6, "none", False, "resync", False),
     "DECISION_STALE": CodeDefaults(6, "none", False, "fix_request", False),
+    "REQUEST_STALE": CodeDefaults(6, "none", False, "new_request_id", False),
     "OUTCOME_UNKNOWN": CodeDefaults(7, "unknown", False, "reconcile", False),
     "USAGE_ERROR": CodeDefaults(2, "none", False, "fix_request", False),
     "SCHEMA_UNSUPPORTED": CodeDefaults(2, "none", False, "fix_request", False),
@@ -145,6 +152,19 @@ def code_defaults(envelope, *, asynchronous=False):
         if isinstance(error, dict) and error.get("reason") == "not_executable":
             return defaults._replace(exit_code=126)
     return defaults
+
+
+def kept_epoch_unsupported():
+    """The local answer to a kept epoch the runtime cannot check: nothing was sent."""
+    error = {
+        "code": "SCHEMA_UNSUPPORTED", "effect_status": "none", "retryable": False,
+        "next": {"action": "fix_request"},
+        "message": "this request keeps the restore epoch it was first sent with, and the "
+                   "runtime does not offer request-epoch/1, so it could not check it: "
+                   "nothing was sent",
+    }
+    return dict(schema_version=SCHEMA, state="failed", code="SCHEMA_UNSUPPORTED",
+                data={"error": error}, warnings=[], next=None)
 
 
 def _event_type(event):
@@ -269,6 +289,9 @@ class Client:
             self.capabilities = frozenset(capabilities)
             if not required <= self.capabilities <= offered:
                 raise ProtocolError("invalid capability negotiation")
+            # The runtime's restore epoch, 0 when the hello omits it.
+            epoch = reply.get("restore_epoch", 0)
+            self.restore_epoch = 0 if epoch is None else _uint(epoch, "restore_epoch")
             self._limit = CONTROL_LIMIT
             self._link.settimeout(timeout)
         except BaseException:
@@ -339,8 +362,15 @@ class Client:
             self.close()
             raise
 
-    def request(self, kind, **fields):
-        """Send an allowlisted request and return its envelope, including failures."""
+    def request(self, kind, *, request_epoch=None, **fields):
+        """Send an allowlisted request and return its envelope, including failures.
+
+        A request that changes something carries a restore epoch. Pass `request_epoch` to
+        retry a request ID with the epoch it was first sent with: the answer's
+        `request_epoch`, which a caller keeps with the `request_id`. Without it, the runtime's
+        current epoch from the hello is used. A kept epoch is never sent to a runtime that did
+        not negotiate `request-epoch/1`: the answer is then `SCHEMA_UNSUPPORTED`, and nothing
+        is sent. A request with no kept epoch goes to such a runtime without one."""
         if self._subscription is not None:
             raise ValueError("use a separate connection for requests during a subscription")
         fixed = REQUESTS[kind]
@@ -352,7 +382,18 @@ class Client:
             raise ValueError("use the wait request to supply wait_ms")
         if kind == "wait" and not _uint(fields.get("wait_ms"), "wait_ms"):
             raise ValueError("wait_ms must be positive")
-        result = self._result(self._exchange("request", request={**fields, **fixed}))
+        frame = {"request": {**fields, **fixed}}
+        if kind in MUTATING:
+            if request_epoch is not None:
+                _uint(request_epoch, "request_epoch")
+                if EPOCH_CAPABILITY not in self.capabilities:
+                    return kept_epoch_unsupported()
+                frame["request_epoch"] = request_epoch
+            elif EPOCH_CAPABILITY in self.capabilities:
+                frame["request_epoch"] = self.restore_epoch
+        elif request_epoch is not None:
+            raise ValueError("only a request that changes something carries a restore epoch")
+        result = self._result(self._exchange("request", **frame))
         if code_defaults(result).success:
             try:
                 data = result["data"]

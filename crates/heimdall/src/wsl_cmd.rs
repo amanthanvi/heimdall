@@ -601,6 +601,7 @@ mod tests {
             non_interactive: true,
             home: None,
             stdin_tty: false,
+            request_epoch: None,
         };
         let mut s = Fake {
             disabled: Vec::new(),

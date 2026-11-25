@@ -23,6 +23,8 @@ Options:
           Duration deadline (`2h`, `PT2H`)
       --request-id <REQUEST_ID>
           Idempotency request ID
+      --request-epoch <N>
+          The restore epoch the request ID was first sent with (the answer's `request_epoch`): give it with the same `--request-id` to retry. Without it, the runtime's current epoch is used
       --async
           Return immediately with the operation to observe (`ACCEPTED`, exit 0)
       --timeout-ms <TIMEOUT_MS>

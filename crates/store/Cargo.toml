@@ -14,9 +14,9 @@ workspace = true
 heimdall-contract = { workspace = true }
 heimdall-domain = { workspace = true }
 # ⟨M08 U2b-1⟩ The generation layout (ADR-0014 §3.6, H12): the pointer switch, the operation
-# record, the staging intent and start-up recovery. A path edge: the crate has no
-# `[workspace.dependencies]` entry yet (the root manifest is outside this slice).
-heimdall-stategen = { path = "../stategen" }
+# record, the staging intent and start-up recovery. ⟨M08 U2b-2⟩ Also the request ledger, keyed
+# by the store's digest of the full idempotency key (`fence`).
+heimdall-stategen = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
