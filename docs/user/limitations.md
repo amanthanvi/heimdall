@@ -41,6 +41,11 @@ Short, and meant to be read once.
   of its own, this release refuses to start (`WrongState`) until you remove the file
   `STAGING-INTENT` from Heimdall's state directory by hand. Nothing is lost: the next start
   adopts that store.
+  - A pre-release runner's bridge checks the store's schema before its write transaction and
+    does not check it again inside the transaction. So a pre-release build can lose a runner's
+    switch to owner-only, but only if it handles a paired session while this release is
+    adopting that home's store for the first time. To avoid it, do not run a pre-release build
+    on a home that this release will adopt.
 - **A purge that stops while it removes the state store's layout leaves Heimdall unable to
   start.** If `heimdall uninstall --purge-state` crashes or meets a file-system error after it
   has deleted the store and before it has removed the pointer file `CURRENT`, the runtime then
