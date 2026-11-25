@@ -193,7 +193,13 @@ impl Identity {
             basis: text(v, "interaction_basis"),
             declared_at: time(v, "declared_at"),
             declaration_expires_at: declaration.and_then(|d| time(d, "expires_at")),
-            noninteractive: v.get("noninteractive").and_then(Value::as_bool),
+            // The runtime sends `noninteractive` as the eligibility object
+            // (`contract::provider::NoninteractiveEligibility`: `eligible`, and `reason` when
+            // not), never a bare boolean (M07 W9; U0's D1 typed-view survey).
+            noninteractive: v
+                .get("noninteractive")
+                .and_then(|n| n.get("eligible"))
+                .and_then(Value::as_bool),
             checked_at: time(v, "eligibility_checked_at"),
         })
     }
@@ -648,6 +654,40 @@ pub(crate) const MAX_EVENTS: usize = 256;
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    /// ⟨M07 W9⟩ The identity's non-interactive state is read from the object the runtime
+    /// emits (`inspect identities`, observed from the real binary in a scratch home:
+    /// `{"eligible": false, "reason": "interaction_unknown"}`), built here from the
+    /// contract type itself so the test follows the emitter.
+    #[test]
+    fn an_identitys_noninteractive_state_is_read_from_the_eligibility_object() {
+        use heimdall_contract::provider::NoninteractiveEligibility;
+        let identity = |eligibility: NoninteractiveEligibility| {
+            serde_json::json!({
+                "identity_id": "idn_fixture",
+                "fingerprint": "SHA256:fixture",
+                "noninteractive": eligibility,
+            })
+        };
+        let eligible = NoninteractiveEligibility {
+            eligible: true,
+            reason: None,
+        };
+        let refused = NoninteractiveEligibility {
+            eligible: false,
+            reason: Some("interaction_unknown".to_owned()),
+        };
+        assert_eq!(
+            Identity::of(&identity(eligible)).unwrap().noninteractive,
+            Some(true)
+        );
+        assert_eq!(
+            Identity::of(&identity(refused)).unwrap().noninteractive,
+            Some(false)
+        );
+        let absent = serde_json::json!({"identity_id": "idn_fixture"});
+        assert_eq!(Identity::of(&absent).unwrap().noninteractive, None);
+    }
 
     #[test]
     fn clean_removes_escapes_and_controls_and_flattens_lines() {

@@ -2948,4 +2948,492 @@ mod windows_console {
             console()
         );
     }
+
+    /// The header: the frame's first line.
+    fn header(f: &str) -> &str {
+        f.lines().next().unwrap_or_default()
+    }
+
+    /// The footer: the frame's last line.
+    fn footer(f: &str) -> &str {
+        f.lines().last().unwrap_or_default()
+    }
+
+    /// The selected list row (`> ...`), trimmed.
+    fn selected_row(f: &str) -> Option<&str> {
+        f.lines().find(|l| l.starts_with("> ")).map(str::trim)
+    }
+
+    /// `heimdall service run` in the scratch home of the standalone row, started by this
+    /// test. Dropped: `heimdall service stop` there (it checks the advertised PID of this
+    /// home's own runtime), then, if the runtime is still running after 30 s, the exact
+    /// child this test started is killed by its handle.
+    struct Runtime {
+        vars: Vec<(String, String)>,
+        root: PathBuf,
+        child: Option<std::process::Child>,
+    }
+
+    impl Runtime {
+        fn start(vars: &[(String, String)], root: &Path) -> Runtime {
+            let log = std::fs::File::create(root.join("service.log")).unwrap();
+            let child = Command::new(bin())
+                .args(["service", "run"])
+                .env_clear()
+                .envs(vars.iter().map(|(k, v)| (k, v)))
+                .current_dir(root.join("home"))
+                .stdin(Stdio::null())
+                .stdout(log.try_clone().unwrap())
+                .stderr(log)
+                .spawn()
+                .unwrap_or_else(|e| panic!("the runtime did not start: {e}"));
+            let mut rt = Runtime {
+                vars: vars.to_vec(),
+                root: root.to_owned(),
+                child: Some(child),
+            };
+            let deadline = Instant::now() + LONG;
+            loop {
+                let out = rt.cli(&["--json", "service", "status"]);
+                if out.status.success() {
+                    break;
+                }
+                if let Some(s) = rt.child.as_mut().unwrap().try_wait().unwrap() {
+                    panic!("the runtime exited early ({s}): {:?}", rt.log());
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "the runtime did not start; service tail: {:?}\n{}",
+                    rt.log(),
+                    rt.diagnostics(&out)
+                );
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            rt
+        }
+
+        fn log(&self) -> String {
+            let bytes = std::fs::read(self.root.join("service.log")).unwrap_or_default();
+            super::diagnostic_tail(&bytes, &self.root)
+        }
+
+        /// `heimdall <args>` with stdin closed, both streams scanned for canaries.
+        fn cli(&self, args: &[&str]) -> std::process::Output {
+            let out = Command::new(bin())
+                .args(args)
+                .env_clear()
+                .envs(self.vars.iter().map(|(k, v)| (k, v)))
+                .current_dir(self.root.join("home"))
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            heimdall_testkit::assert_no_canary(&String::from_utf8_lossy(&out.stdout));
+            heimdall_testkit::assert_no_canary(&String::from_utf8_lossy(&out.stderr));
+            out
+        }
+
+        fn diagnostics(&self, out: &std::process::Output) -> String {
+            format!(
+                "exit {}; stdout tail: {:?}\nstderr tail: {:?}",
+                out.status,
+                super::diagnostic_tail(&out.stdout, &self.root),
+                super::diagnostic_tail(&out.stderr, &self.root)
+            )
+        }
+
+        fn json(&self, args: &[&str]) -> serde_json::Value {
+            let out = self.cli(args);
+            assert!(
+                out.status.success(),
+                "CLI failed: {}",
+                self.diagnostics(&out)
+            );
+            serde_json::from_slice(&out.stdout)
+                .unwrap_or_else(|_| panic!("CLI returned invalid JSON: {}", self.diagnostics(&out)))
+        }
+    }
+
+    impl Drop for Runtime {
+        fn drop(&mut self) {
+            let Some(mut child) = self.child.take() else {
+                return;
+            };
+            let _ = self.cli(&["--json", "service", "stop"]);
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while child.try_wait().ok().flatten().is_none() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            if child.try_wait().ok().flatten().is_none() {
+                // The exact child this test started.
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            if !std::thread::panicking() {
+                let _ = self.log();
+                super::assert_no_fixture_stores(&self.root);
+            }
+        }
+    }
+
+    /// m07-plan U1 `tui_standalone_access_and_stop` on a Windows pseudoconsole (the TUI
+    /// standalone row, "Windows (ConPTY variant)"; the Unix row is
+    /// `pty::tui_standalone_access_and_stop`): with no CLI command in between, an observed
+    /// alias served by the fixture sshd is opened in the TUI (Destinations, search, its
+    /// detail, which offers `c connect`), ⟨M07 W9d⟩ connected through the handoff (a
+    /// trivial command on the fixture), and after the return the profile's access is
+    /// stopped from the stop menu (option 3, the profile `dev`, a typed `yes`), the TUI
+    /// answers `stop profile dev: OK`, and `q` leaves it with exit 0, the console's input
+    /// mode cooked again and the alternate screen left as often as entered. Afterwards (not
+    /// in between) every policy of the profile is paused. Every key is typed only once the
+    /// frame it acts on is drawn (the M07 reading guard).
+    ///
+    /// **The connect handoff.** ⟨M07 W9d; ADR-0007 §12.52⟩ The TUI's `c` launches the
+    /// verified client with only the alias; on Windows that is the pinned in-box
+    /// `%SystemRoot%\System32\OpenSSH\ssh.exe`, which finds the account's profile from its
+    /// token, so here the debug pinned-client redirect (`HEIMDALL_TEST_PINNED_CLIENT`, which
+    /// the TUI honours as `heimdall connect` does) names a scratch copy of testkit's
+    /// `hm-pinned-ssh`. That wrapper adds `-F` the scratch configuration, the isolated
+    /// known-hosts options (and `StrictHostKeyChecking=yes`, `BatchMode=yes`,
+    /// `LogLevel=ERROR`), checks the effective identity configuration with `ssh -G`, records
+    /// its arguments (its argument record), and starts the real in-box client with the
+    /// remote `echo <LOGIN>`. The alias reaches the fixture sshd (on Windows the harness's,
+    /// `HM_FIXTURE_SSHD_*`, as A01 and A11 do) with a per-run key that only a fixture agent
+    /// on a `heimdall-hmtest-` pipe holds (`IdentityAgent` that pipe, `IdentityFile` its
+    /// public half, `IdentitiesOnly yes`). Asserted: the handoff ended `ssh <alias> exited
+    /// with status 0`; the argument record has one start whose caller words are only the
+    /// alias; the wrapper printed `hm-pinned-ssh: checked: identity agent fixture pipe` and
+    /// no `refused:` line; the session's output reached the console; and the fixture sshd
+    /// accepted exactly one login, with the per-run key, and refused no other key (printed
+    /// for the native run's report as `tui standalone console: other keys offered: <n>`).
+    ///
+    /// **Isolation.** As [`windows_tui_walkthrough`]'s ([`env`]): separate homes in one
+    /// `tempfile` root, the fixture stores in it, `PATH` only the system directory,
+    /// `ProgramData` scratch (the in-box client's system configuration). The alias's scratch
+    /// configuration (`HEIMDALL_TEST_SSH_HOME`, also the wrapper's `-F`) names only the
+    /// loopback fixture and files inside the root. The runtime is this test's own `service
+    /// run` there ([`Runtime`]).
+    #[test]
+    fn windows_tui_standalone_access_and_stop() {
+        use heimdall_testkit::agent::{
+            AgentMode, Endpoint, FakeAgent, FakeAgentConfig, FixtureKey,
+        };
+        use heimdall_testkit::home::{Scratch, ssh_option_path};
+        use heimdall_testkit::pinned_ssh::{ArgumentRecord, WrapperConfig};
+        use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
+
+        const ALIAS: &str = "hm-m07-fixture";
+        const LOGIN: &str = "HM-M07-FIXTURE-LOGIN";
+        let _guard = super::parallel_test();
+        let scratch = tempfile::tempdir().unwrap();
+        let root = scratch.path();
+        for d in [
+            "home/appdata",
+            "home/localappdata",
+            "hh",
+            "sshhome/etc-ssh",
+            "sshhome/.ssh",
+            "programdata",
+            "temp",
+            "pinned",
+        ] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+        }
+        // The fixture sshd (the harness's on Windows) and a fixture agent holding the
+        // per-run key; the key's comment is not a canary (the client may print it).
+        let fixtures = Scratch::new().unwrap();
+        let user_key = FixtureKey::generate().with_comment("hm-m07-fixture-key");
+        let sshd = LoopbackSshd::start(
+            &fixtures,
+            SshdConfig {
+                authorized: vec![user_key.public().clone()],
+                ..SshdConfig::default()
+            },
+        )
+        .unwrap_or_else(|e| panic!("blocked: the fixture sshd is not available here: {e:?}"));
+        let agent = FakeAgent::start(
+            Endpoint::in_scratch(&fixtures, "agent").unwrap(),
+            FakeAgentConfig {
+                keys: vec![user_key.clone()],
+                mode: AgentMode::Normal,
+            },
+        );
+        let public = root.join("fixture_key.pub");
+        user_key.write_public(&public).unwrap();
+        let known = root.join("fixture_known_hosts");
+        std::fs::write(&known, format!("{}\n", sshd.host_key_line)).unwrap();
+        let global_known = root.join("empty_known_hosts");
+        std::fs::write(&global_known, b"").unwrap();
+        // The scratch configuration: the static pass's and the wrapper's `-F`.
+        let config = root.join("sshhome/.ssh/config");
+        let mut text = format!(
+            "Host {ALIAS}\n    HostName {}\n    Port {}\n    IdentityFile {}\n    IdentitiesOnly yes\n    IdentityAgent {}\n",
+            sshd.host,
+            sshd.port,
+            ssh_option_path(&public),
+            ssh_option_path(Path::new(&agent.endpoint().locator()))
+        );
+        // The harness sshd's account (`HM_FIXTURE_SSHD_USER`), last, as
+        // `ScratchHome::write_user_config` puts it; never on a command line.
+        if let Some(account) = sshd.account() {
+            text.push_str(&format!("Host *\n    User {account}\n"));
+        }
+        std::fs::write(&config, text).unwrap();
+        // The scratch wrapper the redirect names, with its argument record.
+        let record = root.join("pinned").join("args.ndjson");
+        let wrapper = WrapperConfig {
+            config: config.clone(),
+            scratch_root: root.to_path_buf(),
+            options: vec![
+                format!("UserKnownHostsFile={}", ssh_option_path(&known)),
+                format!("GlobalKnownHostsFile={}", ssh_option_path(&global_known)),
+                "StrictHostKeyChecking=yes".to_owned(),
+                "BatchMode=yes".to_owned(),
+                "LogLevel=ERROR".to_owned(),
+            ],
+            trailing: vec!["echo".to_owned(), LOGIN.to_owned()],
+            client: None,
+        }
+        .install_recording(&root.join("pinned"), &record)
+        .unwrap_or_else(|e| panic!("the pinned-client wrapper: {e}"));
+        let screen = root.join("screen.txt");
+        let mut tui_vars = env(root, &screen);
+        let vars: Vec<(String, String)> = tui_vars
+            .iter()
+            .filter(|(k, _)| k != "HEIMDALL_TEST_TUI_SCREEN")
+            .cloned()
+            .collect();
+        // The redirect for the TUI only (the runtime launches no client).
+        tui_vars.push((
+            "HEIMDALL_TEST_PINNED_CLIENT".to_owned(),
+            wrapper.to_string_lossy().into_owned(),
+        ));
+        let rt = Runtime::start(&vars, root);
+        let added = rt.json(&["--json", "destination", "add", ALIAS, "--observed"]);
+        assert_eq!(added["code"], "OK", "{added}");
+        let listed = rt.json(&["--json", "inspect", "destinations"]);
+        let n = ["items", "destinations"]
+            .iter()
+            .find_map(|k| listed["data"][k].as_array())
+            .map_or(0, Vec::len);
+        assert!(n > 0, "{listed}");
+
+        let argv = vec![bin(), "tui".to_owned()];
+        // The console child resizes only on a request file, which this test never writes.
+        let mut command = TerminalCommand::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "windows_console::console_child",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+                "-q",
+            ])
+            .current_dir(root)
+            .size(120, 40)
+            .env(ARGV, serde_json::to_string(&argv).unwrap())
+            .env(ENVS, serde_json::to_string(&tui_vars).unwrap())
+            .env(RESIZE, root.join("resize").to_string_lossy().into_owned());
+        for (key, value) in &tui_vars {
+            command = command.env(key, value);
+        }
+        let mut t = command
+            .spawn()
+            .unwrap_or_else(|e| panic!("the pseudoconsole did not start: {e}"));
+        wait_frame(&mut t, &screen, "the first frame", |f| {
+            f.contains("Overview")
+        });
+        wait_frame(&mut t, &screen, "the runtime's listing", |f| {
+            f.contains("Runtime: connected")
+        });
+        let count = format!("; {n} destinations");
+        wait_frame(&mut t, &screen, "the static pass and the listing", |f| {
+            f.contains(&count) && !f.contains("Static pass: running")
+        });
+        // Open the destination: Destinations, search, its detail.
+        t.send(b"2").unwrap();
+        wait_frame(&mut t, &screen, "the Destinations view", |f| {
+            header(f).contains("[2 Destinations]")
+        });
+        t.send(b"/").unwrap();
+        wait_frame(&mut t, &screen, "the search field", |f| {
+            f.contains("Search: _")
+        });
+        t.send(ALIAS.as_bytes()).unwrap();
+        let typed = format!("Search: {ALIAS}_");
+        wait_frame(&mut t, &screen, "the typed search", |f| {
+            f.contains(&typed) && selected_row(f).is_some_and(|r| r.contains(ALIAS))
+        });
+        t.send(b"\r").unwrap();
+        let filter = format!("Filter: {ALIAS}");
+        wait_frame(&mut t, &screen, "the search's filter", |f| {
+            f.contains(&filter) && selected_row(f).is_some_and(|r| r.contains(ALIAS))
+        });
+        t.send(b"\r").unwrap();
+        let detail = format!("{ALIAS}: observed destination");
+        wait_frame(&mut t, &screen, "its detail", |f| {
+            f.contains(&detail) && footer(f).contains("c connect")
+        });
+        // ⟨M07 W9d⟩ Connect through the handoff; the TUI returns when the client exits.
+        let failed_before = sshd.failed_publickey_log().len();
+        t.send(b"c").unwrap();
+        let ended = format!("ssh {ALIAS} exited with status");
+        wait_frame(&mut t, &screen, "the handoff's end", |f| f.contains(&ended));
+        let after = frame(&screen);
+        // The console's reader may trail the frame dump by a moment: wait (bounded) for
+        // the wrapper's verdict and the session's output; the assertions below decide.
+        let _ = t.expect("hm-pinned-ssh: ", Duration::from_secs(10));
+        let _ = t.expect(LOGIN, Duration::from_secs(10));
+        let console = t.text().replace('\n', "");
+        assert!(
+            after.contains(&format!("ssh {ALIAS} exited with status 0")),
+            "frame tail: {:?}\nconsole tail: {:?}",
+            super::diagnostic_tail(after.as_bytes(), root),
+            super::diagnostic_tail(console.as_bytes(), root)
+        );
+        // The wrapper's argument record: one start, and the TUI passed only the alias.
+        let lines = std::fs::read_to_string(&record).unwrap_or_default();
+        let starts = ArgumentRecord::parse_all(&lines).unwrap_or_else(|e| panic!("{e}"));
+        let [start] = starts.as_slice() else {
+            panic!("one start of the wrapper: {} lines", starts.len());
+        };
+        assert_eq!(
+            start.caller,
+            [ALIAS],
+            "the TUI handed only the alias to the client"
+        );
+        assert_eq!(start.trailing, ["echo", LOGIN]);
+        assert_eq!(
+            start.added[..2],
+            ["-F".to_owned(), config.to_string_lossy().into_owned()],
+            "the wrapper added the scratch configuration first"
+        );
+        // The guard's verdict (ADR-0007 §12.52): the effective identity agent is the
+        // fixture's pipe, and nothing was refused.
+        assert!(
+            console.contains("hm-pinned-ssh: checked: identity agent fixture pipe")
+                && !console.contains("hm-pinned-ssh: refused:"),
+            "the wrapper's identity check passed on the fixture's agent: {:?}",
+            super::diagnostic_tail(console.as_bytes(), root)
+        );
+        #[allow(clippy::print_stdout)] // a fact for the native run's report (M07-W9-R02)
+        {
+            println!(
+                "tui standalone console: hm-pinned-ssh: checked: identity agent fixture pipe; refused: none"
+            );
+        }
+        assert!(
+            console.contains(LOGIN),
+            "the fixture command ran on the fixture sshd: {:?}",
+            super::diagnostic_tail(console.as_bytes(), root)
+        );
+        let offered = sshd.failed_publickey_log();
+        let other = offered[failed_before.min(offered.len())..]
+            .iter()
+            .filter(|k| k.fingerprint != user_key.fingerprint())
+            .count();
+        #[allow(clippy::print_stdout)] // a fact for the native run's report
+        {
+            println!("tui standalone console: other keys offered: {other}");
+        }
+        assert_eq!(other, 0, "only the per-run key was offered: {offered:?}");
+        let accepted = sshd.accepted_log();
+        assert!(
+            accepted.len() == 1 && accepted[0].fingerprint == user_key.fingerprint(),
+            "exactly one login, with the per-run key: {accepted:?}"
+        );
+        // Back in the TUI, on the same detail (the status line shows the handoff's result
+        // until the next key): stop the profile's access from the stop menu.
+        assert!(
+            after.contains(&detail),
+            "frame tail: {:?}",
+            super::diagnostic_tail(after.as_bytes(), root)
+        );
+        t.send(b"s").unwrap();
+        wait_frame(&mut t, &screen, "the stop menu", |f| {
+            f.contains("Four different actions")
+        });
+        t.send(b"3").unwrap();
+        wait_frame(&mut t, &screen, "the profile action selected", |f| {
+            f.contains("> 3. ")
+        });
+        t.send(b"\r").unwrap();
+        wait_frame(&mut t, &screen, "the profile prompt", |f| {
+            f.contains("Profile ID: _")
+        });
+        t.send(b"dev").unwrap();
+        wait_frame(&mut t, &screen, "the typed profile", |f| {
+            f.contains("Profile ID: dev_")
+        });
+        t.send(b"\r").unwrap();
+        wait_frame(&mut t, &screen, "the confirmation", |f| {
+            f.contains("Stop everything for profile dev") && f.contains("Type yes to confirm")
+        });
+        t.send(b"yes").unwrap();
+        wait_frame(&mut t, &screen, "the typed yes", |f| {
+            f.contains("Type yes to confirm [y/N]: yes_")
+        });
+        t.send(b"\r").unwrap();
+        wait_frame(&mut t, &screen, "the stop's answer", |f| {
+            f.contains("stop profile dev: ")
+        });
+        let answer = frame(&screen);
+        assert!(
+            answer.contains("stop profile dev: OK"),
+            "{:?}",
+            super::diagnostic_tail(answer.as_bytes(), root)
+        );
+        // `q` on a detail goes back; on the view it quits.
+        t.send(b"q").unwrap();
+        let deadline = Instant::now() + LONG;
+        let left_detail = loop {
+            if t.try_wait().is_some() {
+                break false;
+            }
+            if !frame(&screen).contains(&detail) {
+                break true;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "q answered neither way; frame tail: {:?}",
+                super::diagnostic_tail(frame(&screen).as_bytes(), root)
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        if left_detail {
+            t.send(b"q").unwrap();
+        }
+        let code = t.wait(LONG);
+        let text = t.text();
+        heimdall_testkit::assert_no_canary(&text);
+        let console = || super::diagnostic_tail(text.as_bytes(), root);
+        assert_eq!(code, Some(0), "q exits 0; console tail: {:?}", console());
+        assert!(
+            text.contains("hm-console-modes before=Some(false) raw_seen=true after=Some(false)"),
+            "the console's input was raw while the TUI ran and cooked again after: {:?}",
+            console()
+        );
+        let raw = String::from_utf8_lossy(&t.output()).into_owned();
+        assert_eq!(
+            raw.matches("\u{1b}[?1049h").count(),
+            raw.matches("\u{1b}[?1049l").count(),
+            "the alternate screen is left as often as entered: {:?}",
+            console()
+        );
+        // Afterwards (not in between): every policy of the profile is paused.
+        let policies = rt.json(&["--json", "inspect", "policies"]);
+        let dev: Vec<&serde_json::Value> = policies["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["profile"] == "dev")
+            .collect();
+        assert!(!dev.is_empty(), "{policies}");
+        assert!(
+            dev.iter().all(|p| p["paused_since"].is_string()),
+            "{policies}"
+        );
+        drop(rt);
+        drop(agent);
+        drop(sshd);
+    }
 }

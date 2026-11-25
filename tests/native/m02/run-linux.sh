@@ -271,6 +271,7 @@ else
     echo "fixture-sshd-preflight=unavailable: $HM2_SSHD_WHY"
 fi
 chmod 700 ./heimdall ./hm-fixture-hook
+if [ -f ./hm-pinned-ssh ]; then chmod 700 ./hm-pinned-ssh; fi
 export HEIMDALL_E2E_BIN=$scratch/heimdall HM_FIXTURE_HOOK=$scratch/hm-fixture-hook
 # ⟨M06 W5⟩ HM_FEATURE: the feature build's own CLI, for the targets feature-targets.txt names.
 fbin=""
@@ -305,7 +306,7 @@ done
 echo "all-tests-exit=$arc"
 echo "---after---"
 leftover=0
-for b in heimdall hm-fixture-hook ${fbin:+feature/heimdall} $bins; do
+for b in heimdall hm-fixture-hook hm-pinned-ssh ${fbin:+feature/heimdall} $bins; do
     # Count only (nothing is signalled): processes still running a binary of this run.
     n=$(pgrep -u "$(id -u)" -f "^$scratch/$b( |\$)|^\./$b( |\$)" 2>/dev/null | wc -l)
     leftover=$((leftover + n))

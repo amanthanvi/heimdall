@@ -308,7 +308,9 @@ m02_feature_facts() {
 # m02_artifacts SHIM: from SHIM/build.json write SHIM/all.tsv (name<TAB>executable for
 # every test executable; lib/bin unit tests are "<crate>-unit"), SHIM/cli.txt (the
 # heimdall binary) and SHIM/hook.txt (hm-fixture-hook). Returns 1 when either binary
-# is missing.
+# is missing. ⟨M07-F-PINSTAGE⟩ Also SHIM/pinned.txt: testkit's hm-pinned-ssh (the debug
+# pinned-client wrapper, M07 W7b), empty when the build has none. Staged next to the test
+# binaries, where `heimdall_testkit::pinned_ssh::locate()` finds it beside its caller.
 m02_artifacts() {
     local s=$1
     jq -r 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null)
@@ -320,6 +322,9 @@ m02_artifacts() {
     jq -r 'select(.reason == "compiler-artifact" and .profile.test == false and .executable != null
                   and .target.name == "hm-fixture-hook" and (.target.kind | index("bin"))) | .executable' \
         "$s/build.json" | sort -u | head -1 >"$s/hook.txt"
+    jq -r 'select(.reason == "compiler-artifact" and .profile.test == false and .executable != null
+                  and .target.name == "hm-pinned-ssh" and (.target.kind | index("bin"))) | .executable' \
+        "$s/build.json" | sort -u | head -1 >"$s/pinned.txt"
     [ -s "$s/all.tsv" ] && [ -s "$s/cli.txt" ] && [ -f "$(cat "$s/cli.txt")" ] &&
         [ -s "$s/hook.txt" ] && [ -f "$(cat "$s/hook.txt")" ]
 }
@@ -344,10 +349,13 @@ m02_hashes() {
     done <"$s/run.tsv"
     echo "heimdall$sfx (CLI for the e2e suites, HEIMDALL_E2E_BIN) sha256: $(shasum -a 256 "$(cat "$s/cli.txt")" | cut -d' ' -f1)" >>"$out/build.txt"
     echo "hm-fixture-hook$sfx (HM_FIXTURE_HOOK) sha256: $(shasum -a 256 "$(cat "$s/hook.txt")" | cut -d' ' -f1)" >>"$out/build.txt"
+    if [ -s "$s/pinned.txt" ]; then
+        echo "hm-pinned-ssh$sfx (the debug pinned-client wrapper) sha256: $(shasum -a 256 "$(cat "$s/pinned.txt")" | cut -d' ' -f1)" >>"$out/build.txt"
+    fi
 }
 
 # m02_stage SHIM SUFFIX: SHIM/stage/ with a link <target><SUFFIX> to every binary of the
-# run, heimdall<SUFFIX>, hm-fixture-hook<SUFFIX> and a copy of skips.tsv, for one
+# run, heimdall<SUFFIX>, hm-fixture-hook<SUFFIX>, hm-pinned-ssh<SUFFIX> when built, and a copy of skips.tsv, for one
 # `tar -h` stream (tar dereferences the links).
 m02_stage() {
     local s=$1 sfx=$2 name exe
@@ -358,7 +366,10 @@ m02_stage() {
     done <"$s/run.tsv"
     ln -s "$(cat "$s/cli.txt")" "$s/stage/heimdall$sfx" &&
         ln -s "$(cat "$s/hook.txt")" "$s/stage/hm-fixture-hook$sfx" &&
-        cp "$s/skips.tsv" "$s/stage/skips.tsv"
+        cp "$s/skips.tsv" "$s/stage/skips.tsv" || return 1
+    if [ -s "$s/pinned.txt" ]; then
+        ln -s "$(cat "$s/pinned.txt")" "$s/stage/hm-pinned-ssh$sfx" || return 1
+    fi
 }
 
 # m02_redact SRC DST [[--word] VALUE LABEL]...: replace every VALUE (and its

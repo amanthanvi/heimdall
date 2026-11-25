@@ -20,10 +20,18 @@
 //! Heimdall creates or accepts. Every path API here refuses a reparse point instead of
 //! following it. No SID is printed by any error.
 //!
+//! * ⟨M07 W9e⟩ **A pipe's server.** [`pipe_server_process`] and [`process_creation_time`]:
+//!   `hm-pinned-ssh`'s check that a declared agent pipe is served by the test's own runtime
+//!   (`pinned_ssh`, "The declared agent pipe").
+//!
 //! `unsafe`: this module calls the Win32 security API (`GetNamedSecurityInfoW`,
 //! `SetFileSecurityW`, the SDDL conversions, `LocalFree`). Each call gets NUL-terminated
 //! buffers that outlive it and valid out-pointers, and each `LocalAlloc`ed result is freed
-//! exactly once after its last use (`LocalAllocation`).
+//! exactly once after its last use (`LocalAllocation`). ⟨M07 W9e⟩ It also opens a pipe
+//! (`CreateFileW` with `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`, `WaitNamedPipeW`
+//! while busy), checks `GetFileType`, reads `GetNamedPipeServerProcessId`, and reads a
+//! process's creation time (`OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`,
+//! `GetProcessTimes`); every handle is an `OwnedHandle`, closed exactly once.
 #![allow(unsafe_code)]
 
 use std::ffi::c_void;
@@ -408,10 +416,193 @@ pub fn attached_console_window(pid: u32) -> Option<bool> {
     }
 }
 
+/// ⟨M07 W9e⟩ `ERROR_PIPE_BUSY` retries when `hm-pinned-ssh` opens a declared agent pipe.
+const PIPE_BUSY_RETRIES: u32 = 5;
+/// ⟨M07 W9e⟩ How long each retry waits for a free instance (`WaitNamedPipeW`), in ms.
+const PIPE_BUSY_WAIT_MS: u32 = 2_000;
+
+/// ⟨M07 W9e; ADR-0007 §12.52⟩ The PID of the process serving the named pipe `name`, read
+/// from a client handle with `GetNamedPipeServerProcessId`: `hm-pinned-ssh`'s check that a
+/// declared agent pipe is served by the test's own runtime (`pinned_ssh`, "The declared agent
+/// pipe", step 3).
+///
+/// `name` must be `\\.\pipe\<one component>` (no further separator), so nothing but a pipe is
+/// ever opened. The pipe is opened with `GENERIC_READ | GENERIC_WRITE`, no sharing, and
+/// `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION` (its server cannot impersonate this
+/// process beyond identification; ADR-0013 §8's client rule), the handle must be
+/// `FILE_TYPE_PIPE`, and it is closed without a byte written or read. A busy pipe is waited
+/// for ([`PIPE_BUSY_RETRIES`] times at most [`PIPE_BUSY_WAIT_MS`] ms).
+///
+/// # Errors
+/// `InvalidInput` for a name that is not a pipe name; the pipe cannot be opened, is not a
+/// pipe, or its server cannot be read.
+pub fn pipe_server_process(name: &str) -> io::Result<u32> {
+    use std::os::windows::io::AsRawHandle as _;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_PIPE, GetFileType};
+    use windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId;
+    let component = name.strip_prefix(r"\\.\pipe\").unwrap_or("");
+    if component.is_empty() || component.contains(['\\', '/']) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a \\\\.\\pipe\\<name> pipe name",
+        ));
+    }
+    let pipe = open_pipe(&wide(Path::new(name))?)?;
+    // SAFETY: `pipe` is an open handle this function owns for the duration of the call.
+    if unsafe { GetFileType(pipe.as_raw_handle()) } != FILE_TYPE_PIPE {
+        return Err(io::Error::other("the handle is not a pipe"));
+    }
+    let mut pid = 0u32;
+    // SAFETY: `pipe` is an open client handle of a named pipe, owned here for the call;
+    // `pid` is a valid out-pointer.
+    if unsafe { GetNamedPipeServerProcessId(pipe.as_raw_handle(), &raw mut pid) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    drop(pipe);
+    Ok(pid)
+}
+
+/// Open the pipe `name` (NUL-terminated UTF-16) as [`pipe_server_process`] documents: one
+/// owned handle, closed exactly once by its drop.
+fn open_pipe(name: &[u16]) -> io::Result<std::os::windows::io::OwnedHandle> {
+    use std::os::windows::io::{FromRawHandle as _, OwnedHandle};
+    use windows_sys::Win32::Foundation::{
+        ERROR_PIPE_BUSY, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, OPEN_EXISTING, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
+    };
+    use windows_sys::Win32::System::Pipes::WaitNamedPipeW;
+    for _ in 0..=PIPE_BUSY_RETRIES {
+        // SAFETY: `name` is NUL-terminated and outlives the call; no security attributes and
+        // no template handle (both may be null).
+        let raw = unsafe {
+            CreateFileW(
+                name.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                0,
+                ptr::null(),
+                OPEN_EXISTING,
+                SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION,
+                ptr::null_mut(),
+            )
+        };
+        if raw != INVALID_HANDLE_VALUE && !raw.is_null() {
+            // SAFETY: `CreateFileW` returned a valid handle that nothing else owns; the
+            // `OwnedHandle` closes it exactly once.
+            return Ok(unsafe { OwnedHandle::from_raw_handle(raw) });
+        }
+        let err = io::Error::last_os_error();
+        if err.raw_os_error() != i32::try_from(ERROR_PIPE_BUSY).ok() {
+            return Err(err);
+        }
+        // SAFETY: `name` is NUL-terminated and outlives the call.
+        unsafe { WaitNamedPipeW(name.as_ptr(), PIPE_BUSY_WAIT_MS) };
+    }
+    Err(io::Error::new(
+        io::ErrorKind::WouldBlock,
+        "every instance of the pipe stayed busy",
+    ))
+}
+
+/// ⟨M07 W9e; ADR-0007 §12.52⟩ The creation time of process `pid` (`GetProcessTimes` on a
+/// handle opened with `PROCESS_QUERY_LIMITED_INFORMATION`), as a `FILETIME` read as one
+/// number (100 ns units since 1601): with the PID it names one process, so a reused PID is
+/// told apart (`pinned_ssh`, "The declared agent pipe", step 3).
+///
+/// # Errors
+/// The process cannot be opened, or its times read.
+pub fn process_creation_time(pid: u32) -> io::Result<u64> {
+    use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle};
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    // SAFETY: a plain call; a non-null result is a handle this function then owns.
+    let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if raw.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `OpenProcess` returned a valid handle that nothing else owns; the
+    // `OwnedHandle` closes it exactly once.
+    let process = unsafe { OwnedHandle::from_raw_handle(raw) };
+    let zero = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+    // SAFETY: `process` is a valid process handle for the call; the four out-pointers are
+    // valid `FILETIME`s.
+    let ok = unsafe {
+        GetProcessTimes(
+            process.as_raw_handle(),
+            &raw mut created,
+            &raw mut exited,
+            &raw mut kernel,
+            &raw mut user,
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::home::Scratch;
+
+    /// ⟨M07 W9e⟩ A fixture agent's pipe is served by this process: its server PID is this
+    /// process's, read twice the same; this process's creation time reads the same twice and
+    /// differs from another process's; a missing pipe and a name that is not a single pipe
+    /// component are errors (the latter never opened).
+    #[test]
+    fn a_pipes_server_and_a_processes_creation_time() {
+        use crate::agent::{AgentMode, Endpoint, FakeAgent, FakeAgentConfig, FixtureKey};
+        let scratch = Scratch::new().unwrap();
+        let agent = FakeAgent::start(
+            Endpoint::in_scratch(&scratch, "server").unwrap(),
+            FakeAgentConfig {
+                keys: vec![FixtureKey::generate()],
+                mode: AgentMode::Normal,
+            },
+        );
+        let name = agent.endpoint().locator().into_string().unwrap();
+        let me = std::process::id();
+        assert_eq!(pipe_server_process(&name).unwrap(), me);
+        assert_eq!(pipe_server_process(&name).unwrap(), me);
+        assert_eq!(agent.contact_count(), 0, "the reads wrote nothing");
+        let started = process_creation_time(me).unwrap();
+        assert!(started > 0);
+        assert_eq!(process_creation_time(me).unwrap(), started);
+        let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32");
+        let mut other = std::process::Command::new(system.join("cmd.exe"))
+            .args(["/d", "/q", "/k"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let theirs = process_creation_time(other.id());
+        other.kill().unwrap();
+        other.wait().unwrap();
+        assert!(theirs.unwrap() > started, "a later process started later");
+        let missing = format!("{name}-missing");
+        assert!(pipe_server_process(&missing).is_err());
+        for bad in [
+            r"\\.\pipe\",
+            r"\\.\pipe\a\b",
+            "//./pipe/x",
+            r"C:\Windows\win.ini",
+        ] {
+            assert_eq!(
+                pipe_server_process(bad).unwrap_err().kind(),
+                io::ErrorKind::InvalidInput,
+                "{bad}"
+            );
+        }
+    }
 
     #[test]
     fn current_principal_is_the_token_user() {

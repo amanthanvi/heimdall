@@ -42,22 +42,34 @@
 //! `-i`). A dead endpoint fails the first login, so it fails the task. The driver checks both
 //! logins in the sshd's log, the first one's output, and a signature by the fixture agent.
 //!
-//! **On Windows (M07 W7)** the child of task 5 is the **in-box OpenSSH client**,
-//! `%SystemRoot%\System32\OpenSSH\ssh.exe`, started by `heimdall run` itself (the `run -- ssh`
-//! form of the AGENTS.md rule): `-F <scratch config>` and the isolated option set (every agent
-//! and default identity off, the generated key by `-i`, scratch known hosts) are on its own
-//! command line, with no wrapper and no redirect. It makes the isolated login, and the driver
-//! checks it in the sshd's log. The login through the binding's endpoint is **not made on
-//! Windows**: with `ssh.exe` itself as the child, nothing runs between `heimdall run` and the
-//! client that could check that `SSH_AUTH_SOCK` names this run's disposable agent before the
-//! client asks it, and an unchecked `IdentityAgent=SSH_AUTH_SOCK` falls back to the account's
-//! own agent pipe whenever `SSH_AUTH_SOCK` is unset. So on Windows task 5 proves a launch under
-//! the binding (H2 reads the `spawned` record) and an isolated login, not the endpoint.
+//! **On Windows (M07 W9e; ADR-0007 §12.52, the ruling of 2026-11-24)** the child of task 5 is
+//! a scratch copy of testkit's `hm-pinned-ssh` inside the world's root (so H1's and H2's child
+//! rule holds), which logs in through the binding's endpoint with the **in-box OpenSSH
+//! client**, `%SystemRoot%\System32\OpenSSH\ssh.exe`. Before the harness runs, the driver
+//! reads the endpoint from a binding's own typed answer (`access ensure` for the same profile:
+//! `data.consumer.environment`'s `SSH_AUTH_SOCK`, the value `heimdall run` sets; checked to be
+//! this run's disposable agent, then released) and the runtime's PID from `service status`
+//! (the verified peer; the runtime is hosted in this test process, which also serves the
+//! disposable agent's pipe), with that process's creation time. The wrapper's sidecar
+//! declares those three. The wrapper starts the client only when `SSH_AUTH_SOCK` equals the
+//! declared pipe byte for byte, the name has Heimdall's consumer-endpoint form, and the pipe's
+//! server (`GetNamedPipeServerProcessId`) is the declared runtime by PID and start time; it
+//! then passes the pipe as an explicit `IdentityAgent` after its `ssh -G` check (scratch `-F`,
+//! `IdentitiesOnly yes`, identity files and known hosts inside the root, no hop). The driver
+//! checks exactly one login with the generated key, `other keys offered: 0`, a signature by
+//! the disposable agent and the wrapper's argument record, which names the declared pipe.
+//! The isolated in-box login is kept: after the harness the driver runs the in-box client
+//! itself, `-F <scratch config>` and the isolated option set (every agent and default identity
+//! off, the generated key by `-i`, scratch known hosts) on its command line, and checks it in
+//! the sshd's log. So on Windows task 5 proves the launch under the binding (H2 holds the
+//! wrapper by its `spawned` record) and the login through the binding's endpoint.
 //! ⟨M07 W7.3; M07-W7-R02⟩ The harnesses add no isolation to a child they did not build: the
 //! caller's goal decides which ssh profile the child uses. So
 //! `every_windows_goal_starting_the_in_box_client_carries_the_isolation` reads every goal the
-//! Windows journeys give H1 and H2 as data, on every platform, and checks that each child
-//! starting the in-box client carries its scratch `-F` file and the isolated options.
+//! Windows journeys give H1 and H2 as data, on every platform: no goal starts the in-box
+//! client itself, each task 5 child is the scratch wrapper inside its world's root whose
+//! sidecar names the scratch `-F` file and known hosts, and the driver's isolated login carries
+//! its scratch `-F` file and the isolated options.
 //!
 //! **The human step** of task 3 is this driver: it reads the pending decision, checks that it
 //! asks for exactly the missing pair, and approves it through the real CLI on a testkit terminal
@@ -75,7 +87,7 @@
 //!
 //! **Platforms.** Unix runs both worlds together. Windows has a self-contained adapter test
 //! (tasks 3 and 4) and a test using the native runner's disposable loopback sshd (tasks 1, 2,
-//! 5, 6 and 7), whose task 5 child is the in-box `ssh.exe` (above).
+//! 5, 6 and 7), whose task 5 child is the scratch `hm-pinned-ssh` (above).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout)]
 
 /// H1's source, as shipped.
@@ -211,6 +223,9 @@ mod journey {
     use heimdall_testkit::home::ssh_option_path;
     #[cfg(unix)]
     use heimdall_testkit::home::{find_program, sh_join};
+    use heimdall_testkit::pinned_ssh::WrapperConfig;
+    #[cfg(windows)]
+    use heimdall_testkit::pinned_ssh::{ArgumentRecord, DeclaredAgentPipe};
     use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
     use serde_json::{Value, json};
     use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
@@ -827,7 +842,6 @@ mod journey {
         }
 
         /// Signing requests the disposable agent received so far for the generated key.
-        #[cfg(unix)]
         fn signatures(&self) -> usize {
             let fingerprint = self.key.fingerprint();
             self.agent
@@ -837,20 +851,23 @@ mod journey {
                 .count()
         }
 
-        #[cfg(unix)]
         fn seen(&self) -> Seen {
             Seen {
                 logins: self.logins(),
                 signatures: self.signatures(),
+                #[cfg(windows)]
+                failed: self.sshd.failed_publickey_log().len(),
             }
         }
     }
 
     /// What the fixture sshd and the disposable agent had seen at one moment.
-    #[cfg(unix)]
     struct Seen {
         logins: usize,
         signatures: usize,
+        /// ⟨M07 W9e⟩ Keys the fixture sshd refused so far (other keys offered).
+        #[cfg(windows)]
+        failed: usize,
     }
 
     /// One harness's existing-access world: an in-process runtime over its root.
@@ -919,7 +936,7 @@ mod journey {
 
         /// One pinned login to the fixture sshd (alias `lab`) that runs `remote`
         /// ([`login_words`]), with the `ssh` on the `PATH`: the logins of the Unix child. On
-        /// Windows the child of task 5 is [`windows_task5_child`].
+        /// Windows the child of task 5 is [`Self::endpoint_child`].
         #[cfg(unix)]
         fn login(&self, identity: &[&str], key: Option<&Path>, remote: &str) -> Vec<OsString> {
             login_words(&ssh_client(), &self.root, false, identity, key, remote)
@@ -966,21 +983,103 @@ mod journey {
             script
         }
 
-        /// The child of task 5 as `heimdall run` starts it, program first. On Unix it is
-        /// [`Self::child`], which makes both logins. On Windows it is the **in-box OpenSSH
-        /// client** itself, with `-F <scratch config>` and the isolated option set on its own
-        /// command line (the `run -- ssh` form): it makes the isolated login only (see the
-        /// module documentation, "On Windows").
-        fn task5_child(&self, lab: &Lab, name: &str, remote: &str) -> Vec<OsString> {
-            #[cfg(unix)]
-            {
-                vec![self.child(lab, name, remote).into()]
-            }
-            #[cfg(windows)]
-            {
-                let _ = name;
-                windows_task5_child(&ssh_client(), &self.root, &lab.login_key, remote)
-            }
+        /// ⟨M07 W9e⟩ The endpoint a binding of [`PROFILE`] names, from that binding's own typed
+        /// answer, and the runtime's PID, from `service status` (module documentation, "On
+        /// Windows"). A driver-own `access ensure` for this profile (its own work and request
+        /// ID) answers `ACCESS_READY`; its `consumer.environment` sets `SSH_AUTH_SOCK` once, to
+        /// this run's disposable agent; the binding is then released. The runtime `service
+        /// status` verified is this test process, which hosts it. Called before the harness, on
+        /// every platform (on Unix as a check only).
+        async fn binding_endpoint(&self, suite: &Suite, lab: &Lab, tag: &str) -> (String, u32) {
+            let probe = format!("{tag}-endpoint-probe");
+            let (code, ready) = suite
+                .call(
+                    &self.root,
+                    &[
+                        "access",
+                        "ensure",
+                        "--profile",
+                        PROFILE,
+                        "--work-id",
+                        &probe,
+                        "--request-id",
+                        &probe,
+                    ],
+                )
+                .await;
+            assert_eq!(
+                (code, ready["code"].as_str()),
+                (Some(0), Some("ACCESS_READY")),
+                "{ready}"
+            );
+            let data = &ready["data"];
+            let agents: Vec<&str> = data["consumer"]["environment"]
+                .as_array()
+                .expect("the binding's consumer environment")
+                .iter()
+                .filter(|pair| pair[0] == "SSH_AUTH_SOCK")
+                .map(|pair| pair[1].as_str().expect("an SSH_AUTH_SOCK value"))
+                .collect();
+            let [agent] = agents.as_slice() else {
+                panic!("the binding sets SSH_AUTH_SOCK once: {ready}");
+            };
+            assert_eq!(
+                Some(*agent),
+                lab.agent.endpoint().locator().to_str(),
+                "the binding's endpoint is this run's disposable agent"
+            );
+            let agent = (*agent).to_owned();
+            let binding = data["binding_id"]
+                .as_str()
+                .expect("a binding ID")
+                .to_owned();
+            let (code, released) = suite
+                .call(&self.root, &["access", "release", &binding])
+                .await;
+            assert_eq!(
+                (code, &released["data"]["outcome"]["outcome"]),
+                (Some(0), &json!("released")),
+                "{released}"
+            );
+            let (code, status) = suite.call(&self.root, &["service", "status"]).await;
+            assert_eq!(code, Some(0), "{status}");
+            let pid = status["data"]["pid"]
+                .as_u64()
+                .and_then(|pid| u32::try_from(pid).ok())
+                .expect("the runtime's PID");
+            assert_eq!(
+                pid,
+                std::process::id(),
+                "the existing-access runtime is hosted in this test process"
+            );
+            (agent, pid)
+        }
+
+        /// ⟨M07 W9e⟩ Where the wrapper of the child `name` writes its argument record.
+        #[cfg(windows)]
+        fn endpoint_record(&self, name: &str) -> PathBuf {
+            windows_wrapper(&self.root, name).with_file_name("args.ndjson")
+        }
+
+        /// ⟨M07 W9e⟩ The child of task 5 on Windows, program first (module documentation, "On
+        /// Windows"): the scratch `hm-pinned-ssh` ([`windows_wrapper`]) with its sidecar
+        /// ([`wrapper_config`]) declaring `declared`, and its argument record. It makes one
+        /// login, through the binding's endpoint, that runs `remote`.
+        #[cfg(windows)]
+        fn endpoint_child(
+            &self,
+            declared: &DeclaredAgentPipe,
+            name: &str,
+            remote: &str,
+        ) -> Vec<OsString> {
+            let exe = windows_wrapper(&self.root, name);
+            let dir = exe.parent().unwrap();
+            std::fs::create_dir(dir).unwrap();
+            let installed = wrapper_config(&self.root, remote)
+                .install_declaring(dir, Some(&self.endpoint_record(name)), Some(declared))
+                .unwrap_or_else(|e| panic!("the pinned-client wrapper: {e}"));
+            assert_eq!(installed, exe);
+            windows_endpoint_words(&exe)
         }
 
         async fn stop(self) {
@@ -1049,11 +1148,17 @@ mod journey {
         words
     }
 
-    /// The child of task 5 on Windows (module documentation, "On Windows"): the in-box
-    /// `client` itself, with the isolated option set on its own command line. The harnesses
-    /// add no isolation to a child they did not build (M07-W7-R02), so this is all the
-    /// isolation the client gets.
-    fn windows_task5_child(client: &Path, root: &Path, key: &Path, remote: &str) -> Vec<OsString> {
+    /// The isolated in-box login on Windows (module documentation, "On Windows"), program
+    /// first: the in-box `client` itself, with the isolated option set on its own command line.
+    /// ⟨M07 W9e⟩ Until W9e it was the child of task 5; the driver now runs it itself after the
+    /// harness. Nothing else adds isolation to it (M07-W7-R02), so this is all the isolation the
+    /// client gets.
+    fn windows_isolated_login(
+        client: &Path,
+        root: &Path,
+        key: &Path,
+        remote: &str,
+    ) -> Vec<OsString> {
         login_words(
             client,
             root,
@@ -1062,6 +1167,47 @@ mod journey {
             Some(key),
             remote,
         )
+    }
+
+    /// ⟨M07 W9e⟩ Where the scratch `hm-pinned-ssh` of the Windows child `name` sits: in its own
+    /// directory inside the world's `root`. Pure data, as [`windows_isolated_login`].
+    fn windows_wrapper(root: &Path, name: &str) -> PathBuf {
+        root.join(format!("{name}-pinned"))
+            .join(format!("{}.exe", heimdall_testkit::pinned_ssh::NAME))
+    }
+
+    /// ⟨M07 W9e⟩ The words of the Windows child of task 5, program first: the wrapper `exe`,
+    /// then what it passes on, `-T` and the alias. The wrapper adds `-F`, the declared agent and
+    /// the isolated options ([`wrapper_config`]) and appends the remote command.
+    fn windows_endpoint_words(exe: &Path) -> Vec<OsString> {
+        vec![exe.into(), "-T".into(), "lab".into()]
+    }
+
+    /// ⟨M07 W9e⟩ The sidecar of the Windows child's wrapper for the world `root` (module
+    /// documentation, "On Windows"): the scratch user configuration as `-F`, the world's root as
+    /// the scratch root, the scratch known hosts, `BatchMode`, `StrictHostKeyChecking` and no
+    /// certificate, and `remote` as the trailing remote command. Pure data.
+    fn wrapper_config(root: &Path, remote: &str) -> WrapperConfig {
+        let ssh_dir = root.join("ssh-home/.ssh");
+        WrapperConfig {
+            config: ssh_dir.join("config"),
+            scratch_root: root.to_path_buf(),
+            options: vec![
+                format!(
+                    "UserKnownHostsFile={}",
+                    ssh_option_path(&ssh_dir.join("known_hosts"))
+                ),
+                format!(
+                    "GlobalKnownHostsFile={}",
+                    ssh_option_path(&root.join("global_known_hosts"))
+                ),
+                "BatchMode=yes".to_owned(),
+                "StrictHostKeyChecking=yes".to_owned(),
+                "CertificateFile=none".to_owned(),
+            ],
+            trailing: vec![remote.to_owned()],
+            client: None,
+        }
     }
 
     // ---- the fixture-adapter world (the real binary's runtime) ------------------------------
@@ -1336,15 +1482,99 @@ mod journey {
         );
     }
 
-    /// After a harness's existing-access tasks (Windows): the child of task 5, the in-box
-    /// `ssh.exe`, logged in to the fixture sshd exactly once, isolated, with the generated key.
+    /// After a harness's existing-access tasks (Windows; module documentation, "On Windows").
+    ///
+    /// 1. **Through the binding's endpoint.** The child `name` of task 5, the scratch
+    ///    `hm-pinned-ssh`, started the in-box client once: its argument record has one line,
+    ///    which names the declared pipe and gave it as `-o IdentityAgent=//./pipe/<name>`, with
+    ///    `-T lab` and `remote`. The fixture sshd accepted exactly one login, with the generated
+    ///    key, and refused no other key; the disposable agent signed for it.
+    /// 2. **Isolated (kept from M07 W7).** The driver runs the in-box client itself with the
+    ///    isolated option set ([`windows_isolated_login`]): one more login, with the generated
+    ///    key from its file, and still no other key offered.
     #[cfg(windows)]
-    fn check_logins(lab: &Lab, before: usize) {
+    async fn check_logins(
+        suite: &Suite,
+        lab: &Lab,
+        world: &ExistingAccess,
+        login: (&str, &str, &DeclaredAgentPipe),
+        before: &Seen,
+    ) {
+        let (name, remote, declared) = login;
+        let text = std::fs::read_to_string(world.endpoint_record(name))
+            .expect("the wrapper of task 5 wrote its argument record");
+        let records = ArgumentRecord::parse_all(&text).unwrap_or_else(|e| panic!("{e}"));
+        let [record] = records.as_slice() else {
+            panic!(
+                "the wrapper of task 5 started its client once: {} lines",
+                records.len()
+            );
+        };
+        assert_eq!(
+            record.agent_pipe.as_deref(),
+            Some(declared.name.as_str()),
+            "the record names the declared pipe"
+        );
+        assert_eq!(
+            record.added.get(2..4),
+            Some(&["-o".to_owned(), declared.identity_agent_option()][..]),
+            "the client got the declared pipe as its IdentityAgent"
+        );
+        assert_eq!(record.caller, ["-T", "lab"]);
+        assert_eq!(record.trailing, [remote]);
+        let other = |seen_before: usize| {
+            let failed = lab.sshd.failed_publickey_log();
+            failed[seen_before.min(failed.len())..]
+                .iter()
+                .filter(|k| k.fingerprint != lab.key.fingerprint())
+                .count()
+        };
         assert_eq!(
             lab.logins(),
-            before + 1,
-            "the child of task 5 logged in to the fixture sshd exactly once, with the generated key"
+            before.logins + 1,
+            "the child of task 5 logged in through the binding's endpoint exactly once, with the generated key"
         );
+        assert!(
+            lab.signatures() > before.signatures,
+            "the disposable agent signed for the login through the binding's endpoint"
+        );
+        let offered = other(before.failed);
+        println!("a32 endpoint login {name}: logins 1, other keys offered: {offered}");
+        assert_eq!(offered, 0, "only the generated key was offered");
+        // The isolated in-box login, from the test itself.
+        let marker = format!("{name}-isolated-login");
+        let words = windows_isolated_login(
+            &ssh_client(),
+            &world.root,
+            &lab.login_key,
+            &format!("echo {marker}"),
+        );
+        let mut cmd = suite.command(&world.root, Path::new(&words[0]));
+        cmd.args(&words[1..]).stdin(Stdio::null());
+        let out = tokio::time::timeout(TIMEOUT, cmd.output())
+            .await
+            .expect("the isolated login finished")
+            .unwrap();
+        assert!(
+            out.status.success()
+                && String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .eq([marker.as_str()]),
+            "the isolated in-box login: exit {}\nstderr: {}",
+            out.status,
+            suite.redact(&out.stderr)
+        );
+        assert_eq!(
+            lab.logins(),
+            before.logins + 2,
+            "the isolated in-box login logged in once more, with the generated key"
+        );
+        assert_eq!(
+            other(before.failed),
+            0,
+            "only the generated key was offered"
+        );
+        println!("a32 isolated login {name}: logins 1");
     }
 
     async fn check_no_active_bindings(suite: &Suite, world: &ExistingAccess) {
@@ -1474,16 +1704,30 @@ mod journey {
 
     async fn run_h1_existing(suite: &Suite, lab: &Lab) -> Vec<Value> {
         let world = ExistingAccess::start(suite, lab, "h1e").await;
+        let endpoint = world.binding_endpoint(suite, lab, "h1").await;
         #[cfg(unix)]
-        let before = lab.seen();
+        let child = {
+            let _ = endpoint;
+            vec![world.child(lab, "h1-child", H1_CHILD_REMOTE).into()]
+        };
         #[cfg(windows)]
-        let before = lab.logins();
-        let args = h1_existing_args(world.task5_child(lab, "h1-child", H1_CHILD_REMOTE));
+        let declared = windows_declared(endpoint);
+        #[cfg(windows)]
+        let child = world.endpoint_child(&declared, "h1-child", H1_CHILD_REMOTE);
+        let before = lab.seen();
+        let args = h1_existing_args(child);
         let summary = run_harness(suite, &world.root, &suite.h1, args, 0).await;
         #[cfg(unix)]
         check_logins(lab, &world, "h1-child", &before);
         #[cfg(windows)]
-        check_logins(lab, before);
+        check_logins(
+            suite,
+            lab,
+            &world,
+            ("h1-child", H1_CHILD_REMOTE, &declared),
+            &before,
+        )
+        .await;
         check_no_active_bindings(suite, &world).await;
         world.stop().await;
         records("H1", "existing-access", &summary)
@@ -1564,18 +1808,25 @@ mod journey {
         held
     }
 
-    /// H2's existing-access tasks. On Windows the child of task 5 is the in-box `ssh.exe`
-    /// itself, which H2 starts through `heimdall run` and reads by its `spawned` run record.
+    /// H2's existing-access tasks. On Windows the child of task 5 is the scratch
+    /// `hm-pinned-ssh`, which H2 starts through `heimdall run` and holds by its `spawned` run
+    /// record.
     async fn run_h2_child(suite: &Suite, lab: &Lab, world: &ExistingAccess) -> Value {
-        let child: Vec<String> = world
-            .task5_child(lab, "h2-child", H2_CHILD_REMOTE)
+        let endpoint = world.binding_endpoint(suite, lab, "h2").await;
+        #[cfg(unix)]
+        let child: Vec<OsString> = {
+            let _ = endpoint;
+            vec![world.child(lab, "h2-child", H2_CHILD_REMOTE).into()]
+        };
+        #[cfg(windows)]
+        let declared = windows_declared(endpoint);
+        #[cfg(windows)]
+        let child = world.endpoint_child(&declared, "h2-child", H2_CHILD_REMOTE);
+        let child: Vec<String> = child
             .iter()
             .map(|word| word.to_str().expect("a UTF-8 child argument").to_owned())
             .collect();
-        #[cfg(unix)]
         let before = lab.seen();
-        #[cfg(windows)]
-        let before = lab.logins();
         let summary = run_harness(
             suite,
             &world.root,
@@ -1609,9 +1860,9 @@ mod journey {
             stop["child_exit_code"], 0,
             "the child of task 5 ended cleanly when task 6 stopped it"
         );
-        // ⟨M07 W8; M07-W7-R03⟩ On Windows H2 held the in-box client that heimdall.exe spawned by
-        // a handle of its own (it passed the identity checks), and task 6 found it exited at the
-        // end of its input.
+        // ⟨M07 W8; M07-W7-R03⟩ On Windows H2 held the child heimdall.exe spawned (⟨M07 W9e⟩ the
+        // scratch wrapper) by a handle of its own (it passed the identity checks), and task 6
+        // found it exited at the end of its input.
         #[cfg(windows)]
         {
             let run = &summary["tasks"][2];
@@ -1642,8 +1893,27 @@ mod journey {
         #[cfg(unix)]
         check_logins(lab, world, "h2-child", &before);
         #[cfg(windows)]
-        check_logins(lab, before);
+        check_logins(
+            suite,
+            lab,
+            world,
+            ("h2-child", H2_CHILD_REMOTE, &declared),
+            &before,
+        )
+        .await;
         summary
+    }
+
+    /// ⟨M07 W9e⟩ The agent pipe the Windows wrapper declares: the binding's endpoint and the
+    /// runtime's PID ([`ExistingAccess::binding_endpoint`]), with that process's creation time.
+    #[cfg(windows)]
+    fn windows_declared((name, runtime_pid): (String, u32)) -> DeclaredAgentPipe {
+        DeclaredAgentPipe {
+            name,
+            runtime_pid,
+            runtime_started: heimdall_testkit::win::process_creation_time(runtime_pid)
+                .expect("the runtime's creation time"),
+        }
     }
 
     async fn run_h2_existing(suite: &Suite, lab: &Lab) -> Vec<Value> {
@@ -1764,12 +2034,11 @@ mod journey {
         record_composition(&suite, records, &[1, 2, 3, 4, 5, 6, 7], &[]);
     }
 
-    /// What the Windows run of task 5 does not prove (module documentation, "On Windows"),
-    /// and ⟨M07 W8; M07-W7-R03⟩ the Windows check of H2's hold on the child that is still to
-    /// run on the PC.
+    /// ⟨M07 W8; M07-W7-R03⟩ The Windows check of H2's hold on the child, recorded with the
+    /// composition. ⟨M07 W9e⟩ Task 5's login through the binding's endpoint is made on Windows
+    /// now (module documentation, "On Windows"), so it is no longer held.
     #[cfg(windows)]
-    const WINDOWS_HELD: [&str; 2] = [
-        "task 5 on Windows: the child is the in-box ssh.exe with the isolated options, so it makes no login through the binding's signing endpoint (M07-W3-R02 is proven on Unix)",
+    const WINDOWS_HELD: [&str; 1] = [
         "H2 on Windows (M07-W7-R03): H2 holds the child the spawned record names by a handle of its own, opened when the record is read and checked by identity (its parent is the heimdall.exe H2 started, it was created after it, it runs the goal's program), and ends it by that handle; the Windows check of a child that ignores the end of its input (goal-loop PlannerTests.test_windows_the_child_heimdall_spawned_is_ended_by_its_own_handle) passed natively in PC job 52 at 44da298d",
     ];
 
@@ -1782,11 +2051,10 @@ mod journey {
         record_composition(&suite, records, &[3, 4], &[]);
     }
 
-    /// Tasks 1, 2, 5, 6 and 7 on Windows. The child of task 5 is the **in-box OpenSSH client**,
-    /// `%SystemRoot%\System32\OpenSSH\ssh.exe`, started by `heimdall run` with
-    /// `-F <scratch config>` and the isolated option set on its own command line; it makes the
-    /// isolated login, which the driver checks in the fixture sshd's log (see
-    /// [`WINDOWS_HELD`]).
+    /// Tasks 1, 2, 5, 6 and 7 on Windows. ⟨M07 W9e⟩ The child of task 5 is the scratch
+    /// `hm-pinned-ssh`, which logs in through the binding's endpoint with the in-box OpenSSH
+    /// client once it has checked the declared pipe and its server; the driver then makes the
+    /// isolated in-box login itself (module documentation, "On Windows"; [`check_logins`]).
     #[cfg(windows)]
     #[tokio::test(flavor = "current_thread")]
     async fn both_harnesses_use_existing_access_on_windows() {
@@ -1910,30 +2178,32 @@ mod journey {
         Ok(())
     }
 
+    /// Words as text.
+    fn text(words: &[OsString]) -> Vec<String> {
+        words
+            .iter()
+            .map(|w| w.to_str().expect("a UTF-8 word").to_owned())
+            .collect()
+    }
+
+    /// The existing-access worlds of the Windows journey: the world's directory, the child's
+    /// name and the remote command of task 5.
+    const WINDOWS_WORLDS: [(&str, &str, &str); 2] = [
+        ("h1e", "h1-child", H1_CHILD_REMOTE),
+        ("h2e", "h2-child", H2_CHILD_REMOTE),
+    ];
+
     /// Every `run` child the Windows journeys give H1 (`--child` words) and H2 (a goal's
     /// `argv`), across all their invocations and goals, built by the functions the Windows
-    /// runs use, with `client` as the in-box client and `root` as the scratch root.
-    fn windows_journey_children(client: &Path, root: &Path) -> Vec<(&'static str, Vec<String>)> {
-        let key = root.join("login-key");
-        let text = |words: &[OsString]| -> Vec<String> {
-            words
-                .iter()
-                .map(|w| w.to_str().expect("a UTF-8 word").to_owned())
-                .collect()
+    /// runs use, with `root` as the scratch root. ⟨M07 W9e⟩ Task 5's child is the scratch
+    /// wrapper ([`windows_endpoint_words`]).
+    fn windows_journey_children(root: &Path) -> Vec<(&'static str, Vec<String>)> {
+        let child = |world: &str, name: &str| {
+            windows_endpoint_words(&windows_wrapper(&root.join(world), name))
         };
-        let mut h1 = vec![h1_existing_args(windows_task5_child(
-            client,
-            &root.join("h1e"),
-            &key,
-            H1_CHILD_REMOTE,
-        ))];
+        let mut h1 = vec![h1_existing_args(child("h1e", "h1-child"))];
         h1.extend(h1_adapter_args());
-        let h2_child = text(&windows_task5_child(
-            client,
-            &root.join("h2e"),
-            &key,
-            H2_CHILD_REMOTE,
-        ));
+        let h2_child = text(&child("h2e", "h2-child"));
         let h2 = [h2_existing_goals(&h2_child), h2_adapter_goals()];
         let mut children = Vec::new();
         for args in &h1 {
@@ -1961,8 +2231,12 @@ mod journey {
     /// uses. So across **all** goals the Windows journeys give both harnesses, every child
     /// that starts the in-box client carries exactly one `-F <file inside the scratch root>`,
     /// `IdentityAgent=none`, `IdentitiesOnly=yes`, and `UserKnownHostsFile` and
-    /// `GlobalKnownHostsFile` inside the scratch root. Read as data, so it runs on every
-    /// platform; each missing or widened item is caught.
+    /// `GlobalKnownHostsFile` inside the scratch root. ⟨M07 W9e⟩ No goal starts the in-box
+    /// client itself any more: each harness's task 5 child is the scratch `hm-pinned-ssh`
+    /// inside its world's root, passing on only `-T` and the alias, whose sidecar names the
+    /// world's `-F` file, scratch root and known hosts (its guard checks the rest at run time);
+    /// and the driver's own isolated in-box logins carry the isolation above. Read as data, so
+    /// it runs on every platform; each missing or widened item is caught.
     #[test]
     fn every_windows_goal_starting_the_in_box_client_carries_the_isolation() {
         let root = Path::new(if cfg!(windows) {
@@ -1971,21 +2245,73 @@ mod journey {
             "/hm-scratch"
         });
         let client = Path::new(r"C:\Windows\System32\OpenSSH\ssh.exe");
-        let children = windows_journey_children(client, root);
+        let children = windows_journey_children(root);
         let in_box: Vec<&(&str, Vec<String>)> = children
             .iter()
             .filter(|(_, argv)| argv.first().is_some_and(|p| is_in_box_client(p)))
             .collect();
-        assert_eq!(
-            in_box.iter().map(|(h, _)| *h).collect::<Vec<_>>(),
-            ["H1", "H2"],
-            "each harness's task 5 starts the in-box client: {children:?}"
-        );
         for (harness, argv) in &in_box {
             assert_eq!(in_box_isolation(argv, root), Ok(()), "{harness}: {argv:?}");
         }
+        assert!(
+            in_box.is_empty(),
+            "no goal starts the in-box client itself: {children:?}"
+        );
+        let wrapped: Vec<&(&str, Vec<String>)> = children
+            .iter()
+            .filter(|(_, argv)| {
+                argv.first().is_some_and(|p| {
+                    p.ends_with(&format!("{}.exe", heimdall_testkit::pinned_ssh::NAME))
+                })
+            })
+            .collect();
+        assert_eq!(
+            wrapped.iter().map(|(h, _)| *h).collect::<Vec<_>>(),
+            ["H1", "H2"],
+            "each harness's task 5 starts the scratch wrapper: {children:?}"
+        );
+        for ((harness, argv), (world, _, remote)) in wrapped.iter().zip(WINDOWS_WORLDS) {
+            let world_root = root.join(world);
+            assert!(inside(&world_root, &argv[0]), "{harness}: {argv:?}");
+            assert_eq!(argv[1..], ["-T", "lab"], "{harness}: only -T and the alias");
+            let sidecar = wrapper_config(&world_root, remote);
+            assert!(
+                sidecar.scratch_root == world_root
+                    && sidecar.config.starts_with(&world_root)
+                    && sidecar.client.is_none()
+                    && sidecar.trailing == [remote],
+                "{harness}: {sidecar:?}"
+            );
+            for name in ["UserKnownHostsFile=", "GlobalKnownHostsFile="] {
+                let values: Vec<&str> = sidecar
+                    .options
+                    .iter()
+                    .filter_map(|o| o.strip_prefix(name))
+                    .collect();
+                assert!(
+                    matches!(values.as_slice(), [v] if inside(&world_root, v)),
+                    "{harness}: {name} {values:?}"
+                );
+            }
+        }
+        // The driver's isolated in-box logins (one for each world) carry the isolation.
+        let isolated: Vec<Vec<String>> = WINDOWS_WORLDS
+            .iter()
+            .map(|(world, name, _)| {
+                text(&windows_isolated_login(
+                    client,
+                    &root.join(world),
+                    &root.join("login-key"),
+                    &format!("echo {name}-isolated-login"),
+                ))
+            })
+            .collect();
+        for argv in &isolated {
+            assert!(is_in_box_client(&argv[0]), "{argv:?}");
+            assert_eq!(in_box_isolation(argv, root), Ok(()), "{argv:?}");
+        }
         // The check has teeth: each item missing, doubled or outside the root is caught.
-        let argv = &in_box[1].1;
+        let argv = &isolated[1];
         let outside = root.parent().unwrap().join("elsewhere").join("config");
         let swap = |from: &str, to: &str| -> Vec<String> {
             argv.iter()
