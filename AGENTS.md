@@ -70,7 +70,12 @@ Before planning, reviewing, testing or recording a wave, read
   `ssh.exe`, through the debug pinned-client redirect `HEIMDALL_TEST_PINNED_CLIENT` (the
   testkit wrapper `hm-pinned-ssh`, which checks the effective configuration with `ssh -G`,
   adds the isolated options and starts the in-box client). Otherwise run inside a
-  container. Never run them on a host any other way.
+  container. Never run them on a host any other way. `hm-pinned-ssh` passes an
+  `SSH_AUTH_SOCK` on, as `IdentityAgent=//./pipe/<name>` after its `ssh -G` check, only
+  when its sidecar declares that exact `\\.\pipe\heimdall-<token>-<kind>` name (never
+  `-control` or `-issuer`) with the runtime's PID and start time, the variable equals
+  that name byte for byte, and the pipe's server is that process. It refuses the
+  variable in every other case and spelling, as it refuses the system agent pipe.
 - Work that `heimdall run` or `connect` launches on a runner gets the account's real
   `HOME`, `USER` and `SHELL` from the account database (ADR-0012 §4), with no debug
   redirect; on the devbox that is the owner's account. So in tests, every `ssh` inside
