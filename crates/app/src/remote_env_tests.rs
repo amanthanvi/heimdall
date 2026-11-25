@@ -781,7 +781,11 @@ async fn controller_never_sends_decide_and_returns_the_runners_decision_ref() {
                     "expires_wall": "2026-11-21T12:15:00Z",
                 }))
             } else {
-                approval_required("dec_runner_0001")
+                // ⟨M08 U2b-2⟩ Stamped as a runner that checks the epoch stamps its answers.
+                let mut pending = approval_required("dec_runner_0001");
+                pending.request_id = Some(RequestId::parse("req_invite_1").unwrap());
+                pending.request_epoch = Some(heimdall_contract::lifecycle::RestoreEpoch(2));
+                pending
             }
         }
         Request::RemoteEnvironment(RemoteEnvironmentRequest::Update { .. }) => {
@@ -810,9 +814,15 @@ async fn controller_never_sends_decide_and_returns_the_runners_decision_ref() {
         InviteOutcome::Pending {
             decision_ref,
             request_id,
+            request_epoch,
         } => {
             assert_eq!(decision_ref, "dec_runner_0001");
             assert_eq!(request_id, input.request_id);
+            // ⟨M08 U2b-2⟩ The epoch the runner bound the request to, kept with its ID.
+            assert_eq!(
+                request_epoch,
+                Some(heimdall_contract::lifecycle::RestoreEpoch(2))
+            );
         }
         other => panic!("{other:?}"),
     }

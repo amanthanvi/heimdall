@@ -241,6 +241,67 @@ fn clients_carry_the_epoch_with_a_kept_request_id_through_the_cli() {
     assert_eq!(bound["operation_id"], first["operation_id"], "{bound}");
 }
 
+/// ⟨M08 U2b-2 follow-up B⟩ `run` without `--request-id` reports the request ID it minted on
+/// stderr with the epoch beside it, in the form a retry passes back (`--request-id <id>
+/// --request-epoch <n>`). Passed back, they are the invocation's kept pair: answered at that
+/// epoch, with nothing reported again, and refused `REQUEST_STALE` once the epoch has risen.
+/// (The profile does not exist, so nothing is ever launched.)
+#[test]
+fn run_reports_its_minted_request_id_with_the_epoch() {
+    let scratch = Scratch::new();
+    let _stop = StopOnDrop(&scratch);
+    // A program `run` resolves (before it mints anything); it is never started.
+    #[cfg(windows)]
+    let shell = std::path::Path::new(&std::env::var_os("SystemRoot").expect("SystemRoot"))
+        .join("System32")
+        .join("cmd.exe")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    #[cfg(not(windows))]
+    let shell = "/bin/sh".to_owned();
+    let program = ["--", shell.as_str()];
+    let base = ["run", "--profile", "absent"];
+    let first: Vec<&str> = base.iter().chain(&program).copied().collect();
+    let out = scratch.heimdall(&first);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let line = stderr
+        .lines()
+        .find(|l| l.starts_with("heimdall: request ID "))
+        .unwrap_or_else(|| panic!("no minted request ID reported: {stderr}"));
+    let (id, retry) = line["heimdall: request ID ".len()..]
+        .split_once("; retry with ")
+        .unwrap_or_else(|| panic!("{line}"));
+    assert_eq!(
+        retry,
+        format!("--request-id {id} --request-epoch 0"),
+        "{line}"
+    );
+    let again: Vec<String> = base
+        .iter()
+        .copied()
+        .chain(retry.split(' '))
+        .chain(program.iter().copied())
+        .map(str::to_owned)
+        .collect();
+    let (out, answer) = run(&scratch, &again);
+    assert_eq!(answer["request_id"], id, "{answer}");
+    assert_eq!(answer["request_epoch"], 0, "{answer}");
+    assert!(
+        !String::from_utf8_lossy(&out.stderr).contains("heimdall: request ID "),
+        "a given request ID is not reported again: {out:?}"
+    );
+    scratch.stop();
+    scratch.raise_epoch(1);
+    let (out, stale) = run(&scratch, &again);
+    assert_eq!(out.status.code(), Some(6), "{stale}");
+    assert_eq!(stale["code"], "REQUEST_STALE", "{stale}");
+    assert_eq!(
+        (&stale["request_id"], &stale["request_epoch"]),
+        (&answer["request_id"], &answer["request_epoch"])
+    );
+}
+
 /// ADR-0014 §3.6 step 3 through the CLI: each command that sends a mutating request with
 /// `--request-id` and a `--request-epoch` that is not current is refused `REQUEST_STALE`,
 /// exit 6, effect `none`, and reports the pair; the store and the request ledger are as they

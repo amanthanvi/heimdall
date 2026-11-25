@@ -20,7 +20,9 @@
 //!   revocation is rechecked per request; a pending client is refused everything but the
 //!   activation probe and `join` (`invitation_pending`); `Attend` and `Decide` never reach
 //!   the application (`INTERACTION_REQUIRED`: the session is non-interactive, §3.10 item 1);
-//!   a permission outside the role is `role_insufficient`.
+//!   a permission outside the role is `role_insufficient`. ⟨M08 U2b-2 follow-up A⟩ The check
+//!   runs nothing: a request it passes is run afterwards ([`PairedRunner::answer`], or the
+//!   application), so a request it refuses never reaches the request fence and its ledger.
 //! * **Pending sessions** (R06). A client pending at its hello negotiates only
 //!   `remote-control/1` (`heimdall_ipc::session::PENDING_CAPABILITIES`), and that session
 //!   is served only the activation probe and `join`, with the invitation and identity
@@ -1500,11 +1502,49 @@ pub struct PairedSession {
 /// What a paired session's request becomes ([`PairedRunner::frame`]).
 #[derive(Debug)]
 pub enum Frame {
-    /// Answered here (a refusal, the probe, `join`, a pending widening record, a client
-    /// revocation).
+    /// Refused by the row check: nothing was run.
     Answer(Envelope<serde_json::Value>),
+    /// ⟨M08 U2b-2 follow-up A⟩ Passed the row check and answered by this runner, not the
+    /// application (the probe, `join`, a pending widening record, a client revocation, an
+    /// endpoint rotation, a policy recheck): nothing has run yet. [`PairedRunner::answer`]
+    /// runs it, after the request fence (`crate::dispatch`).
+    Runner(RunnerFrame),
     /// Passed every check: dispatch to the application as this caller.
     Route(Box<Caller>, Request),
+}
+
+/// ⟨M08 U2b-2 follow-up A⟩ A paired request that passed its row check and that this runner
+/// answers itself ([`Frame::Runner`]).
+#[derive(Debug)]
+pub struct RunnerFrame {
+    client: ClientId,
+    answer: RunnerAnswer,
+    request: Request,
+}
+
+impl RunnerFrame {
+    /// The request.
+    #[must_use]
+    pub fn request(&self) -> &Request {
+        &self.request
+    }
+}
+
+/// Which of this runner's own answers a [`RunnerFrame`] gets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RunnerAnswer {
+    Probe,
+    Join,
+    Widening,
+    RevokeClient {
+        environment: EnvironmentId,
+        client: ClientId,
+    },
+    RotateEndpoint,
+    PolicyRecheck {
+        environment: EnvironmentId,
+        probe: ProbeObservation,
+    },
 }
 
 fn value_of(e: Envelope<impl serde::Serialize>) -> Envelope<serde_json::Value> {
@@ -1673,8 +1713,11 @@ impl PairedRunner {
     }
 
     /// The check of one paired request (module docs, "Per-frame checks"; "Pending
-    /// sessions"): answered here, or routed to the application as the client's caller.
-    pub async fn frame(
+    /// sessions"): refused here, passed to this runner's own answer ([`Self::answer`]), or
+    /// routed to the application as the client's caller. ⟨M08 U2b-2 follow-up A⟩ It reads
+    /// the client's row and runs nothing, so the request fence can come between it and the
+    /// request (`crate::dispatch`).
+    pub fn frame(
         &self,
         principal: &PrincipalInfo,
         session: &PairedSession,
@@ -1695,41 +1738,70 @@ impl PairedRunner {
         if session.pending && !matches!(verdict, Check::Probe | Check::Join | Check::Refuse(_)) {
             return Frame::Answer(refused(Refusal::InvitationPending));
         }
-        match verdict {
+        let answer = match verdict {
             Check::Refuse(r) => {
                 if matches!(r, Refusal::ClientRevoked | Refusal::InvitationExpired) {
                     // Whatever revoked it, this client's other sessions end too.
                     self.revocations.send_modify(|n| *n = n.wrapping_add(1));
                 }
-                Frame::Answer(refused(r))
+                return Frame::Answer(refused(r));
             }
-            Check::Probe => Frame::Answer(self.probe(&session.client, &request).await),
-            Check::Join => Frame::Answer(self.join(&session.client, &request).await),
-            Check::PendingRunnerLocal { .. } => {
-                Frame::Answer(self.submit_widening(&session.client, &request))
-            }
+            Check::Probe => RunnerAnswer::Probe,
+            Check::Join => RunnerAnswer::Join,
+            Check::PendingRunnerLocal { .. } => RunnerAnswer::Widening,
             Check::Dispatch { .. } => match &request {
                 Request::RemoteEnvironment(RemoteEnvironmentRequest::RevokeClient {
                     environment,
                     client,
-                }) => Frame::Answer(self.revoke_client(environment, client).await),
+                }) => RunnerAnswer::RevokeClient {
+                    environment: environment.clone(),
+                    client: client.clone(),
+                },
                 // ⟨M06 W3⟩ The session's own client only (never a field). ⟨W5; ADR-0006
                 // §18.9 item 5⟩ The form is on the base capability, so a limited role's
                 // session reaches this arm too; the check above and the invitation's own
                 // admission (`rotate_endpoint`) are what decide, per request, as before.
                 Request::RemoteEnvironment(RemoteEnvironmentRequest::RotateEndpoint { .. }) => {
-                    Frame::Answer(self.rotate_endpoint(&session.client, &request).await)
+                    RunnerAnswer::RotateEndpoint
                 }
                 // ⟨§18.7 item 19⟩ The session's own client is the probing controller.
                 Request::RemoteEnvironment(RemoteEnvironmentRequest::RunnerPolicyRecheck {
                     environment,
                     probe,
-                }) => Frame::Answer(
-                    self.policy_recheck(&session.client, environment, probe)
-                        .await,
-                ),
-                _ => Frame::Route(Box::new(self.caller(principal, session)), request),
+                }) => RunnerAnswer::PolicyRecheck {
+                    environment: environment.clone(),
+                    probe: *probe,
+                },
+                _ => return Frame::Route(Box::new(self.caller(principal, session)), request),
             },
+        };
+        Frame::Runner(RunnerFrame {
+            client: session.client.clone(),
+            answer,
+            request,
+        })
+    }
+
+    /// ⟨M08 U2b-2 follow-up A⟩ Run a paired request that [`Self::frame`] passed to this
+    /// runner ([`Frame::Runner`]), as the session's client.
+    pub async fn answer(&self, frame: RunnerFrame) -> Envelope<serde_json::Value> {
+        let RunnerFrame {
+            client,
+            answer,
+            request,
+        } = frame;
+        match answer {
+            RunnerAnswer::Probe => self.probe(&client, &request).await,
+            RunnerAnswer::Join => self.join(&client, &request).await,
+            RunnerAnswer::Widening => self.submit_widening(&client, &request),
+            RunnerAnswer::RevokeClient {
+                environment,
+                client: revoked,
+            } => self.revoke_client(&environment, &revoked).await,
+            RunnerAnswer::RotateEndpoint => self.rotate_endpoint(&client, &request).await,
+            RunnerAnswer::PolicyRecheck { environment, probe } => {
+                self.policy_recheck(&client, &environment, &probe).await
+            }
         }
     }
 

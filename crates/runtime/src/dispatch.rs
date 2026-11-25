@@ -44,12 +44,20 @@
 //! * ⟨M08 U2b-2; ADR-0014 §3.6 steps 2 to 4; H9, H13⟩ **The epoch and the replay fence.**
 //!   With a [`crate::request_fence::RequestFence`] ([`OperationsDispatcher::with_request_fence`],
 //!   which every serving runtime has), the dispatcher offers `request-epoch/1`, reports the
-//!   epoch in the hello, and checks every mutating request before anything else, attended or
-//!   not and whatever its session: a frame epoch that is not current is `REQUEST_STALE`
+//!   epoch in the hello, and checks every mutating request before it runs, attended or not
+//!   and whatever its session: a frame epoch that is not current is `REQUEST_STALE`
 //!   (`restore_epoch_stale`), a fenced key is answered from its fence, and the request ledger
 //!   is appended before the request reaches the application. The caller the check keys by is
 //!   the one the request is served as (a paired session's client included). Every answer to a
 //!   mutating request reports its `request_id` and `request_epoch`.
+//!
+//!   ⟨follow-up A⟩ **The order, for every mutating frame:** (1) the role checks: a paired
+//!   client's row check (`PairedRunner::frame`), the attended-only and local-owner-only forms,
+//!   and the owner-only forms (`owner_only_refusal`); (2) the uninstall-fence admission (the
+//!   holder's lease, or `uninstall_fence_admit`), held across what follows; (3) the request
+//!   fence (`Gate::pass`); (4) the request. A frame refused at (1) or (2) appends nothing to
+//!   the ledger and writes nothing; its answer still reports the request ID and the epoch it
+//!   is bound to.
 //! * **Subscriptions.** The application's [`heimdall_app::events::SubscriptionStart`]
 //!   carries a live receiver of `SequencedEvent`s; the session wants
 //!   [`LiveEvent`]s. One runtime-wide [`EventRelay`] converts the application's
@@ -132,6 +140,67 @@ pub fn owner_only_m03(request: &Request) -> bool {
             ConnectionsRequest::Close { .. } | ConnectionsRequest::Register { .. }
         )
     )
+}
+
+/// ⟨M08 U2b-2 follow-up A⟩ The owner-only forms: the refusal of a request that `caller`'s
+/// role may not send, answered before the uninstall-fence admission, the request fence and
+/// the request (module docs), so it reads and writes nothing. Authorization before
+/// capability: a non-owner learns nothing about this build's drivers.
+fn owner_only_refusal(caller: &Caller, request: &Request) -> Option<Envelope<serde_json::Value>> {
+    let needs_the_owner_role = || {
+        error_value(
+            OpError::new(
+                Code::CapabilityUnavailable,
+                "this request needs the owner role",
+            )
+            .with_effect(EffectStatus::None),
+        )
+    };
+    match request {
+        // ⟨M03⟩ m03-plan U0b row 13, phase 2 (wave 4): the owner-only M03 requests (F20).
+        _ if owner_only_m03(request) && !caller.context.is_owner() => Some(needs_the_owner_role()),
+        // ⟨M04⟩ ADR-0006 revision 5: adding or removing a WSL or container environment.
+        Request::Environment(_) if !caller.context.is_owner() => Some(needs_the_owner_role()),
+        // ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The controller's own records.
+        Request::ControllerRecord(_) => controller_record_refusal(caller),
+        // ⟨ADR-0008 §17.27 item 2⟩ Taking, lifting or retrying under the uninstall fence.
+        Request::UninstallFence(_) if !caller.context.is_owner() => Some(error_value(
+            OpError::new(
+                Code::CapabilityUnavailable,
+                "service control needs the owner principal on the control endpoint",
+            )
+            .with_effect(EffectStatus::None),
+        )),
+        _ => None,
+    }
+}
+
+/// ⟨rev6.3; ADR-0006 §18.7 items 6 and 9⟩ Who may write the controller's records
+/// (`Request::ControllerRecord`): a paired caller is refused `INTERACTION_REQUIRED` with
+/// reason `local_owner_required` (ruling Q5), a local caller without the owner role
+/// `CAPABILITY_UNAVAILABLE`.
+fn controller_record_refusal(caller: &Caller) -> Option<Envelope<serde_json::Value>> {
+    if caller.context.remote_client.is_some() {
+        // The controller's records are the local owner's alone.
+        return Some(error_value(
+            OpError::new(
+                Code::InteractionRequired,
+                "the controller's records are written by the local owner only",
+            )
+            .with_reason(heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED)
+            .with_effect(EffectStatus::None),
+        ));
+    }
+    if !caller.context.has_global_access() {
+        return Some(error_value(
+            OpError::new(
+                Code::CapabilityUnavailable,
+                "this request needs the owner role",
+            )
+            .with_effect(EffectStatus::None),
+        ));
+    }
+    None
 }
 
 /// ⟨M03⟩ `Request::Connections` (m03-plan §5 item 4a) over the wired connection
@@ -367,6 +436,60 @@ impl std::fmt::Debug for OperationsDispatcher {
     }
 }
 
+/// ⟨M08 U2b-2 follow-up A⟩ One request's pass through the request fence
+/// ([`crate::request_fence::RequestFence::admit`]), taken where the request is about to run:
+/// after the role checks and the uninstall-fence admission (module docs). It is taken once;
+/// a later pass (a local decision path that declined the decision) is a no-op.
+struct Gate<'a> {
+    /// `None`: no request fence ([`OperationsDispatcher::handle`]), every pass is open.
+    check: Option<GateCheck<'a>>,
+    admitted: std::sync::atomic::AtomicBool,
+}
+
+/// The fence's check of one frame, as [`OperationsDispatcher::handle_framed`] received it.
+struct GateCheck<'a> {
+    fence: &'a Arc<crate::request_fence::RequestFence>,
+    /// The caller the request is served as (a paired session's client, or the local owner).
+    caller: CallerContext,
+    frame_epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
+    clock: &'a dyn Clock,
+}
+
+impl<'a> Gate<'a> {
+    /// No request fence.
+    fn open() -> Self {
+        Self {
+            check: None,
+            admitted: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    fn checked(check: GateCheck<'a>) -> Self {
+        Self {
+            check: Some(check),
+            ..Self::open()
+        }
+    }
+
+    /// The request fence's check of `request`, which runs next. `Err`: the fence's answer
+    /// (stamped), and the request is not run.
+    async fn pass(&self, request: &Request) -> Result<(), Envelope<serde_json::Value>> {
+        use std::sync::atomic::Ordering;
+        let Some(c) = &self.check else {
+            return Ok(());
+        };
+        if self.admitted.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        c.fence
+            .admit(&c.caller, request, c.frame_epoch, c.clock.wall())
+            .await
+            .map_err(|refused| *refused)?;
+        self.admitted.store(true, Ordering::Release);
+        Ok(())
+    }
+}
+
 impl OperationsDispatcher {
     /// Dispatcher over `operations`, delivering live events through `relay`.
     #[must_use]
@@ -443,37 +566,14 @@ impl OperationsDispatcher {
         self
     }
 
-    /// `Request::ControllerRecord` ([`Self::with_controller_records`]): a paired caller is
-    /// refused `INTERACTION_REQUIRED` with reason `local_owner_required` (ruling Q5, ADR-0006
-    /// §18.7 item 9), a local caller without the owner role `CAPABILITY_UNAVAILABLE`; then
-    /// `heimdall_app::remote_env::apply_controller_record`, with the host-key fingerprint from
-    /// `heimdall-credential`.
+    /// `Request::ControllerRecord` ([`Self::with_controller_records`]) for a caller that
+    /// [`controller_record_refusal`] admitted: `heimdall_app::remote_env::apply_controller_record`,
+    /// with the host-key fingerprint from `heimdall-credential`.
     fn controller_record(
         &self,
         caller: &Caller,
         request: &heimdall_contract::controller_record::ControllerRecordRequest,
     ) -> Envelope<serde_json::Value> {
-        if caller.context.remote_client.is_some() {
-            // ⟨ruling Q5; ADR-0006 §18.7 item 9⟩ The controller's records are the local
-            // owner's alone.
-            return error_value(
-                OpError::new(
-                    Code::InteractionRequired,
-                    "the controller's records are written by the local owner only",
-                )
-                .with_reason(heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED)
-                .with_effect(EffectStatus::None),
-            );
-        }
-        if !caller.context.has_global_access() {
-            return error_value(
-                OpError::new(
-                    Code::CapabilityUnavailable,
-                    "this request needs the owner role",
-                )
-                .with_effect(EffectStatus::None),
-            );
-        }
         let Some(store) = &self.controller_records else {
             return error_value(OpError::driver_unavailable(
                 "the controller's records are not available in this runtime",
@@ -600,9 +700,10 @@ impl OperationsDispatcher {
     }
 
     /// ⟨M08 U2b-2; ADR-0014 §3.6 steps 2 to 4⟩ Handle one request whose frame carried
-    /// `frame_epoch`: the request fence's check first (module docs), then [`Self::handle`],
-    /// and every answer to a mutating request reports its request ID and epoch. Without a
-    /// fence this is [`Self::handle`].
+    /// `frame_epoch`, as [`Self::handle`] does, with the request fence's check last before the
+    /// request runs (module docs: ⟨follow-up A⟩ after the role checks and the uninstall-fence
+    /// admission). Every answer to a mutating request reports its request ID and the epoch it
+    /// is bound to, whichever check answered it. Without a fence this is [`Self::handle`].
     pub async fn handle_framed(
         &self,
         session: &SessionInfo,
@@ -621,18 +722,18 @@ impl OperationsDispatcher {
             // refuses it before anything is read or written.
             (Some(_), None) => return self.handle(session, request).await,
         };
-        match fence
-            .admit(&caller, &request, frame_epoch, self.clock.wall())
-            .await
-        {
-            Err(refused) => *refused,
-            Ok(None) => self.handle(session, request).await,
-            Ok(Some(stamp)) => {
-                let mut env = self.handle(session, request).await;
-                stamp.apply(&mut env);
-                env
-            }
+        let binding = fence.binding(&request, frame_epoch);
+        let gate = Gate::checked(GateCheck {
+            fence,
+            caller,
+            frame_epoch,
+            clock: self.clock.as_ref(),
+        });
+        let mut env = self.handle_gated(session, request, &gate).await;
+        if let Some(stamp) = binding {
+            stamp.apply(&mut env);
         }
+        env
     }
 
     /// Handle one request for an already-authenticated session.
@@ -646,7 +747,17 @@ impl OperationsDispatcher {
         session: &SessionInfo,
         request: Request,
     ) -> Envelope<serde_json::Value> {
-        let mut env = self.handle_unshown(session, request).await;
+        self.handle_gated(session, request, &Gate::open()).await
+    }
+
+    /// [`Self::handle`], the request passing `gate` where it is about to run.
+    async fn handle_gated(
+        &self,
+        session: &SessionInfo,
+        request: Request,
+        gate: &Gate<'_>,
+    ) -> Envelope<serde_json::Value> {
+        let mut env = self.handle_unshown(session, request, gate).await;
         heimdall_contract::route::display_relay_urls(&mut env.data);
         env
     }
@@ -655,15 +766,18 @@ impl OperationsDispatcher {
         &self,
         session: &SessionInfo,
         request: Request,
+        gate: &Gate<'_>,
     ) -> Envelope<serde_json::Value> {
         // ⟨M06 W2⟩ A paired session: every frame is checked against the client's row first
         // (`crate::paired`); only a request that passes reaches the application, as the
         // client's caller.
         if let Some(paired) = &self.paired {
             // ⟨ruling Q5; ADR-0006 §18.7 item 9⟩ A paired session's controller-record form is
-            // answered here, whatever its role (the refusal names the local owner).
-            if let Request::ControllerRecord(r) = &request {
-                return self.controller_record(&self.caller(session), r);
+            // refused here, whatever its role (the refusal names the local owner).
+            if matches!(request, Request::ControllerRecord(_))
+                && let Some(refused) = controller_record_refusal(&self.caller(session))
+            {
+                return refused;
             }
             // ⟨rev6.3; ADR-0006 §18.7 item 10⟩ So is `transport.rotate`: rotating this
             // device's K_iroh is the local owner's alone (`local_owner_required`), whatever
@@ -685,13 +799,19 @@ impl OperationsDispatcher {
                     .with_effect(EffectStatus::None),
                 );
             };
-            return match runner.frame(&session.principal, paired, request).await {
+            return match runner.frame(&session.principal, paired, request) {
                 crate::paired::Frame::Answer(env) => env,
+                // ⟨M08 U2b-2 follow-up A⟩ Passed the row check and answered by the runner
+                // itself: the request fence, then the runner's answer.
+                crate::paired::Frame::Runner(frame) => match gate.pass(frame.request()).await {
+                    Ok(()) => runner.answer(frame).await,
+                    Err(refused) => refused,
+                },
                 crate::paired::Frame::Route(caller, request) => {
                     // ⟨M06 W2⟩ Reads that list events or decisions (event pages, snapshots,
                     // `inspect decisions`) reach a paired caller without decision handles.
                     let reads = matches!(request, Request::Observe(_) | Request::Inspect(_));
-                    let mut env = self.handle_as(&caller, request).await;
+                    let mut env = self.handle_as_gated(&caller, request, gate).await;
                     if reads {
                         crate::paired::redact_value(&mut env.data);
                     }
@@ -720,13 +840,17 @@ impl OperationsDispatcher {
             } else {
                 None
             };
+            // ⟨M08 U2b-2 follow-up A⟩ Then the request fence, held under that admission.
+            if let Err(refused) = gate.pass(&request).await {
+                return refused;
+            }
             let decided = runner.decide_local(caller.is_attended(), d).await;
             drop(admission);
             if let Some(env) = decided {
                 return env;
             }
         }
-        self.handle_as(&caller, request).await
+        self.handle_as_gated(&caller, request, gate).await
     }
 
     /// [`Self::handle`] for an explicit caller (the role-based refusals are
@@ -738,15 +862,29 @@ impl OperationsDispatcher {
         caller: &Caller,
         request: Request,
     ) -> Envelope<serde_json::Value> {
-        let mut env = self.handle_as_unshown(caller, request).await;
+        self.handle_as_gated(caller, request, &Gate::open()).await
+    }
+
+    /// [`Self::handle_as`], the request passing `gate` where it is about to run.
+    async fn handle_as_gated(
+        &self,
+        caller: &Caller,
+        request: Request,
+        gate: &Gate<'_>,
+    ) -> Envelope<serde_json::Value> {
+        let mut env = self.handle_as_unshown(caller, request, gate).await;
         heimdall_contract::route::display_relay_urls(&mut env.data);
         env
     }
 
+    /// The checks of one request in their order (module docs): the attendance and role
+    /// checks, then (⟨M08 U2b-2 follow-up A⟩) the uninstall-fence admission, which is held
+    /// across the request fence ([`Gate::pass`]) and the request.
     async fn handle_as_unshown(
         &self,
         caller: &Caller,
         request: Request,
+        gate: &Gate<'_>,
     ) -> Envelope<serde_json::Value> {
         let caller = caller.clone();
         // ⟨rev 6.3; ADR-0006 §18.7 item 9⟩ A paired session's `decide` has no remote path:
@@ -763,6 +901,10 @@ impl OperationsDispatcher {
                 Code::InteractionRequired,
                 "this request requires an attended interactive session",
             ));
+        }
+        // ⟨M08 U2b-2 follow-up A⟩ The owner-only forms, before any admission.
+        if let Some(refused) = owner_only_refusal(&caller, &request) {
+            return refused;
         }
         // ⟨M06 W5; ADR-0006 §18.9 item 8; ADR-0012 §3.10 item 4⟩ On every installation that
         // serves the route and transport forms, `Decide` on a **local** widening record is
@@ -782,6 +924,10 @@ impl OperationsDispatcher {
             } else {
                 None
             };
+            // ⟨M08 U2b-2 follow-up A⟩ Then the request fence, held under that admission.
+            if let Err(refused) = gate.pass(&request).await {
+                return refused;
+            }
             let checked = self
                 .operations
                 .timegate()
@@ -800,8 +946,13 @@ impl OperationsDispatcher {
         if let Request::Shutdown(_) = request {
             return self.shutdown(&caller);
         }
-        if let Request::UninstallFence(r) = request {
-            return self.uninstall_fence(&caller, r).await;
+        if let Request::UninstallFence(r) = &request {
+            // ⟨M08 U2b-2 follow-up A⟩ The fence itself admits nothing: the request fence, then
+            // the action.
+            if let Err(refused) = gate.pass(&request).await {
+                return refused;
+            }
+            return self.uninstall_fence(*r).await;
         }
         // ⟨ADR-0008 §17.27 item 2, §17.28 item 1, §17.31 item 2⟩ The uninstall fence
         // ([`fenced`]): the holder's requests run in its scope and are never refused; a
@@ -811,9 +962,14 @@ impl OperationsDispatcher {
         // ⟨§17.33 item 1⟩ The holder's request runs under its lease (this connection, the
         // fence's current generation), which it carries into the work it spawns and
         // re-checks at each step; a releasing or released fence grants none.
+        // ⟨M08 U2b-2 follow-up A⟩ The lease or the admission is held across the request
+        // fence ([`Self::route`]'s first step) and the request.
         if let Some(lease) = self.operations.uninstall_fence_lease(self.scope.id) {
-            return heimdall_app::operations::with_fence_lease(lease, self.route(caller, request))
-                .await;
+            return heimdall_app::operations::with_fence_lease(
+                lease,
+                self.route(caller, request, gate),
+            )
+            .await;
         }
         if fenced(&request) {
             // ⟨§17.31 item 2⟩ The application's one admission (refused while the fence
@@ -822,13 +978,23 @@ impl OperationsDispatcher {
                 Ok(a) => a,
                 Err(e) => return error_value(e.with_effect(EffectStatus::None)),
             };
-            return self.route(caller, request).await;
+            return self.route(caller, request, gate).await;
         }
-        self.route(caller, request).await
+        self.route(caller, request, gate).await
     }
 
-    /// Route one request that passed the session checks and the uninstall fence.
-    async fn route(&self, caller: Caller, request: Request) -> Envelope<serde_json::Value> {
+    /// Route one request that passed the session checks, the role checks and the uninstall
+    /// fence. ⟨M08 U2b-2 follow-up A⟩ Its first step is the request fence (`gate`); only a
+    /// request the fence admits runs.
+    async fn route(
+        &self,
+        caller: Caller,
+        request: Request,
+        gate: &Gate<'_>,
+    ) -> Envelope<serde_json::Value> {
+        if let Err(refused) = gate.pass(&request).await {
+            return refused;
+        }
         let ops = &self.operations;
         // ⟨M06 W2⟩ On a runner, an owner's client revocation (narrowing, ADR-0012 §3.11) is
         // served by the runner (a paired owner's arrives through `PairedRunner::frame`).
@@ -1016,19 +1182,11 @@ impl OperationsDispatcher {
             // ⟨M03⟩ m03-plan U0b row 13, phase 2 (wave 4): routed to U10's drivers;
             // a driver or port that is not wired answers `CAPABILITY_UNAVAILABLE`
             // (`driver_unavailable`) before any record is written. The owner-only
-            // requests (F20) are refused for any other role first: authorization
-            // before capability, so a non-owner learns nothing about this build's
-            // drivers, and the refusal reads and writes nothing.
+            // requests (F20) were refused for any other role first
+            // ([`owner_only_refusal`]): authorization before capability, so a non-owner
+            // learns nothing about this build's drivers, and the refusal reads and writes
+            // nothing.
             Request::Issuer(_) | Request::Enrollment(_) | Request::Connections(_) => {
-                if owner_only_m03(&request) && !caller.context.is_owner() {
-                    return error_value(
-                        OpError::new(
-                            Code::CapabilityUnavailable,
-                            "this request needs the owner role",
-                        )
-                        .with_effect(EffectStatus::None),
-                    );
-                }
                 // ⟨M03⟩ U0b row 13, phase 2 (wave 4): U10's drivers. A runtime whose
                 // M03 ports are not wired answers `driver_unavailable` from them,
                 // before any record is written.
@@ -1049,22 +1207,13 @@ impl OperationsDispatcher {
                 }
             }
             // ⟨M04⟩ ADR-0006 revision 5: add or remove a WSL or container environment.
-            // Owner role first (authorization before capability); then the application's
-            // entry point (`Operations::environment_request`): U3b's WSL forms (Mode B
-            // answers `driver_unavailable` until U4) and U5's container forms.
-            Request::Environment(r) => {
-                if !caller.context.is_owner() {
-                    return error_value(
-                        OpError::new(
-                            Code::CapabilityUnavailable,
-                            "this request needs the owner role",
-                        )
-                        .with_effect(EffectStatus::None),
-                    );
-                }
-                render(ops.environment_request(&caller, r).await)
-            }
-            // ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The controller's own records.
+            // Owner role first (authorization before capability, [`owner_only_refusal`]);
+            // then the application's entry point (`Operations::environment_request`): U3b's
+            // WSL forms (Mode B answers `driver_unavailable` until U4) and U5's container
+            // forms.
+            Request::Environment(r) => render(ops.environment_request(&caller, r).await),
+            // ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The controller's own records (the local owner
+            // only, [`controller_record_refusal`]).
             Request::ControllerRecord(r) => self.controller_record(&caller, &r),
             // ⟨M06 W3⟩ The route and transport forms, when this runtime serves them.
             Request::Route(r) if self.route_transport.is_some() => match &self.route_transport {
@@ -1142,25 +1291,15 @@ impl OperationsDispatcher {
         })))
     }
 
-    /// ⟨ADR-0008 §17.27 item 2⟩ `UninstallFence` (module docs): owner role only;
-    /// `acquire` holds the fence for this connection (refused
-    /// `uninstall_in_progress` while another holds it), `release` lifts it when this
-    /// connection holds it. Answers `OK {"fence": "held" | "released"}`.
+    /// ⟨ADR-0008 §17.27 item 2⟩ `UninstallFence` (module docs) for the owner role (the others
+    /// are refused first, [`owner_only_refusal`]): `acquire` holds the fence for this
+    /// connection (refused `uninstall_in_progress` while another holds it), `release` lifts it
+    /// when this connection holds it. Answers `OK {"fence": "held" | "released"}`.
     async fn uninstall_fence(
         &self,
-        caller: &Caller,
         request: heimdall_contract::request::UninstallFenceRequest,
     ) -> Envelope<serde_json::Value> {
         use heimdall_contract::request::UninstallFenceRequest;
-        if !caller.context.is_owner() {
-            return error_value(
-                OpError::new(
-                    Code::CapabilityUnavailable,
-                    "service control needs the owner principal on the control endpoint",
-                )
-                .with_effect(EffectStatus::None),
-            );
-        }
         let held = match request {
             UninstallFenceRequest::Acquire => {
                 match self.operations.uninstall_fence_acquire(self.scope.id).await {
