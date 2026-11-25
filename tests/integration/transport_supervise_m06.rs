@@ -1186,6 +1186,7 @@ fn no_verified_store_is_transport_key_store_unavailable_and_direct_routes_still_
             base: TokioLegDialer {
                 ssh_client: PathBuf::from("/nonexistent/ssh"),
                 relay_jump_stderr: false,
+                fill: |_, _| {},
             },
             iroh: Some(Arc::new(IrohRouteLeg::new(Arc::new(NoKeyStore)))),
             iroh_in_build: true,
@@ -1316,6 +1317,7 @@ fn the_route_helper_dials_iroh_with_identification_gating_and_fails_over() {
             base: TokioLegDialer {
                 ssh_client: PathBuf::from("/nonexistent/ssh"),
                 relay_jump_stderr: false,
+                fill: |_, _| {},
             },
             iroh: Some(Arc::new(IrohRouteLeg::new(Arc::new(w.c2.1.clone())))),
             iroh_in_build: true,
@@ -1540,6 +1542,7 @@ async fn route_connect_session(
         base: TokioLegDialer {
             ssh_client: PathBuf::from("/nonexistent/ssh"),
             relay_jump_stderr: false,
+            fill: |_, _| {},
         },
         iroh: Some(Arc::new(IrohRouteLeg::new(Arc::new(keys)))),
         iroh_in_build: true,
@@ -1603,6 +1606,7 @@ async fn route_connect_raw_client(
         base: TokioLegDialer {
             ssh_client: PathBuf::from("/nonexistent/ssh"),
             relay_jump_stderr: false,
+            fill: |_, _| {},
         },
         iroh: Some(Arc::new(IrohRouteLeg::new(Arc::new(keys)))),
         iroh_in_build: true,

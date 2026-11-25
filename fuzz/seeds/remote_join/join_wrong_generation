@@ -1,0 +1,1 @@
+{"type":"request","seq":7,"request":{"op":"remote_environment","action":"join","environment":"env_05050505050505050505050505050505","invitation":"inv_01010101010101010101010101010101","role":"owner","generation":2}}

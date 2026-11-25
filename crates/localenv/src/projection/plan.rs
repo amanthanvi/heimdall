@@ -56,7 +56,9 @@
 //! BOM or CRLF on a client not known to accept it (`ClientInventory::accepts_encoding`),
 //! make the plan manual: no user-file step, the reason listed, P (or the last key
 //! file) committed. Conflicts (a duplicate or edited marker, a conditional block) are
-//! findings, and the plan then changes no file.
+//! findings, and the plan then changes no file. ⟨M08 U1b; U0-Q10⟩ One conflict is reported
+//! and does not stop the plan: `alias_collision`, a user `Host` line naming an alias P renders
+//! (`Builder::alias_collisions`).
 //!
 //! **Consent** (ADR-0007 §5.2, §12.17 item 8). The affected items are the aliases whose
 //! rendered section in effect changes (every alias P renders, for a rollback or a block
@@ -109,8 +111,8 @@ use std::path::{Path, PathBuf};
 use heimdall_app::ports::PreviewError;
 use heimdall_contract::Code;
 use heimdall_contract::doctor::{
-    Finding, FindingSeverity, GitScope, GitSshClassification, GitSshSelection, GitSshSource,
-    finding,
+    ConfigProvenance, Finding, FindingSeverity, GitScope, GitSshClassification, GitSshSelection,
+    GitSshSource, finding,
 };
 use heimdall_contract::envelope::{NextAction, ResourceRef};
 use heimdall_contract::ids::DecisionId;
@@ -621,6 +623,9 @@ impl<'a> Builder<'a> {
             })
             .collect();
         self.added = self.spec.aliases.iter().map(|a| a.alias.clone()).collect();
+        // ⟨M08 U1b; U0-Q10⟩ A user `Host` line naming an alias P renders: the conflict
+        // `alias_collision`, reported (module docs).
+        self.alias_collisions();
 
         let user = self.config.paths.user_config.clone();
         if let Some(conflict) = self.manual_for {
@@ -2351,11 +2356,66 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// ⟨M08 U1b; U0-Q10, ruled 2026-11-24⟩ The setup conflict `alias_collision`
+    /// (`ConflictKind::AliasCollision`), **reported**: one `warning` finding, code and reason
+    /// `alias_collision`, for each user `Host` line, in the user's configuration or a file it
+    /// includes, that names an alias this plan renders as an exact literal compared without
+    /// ASCII case (`crate::alias_collision`; wildcard, negated and `Match` lines are out of
+    /// scope, a stated limitation). It does not stop the plan, which keeps its steps: what
+    /// such a section adds to the alias's behaviour is already weighed by the consent
+    /// classification (ADR-0007 §5.2), and its identity settings by the identity-selection
+    /// findings. Its resolution is the owner's: rename or remove the line, or `manual_mode`.
+    /// Read-only through the bounded source, with P as the managed root, which is never
+    /// compared; a file the walk cannot read is not compared. Bound into the plan digest with
+    /// every other finding.
+    fn alias_collisions(&mut self) {
+        let managed: Vec<&str> = self.spec.aliases.iter().map(|a| a.alias.as_str()).collect();
+        if managed.is_empty() {
+            return;
+        }
+        let paths = &self.config.paths;
+        let source = BoundedSource::new(paths.clone(), self.config.env.clone(), Limits::default());
+        let roots = Roots::new(Some(paths.user_config.clone()), None)
+            .with_managed(self.config.managed_ssh_path());
+        let mut set = ConfigSet::new();
+        let record = heimdall_sshconf::include::record(
+            &mut set,
+            &source,
+            &roots,
+            &Limits::default(),
+            &|_| None,
+        );
+        let found = crate::alias_collision::user_host_lines(&set, &record, &managed);
+        for line in found {
+            let written = set
+                .written_path_of(line.span.source)
+                .map_or_else(|| line.canonical.clone(), Path::to_path_buf);
+            let path_display = self.display(&written);
+            self.findings.push(Finding {
+                code: finding::ALIAS_COLLISION.to_owned(),
+                severity: FindingSeverity::Warning,
+                subject: ResourceRef {
+                    kind: "destination".to_owned(),
+                    id: Some(line.alias),
+                },
+                level: ProbeLevel::Static,
+                provenance: Some(ConfigProvenance {
+                    path_display,
+                    line: line.span.line,
+                }),
+                message: crate::doctor::USER_HOST_LINE_MESSAGE.to_owned(),
+                next: NextAction::for_code(Code::ConfigConflict),
+                reason: Some(conflict_reason(ConflictKind::AliasCollision).to_owned()),
+            });
+        }
+    }
+
     fn conflict(&mut self, kind: ConflictKind, lines: Option<&[u32]>) {
         let code = match kind {
             ConflictKind::MarkerEdited => finding::MARKER_EDITED,
             ConflictKind::IncludeConditional => finding::INCLUDE_CONDITIONAL,
             ConflictKind::ManagedFileEdited => finding::PROJECTION_EDITED,
+            ConflictKind::AliasCollision => finding::ALIAS_COLLISION,
             _ => "marker_duplicated",
         };
         let lines = lines
@@ -3187,6 +3247,7 @@ fn conflict_reason(kind: ConflictKind) -> &'static str {
         ConflictKind::IncludeConditional => "include_conditional",
         ConflictKind::MarkerDuplicated => "marker_duplicated",
         ConflictKind::ManagedFileEdited => "managed_file_edited",
+        ConflictKind::AliasCollision => "alias_collision",
         _ => "config_conflict",
     }
 }

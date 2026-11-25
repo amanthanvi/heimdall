@@ -757,6 +757,35 @@ pub enum CeremonyError {
     /// A [`CeremonyProbe`] stopped the ceremony (tests only).
     #[error("the ceremony was interrupted")]
     Interrupted,
+    /// ⟨M08 U1b, ISS-F1⟩ `issuer init` failed after its K_ca store write (`cause`: the
+    /// read-back, the store-item report or the approval failed, for example the decision
+    /// expired, the authority changed, an I/O error or a runtime restart). The key is now a
+    /// store item no registration names, an orphan ([`orphans`]). The answer keeps the
+    /// cause's code and reason ([`CeremonyError::code`]); its message adds the orphan's
+    /// fingerprint and both ways out, worded as [`CeremonyError::OrphansPresent`] words them,
+    /// and the CLI names the orphan as the resource, as it does for that refusal.
+    #[error("{cause}. {}", orphan_left_message(.fingerprint, .backup))]
+    OrphanLeft {
+        /// The orphan's fingerprint.
+        fingerprint: CaFingerprint,
+        /// The backup written for it before the store write (`--backup-out`).
+        backup: std::path::PathBuf,
+        /// What failed after the store write.
+        cause: Box<CeremonyError>,
+    },
+}
+
+/// ⟨M08 U1b, ISS-F1⟩ What [`CeremonyError::OrphanLeft`]'s message adds to its cause: that a
+/// store item now exists with no registration, its fingerprint, and the recovery commands,
+/// in the orphan refusal's words (`orphans_message`), with the backup the restore needs.
+/// No key or passphrase material: a fingerprint and a path the owner chose.
+#[must_use]
+pub fn orphan_left_message(fingerprint: &CaFingerprint, backup: &Path) -> String {
+    format!(
+        "The CA key is now in the CA key store and no registration names it: {} (the backup written for it is {})",
+        orphans_message(std::slice::from_ref(fingerprint)),
+        backup.display()
+    )
 }
 
 /// ⟨M08-W3-F1⟩ [`CeremonyError::OrphansPresent`]'s message, the command's answer in
@@ -800,6 +829,8 @@ impl CeremonyError {
             | CeremonyError::CaRetired
             | CeremonyError::Store(StoreError::AlreadyExists) => Code::ConfigConflict,
             CeremonyError::NotAnOrphan => Code::NotFound,
+            // ⟨ISS-F1⟩ The cause's answer; the orphan is in the message and the resource.
+            CeremonyError::OrphanLeft { cause, .. } => cause.code(),
             CeremonyError::Session(SessionError::Refused { code, .. }) => code.clone(),
             CeremonyError::Session(SessionError::Unavailable)
             // ⟨round 3, K3-Q2⟩ Retryable: the update that replaced the executable finishes,
@@ -826,6 +857,7 @@ impl CeremonyError {
             }
             CeremonyError::NotInitialized => Some(reason::ISSUER_NOT_INITIALIZED.to_owned()),
             CeremonyError::Session(SessionError::Refused { reason, .. }) => reason.clone(),
+            CeremonyError::OrphanLeft { cause, .. } => cause.reason(),
             _ => None,
         }
     }
@@ -1141,7 +1173,19 @@ fn store_and_check(
     key: &SecretCaKey,
     adopt: bool,
 ) -> Result<StoreItemRef, CeremonyError> {
-    let item = match store.put(fingerprint, key) {
+    let item = store_item(store, fingerprint, key, adopt)?;
+    read_back(store, fingerprint, key)?;
+    Ok(item)
+}
+
+/// [`store_and_check`]'s write: the item holding `key` (written, or adopted with `adopt`).
+fn store_item(
+    store: &dyn SecretStore,
+    fingerprint: &CaFingerprint,
+    key: &SecretCaKey,
+    adopt: bool,
+) -> Result<StoreItemRef, CeremonyError> {
+    Ok(match store.put(fingerprint, key) {
         Ok(item) => item,
         Err(StoreError::AlreadyExists) if adopt => {
             let mut mine: Vec<StoreItemRef> = store
@@ -1156,12 +1200,20 @@ fn store_and_check(
             }
         }
         Err(e) => return Err(e.into()),
-    };
+    })
+}
+
+/// [`store_and_check`]'s read-back: the store returns exactly `key` for `fingerprint`.
+fn read_back(
+    store: &dyn SecretStore,
+    fingerprint: &CaFingerprint,
+    key: &SecretCaKey,
+) -> Result<(), CeremonyError> {
     let back = store.get(fingerprint)?;
     if !back.same_key(key) {
         return Err(CeremonyError::KeyMismatch);
     }
-    Ok(item)
+    Ok(())
 }
 
 /// The log-intact restore's store item (D4 item 4; §17.22 item 12; ⟨§17.28 item 7⟩).
@@ -1290,12 +1342,29 @@ fn create_ca(
     show_passphrase(tty, &passphrase)?;
     probe.at(CrashPoint::PassphraseShown)?;
     // 6. Store, read back, compare.
-    let item = store_and_check(store, &fingerprint, &key, false)?;
+    let item = store_item(store, &fingerprint, &key, false)?;
+    // ⟨M08 U1b, ISS-F1⟩ From the store write on, a failed `init` leaves the key in the store
+    // with no registration: its answer says so (`OrphanLeft`). A rotation's pending CA is
+    // left as before: its recovery is not `init`'s. A probe's stop stands for a crash, which
+    // answers nothing.
+    let left = |cause: CeremonyError| {
+        if request.rotation_of.is_some() {
+            return cause;
+        }
+        CeremonyError::OrphanLeft {
+            fingerprint: fingerprint.clone(),
+            backup: backup_out.to_path_buf(),
+            cause: Box::new(cause),
+        }
+    };
+    read_back(store, &fingerprint, &key).map_err(left)?;
     probe.at(CrashPoint::Stored)?;
     // 6b. Report the store item on the same decision (§17.22 item 12).
-    report_store_item(client, &request, &decision, &item)?;
+    report_store_item(client, &request, &decision, &item).map_err(left)?;
     // 7. Register.
-    client.approve(&decision.decision_id)?;
+    client
+        .approve(&decision.decision_id)
+        .map_err(|e| left(e.into()))?;
     write(tty, &format!("CA {fingerprint} registered.\n"))?;
     // 8. K_ca, B and the passphrase are zeroized as they drop here.
     drop((key, passphrase, prepared));
@@ -1769,6 +1838,177 @@ mod tests {
         let (r, echo) = read(b"\x08\x7fa\r", false);
         assert!(matches!(r, TtyRead::Line(l) if l.as_str() == "a"));
         assert_eq!(echo, "a\r\n", "Backspace on an empty line shows nothing");
+    }
+
+    /// ⟨M08 U1b, ISS-F1⟩ A CA key store in memory (the in-crate tests cannot use the testkit's
+    /// scratch store, whose `SecretStore` is another build of this crate's trait).
+    #[derive(Default)]
+    struct MemStore(std::sync::Mutex<Vec<(StoreItemRef, Zeroizing<Vec<u8>>)>>);
+
+    impl SecretStore for MemStore {
+        fn kind(&self) -> SecretStoreKind {
+            SecretStoreKind::Test("mem_test")
+        }
+        fn availability(&self) -> StoreAvailability {
+            StoreAvailability::Available
+        }
+        fn put(
+            &self,
+            fingerprint: &CaFingerprint,
+            key: &SecretCaKey,
+        ) -> Result<StoreItemRef, StoreError> {
+            let mut items = self.0.lock().unwrap();
+            if items.iter().any(|(i, _)| i.fingerprint == *fingerprint) {
+                return Err(StoreError::AlreadyExists);
+            }
+            let item = StoreItemRef {
+                kind: self.kind(),
+                fingerprint: fingerprint.clone(),
+                locator: format!("mem:{fingerprint}"),
+            };
+            let bytes = key.to_secret_bytes().map_err(|_| StoreError::Failed)?;
+            items.push((item.clone(), bytes));
+            Ok(item)
+        }
+        fn get(&self, fingerprint: &CaFingerprint) -> Result<SecretCaKey, StoreError> {
+            let items = self.0.lock().unwrap();
+            let (_, bytes) = items
+                .iter()
+                .find(|(i, _)| i.fingerprint == *fingerprint)
+                .ok_or(StoreError::NotFound)?;
+            SecretCaKey::from_secret_bytes(bytes).map_err(|_| StoreError::Corrupt)
+        }
+        fn delete(&self, item: &StoreItemRef) -> Result<(), StoreError> {
+            self.0.lock().unwrap().retain(|(i, _)| i != item);
+            Ok(())
+        }
+        fn list(&self) -> Result<Vec<StoreItemRef>, StoreError> {
+            Ok(self
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(i, _)| i.clone())
+                .collect())
+        }
+    }
+
+    /// A runtime that registers every request on one decision and fails its approval as
+    /// `approve` says (an expired decision, a restarted runtime).
+    struct FailingApproval {
+        approve: SessionError,
+    }
+
+    impl OwnerSession for FailingApproval {
+        fn attend(&mut self) -> Result<(), SessionError> {
+            Ok(())
+        }
+        fn status(&mut self) -> Result<IssuerStatus, SessionError> {
+            Ok(IssuerStatus {
+                state: heimdall_contract::issuer::IssuerState::NotInitialized,
+                reason: None,
+                cas: Vec::new(),
+                orphan_store_items: Vec::new(),
+                issuer_isolation: heimdall_contract::managed::IssuerIsolation::SameUserProcess,
+                bundle_stale: false,
+            })
+        }
+        fn register(
+            &mut self,
+            request: &RegisterRequest,
+        ) -> Result<RegisterDecision, SessionError> {
+            Ok(RegisterDecision {
+                decision_id: DecisionId::from_random_bytes([9; 16]),
+                ca_fingerprint: public_key_fingerprint(&request.ca_public_key).unwrap(),
+                backup_sha256: request.backup_sha256.clone(),
+                disclosures: Vec::new(),
+                lock_text: None,
+            })
+        }
+        fn approve(&mut self, _decision: &DecisionId) -> Result<(), SessionError> {
+            Err(self.approve.clone())
+        }
+        fn unlock(&mut self) -> Result<IssuerStatus, SessionError> {
+            self.status()
+        }
+    }
+
+    /// ⟨M08 U1b, ISS-F1⟩ `issuer init` failing after its store write (the approval refused as
+    /// an expired decision, or the runtime gone after a restart) answers with the cause's code
+    /// and reason, and says that a store item now exists with no registration, with its
+    /// fingerprint, the recovery commands of the orphan refusal and the backup just written.
+    /// The store holds exactly that orphan. The answer carries no passphrase (the transcript,
+    /// which shows it once, is never printed).
+    #[test]
+    fn init_failing_after_the_store_write_names_the_orphan_it_leaves() {
+        use heimdall_testkit::ca::ceremony::{find_passphrase, without_passphrase};
+        let line = |s: &str| TtyRead::Line(Zeroizing::new(s.to_owned()));
+        for approve in [
+            SessionError::Refused {
+                code: Code::DecisionStale,
+                reason: Some("decision_expired".to_owned()),
+            },
+            SessionError::Unavailable,
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let out = dir.path().join("ca-backup");
+            let store = MemStore::default();
+            let mut session = FailingApproval {
+                approve: approve.clone(),
+            };
+            let mut tty = Script {
+                answers: [line("yes"), line("written")].into_iter().collect(),
+                shown: String::new(),
+            };
+            let err = init(
+                &mut tty,
+                &mut session,
+                &store,
+                &InitOptions {
+                    backup_out: &out,
+                    non_interactive: false,
+                },
+            )
+            .unwrap_err();
+            let text = err.to_string();
+            let CeremonyError::OrphanLeft {
+                fingerprint,
+                backup,
+                cause,
+            } = &err
+            else {
+                panic!("not an orphan answer: {}", without_passphrase(&text));
+            };
+            assert_eq!(**cause, CeremonyError::Session(approve.clone()));
+            assert_eq!(err.code(), cause.code());
+            assert_eq!(err.reason(), cause.reason());
+            assert_eq!(backup, &out);
+            assert!(out.exists(), "the backup was written before the store");
+            let orphaned = orphans(&store, &session.status().unwrap()).unwrap();
+            assert_eq!(orphaned.len(), 1);
+            assert_eq!(&orphaned[0].fingerprint, fingerprint);
+            for part in [
+                cause.to_string(),
+                "no registration names it".to_owned(),
+                fingerprint.to_string(),
+                "heimdall issuer restore --backup <file> --not-stolen".to_owned(),
+                format!("--replace-orphan {fingerprint}"),
+                out.display().to_string(),
+            ] {
+                assert!(
+                    text.contains(&part),
+                    "{part}: {}",
+                    without_passphrase(&text)
+                );
+            }
+            let shown = find_passphrase(tty.shown.as_bytes()).expect("the passphrase was shown");
+            let shown = String::from_utf8(shown).unwrap();
+            let squeezed: String = text.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+            assert!(
+                !squeezed.contains(&shown),
+                "the answer holds the passphrase"
+            );
+        }
     }
 
     /// A terminal answering from a script (`None`: end of input), recording what was shown.

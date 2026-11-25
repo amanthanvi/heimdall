@@ -40,11 +40,17 @@ VOLUME="${HM_FUZZ_VOLUME:-hm-m08-fuzz}"
 case "$VOLUME" in hm-m08-fuzz|hm-m08-fuzz-[a-z0-9]*) ;; *) echo "run-campaign: HM_FUZZ_VOLUME must be hm-m08-fuzz or hm-m08-fuzz-<suffix>" >&2; exit 2 ;; esac
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
-# target:max_len (just above each boundary's own cap, ADR-0014 section 2.1)
+# target:max_len (just above each boundary's own cap, ADR-0014 section 2.1). M08 U1b's seven
+# (boundaries 12 to 15): remote_bridge a 16 KiB hello plus one 1 MiB frame; remote_join and
+# page_select one control frame (1 MiB); sshd_policy sshd -T's 256 KiB; route_preident 8 KiB
+# and 255 bytes of identification, plus the read-size byte; iroh_policy the 64 KiB item bound;
+# route_ssh_g ssh -G's 1 MiB.
 TARGETS="sshconf_parse:1052672 gitedit_scan:1052672 agent_reply:266240 control_frame:1052672
 signing_request:266240 userauth_request:70000 registry_hm1:70000 project_manifest:1052672 runtime_config:1052672
 sshconf_eval:1052672 frame_codec:1052672 registry_line:1052672 issuer_protocol:1052672 issuer_backup:70000
-known_hosts_match:70000 runtime_instance:70000 registry_script:70000"
+known_hosts_match:70000 runtime_instance:70000 registry_script:70000
+remote_bridge:1069056 remote_join:1052672 sshd_policy:266240 route_preident:12288 iroh_policy:70000
+page_select:1052672 route_ssh_g:1052672"
 
 # HM_FUZZ_LOCAL_ROOT=<scratch dir> (fuzz/run-campaign-selftest.sh only, review M08-W2-RC03):
 # setup and build-id run their in-container scripts on this host, with no container, the

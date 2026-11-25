@@ -36,6 +36,13 @@ Short, and meant to be read once.
   this release keeps. An earlier home that this release adopted is safe: the old build refuses
   it and changes nothing. Every released build knows the layout, so this concerns only
   pre-release builds against the first candidate (ADR-0014 §3.2 item 8).
+- **A certificate request reserved just before the runtime restarts can be signed again within
+  60 s of the restart,** for the same key and with the same limits. The second certificate is
+  never published, and it is still counted as issued.
+- **A `Host` line of yours that names a managed alias is reported only when it names it
+  exactly.** `heimdall doctor` and `heimdall setup` report a user `Host` line naming a managed
+  alias as a literal (letter case aside). A wildcard pattern (`Host web*`) or a `Match` block
+  that would also cover the alias is not reported.
 - **Only the combinations in the compatibility matrix were tested.** Others may work.
 - **The Iroh transport is not in this release.** It is a preview you can build from source
   (`cargo build --features iroh`), with no support claim. Direct and jump routes work without it.
@@ -50,6 +57,11 @@ Short, and meant to be read once.
   (Time Machine, account backups). To replace a device, retire it and revoke it on each runner;
   do not restore it.
 - **On Windows, start Heimdall from a normal session.** Started without the system's
-  `ProgramData` variable, its route checks fail closed and report the route unreadable.
+  `ProgramData` variable, Heimdall gives each `ssh` it starts the folder Windows reports. When
+  Windows reports none, or `ProgramData` is set to anything but a drive path such as
+  `C:\ProgramData` (a network share, for example), Heimdall starts no `ssh`: route checks report
+  the route unreadable, and other commands say why. If `SystemDrive` is also set to a network
+  share, Heimdall's request to Windows for that folder can reach the share before Heimdall
+  rejects the answer.
 - **What was not run before this release:** see the release notes. Rows that needed
   machines or accounts that were not available are listed there as not run, not as passed.

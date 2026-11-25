@@ -883,17 +883,23 @@ name = "heimdall-fuzz"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "heimdall-app",
  "heimdall-contract",
  "heimdall-credential",
+ "heimdall-domain",
  "heimdall-ipc",
  "heimdall-issuer",
  "heimdall-localenv",
  "heimdall-project",
  "heimdall-registry",
+ "heimdall-remote",
  "heimdall-runtime",
  "heimdall-sshconf",
+ "heimdall-store",
+ "heimdall-transport-iroh",
  "libfuzzer-sys",
  "serde_json",
+ "tokio",
  "tokio-util",
 ]
 

@@ -56,6 +56,10 @@
 //!   inconclusive ([`enrollment_facts`]); and, where an issuer CA is registered,
 //!   `client_trace_family_unrecorded` when the selected `ssh`'s family and version have
 //!   no row in `heimdall_enroll::trace::RECORDED` ([`client_trace_finding`]).
+//! * ⟨M08 U1b; U0-Q9, Q10⟩ `alias_collision`: the static pass reports a user `Host` line that
+//!   names a managed alias (`heimdall_localenv::alias_collision`), and this module reads the
+//!   legacy catalog pairs whose aliases differ only in case from the store read-only
+//!   ([`alias_case_collisions`]), which the doctor reports and never rewrites.
 //! * ⟨M03⟩ [`pending_chores`] is the store-backed reader of the chores the CLI and the
 //!   TUI show: `time_confirmation_after_reboot` with its one command,
 //!   `heimdall time confirm`, pending exactly when the time gate would refuse an
@@ -603,7 +607,31 @@ pub(crate) fn local_context(ctx: &Ctx) -> Result<LocalContext, Outcome> {
     local.managed_file = Some(heimdall.config_dir.join("ssh_config"));
     local.catalog = catalog(ctx, &heimdall.config_dir);
     local.routes_unused = routes_unused(ctx);
+    local.alias_case_collisions = alias_case_collisions(ctx);
     Ok(local)
+}
+
+/// ⟨M08 U1b; U0-Q9, ASK-Q9⟩ The legacy catalog pairs whose aliases differ only in ASCII case
+/// (`Txn::destination_alias_case_collisions`), as destination IDs, for the doctor's
+/// `alias_collision` report. Read from the store read-only; empty when it cannot be read.
+fn alias_case_collisions(
+    ctx: &Ctx,
+) -> Vec<(
+    heimdall_contract::ids::DestinationId,
+    heimdall_contract::ids::DestinationId,
+)> {
+    let Ok(store) = open_store(ctx) else {
+        return Vec::new();
+    };
+    store
+        .transaction(|tx| {
+            Ok(tx
+                .destination_alias_case_collisions()?
+                .into_iter()
+                .map(|(a, b)| (a.id, b.id))
+                .collect())
+        })
+        .unwrap_or_default()
 }
 
 /// ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ The existing-access aliases whose destination

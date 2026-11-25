@@ -1,9 +1,25 @@
-# Fuzz targets (M08 U1a)
+# Fuzz targets (M08 U1a, U1b)
 
 Coverage-guided fuzzing of the parsers that take outside input (ADR-0014 §2). **Provisional,
-to be integrated:** seventeen targets cover boundaries 1–12 of ADR-0014 §2.1; 13–15 wait for
-M06 and M07. Boundary 12 is covered only in its pure part: the known-hosts file reader and
-the `ssh -G` output reader take files and a child process, and have no target.
+to be integrated:** seventeen targets (U1a) cover boundaries 1–12 of ADR-0014 §2.1, and seven
+more (U1b, 2026-11-24) cover boundaries 12–15: M06's bridge frames, invitation state and
+`sshd -T` verifier, the route helper's pre-identification buffer and its `ssh -G` pin check,
+`transport-iroh`'s policy and hints, and M07's page tokens and selectors as far as this tree
+has them. Boundary 12's known-hosts file reader and the doctor's `ssh -G` child still have no
+target (they take files and a child process); the route check's `ssh -G` **reader** does
+(`route_ssh_g`).
+
+**U1b's targets share their bodies with a stable test.** Each is a three-line wrapper around
+`fuzz_targets/body/<target>.rs`, which `tests/adversarial/m08_fuzz_seeds.rs` (hosted by
+`heimdall-remote`) and `tests/adversarial/m08_fuzz_seeds_iroh.rs` (hosted by
+`heimdall-transport-iroh`) compile with `#[path]` on the pinned stable toolchain and run over
+every committed seed under `seeds/<target>/` (listed in `tests/adversarial/m08_fuzz_seed_list.rs`
+and embedded at compile time, since the native runs ship no `fuzz/`; a seed added to a
+directory must be added there to be replayed), checking that the named seeds reach what they
+were written for. So `cargo test` proves each body builds and holds its invariants on its seeds; only the
+libFuzzer wrapper itself is left to the campaign's build. The bodies live under
+`fuzz_targets/`, so they are in the build identity. Each body asserts its boundary's documented
+bound or invariant, so a violation is a crash the campaign reports (ADR-0014 §2.3 item 4).
 
 - **Not part of the workspace.** `fuzz/Cargo.toml` has its own empty `[workspace]` table and
   its own `Cargo.lock`. The product's toolchain pin and lock file are untouched.
@@ -65,8 +81,24 @@ the `ssh -G` output reader take files and a child process, and have no target.
 | `issuer_protocol` | 8 | `issuer::protocol::{Request::decode, Response::decode, split_frame}` |
 | `issuer_backup` | 9 | `credential::cert::SecretCaKey::decrypt_openssh` (a fixed fixture passphrase), the recovery bundle's JSON, `issuer::backup::fingerprint_from_file_stem` |
 | `known_hosts_match` | 12 | `localenv::known_hosts::{hosts_match, lookup_name}` (the pure part) |
+| `route_ssh_g` | 12 | `registry::routes::verify_effective` (as `app::routes::verify_effective`) over the three proxy expectations; asserts one strict-checking line and at most one verified proxy |
+| `remote_bridge` | 13 | `remote::bridge::serve` as the paired client's stream, against an in-process runtime stub (16 KiB hello, 1 MiB frames) |
+| `remote_join` | 13 | `ipc::session::parse_frame` as `ClientMessage`, `remote::invitations::{JoinRequest, ProbeRequest, RotateRequest}::from_request`, `decide_join` against one pending invitation; asserts that an activation is the invitation's own binding, and never under an expired reading or another client |
+| `sshd_policy` | 13 | `remote::sshd_policy::{verify, OpensshVersion::parse_banner}` for a fixture account; asserts a verified policy is within 256 KiB and 8192 lines |
+| `route_preident` | 14 | `app::routes::failover::scan_identification` with the helper's bounds, whole and read by read; asserts the 8 KiB, 32-line and 255-byte bounds and that every read decides as the whole stream |
+| `iroh_policy` | 14 | `transport_iroh::policy::EffectivePolicy::{from_contract, approve_route}`, `contract::ids::IrohEndpointId::parse`, `transport_iroh::admission::Allowlist`; asserts that an approved route uses only the policy's relays and in-scope unicast addresses |
+| `page_select` | 15 | `contract::page::PageToken::parse` and its wire form, `PageRequest` and `Select` as `parse_frame` decodes them, `Select::is_well_formed`. **Only the outer forms:** the HMAC token check and the server's selector resolution are M07 U3's and not in this tree (`pages/1` is declared, not offered); extend this target when they land |
 
-Not reached by any target: the known-hosts file reader and the `ssh -G` output reader.
+Not reached by any target: the known-hosts file reader and the doctor's `ssh -G` child.
+
+**U1b's seven targets have not been built with cargo-fuzz or run** (2026-11-24): the host has
+no fuzz toolchain, and the campaign container is the integrator's. What was run is the seed
+tests above, on stable. Their new dependency edges (`heimdall-remote`, `heimdall-app`,
+`heimdall-transport-iroh`, `heimdall-store`, `heimdall-domain`, `tokio`; every package already in
+the lock through `heimdall-runtime`) were added by hand to `heimdall-fuzz`'s entry in
+`Cargo.lock`, because an offline resolve cannot fetch `libfuzzer-sys`. If the container's
+setup still rewrites the lock, `run-campaign.sh` refuses, and `HM_FUZZ_RELOCK=1` accepts the
+deliberate change.
 
 ## Campaigns so far
 

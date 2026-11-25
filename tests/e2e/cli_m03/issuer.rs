@@ -278,6 +278,9 @@ impl Rig {
             ("PATH".into(), path),
             ("HOME".into(), self.account.clone().into()),
             ("HEIMDALL_HOME".into(), self.home.clone().into()),
+            // ⟨M08 U1b, M06-F3⟩ The scratch account home for the static pass: a test
+            // configuration never reads the account's own `~/.ssh` or `/etc/ssh`.
+            ("HEIMDALL_TEST_SSH_HOME".into(), self.account.clone().into()),
             (
                 "HEIMDALL_TEST_SECRET_STORE".into(),
                 self.store_value().into(),
@@ -536,6 +539,8 @@ impl Rig {
             .env_clear()
             .env("HEIMDALL_HOME", &self.home)
             .env("HOME", &self.account)
+            // ⟨M08 U1b, M06-F3⟩ As in `Rig::env`.
+            .env("HEIMDALL_TEST_SSH_HOME", &self.account)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("PATH", "/usr/bin:/bin")
             .env("HEIMDALL_TEST_SECRET_STORE", self.store_value());
