@@ -29,6 +29,13 @@ Short, and meant to be read once.
   `heimdall issuer init --backup-out <path> --replace-orphan <fingerprint> --bundle <file>`
   (or `--no-bundle-available` in place of `--bundle <file>` when you have no recovery bundle),
   or with `heimdall issuer restore --backup <file> --not-stolen`.
+- **A test build from before this release candidate cannot be run on a home this release
+  installed.** This release keeps its state in a new layout (ADR-0014 §3.6). A pre-release
+  build that predates that layout, started on a home that this release installed fresh, finds
+  no store it recognises and starts a new installation with a new identity, beside the one
+  this release keeps. An earlier home that this release adopted is safe: the old build refuses
+  it and changes nothing. Every released build knows the layout, so this concerns only
+  pre-release builds against the first candidate (ADR-0014 §3.2 item 8).
 - **Only the combinations in the compatibility matrix were tested.** Others may work.
 - **The Iroh transport is not in this release.** It is a preview you can build from source
   (`cargo build --features iroh`), with no support claim. Direct and jump routes work without it.

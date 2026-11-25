@@ -213,9 +213,8 @@ impl Rig {
     fn reset_state_keeping_environment(&mut self) {
         let env = self.self_environment();
         self.stop();
-        let db = self
-            .state_dir()
-            .join(heimdall_runtime::service::STATE_DB_FILE);
+        // ⟨M08 U2b-1⟩ The store the pointer names (the grant's mechanical change).
+        let db = heimdall_store::layout::db_path(&self.state_dir()).unwrap();
         for suffix in ["", "-wal", "-shm", "-journal"] {
             let path = PathBuf::from(format!("{}{suffix}", db.display()));
             match std::fs::remove_file(&path) {
