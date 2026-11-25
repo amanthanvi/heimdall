@@ -1089,8 +1089,10 @@ async fn alias_pin_defeat(
     let Ok((Some(alias), pins, all)) = catalog else {
         return Some("unreadable".to_owned());
     };
+    // ⟨M08 U1b; M06-F6⟩ With the OpenSSH environment fill, as every M06 launch.
     let Some(effective) =
-        heimdall_app::routes::verify::effective_alias_config(ssh, config, &alias).await
+        heimdall_app::routes::verify::effective_alias_config(ssh, config, &alias, OPENSSH_FILL)
+            .await
     else {
         return Some("unreadable".to_owned());
     };
@@ -1263,7 +1265,10 @@ pub(crate) async fn verify_projected_helper_aliases(ctx: &Ctx) -> Vec<(String, S
     let ssh = ssh_client().unwrap_or_default();
     let mut defeated = Vec::new();
     for a in aliases {
-        match verify_projected_alias(&ssh, config.as_deref(), &a.alias, &a.expect).await {
+        // ⟨M08 U1b; M06-F6⟩ With the OpenSSH environment fill, as every M06 launch.
+        match verify_projected_alias(&ssh, config.as_deref(), &a.alias, &a.expect, OPENSSH_FILL)
+            .await
+        {
             Ok(()) => {}
             Err(RouteVerifyError::Defeated { defeated: d, .. }) => {
                 defeated.push((a.alias, d.setting.to_owned()));
@@ -1323,6 +1328,8 @@ fn route_connect(ctx: &Ctx, args: &crate::cli::PlannedArgs) -> ExitCode {
         base: heimdall_app::routes::legs::TokioLegDialer {
             ssh_client: ssh.clone(),
             relay_jump_stderr: true,
+            // ⟨M08 U1b; M06-F6⟩ The jump leg's `ssh` gets the fill, as every M06 launch.
+            fill: OPENSSH_FILL,
         },
         iroh,
         iroh_in_build: heimdall_runtime::supervise_transport::ROUTE_IROH_IN_BUILD,

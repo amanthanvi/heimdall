@@ -103,6 +103,24 @@ pub const MAX_IDENTITY_ENTRIES: usize = 5;
 /// Most aliases one doctor run evaluates from the configuration.
 pub const MAX_ALIASES: usize = 256;
 
+/// ⟨M08 U1b; U0-Q10⟩ The `alias_collision` message for a user `Host` line that names a managed
+/// alias ([`crate::alias_collision`]). It names neither the alias (the subject does, and
+/// `--redact` replaces it there) nor the line's text, and says nothing of how `ssh` matches
+/// `Host` patterns.
+pub const USER_HOST_LINE_MESSAGE: &str = "a Host line in your configuration, or in a file it includes, names this managed alias (compared without ASCII case); Heimdall renders its own section for the alias in its managed file, so rename or remove that line. Wildcard, negated and Match lines are not compared";
+
+/// ⟨M08 U1b; U0-Q9⟩ The `alias_collision` message for a legacy catalog pair whose aliases
+/// differ only in ASCII case (destination IDs only, never the aliases).
+#[must_use]
+pub fn catalog_case_pair_message(
+    a: &heimdall_contract::ids::DestinationId,
+    b: &heimdall_contract::ids::DestinationId,
+) -> String {
+    format!(
+        "the catalog holds destinations {a} and {b}, whose aliases differ only in ASCII case; Heimdall's managed file cannot render both, so rename one (the catalog keeps the pair as it is and refuses any new one)"
+    )
+}
+
 /// What the doctor runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DoctorRequest {
@@ -193,6 +211,14 @@ pub struct LocalContext {
     /// managed directories to check (m03-plan U12; [`ManagedFacts`]). Empty by default:
     /// the doctor then reports no M03 finding.
     pub managed: ManagedFacts,
+    /// ⟨M08 U1b; U0-Q9, ASK-Q9⟩ The legacy catalog pairs whose aliases differ only in ASCII
+    /// case, as destination IDs (`heimdall_store::Txn::destination_alias_case_collisions`),
+    /// read by the caller from the store read-only. Empty by default: the doctor then reports
+    /// no such pair. Reported (`alias_collision`), never rewritten.
+    pub alias_case_collisions: Vec<(
+        heimdall_contract::ids::DestinationId,
+        heimdall_contract::ids::DestinationId,
+    )>,
 }
 
 /// ⟨M03⟩ A managed alias whose pair prefers managed certificates, whose projection is
@@ -283,6 +309,7 @@ impl LocalContext {
             managed_file: None,
             routes_unused: std::collections::BTreeSet::new(),
             managed: ManagedFacts::default(),
+            alias_case_collisions: Vec::new(),
         }
     }
 
@@ -522,6 +549,7 @@ pub fn run(ctx: &LocalContext, request: &DoctorRequest) -> DoctorReport {
     let clients = d.clients(&inventory);
     let ssh_version = inventory.selected(ClientKind::Ssh).and_then(|c| c.version);
     let (config_files, config_aliases) = d.config_files();
+    d.catalog_case_pairs();
     d.home_mismatch();
     let projection = d.projection();
     let agents = detect_agents(&ctx.env, &ctx.paths, ctx.platform);
@@ -868,7 +896,48 @@ impl Doctor<'_> {
                 Ok(_) => {}
             }
         }
+        // ⟨M08 U1b; U0-Q10⟩ A user `Host` line, in the user's configuration or a file it
+        // includes, that names a managed alias as an exact literal, compared without ASCII
+        // case (`crate::alias_collision`; wildcards and `Match` lines are out of scope).
+        let managed: Vec<&str> = ctx
+            .catalog
+            .iter()
+            .filter(|c| c.definition == AliasDefinition::Managed)
+            .map(|c| c.alias.as_str())
+            .collect();
+        for line in crate::alias_collision::user_host_lines(&set, &record, &managed) {
+            let prov = written_provenance(ctx, &set, &roots, line.span);
+            self.add(
+                finding::ALIAS_COLLISION,
+                FindingSeverity::Warning,
+                subject("destination", Some(&line.alias)),
+                ProbeLevel::Static,
+                Some(prov),
+                USER_HOST_LINE_MESSAGE,
+                "review_config",
+                None,
+            );
+        }
         (files, aliases)
+    }
+
+    /// ⟨M08 U1b; U0-Q9, ASK-Q9⟩ `alias_collision` for each legacy catalog pair whose aliases
+    /// differ only in ASCII case ([`LocalContext::alias_case_collisions`]): Heimdall's renderer
+    /// refuses such a pair, so the projection cannot be rendered until one is renamed.
+    /// Reported only; the catalog is never rewritten.
+    fn catalog_case_pairs(&mut self) {
+        for (a, b) in self.ctx.alias_case_collisions.clone() {
+            self.add(
+                finding::ALIAS_COLLISION,
+                FindingSeverity::Problem,
+                subject("destination", Some(a.as_str())),
+                ProbeLevel::Static,
+                None,
+                catalog_case_pair_message(&a, &b),
+                "review_config",
+                None,
+            );
+        }
     }
 
     #[cfg(unix)]

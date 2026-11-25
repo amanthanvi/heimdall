@@ -1,0 +1,9 @@
+hostname lab.example.invalid
+stricthostkeychecking accept-new
+hostkeyalias hm-dest-0101
+userknownhostsfile /hm/home/.ssh/heimdall/known_hosts
+globalknownhostsfile none
+verifyhostkeydns no
+updatehostkeys no
+controlmaster no
+controlpath none

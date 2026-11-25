@@ -569,32 +569,64 @@ pub fn classify_preflight(stderr: &[u8]) -> PreflightVerdict {
 /// `ssh.exe` inherited it.
 pub const WINDOWS_CLIENT_REQUIRED_ENV: &str = "ProgramData";
 
+/// ⟨M08 U1b; M06-F5, exit review R01⟩ Whether `value` is a usable absolute drive path for
+/// [`WINDOWS_CLIENT_REQUIRED_ENV`]: a drive letter, a colon and a separator, more after it, and
+/// nothing left unexpanded (`%`). So a network share (`\\host\share`), a verbatim path
+/// (`\\?\C:\…`), a relative and an unexpanded value are not. The same rule as
+/// `heimdall_localenv::sys::openssh_env::is_usable_folder`, which this crate cannot depend on.
+/// Pure; any platform.
+#[must_use]
+pub fn is_usable_folder(value: &str) -> bool {
+    let mut chars = value.chars();
+    let drive = chars.next().is_some_and(|c| c.is_ascii_alphabetic());
+    let colon = chars.next() == Some(':');
+    let separator = matches!(chars.next(), Some('\\' | '/'));
+    drive && colon && separator && value.len() > 2 && !value.contains('%')
+}
+
 /// ⟨`w5v`⟩ The refusal when the environment an `ssh` child would inherit lacks
 /// [`WINDOWS_CLIENT_REQUIRED_ENV`] (`env` looks a name up; the product passes the process
-/// environment). `None` when it is set and not empty. ⟨M06 exit⟩ Checked on Windows before
-/// every `ssh` this controller starts ([`BootstrapSsh::preflight`], the bootstrap session,
-/// [`spawn_management`], [`run_probe`]), after the launch's [`OpensshEnvFill`] (so it bites
-/// only when the fill could not supply the variable: the backstop); elsewhere the check is
-/// never made. The OpenSSH client would not start
-/// properly and would not say why, so nothing is started: `CAPABILITY_UNAVAILABLE`,
-/// `ssh_client_not_started`, and the message names the variable. No path.
+/// environment). `None` when it is set to a usable absolute drive path. ⟨M06 exit⟩ Checked on
+/// Windows before every `ssh` this controller starts ([`BootstrapSsh::preflight`], the
+/// bootstrap session, [`spawn_management`], [`run_probe`]; ⟨M08 U1b, M06-F6⟩ route
+/// verification's `ssh -G` and the jump leg too), after the launch's [`OpensshEnvFill`] (so
+/// it bites only when the fill could not supply the variable: the backstop); elsewhere the
+/// check is never made. The OpenSSH client would not start properly and would not say why,
+/// so nothing is started: `CAPABILITY_UNAVAILABLE`, `ssh_client_not_started`, and the message
+/// names the variable. No path.
+///
+/// ⟨M08 U1b; M06-F5, exit review R01⟩ A set value must also be usable ([`is_usable_folder`]):
+/// the fill never changes a variable the child already has, and the Windows OpenSSH client
+/// reads its system-wide configuration and known hosts under it, so an inherited network
+/// share, verbatim, relative or unexpanded `ProgramData` is refused as well, by the same
+/// reason; the message names the variable and never its value. A drive path that is usable
+/// is trusted (a same-user parent environment can still choose it: a stated residual).
 #[must_use]
 pub fn windows_client_environment_refusal(
     env: &dyn Fn(&str) -> Option<OsString>,
 ) -> Option<OpError> {
-    let set = env(WINDOWS_CLIENT_REQUIRED_ENV).is_some_and(|v| !v.is_empty());
-    (!set).then(|| {
-        OpError::new(
-            Code::CapabilityUnavailable,
-            format!(
-                "this controller's environment has no {WINDOWS_CLIENT_REQUIRED_ENV} variable, \
-                 which the Windows OpenSSH client needs before it can start or report an error, \
-                 so no ssh was started and nothing was sent; run Heimdall from an ordinary \
-                 Windows session (or set {WINDOWS_CLIENT_REQUIRED_ENV}), then try again"
-            ),
+    let refuse = |message: String| {
+        Some(
+            OpError::new(Code::CapabilityUnavailable, message)
+                .with_reason(reason::SSH_CLIENT_NOT_STARTED),
         )
-        .with_reason(reason::SSH_CLIENT_NOT_STARTED)
-    })
+    };
+    match env(WINDOWS_CLIENT_REQUIRED_ENV).filter(|v| !v.is_empty()) {
+        None => refuse(format!(
+            "this controller's environment has no {WINDOWS_CLIENT_REQUIRED_ENV} variable, \
+             which the Windows OpenSSH client needs before it can start or report an error, \
+             so no ssh was started and nothing was sent; run Heimdall from an ordinary \
+             Windows session (or set {WINDOWS_CLIENT_REQUIRED_ENV}), then try again"
+        )),
+        Some(value) if value.to_str().is_some_and(is_usable_folder) => None,
+        Some(_) => refuse(format!(
+            "this controller's environment has a {WINDOWS_CLIENT_REQUIRED_ENV} variable that \
+             is not a usable absolute drive path (a network share, a verbatim, a relative or \
+             an unexpanded path), under which the Windows OpenSSH client reads its system-wide \
+             files, so no ssh was started and nothing was sent; run Heimdall from an ordinary \
+             Windows session (or correct {WINDOWS_CLIENT_REQUIRED_ENV}), then try again"
+        )),
+    }
 }
 
 /// ⟨M06 exit; ADR-0006 §18.9 item 13⟩ The OpenSSH environment fill every M06 launch of `ssh`
@@ -647,7 +679,9 @@ pub fn prepare_client_environment(
 }
 
 /// [`prepare_client_environment`] for a launch from this process (the guard on Windows only).
-fn prepare_launch(
+/// ⟨M08 U1b, M06-F6⟩ Also route verification's `ssh -G` (`crate::routes::verify`) and the jump
+/// leg's `ssh` (`crate::routes::legs::TokioLegDialer`).
+pub(crate) fn prepare_launch(
     command: &mut tokio::process::Command,
     fill: OpensshEnvFill,
 ) -> Result<(), OpError> {
@@ -1889,6 +1923,147 @@ mod tests {
             );
             // Off Windows the same launch is never checked.
             assert!(prepare_client_environment(&mut command, nothing, false, parent).is_ok());
+        }
+    }
+
+    /// ⟨M08 U1b; M06-F5, exit review R01⟩ A set `ProgramData` must be a usable absolute drive
+    /// path: a network share, a verbatim or device path, a drive-relative, a rooted or a
+    /// relative path and an unexpanded value are each refused as an absent one is
+    /// (`CAPABILITY_UNAVAILABLE`, `ssh_client_not_started`), by a message that names the
+    /// variable and never shows its value. A usable value passes, with either separator. The
+    /// fill never changes a variable the child already has (a fill that sets nothing stands
+    /// for it), so an inherited unusable value reaches the guard: refused on Windows, never
+    /// checked elsewhere, and a usable value set on the command wins over it.
+    #[test]
+    fn an_unusable_program_data_is_refused_as_a_missing_one_is() {
+        let program_data = |value: &'static str| {
+            move |n: &str| (n == "ProgramData").then(|| OsString::from(value))
+        };
+        for value in [
+            r"\\hm-f5.invalid\share\ProgramData",
+            r"\\?\C:\ProgramData",
+            r"\\.\C:\ProgramData",
+            r"C:ProgramData",
+            "C:",
+            r"\ProgramData",
+            "ProgramData",
+            r"%SystemDrive%\ProgramData",
+            r"C:\Program%Data%",
+        ] {
+            assert!(!is_usable_folder(value), "{value}");
+            let refused = windows_client_environment_refusal(&program_data(value))
+                .unwrap_or_else(|| panic!("{value} is refused"));
+            assert_eq!(refused.code, Code::CapabilityUnavailable, "{value}");
+            assert_eq!(
+                refused.reason.as_deref(),
+                Some(reason::SSH_CLIENT_NOT_STARTED),
+                "{value}"
+            );
+            assert!(
+                refused
+                    .message
+                    .contains("a ProgramData variable that is not a usable absolute drive path"),
+                "{}",
+                refused.message
+            );
+            // No character of a path: the value is never shown.
+            assert!(
+                !refused.message.contains(['\\', '/', ':', '%']),
+                "{}",
+                refused.message
+            );
+        }
+        for value in [r"C:\ProgramData", "D:/ProgramData", r"c:\data"] {
+            assert!(is_usable_folder(value), "{value}");
+            assert!(
+                windows_client_environment_refusal(&program_data(value)).is_none(),
+                "{value}"
+            );
+        }
+        let parent = program_data(r"\\hm-f5.invalid\share\ProgramData");
+        let mut command = std::process::Command::new("ssh");
+        let refused =
+            prepare_client_environment(&mut command, |_, _| {}, true, &parent).unwrap_err();
+        assert_eq!(
+            refused.reason.as_deref(),
+            Some(reason::SSH_CLIENT_NOT_STARTED)
+        );
+        assert!(prepare_client_environment(&mut command, |_, _| {}, false, &parent).is_ok());
+        command.env("PROGRAMDATA", r"C:\ProgramData");
+        assert!(prepare_client_environment(&mut command, |_, _| {}, true, &parent).is_ok());
+    }
+
+    /// ⟨M08 U1b; M06-F5⟩ The child half of
+    /// [`an_inherited_unusable_program_data_starts_no_windows_client`]: from this process's own
+    /// environment (the parent gave it the `ProgramData` under test), the launch preparation,
+    /// then a management launch of a client that does not exist, printing each one's reason
+    /// (`none` for none). Does nothing unless the parent set `HM_F5_CHILD`.
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "the child of an_inherited_unusable_program_data_starts_no_windows_client"]
+    #[allow(clippy::print_stdout)]
+    async fn f5_inherited_program_data_child() {
+        if std::env::var_os("HM_F5_CHILD").is_none() {
+            return;
+        }
+        let reason_of = |e: Option<OpError>| {
+            e.map_or_else(
+                || "none".to_owned(),
+                |e| e.reason.unwrap_or_else(|| e.code.as_str().to_owned()),
+            )
+        };
+        let mut command = tokio::process::Command::new("ssh.exe");
+        let prepared = reason_of(prepare_launch(&mut command, |_, _| {}).err());
+        let absent = std::env::temp_dir()
+            .join(format!("hm-f5-absent-{}", std::process::id()))
+            .join("ssh.exe");
+        let launched = reason_of(spawn_management(&absent, &[], |_, _| {}).err());
+        // The parent reads this line.
+        println!("f5-child prepare={prepared} launch={launched} end");
+    }
+
+    /// ⟨M08 U1b; M06-F5, exit review R01⟩ On Windows, a launch from a process whose own
+    /// environment has an unusable `ProgramData` (a network share, a verbatim or an unexpanded
+    /// path, as a parent can hand down) is refused before anything starts,
+    /// `ssh_client_not_started`, by the launch preparation and by a management launch; with a
+    /// usable value the preparation passes and the same launch gets as far as starting the
+    /// (absent) client, `LAUNCH_FAILED`. This test binary re-runs itself with that
+    /// environment; the fill's source does not matter here, since the fill never changes a
+    /// variable the child already has.
+    #[cfg(windows)]
+    #[test]
+    fn an_inherited_unusable_program_data_starts_no_windows_client() {
+        let me = std::env::current_exe().unwrap();
+        let refused = reason::SSH_CLIENT_NOT_STARTED;
+        for (value, prepare, launch) in [
+            (r"\\hm-f5.invalid\share\ProgramData", refused, refused),
+            (r"\\?\C:\ProgramData", refused, refused),
+            (r"%SystemDrive%\ProgramData", refused, refused),
+            (r"C:\ProgramData", "none", "LAUNCH_FAILED"),
+        ] {
+            let out = std::process::Command::new(&me)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "remote_env::ssh::tests::f5_inherited_program_data_child",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env("HM_F5_CHILD", "1")
+                .env("ProgramData", value)
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&out.stdout);
+            // The harness may print the test's name on the same line first.
+            let line = text
+                .lines()
+                .find(|l| l.contains("f5-child prepare="))
+                .unwrap_or_default();
+            assert!(
+                line.contains(&format!("f5-child prepare={prepare} launch={launch} end")),
+                "ProgramData={value}: {line}"
+            );
         }
     }
 

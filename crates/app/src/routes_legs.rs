@@ -12,7 +12,9 @@
 //!   `SSH_ASKPASS` and `SSH_ASKPASS_REQUIRE` removed from its environment, its standard
 //!   streams piped and killed on drop. Its standard error is kept (bounded) to tell a
 //!   host-key or authentication failure, which is never failed over, from a refusal, which
-//!   is; it is then relayed to the helper's own standard error when asked.
+//!   is; it is then relayed to the helper's own standard error when asked. ⟨M08 U1b; M06-F6⟩
+//!   Before it starts, the dialer's OpenSSH environment fill and the Windows guard, as for
+//!   every M06 launch ([`TokioLegDialer::fill`]).
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -28,6 +30,7 @@ use tokio::io::AsyncReadExt as _;
 
 use super::failover::{DialFailure, Leg, LegDialer, LegEnd, LegEnding};
 use super::{LegPlan, PlannedRoute};
+use crate::remote_env::ssh::OpensshEnvFill;
 
 /// How long a jump leg's `ssh` gets to exit once its stream has ended.
 pub const JUMP_EXIT_BOUND: Duration = Duration::from_secs(5);
@@ -36,12 +39,18 @@ pub const JUMP_EXIT_BOUND: Duration = Duration::from_secs(5);
 pub const JUMP_STDERR_MAX: usize = 64 * 1024;
 
 /// The production dialer: direct TCP and the jump leg's `ssh`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct TokioLegDialer {
     /// The `ssh` client the jump leg runs (an absolute path).
     pub ssh_client: PathBuf,
     /// Relay a jump leg's standard error to this process's own once it ends.
     pub relay_jump_stderr: bool,
+    /// ⟨M08 U1b; M06-F6, exit review R02⟩ The OpenSSH environment fill of the jump leg's `ssh`
+    /// ([`OpensshEnvFill`]; the `heimdall` binary wires the operating system's), applied with
+    /// the Windows client-environment guard before it starts, as every M06 launch is
+    /// (`crate::remote_env::ssh::prepare_launch`). A guard refusal starts nothing and is
+    /// [`DialFailure::Refused`] (failover allowed: nothing was sent).
+    pub fill: OpensshEnvFill,
 }
 
 #[async_trait]
@@ -109,6 +118,8 @@ impl TokioLegDialer {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        crate::remote_env::ssh::prepare_launch(&mut command, self.fill)
+            .map_err(|_| DialFailure::Refused)?;
         let mut child = command.spawn().map_err(|_| DialFailure::Refused)?;
         let (Some(stdin), Some(stdout), Some(mut stderr)) =
             (child.stdin.take(), child.stdout.take(), child.stderr.take())
@@ -309,5 +320,167 @@ impl<D: LegDialer> LegDialer for RouteLegDialer<D> {
             LegPlan::Iroh { .. } => self.iroh_driver_missing(route),
             _ => self.base.driver_unavailable(route),
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::routes::verify::tests::hop;
+
+    /// ⟨M08 U1b; M06-F6, exit review R02⟩ The jump leg's `ssh` applies the dialer's fill: a
+    /// stand-in client (a shell script, never a real `ssh`) records the `ProgramData` it was
+    /// given and exits. With the stand-in fill the leg's child carries the filled value; with
+    /// a fill that sets nothing, it does not (this host's own environment has no
+    /// `ProgramData`). The guard is Windows only
+    /// ([`a_jump_leg_without_program_data_is_filled_or_starts_nothing`]).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_jump_leg_carries_the_fill() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        use crate::routes::verify::tests::stand_in_fill;
+        assert!(
+            std::env::var_os("ProgramData").is_none(),
+            "blocked: this host's environment sets ProgramData"
+        );
+        let dir = std::env::temp_dir().join(format!("hm-f6-legs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("seen.txt");
+        let client = dir.join("ssh");
+        std::fs::write(
+            &client,
+            format!(
+                "#!/bin/sh\nprintf 'ProgramData=%s\\n' \"${{ProgramData-unset}}\" >> '{}'\n\
+                 exit 0\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&client, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut seen = Vec::new();
+        for (fill, want) in [
+            (stand_in_fill as OpensshEnvFill, "ProgramData=C:\\filled"),
+            (|_, _| {}, "ProgramData=unset"),
+        ] {
+            let _ = std::fs::remove_file(&log);
+            let dialer = TokioLegDialer {
+                ssh_client: client.clone(),
+                relay_jump_stderr: false,
+                fill,
+            };
+            let ended = match dialer.dial_jump(&hop(&dir), "127.0.0.1", 1) {
+                Ok(mut leg) => Some(leg.ending.as_mut().unwrap().end().await.success),
+                Err(_) => None,
+            };
+            seen.push((
+                want,
+                ended,
+                std::fs::read_to_string(&log).unwrap_or_default(),
+            ));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        for (want, ended, text) in seen {
+            assert_eq!(
+                ended,
+                Some(true),
+                "{want}: the stand-in started and exited 0"
+            );
+            assert_eq!(text.lines().collect::<Vec<_>>(), [want]);
+        }
+    }
+
+    /// ⟨M08 U1b; M06-F6⟩ The child half of
+    /// [`a_jump_leg_without_program_data_is_filled_or_starts_nothing`]: from this process's
+    /// own environment (the parent removed `ProgramData` and `ALLUSERSPROFILE`), the in-box
+    /// client's jump leg to loopback port 1, with the stand-in fill and with a fill that sets
+    /// nothing, printing whether each started; a started client's standard error is relayed
+    /// to this process's. Does nothing unless the parent set `HM_F6_CHILD`.
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "the child of a_jump_leg_without_program_data_is_filled_or_starts_nothing"]
+    #[allow(clippy::print_stdout)]
+    async fn f6_jump_child() {
+        use crate::routes::verify::tests::{default_program_data_fill, inbox_client};
+        if std::env::var_os("HM_F6_CHILD").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("hm-f6-legs-win-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut said = Vec::new();
+        for (name, fill) in [
+            ("filled", default_program_data_fill as OpensshEnvFill),
+            ("unfilled", |_, _| {}),
+        ] {
+            let dialer = TokioLegDialer {
+                ssh_client: inbox_client(),
+                relay_jump_stderr: true,
+                fill,
+            };
+            let got = match dialer.dial_jump(&hop(&dir), "127.0.0.1", 1) {
+                Ok(mut leg) => {
+                    if leg.ending.as_mut().unwrap().end().await.success {
+                        "started-and-succeeded"
+                    } else {
+                        "started"
+                    }
+                }
+                Err(DialFailure::Refused) => "refused",
+                Err(_) => "other",
+            };
+            said.push(format!("{name}={got}"));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        // The parent reads this line.
+        println!("f6-jump-child {} end", said.join(" "));
+    }
+
+    /// ⟨M08 U1b; M06-F6, exit review R02⟩ On Windows, a jump leg started from a process
+    /// without `ProgramData` (as a stripped parent environment leaves it) gets the variable
+    /// from the dialer's fill, so the in-box client starts and says why it could not connect
+    /// (nothing listens on loopback port 1); with a fill that cannot supply it, the guard
+    /// starts nothing (`DialFailure::Refused`, failed over: nothing was sent), never a client
+    /// that exits 255 having printed nothing. This test binary re-runs itself without the
+    /// variable. Ignored: it needs the in-box client, so it runs on the PC by exact name with
+    /// `--ignored`.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "needs the in-box OpenSSH client: run on the Windows PC by exact name"]
+    fn a_jump_leg_without_program_data_is_filled_or_starts_nothing() {
+        use crate::routes::verify::tests::inbox_client;
+        assert!(
+            inbox_client().exists(),
+            "blocked: the in-box OpenSSH client is not installed"
+        );
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "routes::legs::tests::f6_jump_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("HM_F6_CHILD", "1")
+            .env_remove("ProgramData")
+            .env_remove("ALLUSERSPROFILE")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        // The harness may print the test's name on the same line first.
+        let line = text
+            .lines()
+            .find(|l| l.contains("f6-jump-child "))
+            .unwrap_or_default();
+        assert!(
+            line.contains("f6-jump-child filled=started unfilled=refused end"),
+            "{line}"
+        );
+        // The filled client started properly: it said why it could not connect.
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(said.contains("Connection refused"), "{said}");
     }
 }

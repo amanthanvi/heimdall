@@ -1,0 +1,15 @@
+OpenSSH_10.0p2 Debian
+UsePAM yes
+permittty yes
+allowtcpforwarding yes
+allowagentforwarding yes
+disableforwarding no
+allowstreamlocalforwarding yes
+forcecommand none
+authorizedkeyscommand none
+authorizedprincipalscommand none
+authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2
+AcceptEnv LANG
+AcceptEnv LC_*
+authenticationmethods any
+permituserenvironment no
