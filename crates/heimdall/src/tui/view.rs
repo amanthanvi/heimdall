@@ -15,10 +15,11 @@
 //! authorization and a repair wrap long lines, stack the diff's columns when the cells
 //! do not fit side by side, and scroll above a prompt that stays fixed. The one place
 //! where drawing writes state is the report each such frame makes to the modal's
-//! [`Reading`]: which rows it drew, so the model can tell when the last one has been on
-//! screen. ⟨M07⟩ A Settings change and the stop menu's confirmation are drawn by one
-//! renderer of their own ([`render_guarded_confirm`]), which also reports to their
-//! [`Seen`] whether this frame, counted by [`App::begin_frame`], drew them at all.
+//! [`Seen`]: whether this frame, counted by [`App::begin_frame`], drew the modal at all,
+//! and which rows it drew, so the model can tell when every row has been on screen
+//! (⟨M07⟩ m07-plan U7). ⟨M07⟩ A Settings change and the stop menu's confirmation are
+//! drawn by one renderer of their own ([`render_guarded_confirm`]), which reports to
+//! their [`Seen`] in the same way.
 //! ⟨M07⟩ U1c: an operation's detail ([`render_operation`]) and the probe menu
 //! ([`render_probe_menu`]) report in the same way what a frame drew of them
 //! ([`super::model::Sight`]), wrapping their rows themselves so that what is recorded is
@@ -42,8 +43,8 @@ use super::data::{Decision, Runtime, clean};
 use super::keys::Key;
 use super::model::{
     AUTHORIZATION_TEXT, ActivityRow, App, AuthPrompt, DecisionPrompt, Health, Item, MAX_TYPED,
-    Modal, NONE_FOUND_TEXT, PROBE_LEVELS, ProbeView, REFUSED_UNREAD, Reading, RepairPrompt, Screen,
-    Seen, Shown, Tab, level_name,
+    Modal, NONE_FOUND_TEXT, PROBE_LEVELS, ProbeView, REFUSED_UNREAD, RepairPrompt, Screen, Seen,
+    Shown, Tab, level_name,
 };
 
 /// The decision text of a `DeclareInteraction` decision (ADR-0007 §7, verbatim).
@@ -259,7 +260,7 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &App) {
         Some(Modal::ProbeMenu { alias, selected }) => {
             render_probe_menu(frame, app, number, body, alias, *selected, theme);
         }
-        Some(modal) => render_modal(frame, app, modal, body, theme),
+        Some(modal) => render_modal(frame, app, number, modal, body, theme),
         None => {}
     }
     // After the modal: its footer hint reads what the modal's frame has just recorded.
@@ -650,20 +651,27 @@ pub(crate) fn footer_text(hints: &[Hint], narrow: bool) -> String {
         .join(" · ")
 }
 
-/// The footer while a modal is open. A confirmation whose content does not fit says how
-/// to read on, and after a refused `yes` that the end has to be shown first.
+/// The footer while a modal is open. A confirmation whose content does not fit says that
+/// every row has to be read, and ⟨M07⟩ after a refused `yes` why it was refused (the
+/// status line is under the modal), as the stop menu's does.
 fn modal_hint(app: &App) -> &'static str {
-    let reading = match &app.modal {
-        Some(Modal::Decision(p)) => Some(&p.reading),
-        Some(Modal::Authorization(p)) => Some(&p.reading),
-        Some(Modal::Repair(p)) => Some(&p.reading),
+    let seen = match &app.modal {
+        Some(Modal::Decision(p)) => Some(&p.seen),
+        Some(Modal::Authorization(p)) => Some(&p.seen),
+        Some(Modal::Repair(p)) => Some(&p.seen),
         _ => None,
     };
-    let (refused, scrollable) = reading.map_or((false, false), |r| (r.refused, r.scrollable()));
+    let refusal = seen.and_then(Seen::refusal);
+    let too_small = seen.is_some_and(|s| s.shown(app.frame()) == Shown::TooSmall);
+    // Every row read: the footer offers the yes, as when the content fits.
+    let unread = seen.is_some_and(|s| s.reading.scrollable() && !s.reading.all_shown());
     match &app.modal {
-        _ if refused => "Read to the end first (PgDn, End) · Esc",
-        Some(Modal::Decision(_) | Modal::Authorization(_) | Modal::Repair(_)) if scrollable => {
-            "Up/Down PgUp/PgDn Home/End · Esc cancel"
+        _ if let Some(why) = refusal => why,
+        Some(Modal::Decision(_) | Modal::Authorization(_) | Modal::Repair(_)) if too_small => {
+            "enlarge the terminal · Esc cancel"
+        }
+        Some(Modal::Decision(_) | Modal::Authorization(_) | Modal::Repair(_)) if unread => {
+            "Read every row: PgDn/PgUp · Esc cancel"
         }
         Some(Modal::Decision(_)) => "type yes, Enter · Tab approve/deny · Esc cancel",
         Some(Modal::Authorization(_) | Modal::Repair(_)) => "type yes, Enter · Esc cancel",
@@ -1622,7 +1630,7 @@ struct Guarded<'a> {
 }
 
 /// ⟨M07⟩ M07-W0-R01: lay a guarded confirmation out, draw it and report what frame
-/// `number` drew of it to its marker ([`Seen`], and its [`Reading`]).
+/// `number` drew of it to its marker ([`Seen`], and its [`Reading`](super::model::Reading)).
 ///
 /// The content is wrapped, never cut, and scrolls above the prompt line, which stays
 /// fixed and keeps the rows its longest answer needs. The model accepts a typed `yes`
@@ -2324,7 +2332,7 @@ fn operation_parts(app: &App, id: &str, theme: Theme) -> OperationParts {
 /// operation the latest frame showed ([`super::model::Sight`]).
 ///
 /// The rows are wrapped here, never cut, and scrolled as every detail is, so what frame
-/// `number` reports is what it drew: the rows of the head on screen ([`Reading::record`];
+/// `number` reports is what it drew: the rows of the head on screen ([`Reading::record`](super::model::Reading::record);
 /// the head's fingerprint leaves the relative times out and includes the width), and that
 /// it drew this operation's detail at all. It reports nothing when the detail offers no
 /// cancel (the operation is not active, or not read yet) or a modal is drawn over it.
@@ -2393,8 +2401,8 @@ fn wrapped_rows(lines: &[Line<'static>], width: u16) -> u16 {
 // item 3): long lines wrap onto further rows, the diff falls back to stacked columns
 // when its cells do not fit side by side, and what does not fit the modal scrolls
 // (arrows, PgUp/PgDn, Home/End) above a prompt that stays fixed. The bottom border says
-// how many rows remain below, and the model accepts a typed `yes` only once a frame has
-// drawn the last row (`Reading`).
+// how many rows remain below, and ⟨M07⟩ the model accepts a typed `yes` only when the
+// latest frame drew the modal and the frames have drawn every row (`Seen`).
 
 /// Display width of `s` in terminal cells.
 fn cells(s: &str) -> usize {
@@ -2533,20 +2541,23 @@ struct ConfirmParts {
 }
 
 /// How the status in the bottom border reads: how many rows remain below, that the end
-/// is on screen, or that a `yes` was refused because it was not. Nothing when the whole
-/// content fits.
+/// is on screen, ⟨M07⟩ that rows above it were skipped, or that a `yes` was refused and
+/// why (rows not read yet, or the modal not on screen). Nothing when the whole content
+/// fits.
 fn confirm_status(
-    reading: &Reading,
+    seen: &Seen,
     scrollable: bool,
     below: usize,
     theme: Theme,
 ) -> Option<Line<'static>> {
     let rows = if below == 1 { "row" } else { "rows" };
-    if reading.refused {
-        let text = if below > 0 {
+    if let Some(why) = seen.refusal() {
+        let text = if why != REFUSED_UNREAD {
+            " yes refused: it was not on screen ".to_owned()
+        } else if below > 0 {
             format!(" yes refused: {below} more {rows} below ")
         } else {
-            " yes refused: the end is not on screen ".to_owned()
+            " yes refused: read every row ".to_owned()
         };
         return Some(Line::styled(text, theme.bold()));
     }
@@ -2556,15 +2567,23 @@ fn confirm_status(
             theme.dim(),
         ));
     }
+    if scrollable && !seen.reading.all_shown() {
+        // At the end with rows above not drawn yet (a jump, or a re-wrap).
+        return Some(Line::styled(" read from the top (Home) ", theme.dim()));
+    }
     scrollable.then(|| Line::styled(" end of the content ", theme.dim()))
 }
 
-/// Lay a confirmation out, draw it and report what was drawn to its `reading`.
+/// Lay a confirmation out, draw it and report what frame `number` drew to its `seen`
+/// (⟨M07⟩ m07-plan U7): [`Shown::Drawn`] with the rows it drew, or [`Shown::TooSmall`]
+/// when the modal does not fit (no content row, a prompt that loses rows, a box narrower
+/// than its layout). A frame that does not reach the modal reports nothing.
 fn render_confirm(
     frame: &mut Frame<'_>,
+    number: u64,
     body: Rect,
     parts: ConfirmParts,
-    reading: &Reading,
+    seen: &Seen,
     theme: Theme,
 ) {
     let width = body.width.saturating_sub(2).clamp(10, 110);
@@ -2609,10 +2628,20 @@ fn render_confirm(
     // What is drawn is what is recorded: the clamped offset and the rows that fit.
     let viewport = usize::from(content_area.height);
     let last = rows.len().saturating_sub(viewport);
-    let scroll = reading.scroll.min(last);
+    let scroll = seen.reading.scroll.min(last);
     let end = (scroll + viewport).min(rows.len());
-    reading.record(parts.key, rows.len(), viewport, scroll);
-    if let Some(status) = confirm_status(reading, rows.len() > viewport, rows.len() - end, theme) {
+    // ⟨M07⟩ A box with less room than the layout asked for shows a cut confirmation: that
+    // is not shown, and none of its rows count as read.
+    let cut = viewport == 0
+        || usize::from(prompt_height) < prompt.len()
+        || usize::from(inner.width) < inner_width;
+    if cut {
+        seen.report(number, Shown::TooSmall);
+    } else {
+        seen.reading.record(parts.key, rows.len(), viewport, scroll);
+        seen.report(number, Shown::Drawn);
+    }
+    if let Some(status) = confirm_status(seen, rows.len() > viewport, rows.len() - end, theme) {
         block = block.title_bottom(status);
     }
     frame.render_widget(block, area);
@@ -2624,21 +2653,28 @@ fn render_confirm(
     }
 }
 
-fn render_modal(frame: &mut Frame<'_>, app: &App, modal: &Modal, body: Rect, theme: Theme) {
+fn render_modal(
+    frame: &mut Frame<'_>,
+    app: &App,
+    number: u64,
+    modal: &Modal,
+    body: Rect,
+    theme: Theme,
+) {
     let width = body.width.saturating_sub(2).clamp(10, 110);
     let inner_width = width.saturating_sub(2);
     let parts = match modal {
         Modal::Decision(p) => {
             let parts = decision_modal(app, p, usize::from(inner_width), theme);
-            render_confirm(frame, body, parts, &p.reading, theme);
+            render_confirm(frame, number, body, parts, &p.seen, theme);
             return;
         }
         Modal::Authorization(p) => {
-            render_confirm(frame, body, authorization_parts(p), &p.reading, theme);
+            render_confirm(frame, number, body, authorization_parts(p), &p.seen, theme);
             return;
         }
         Modal::Repair(p) => {
-            render_confirm(frame, body, repair_parts(p), &p.reading, theme);
+            render_confirm(frame, number, body, repair_parts(p), &p.seen, theme);
             return;
         }
         Modal::Help => ModalParts {
@@ -2773,7 +2809,7 @@ pub(crate) const HELP_LINES: [(&[Key], &str); 16] = [
     (&[Key::Char('?')], "?                     this key help"),
     (
         &[],
-        "Confirmations need a typed yes once their last row has been on screen;",
+        "Confirmations need a typed yes once every row has been on screen;",
     ),
     (&[], "anything else is No and sends nothing."),
 ];
@@ -3278,6 +3314,7 @@ pub(crate) fn draw_once(app: &App, w: u16, h: u16) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::tui::keys::Key;
+    use crate::tui::model::Reading;
     use crate::tui::model::tests::{now, populated, press, type_text};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -4406,7 +4443,7 @@ mod tests {
             .flat_map(|s| {
                 let mut a = narrow.clone();
                 if let Some(Modal::Decision(p)) = &mut a.modal {
-                    p.reading.scroll = s;
+                    p.seen.reading.scroll = s;
                 }
                 draw(&a, 40, 12).0
             })
@@ -4553,18 +4590,18 @@ mod tests {
 
     fn reading(app: &App) -> &Reading {
         match app.modal.as_ref().unwrap() {
-            Modal::Decision(p) => &p.reading,
-            Modal::Authorization(p) => &p.reading,
-            Modal::Repair(p) => &p.reading,
+            Modal::Decision(p) => &p.seen.reading,
+            Modal::Authorization(p) => &p.seen.reading,
+            Modal::Repair(p) => &p.seen.reading,
             other => panic!("not a confirmation: {other:?}"),
         }
     }
 
     fn reading_mut(app: &mut App) -> &mut Reading {
         match app.modal.as_mut().unwrap() {
-            Modal::Decision(p) => &mut p.reading,
-            Modal::Authorization(p) => &mut p.reading,
-            Modal::Repair(p) => &mut p.reading,
+            Modal::Decision(p) => &mut p.seen.reading,
+            Modal::Authorization(p) => &mut p.seen.reading,
+            Modal::Repair(p) => &mut p.seen.reading,
             other => panic!("not a confirmation: {other:?}"),
         }
     }
@@ -4930,9 +4967,9 @@ mod tests {
         ]
     }
 
-    /// ADR-0007 §12.31 item 3: a typed yes is accepted only once a frame has drawn the
-    /// last row of the content; before that the answer is refused, discarded, and the
-    /// modal says so.
+    /// ADR-0007 §12.31 item 3, ⟨M07⟩ m07-plan U7: a typed yes is accepted only once the
+    /// frames have drawn every row of the content; before that the answer is refused,
+    /// discarded, and the modal says so.
     #[test]
     fn yes_is_refused_until_the_end_has_been_shown() {
         let sent = |effects: &[crate::tui::model::Effect]| !effects.is_empty();
@@ -4964,7 +5001,7 @@ mod tests {
                 "{kind}: the modal says so\n{screen}"
             );
             assert!(
-                screen.contains("Read to the end first"),
+                screen.contains(crate::tui::model::REFUSED_UNREAD),
                 "{kind}: the footer too\n{screen}"
             );
             assert!(
@@ -4995,9 +5032,12 @@ mod tests {
                 !sent(&press(&mut app, &[Key::Enter])),
                 "{kind}: End, no frame"
             );
-            // PgDn frame by frame reaches the end, and then the yes is accepted.
+            // PgDn frame by frame from the top reaches the end, and then the yes is
+            // accepted.
+            press(&mut app, &[Key::Home]);
+            draw(&app, w, h);
             let mut guard = 0;
-            while !reading(&app).end_shown() {
+            while !reading(&app).all_shown() {
                 press(&mut app, &[Key::PageDown]);
                 draw(&app, w, h);
                 guard += 1;
@@ -5013,20 +5053,35 @@ mod tests {
         }
     }
 
-    /// Once the end has been on screen it stays shown for the same content, wherever the
-    /// owner scrolls back to; a content that changes must be read to its end again; and a
-    /// screen tall enough for everything needs no scrolling at all.
+    /// Once every row has been on screen the content stays read, wherever the owner
+    /// scrolls back to; ⟨M07⟩ a jump to the end reads none of the rows it skips; a content
+    /// that changes must be read again; and a screen tall enough for everything needs no
+    /// scrolling at all.
     #[test]
     fn the_end_stays_shown_for_the_same_content_and_not_for_changed_content() {
         let sent = |effects: &[crate::tui::model::Effect]| !effects.is_empty();
-        // Same content: End (framed), Home (framed), then yes.
+        let page_to_end = |app: &mut App| {
+            for _ in 0..30 {
+                press(app, &[Key::PageDown]);
+                draw(app, 40, 12);
+            }
+        };
+        // ⟨M07⟩ Same content: End (framed), Home (framed): the rows between were never
+        // drawn, so the yes is refused.
         let mut app = authorization_with(&inventory(15));
         draw(&app, 40, 12);
         press(&mut app, &[Key::End]);
         draw(&app, 40, 12);
         press(&mut app, &[Key::Home]);
         draw(&app, 40, 12);
-        assert!(reading(&app).end_shown());
+        assert!(reading(&app).end_shown() && !reading(&app).all_shown());
+        type_text(&mut app, "yes");
+        assert!(!sent(&press(&mut app, &[Key::Enter])));
+        // Read page by page to the end, then back Home (framed): the yes is accepted.
+        page_to_end(&mut app);
+        press(&mut app, &[Key::Home]);
+        draw(&app, 40, 12);
+        assert!(reading(&app).all_shown());
         type_text(&mut app, "yes");
         assert!(sent(&press(&mut app, &[Key::Enter])));
         // Changed content: a decision of another kind grows below the row being shown.
@@ -5050,30 +5105,29 @@ mod tests {
             id: "dec_other".to_owned(),
             verdict: heimdall_contract::request::Verdict::Approve,
             input: String::new(),
-            reading: Reading::default(),
+            seen: crate::tui::model::Seen::default(),
         }));
-        press(&mut app, &[Key::End]);
         draw(&app, 40, 12);
-        press(&mut app, &[Key::End]);
-        draw(&app, 40, 12);
-        assert!(reading(&app).end_shown());
+        page_to_end(&mut app);
+        assert!(reading(&app).all_shown());
         app.catalog_mut().decisions.retain(|d| d.id != "dec_other");
         app.catalog_mut().decisions.push(other(12));
         draw(&app, 40, 12);
         assert!(
-            !reading(&app).end_shown(),
-            "the replaced record's end was not shown"
+            !reading(&app).end_shown() && !reading(&app).all_shown(),
+            "the replaced record was not read"
         );
         type_text(&mut app, "yes");
         assert!(!sent(&press(&mut app, &[Key::Enter])));
-        press(&mut app, &[Key::End]);
+        press(&mut app, &[Key::Home]);
         draw(&app, 40, 12);
+        page_to_end(&mut app);
         type_text(&mut app, "yes");
         assert!(sent(&press(&mut app, &[Key::Enter])));
         // A tall screen shows everything at once: the first frame is enough.
         let mut app = authorization_with(&inventory(15));
         draw(&app, 120, 40);
-        assert!(!reading(&app).scrollable() && reading(&app).end_shown());
+        assert!(!reading(&app).scrollable() && reading(&app).all_shown());
         type_text(&mut app, "yes");
         assert!(sent(&press(&mut app, &[Key::Enter])));
     }
@@ -5093,6 +5147,152 @@ mod tests {
                     "{kind} {w}x{h}: the end of a tall content is not on a tiny screen"
                 );
             }
+        }
+    }
+
+    /// ⟨M07⟩ m07-plan U7: what a typed yes in each of the three confirmations sends, if
+    /// anything, as one worker command per kind (a decision's verdict, the authorized
+    /// evaluation, the held repair).
+    fn confirmed(app: &mut App) -> Option<crate::tui::model::Command> {
+        use crate::tui::model::{Command, Effect};
+        type_text(app, "yes");
+        let effects = press(app, &[Key::Enter]);
+        let mut sent = effects.into_iter().filter_map(|e| match e {
+            Effect::Worker(
+                c @ (Command::Decide { .. } | Command::Probe { .. } | Command::SubmitRepair { .. }),
+            ) => Some(c),
+            _ => None,
+        });
+        let first = sent.next();
+        assert!(sent.next().is_none(), "one command at most");
+        first
+    }
+
+    /// ⟨M07⟩ m07-plan U7: frame after frame from the top at `w`×`h`, PgDn between them,
+    /// until the frames have drawn every row.
+    fn read_down(app: &mut App, w: u16, h: u16) {
+        draw(app, w, h);
+        for _ in 0..30 {
+            if reading(app).all_shown() {
+                return;
+            }
+            press(app, &[Key::PageDown]);
+            draw(app, w, h);
+        }
+        panic!("the end is never reached");
+    }
+
+    /// ⟨M07⟩ m07-plan U7 (a): in the decision, authorization and repair modals a frame
+    /// that draws the last row after a gap (End before the rows between were drawn) reads
+    /// none of the skipped rows: the yes is refused as unread, discarded, and the status
+    /// line, the footer and the border say so. Reading from the top on then accepts it.
+    #[test]
+    fn a_jump_to_the_last_row_does_not_read_the_rows_it_skips() {
+        use crate::tui::model::REFUSED_UNREAD;
+        for (kind, mut app) in tall_confirmations() {
+            draw(&app, 40, 12);
+            press(&mut app, &[Key::End]);
+            let rows = draw(&app, 40, 12).0;
+            assert!(reading(&app).end_shown(), "{kind}: the last row is drawn");
+            assert!(
+                rows.join("\n").contains("read from the top (Home)"),
+                "{kind}: the border says rows were skipped\n{rows:#?}"
+            );
+            assert_eq!(confirmed(&mut app), None, "{kind}: rows were skipped");
+            assert_eq!(app.status.as_deref(), Some(REFUSED_UNREAD), "{kind}");
+            let rows = draw(&app, 40, 12).0;
+            assert_eq!(
+                rows.last().map(String::as_str),
+                Some(REFUSED_UNREAD),
+                "{kind}"
+            );
+            assert!(
+                rows.join("\n").contains("yes refused: read every row"),
+                "{kind}\n{rows:#?}"
+            );
+            press(&mut app, &[Key::Home]);
+            read_down(&mut app, 40, 12);
+            assert!(confirmed(&mut app).is_some(), "{kind}: every row was read");
+        }
+    }
+
+    /// ⟨M07⟩ m07-plan U7 (b): every row of the content shown, then a later frame that did
+    /// not draw the modal: one with no room for any view refuses the yes as not drawn,
+    /// one too small for the modal's prompt and a row of content as too small. What was
+    /// read stays read: the next frame that draws the modal accepts it.
+    #[test]
+    fn a_confirmation_the_latest_frame_did_not_draw_is_refused() {
+        use crate::tui::model::{REFUSED_NOT_DRAWN, REFUSED_TOO_SMALL};
+        for (kind, app) in tall_confirmations() {
+            for ((w, h), why) in [((9, 2), REFUSED_NOT_DRAWN), ((40, 5), REFUSED_TOO_SMALL)] {
+                let mut app = app.clone();
+                read_down(&mut app, 40, 12);
+                assert!(reading(&app).all_shown(), "{kind}");
+                draw(&app, w, h);
+                assert_eq!(confirmed(&mut app), None, "{kind} {w}x{h}");
+                assert_eq!(app.status.as_deref(), Some(why), "{kind} {w}x{h}");
+                let rows = draw(&app, 40, 12).0;
+                assert_eq!(rows.last().map(String::as_str), Some(why), "{kind} {w}x{h}");
+                assert!(
+                    rows.join("\n")
+                        .contains("yes refused: it was not on screen"),
+                    "{kind} {w}x{h}\n{rows:#?}"
+                );
+                assert!(confirmed(&mut app).is_some(), "{kind} {w}x{h}: drawn again");
+            }
+            // A frame too small for the modal says how to go on, in place of the keys.
+            let mut app = app.clone();
+            read_down(&mut app, 40, 12);
+            let rows = draw(&app, 40, 5).0;
+            assert_eq!(
+                rows.last().map(String::as_str),
+                Some("enlarge the terminal · Esc cancel"),
+                "{kind}"
+            );
+        }
+    }
+
+    /// ⟨M07⟩ m07-plan U7 (c): every row shown and the latest frame drew the modal: the yes
+    /// sends exactly the request it confirms, and nothing else.
+    #[test]
+    fn a_confirmation_read_in_full_on_the_latest_frame_is_accepted() {
+        use crate::tui::model::{Command, HeldRepair};
+        for (kind, mut app) in tall_confirmations() {
+            read_down(&mut app, 40, 12);
+            // Back to the top: the latest frame draws its first rows, all were read.
+            press(&mut app, &[Key::Home]);
+            let rows = draw(&app, 40, 12).0;
+            assert!(reading(&app).all_shown(), "{kind}");
+            // The latest frame reported the modal drawn, and nothing is left unseen.
+            let seen = match app.modal.as_ref().unwrap() {
+                Modal::Decision(p) => &p.seen,
+                Modal::Authorization(p) => &p.seen,
+                Modal::Repair(p) => &p.seen,
+                other => panic!("{kind}: {other:?}"),
+            };
+            assert_eq!(seen.shown(app.frame()), Shown::Drawn, "{kind}");
+            assert_eq!(seen.unseen(app.frame()), None, "{kind}");
+            // And the footer offers the yes.
+            let footer = rows.last().unwrap();
+            assert!(footer.starts_with("type yes, Enter"), "{kind}: {footer}");
+            let sent = confirmed(&mut app);
+            let expected = match kind {
+                "decision" => Command::Decide {
+                    id: "dec_declare1".to_owned(),
+                    verdict: heimdall_contract::request::Verdict::Approve,
+                },
+                "authorization" => Command::Probe {
+                    alias: "alpha".to_owned(),
+                    level: ProbeLevel::Evaluate,
+                    allow_config_commands: true,
+                },
+                _ => Command::SubmitRepair {
+                    operation: "op_held1".to_owned(),
+                    repair: HeldRepair::Keep,
+                    plan_digest: "d".repeat(64),
+                },
+            };
+            assert_eq!(sent, Some(expected), "{kind}");
         }
     }
 
@@ -5802,7 +6002,7 @@ mod tests {
                 id: id.to_owned(),
                 verdict: Verdict::Approve,
                 input: String::new(),
-                reading: Reading::default(),
+                seen: crate::tui::model::Seen::default(),
             }));
             a
         }
@@ -6653,7 +6853,7 @@ mod tests {
                 id: id.to_owned(),
                 verdict: Verdict::Approve,
                 input: String::new(),
-                reading: Reading::default(),
+                seen: crate::tui::model::Seen::default(),
             }));
             a
         }

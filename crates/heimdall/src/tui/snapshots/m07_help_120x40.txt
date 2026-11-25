@@ -24,7 +24,7 @@ Pause or stop access: press s (pause automatic access, stop work, a cutoff) · 8
      │S                     start the runtime (the TUI never starts it itself)                                    │
      │Esc, q                back; q on a view quits; Ctrl-C quits                                                 │
      │?                     this key help                                                                         │
-     │Confirmations need a typed yes once their last row has been on screen;                                      │
+     │Confirmations need a typed yes once every row has been on screen;                                           │
      │anything else is No and sends nothing.                                                                      │
      └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 

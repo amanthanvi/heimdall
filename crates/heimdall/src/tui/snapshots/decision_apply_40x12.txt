@@ -9,4 +9,4 @@ O│Exactly what approve applies to:    │
  │Approve? Type yes to confirm [y/N]: │
  │ye_                                 │
  └ 24 more rows below (PgDn, End) ────┘
-Up/Down PgUp/PgDn Home/End · Esc cancel
+Read every row: PgDn/PgUp · Esc cancel

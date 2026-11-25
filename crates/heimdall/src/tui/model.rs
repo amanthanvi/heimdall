@@ -473,14 +473,14 @@ pub(crate) struct Drawn {
 ///
 /// The content of a decision, an authorization or a repair is never truncated: it is
 /// wrapped to the modal's width and scrolled while the prompt stays fixed. The view
-/// records here what each frame **actually drew** ([`Reading::record`]); the model
-/// accepts a typed `yes` only when a frame has drawn the content's last row
-/// ([`Reading::end_shown`]). Keys that were queued behind each other and never reached
-/// a frame therefore show nothing, and a typed yes cannot outrun the screen.
+/// records here what each frame **actually drew** ([`Reading::record`]); ⟨M07⟩ the model
+/// accepts a typed `yes` only when the latest frame drew the confirmation and the frames
+/// have drawn every row of its content ([`Seen::unseen`], [`Reading::all_shown`]; m07-plan
+/// U7). Keys that were queued behind each other and never reached a frame therefore show
+/// nothing, and a typed yes cannot outrun the screen.
 ///
-/// The "last row drawn" fact is bound to a fingerprint of the content, so a content that
-/// changes while the modal is open (a replaced record, a plan that arrives) must have
-/// its own end drawn again.
+/// What was drawn is bound to a fingerprint of the content, so a content that changes
+/// while the modal is open (a replaced record, a plan that arrives) must be read again.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Reading {
     /// The first content row requested on screen (the view clamps it to the content).
@@ -546,7 +546,9 @@ impl Reading {
         self.drawn.get()
     }
 
-    /// Whether a frame has drawn the last row of the content last drawn.
+    /// Whether a frame has drawn the last row of the content last drawn (the tests'
+    /// view of a jump to the end; a confirmation asks for [`Reading::all_shown`]).
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn end_shown(&self) -> bool {
         match (self.end_seen.get(), self.drawn.get()) {
@@ -606,9 +608,9 @@ pub(crate) const REFUSED_TOO_SMALL: &str = "too small to show the change: not se
 /// ⟨M07⟩ Why a typed yes is refused before every row has been drawn.
 pub(crate) const REFUSED_UNREAD: &str = "read it all first (PgUp/PgDn): not sent";
 
-/// ⟨M07⟩ The drawn-frame marker of a typed confirmation that sends a persistent change
-/// without a decision of the runtime behind it: a Settings change and the stop menu's
-/// pause, stop and cutoff (M07-W0-R01 and its ruling for the stop menu).
+/// ⟨M07⟩ The drawn-frame marker of a typed confirmation: a Settings change and the stop
+/// menu's pause, stop and cutoff (M07-W0-R01 and its ruling for the stop menu), and the
+/// decision, authorization and repair modals (m07-plan U7).
 ///
 /// The draw path counts its frames ([`App::begin_frame`]). The view reports here what a
 /// frame showed of the confirmation, with that frame's number ([`Seen::report`]), and
@@ -806,8 +808,9 @@ pub(crate) struct DecisionPrompt {
     pub verdict: Verdict,
     /// What was typed.
     pub input: String,
-    /// How far the recorded request has been read.
-    pub reading: Reading,
+    /// ⟨M07⟩ What the frames drew of the recorded request ([`Seen`]): a typed yes counts
+    /// only when the latest frame drew the modal and the frames have shown every row.
+    pub seen: Seen,
 }
 
 /// The real-tree authorization modal.
@@ -821,8 +824,8 @@ pub(crate) struct AuthPrompt {
     pub executed: Option<Vec<String>>,
     /// What was typed.
     pub input: String,
-    /// How far the authorization text and the list have been read.
-    pub reading: Reading,
+    /// ⟨M07⟩ What the frames drew of the authorization text and the list ([`Seen`]).
+    pub seen: Seen,
 }
 
 /// The held-repair confirmation modal.
@@ -836,8 +839,8 @@ pub(crate) struct RepairPrompt {
     pub plan: Option<Result<RepairPlan, String>>,
     /// What was typed.
     pub input: String,
-    /// How far the plan has been read.
-    pub reading: Reading,
+    /// ⟨M07⟩ What the frames drew of the plan ([`Seen`]).
+    pub seen: Seen,
 }
 
 /// A probe's result view.
@@ -1832,7 +1835,7 @@ impl App {
                         id,
                         verdict: Verdict::Approve,
                         input: String::new(),
-                        reading: Reading::default(),
+                        seen: Seen::default(),
                     }));
                     changed = true;
                 }
@@ -2515,7 +2518,7 @@ impl App {
             id,
             verdict: Verdict::Approve,
             input: String::new(),
-            reading: Reading::default(),
+            seen: Seen::default(),
         }));
         // The contract: fetch the exact recorded request before deciding. The modal
         // always shows the record from the latest listing.
@@ -2528,7 +2531,7 @@ impl App {
             repair,
             plan: None,
             input: String::new(),
-            reading: Reading::default(),
+            seen: Seen::default(),
         }));
         vec![Effect::Worker(Command::PreviewRepair { operation, repair })]
     }
@@ -2717,11 +2720,11 @@ impl App {
                     }
                 };
                 p.input.clear();
-                p.reading.refused = false;
+                p.seen.reading.refused = false;
                 (Some(Modal::Decision(p)), Vec::new())
             }
             Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
-                p.reading.scroll_key(key);
+                p.seen.reading.scroll_key(key);
                 (Some(Modal::Decision(p)), Vec::new())
             }
             Key::Enter => {
@@ -2757,7 +2760,7 @@ impl App {
                     ));
                     return (None, Vec::new());
                 }
-                if Self::refuse_unread(&mut p.reading, &mut p.input) {
+                if self.refuse_unseen(&mut p.seen, &mut p.input) {
                     return (Some(Modal::Decision(p)), Vec::new());
                 }
                 let verb = match p.verdict {
@@ -2775,22 +2778,23 @@ impl App {
             }
             other => {
                 Self::type_into(&mut p.input, other);
-                p.reading.refused = false;
+                p.seen.reading.refused = false;
                 (Some(Modal::Decision(p)), Vec::new())
             }
         }
     }
 
-    /// A typed `yes` is accepted only once a frame has drawn the last row of the content
-    /// it confirms (ADR-0007 §12.31 item 3). If none has, the answer is refused: it is
-    /// discarded (the owner types it again after reading), the modal stays open and says
-    /// so. Returns whether it was refused.
-    fn refuse_unread(reading: &mut Reading, input: &mut String) -> bool {
-        if reading.end_shown() {
+    /// ⟨M07⟩ A typed `yes` is accepted only when the latest frame drew the confirmation
+    /// and the frames have drawn every row of the content it confirms, from the first one
+    /// down ([`Seen::unseen`]; ADR-0007 §12.31 item 3, m07-plan U7). Otherwise the answer
+    /// is refused the way a Settings change is: it is discarded (the owner types it again
+    /// after reading), the modal stays open, and the status line and the modal say why.
+    /// Returns whether it was refused.
+    fn refuse_unseen(&mut self, seen: &mut Seen, input: &mut String) -> bool {
+        let Some(why) = seen.unseen(self.frame()) else {
             return false;
-        }
-        input.clear();
-        reading.refused = true;
+        };
+        self.status = Some(seen.refuse(why, input).to_owned());
         true
     }
 
@@ -2838,7 +2842,7 @@ impl App {
                             level,
                             executed: None,
                             input: String::new(),
-                            reading: Reading::default(),
+                            seen: Seen::default(),
                         })),
                         vec![Effect::Worker(Command::PrepareProbe { alias, level })],
                     )
@@ -2870,7 +2874,7 @@ impl App {
                 (None, Vec::new())
             }
             Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
-                p.reading.scroll_key(key);
+                p.seen.reading.scroll_key(key);
                 (Some(Modal::Authorization(p)), Vec::new())
             }
             Key::Enter => {
@@ -2883,7 +2887,7 @@ impl App {
                     self.declined(&p, Self::not_confirmed_reason(&p.input));
                     return (None, Vec::new());
                 }
-                if Self::refuse_unread(&mut p.reading, &mut p.input) {
+                if self.refuse_unseen(&mut p.seen, &mut p.input) {
                     return (Some(Modal::Authorization(p)), Vec::new());
                 }
                 (
@@ -2902,7 +2906,7 @@ impl App {
             }
             other => {
                 Self::type_into(&mut p.input, other);
-                p.reading.refused = false;
+                p.seen.reading.refused = false;
                 (Some(Modal::Authorization(p)), Vec::new())
             }
         }
@@ -2925,7 +2929,7 @@ impl App {
                 (None, Vec::new())
             }
             Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
-                p.reading.scroll_key(key);
+                p.seen.reading.scroll_key(key);
                 (Some(Modal::Repair(p)), Vec::new())
             }
             Key::Enter => {
@@ -2942,7 +2946,7 @@ impl App {
                     ));
                     return (None, Vec::new());
                 }
-                if Self::refuse_unread(&mut p.reading, &mut p.input) {
+                if self.refuse_unseen(&mut p.seen, &mut p.input) {
                     return (Some(Modal::Repair(p)), Vec::new());
                 }
                 self.status = Some(format!(
@@ -2961,7 +2965,7 @@ impl App {
             }
             other => {
                 Self::type_into(&mut p.input, other);
-                p.reading.refused = false;
+                p.seen.reading.refused = false;
                 (Some(Modal::Repair(p)), Vec::new())
             }
         }
@@ -4568,7 +4572,7 @@ pub(crate) mod tests {
         // new record is refused, and after it was read it approves that record.
         type_text(&mut app, "yes");
         assert!(worker(&press(&mut app, &[Key::Enter])).is_empty(), "unread");
-        assert!(matches!(&app.modal, Some(Modal::Decision(p)) if p.reading.refused));
+        assert!(matches!(&app.modal, Some(Modal::Decision(p)) if p.seen.reading.refused));
         assert_eq!(
             approve_open(&mut app),
             [Command::Decide {

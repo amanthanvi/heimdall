@@ -9,4 +9,4 @@ L│70707070707 · operation op_verify1  │
  │Approve? Type yes to confirm [y/N]: │
  │_                                   │
  └ 17 more rows below (PgDn, End) ────┘m
-Up/Down PgUp/PgDn Home/End · Esc cancel
+Read every row: PgDn/PgUp · Esc cancel

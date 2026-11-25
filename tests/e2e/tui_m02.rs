@@ -1431,7 +1431,7 @@ mod pty {
             assert_eq!(ran_g(&w), 0, "nothing ran");
             let refused = w.screen();
             assert!(refused.contains("[y/N]"), "the modal stays open: {refused}");
-            assert!(refused.contains("Read to the end first"), "{refused}");
+            assert!(refused.contains("read it all first"), "{refused}");
             // Reading on by keyboard: each entry crosses the screen, the last is reached.
             let mut shown = std::collections::BTreeSet::new();
             page_down_until(
@@ -1510,8 +1510,8 @@ mod pty {
         );
         let refused = w.screen();
         assert!(refused.contains("[y/N]"), "{refused}");
-        assert!(refused.contains("Read to the end first"), "{refused}");
-        // Read it all, page by page; End alone would also have shown the last rows.
+        assert!(refused.contains("read it all first"), "{refused}");
+        // Read it all, page by page (End alone would skip the rows between: m07-plan U7).
         let mut read = String::new();
         page_down_until(
             &w,
@@ -1741,8 +1741,9 @@ mod pty {
         }
     }
 
-    /// End jumps to the last rows at once: the yes is then accepted (the last line has
-    /// been on screen), and Home afterwards does not take that back.
+    /// End jumps to the last rows at once, ⟨M07⟩ skipping the rows between (m07-plan U7):
+    /// a yes is then refused and the record stays pending. Read page by page from the
+    /// top, the yes is accepted.
     #[test]
     fn decision_end_key_shows_the_last_rows_and_then_a_yes_is_accepted() {
         let w = World::new();
@@ -1755,10 +1756,25 @@ mod pty {
         pty.write(b"\r");
         w.wait_screen("the modal", LONG, |s| s.contains("more rows below"));
         pty.write(END);
-        w.wait_screen("the end", LONG, |s| s.contains("end of the content"));
+        w.wait_screen("the end", LONG, |s| s.contains("read from the top"));
         assert!(flat(&w.screen()).contains("could imitate it"));
         pty.write(b"\x1b[H");
         w.wait_screen("the start", LONG, |s| s.contains("more rows below"));
+        pty.write(b"yes\r");
+        w.wait_screen("the refusal", LONG, |s| s.contains("yes refused"));
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(
+            decision_pending(&w, &decision),
+            "the rows End skipped were never drawn: nothing is sent"
+        );
+        assert!(w.screen().contains("read it all first"), "{}", w.screen());
+        page_down_until(
+            &w,
+            &pty,
+            "the end of the content",
+            |_| {},
+            |s| s.contains("end of the content"),
+        );
         pty.write(b"yes\r");
         wait_for("the decision completed", LONG, || {
             !decision_pending(&w, &decision)
