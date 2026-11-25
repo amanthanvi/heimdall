@@ -431,6 +431,15 @@ pub const META_RECOVERY: &[(&str, Option<&str>)] = &[
             "which recorded runners still await this device's rotated Iroh endpoint ID: local progress of a rotation, not authority (the key references are the transport_keys rows)",
         ),
     ),
+    // ⟨rev7⟩ m07-plan U3 (ADR-0013 §6.2): the page tokens' MAC key. Never in the snapshot: it
+    // is never exported, and a store without it generates a new one, which only invalidates
+    // the page tokens outstanding (a token carries a position, never authority).
+    (
+        "page_token_hmac_key",
+        Some(
+            "the page tokens' MAC key: local, never exported; a new one only invalidates outstanding page tokens",
+        ),
+    ),
 ];
 
 /// ⟨ADR-0008 §17.32 item 1⟩ One row of a [`RecoveryClass::Rows`] table
@@ -2720,6 +2729,7 @@ mod tests {
         ("ext_transport.rs", include_str!("ext_transport.rs")),
         ("ext_runner.rs", include_str!("ext_runner.rs")),
         ("ext_effects.rs", include_str!("ext_effects.rs")),
+        ("ext_m07.rs", include_str!("ext_m07.rs")),
         ("lib.rs", include_str!("lib.rs")),
         ("migrations.rs", include_str!("migrations.rs")),
     ];

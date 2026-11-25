@@ -694,6 +694,8 @@ async fn an_approved_create_resumes_the_covered_waiter_without_a_second_decision
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await
@@ -722,6 +724,8 @@ async fn an_approved_create_resumes_the_covered_waiter_without_a_second_decision
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await

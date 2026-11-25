@@ -130,6 +130,8 @@ fn request_frame(seq: u64) -> Vec<u8> {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             }),
         },
         MAX_CONTROL_FRAME_BYTES,

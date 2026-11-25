@@ -390,6 +390,8 @@ async fn e2e_setup_preview_apply_decide_restart_through_dispatcher() {
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }))
         .await;
     assert_eq!(inspect.code, Code::Ok);
@@ -1033,6 +1035,8 @@ async fn e2e_inspect_destinations_lists_the_catalog_through_the_dispatcher() {
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }))
         .await;
     assert_eq!(env.code, Code::Ok, "{:?}", env.data);
@@ -1147,6 +1151,8 @@ async fn e2e_setup_attended_apply_inspect_rollback_through_dispatcher() {
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }))
         .await;
     assert_eq!(caps.code, Code::Ok);
@@ -1243,6 +1249,8 @@ async fn inspect_projections(s: &mut Session) -> Envelope<serde_json::Value> {
         preview: None,
         cwd: None,
         redact: false,
+        select: None,
+        page: None,
     }))
     .await
 }

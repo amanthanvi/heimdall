@@ -13,7 +13,8 @@ use std::path::PathBuf;
 use heimdall_contract::Code;
 use heimdall_contract::envelope::{EffectStatus, Envelope, ErrorData};
 use heimdall_contract::ipc::{PeerInfo, capability};
-use heimdall_contract::request::{InteractionMode, Request};
+use heimdall_contract::page::{PageRequest, PageToken, Select};
+use heimdall_contract::request::{InspectRequest, InspectSubject, InteractionMode, Request};
 use heimdall_ipc::session::{ControlClient, transport_failure_envelope};
 use heimdall_runtime::Paths;
 use heimdall_runtime::launcher::{self, LaunchError, LauncherConfig};
@@ -131,6 +132,151 @@ impl Client {
     /// The underlying session (subscriptions).
     pub fn raw(&mut self) -> &mut ControlClient<Stream> {
         &mut self.inner
+    }
+
+    /// ⟨rev7⟩ A point lookup ([`select_on`]).
+    // The callers move to it in U3-1b (m07-plan U3: no caller migrates in U3-1a).
+    #[allow(dead_code)]
+    pub async fn select(
+        &mut self,
+        subject: InspectSubject,
+        select: Select,
+    ) -> Envelope<serde_json::Value> {
+        select_on(&mut self.inner, subject, select).await
+    }
+
+    /// ⟨rev7⟩ An enumeration ([`traverse_on`]).
+    ///
+    /// # Errors
+    ///
+    /// The first refused page's envelope, as [`traverse_on`].
+    // The callers move to it in U3-1b (m07-plan U3: no caller migrates in U3-1a).
+    #[allow(dead_code)]
+    pub async fn traverse(
+        &mut self,
+        subject: InspectSubject,
+        limit: Option<u32>,
+    ) -> Result<Vec<serde_json::Value>, Box<Envelope<serde_json::Value>>> {
+        traverse_on(&mut self.inner, subject, limit).await
+    }
+}
+
+/// ⟨rev7⟩ `pages/1`'s request for `subject`: no preview, `cwd` or `redact`.
+fn pages_request(
+    subject: InspectSubject,
+    select: Option<Select>,
+    page: Option<PageRequest>,
+) -> Request {
+    Request::Inspect(InspectRequest {
+        subject,
+        preview: None,
+        cwd: None,
+        redact: false,
+        select,
+        page,
+    })
+}
+
+/// ⟨rev7⟩ `SCHEMA_UNSUPPORTED` without sending anything, for a session that did not
+/// negotiate `pages/1` (an older runtime): the forms are never sent where they would be
+/// refused, and nothing falls back to a whole read.
+fn pages_unsupported<S>(client: &ControlClient<S>) -> Option<Envelope<serde_json::Value>>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
+{
+    (!client.server().capabilities.contains(capability::PAGES_V1)).then(|| {
+        crate::output::error_value(error(
+            Code::SchemaUnsupported,
+            "the runtime does not serve select or page (pages/1)",
+        ))
+    })
+}
+
+/// ⟨rev7⟩ m07-plan U3 (ADR-0013 §6.1, §6.3): a point lookup of `select`'s entries in
+/// `subject`, answered `{items, missing}` (`missing`: the entries that do not exist or are not
+/// visible to this caller). On a session without `pages/1`, `SCHEMA_UNSUPPORTED`, sent nowhere.
+pub async fn select_on<S>(
+    client: &mut ControlClient<S>,
+    subject: InspectSubject,
+    select: Select,
+) -> Envelope<serde_json::Value>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
+{
+    if let Some(refused) = pages_unsupported(client) {
+        return refused;
+    }
+    match client
+        .request(pages_request(subject, Some(select), None))
+        .await
+    {
+        Ok(env) => env,
+        Err(e) => crate::output::error_value(transport_failure_envelope(&e, false)),
+    }
+}
+
+/// ⟨rev7⟩ m07-plan U3 (ADR-0013 §6.1): every item of `subject` this caller may read, page by
+/// page (`limit` per page, the runtime's default when `None`), until the first page with
+/// `more: false`, which may be empty. On a session without `pages/1`, `SCHEMA_UNSUPPORTED`,
+/// sent nowhere.
+///
+/// # Errors
+///
+/// The first page refused (its envelope, unchanged), a transport failure, or a page that
+/// breaks the form (`next_page_token` present exactly when `more`; a token never repeats):
+/// `INTERNAL_ERROR`.
+pub async fn traverse_on<S>(
+    client: &mut ControlClient<S>,
+    subject: InspectSubject,
+    limit: Option<u32>,
+) -> Result<Vec<serde_json::Value>, Box<Envelope<serde_json::Value>>>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
+{
+    if let Some(refused) = pages_unsupported(client) {
+        return Err(Box::new(refused));
+    }
+    let malformed = || {
+        Box::new(crate::output::error_value(error(
+            Code::InternalError,
+            "the runtime answered a page that breaks the page form",
+        )))
+    };
+    let mut items = Vec::new();
+    let mut token: Option<PageToken> = None;
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    loop {
+        let page = PageRequest {
+            limit,
+            token: token.clone(),
+        };
+        let env = client
+            .request(pages_request(subject, None, Some(page)))
+            .await
+            .map_err(|e| {
+                Box::new(crate::output::error_value(transport_failure_envelope(
+                    &e, false,
+                )))
+            })?;
+        if !env.code.is_success() {
+            return Err(Box::new(env));
+        }
+        let more = env.data["more"].as_bool().ok_or_else(malformed)?;
+        let next = match env.data.get("next_page_token") {
+            None => None,
+            Some(t) => {
+                Some(serde_json::from_value::<PageToken>(t.clone()).map_err(|_| malformed())?)
+            }
+        };
+        let serde_json::Value::Array(page_items) = env.data["items"].clone() else {
+            return Err(malformed());
+        };
+        items.extend(page_items);
+        match (more, next) {
+            (false, None) => return Ok(items),
+            (true, Some(next)) if seen.insert(next.as_str().to_owned()) => token = Some(next),
+            _ => return Err(malformed()),
+        }
     }
 }
 
@@ -314,4 +460,177 @@ async fn open_stream(paths: &Paths) -> Result<Stream, Box<Envelope<ErrorData>>> 
     )
     .await
     .map_err(|e| unavailable(format!("cannot connect to the runtime: {}", e.kind())))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod pages_tests {
+    //! ⟨rev7⟩ m07-plan U3: `pages/1` over a real session (the IPC gate, then the client's
+    //! point lookup and traversal) with a dispatcher that counts what reaches it.
+
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use heimdall_contract::event::{Cursor, EventFilter};
+    use heimdall_contract::ids::EnvironmentId;
+    use heimdall_contract::ipc::{ClientHello, PrincipalInfo};
+    use heimdall_contract::{PROTOCOL_VERSION, SchemaVersion};
+    use heimdall_ipc::session::{
+        ConnectionLimits, ControlConnection, Dispatcher, SessionInfo, SubscriptionStart,
+        server_capabilities,
+    };
+    use tokio_util::sync::CancellationToken;
+
+    use super::*;
+
+    /// Answers `page` with two pages (`[1, 2]` then `[3]`) and `select` with every entry
+    /// missing; counts every dispatched request.
+    #[derive(Clone, Default)]
+    struct Pages {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl Dispatcher for Pages {
+        async fn dispatch(
+            &self,
+            _session: &SessionInfo,
+            request: Request,
+        ) -> Envelope<serde_json::Value> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let Request::Inspect(r) = request else {
+                return crate::output::error_value(error(Code::UsageError, "inspect only"));
+            };
+            let data = match (&r.select, &r.page) {
+                (Some(s), None) => serde_json::json!({ "items": [], "missing": s.ids }),
+                (None, Some(p)) if p.token.is_none() => {
+                    serde_json::json!({ "items": [1, 2], "more": true, "next_page_token": "AAAA" })
+                }
+                (None, Some(_)) => serde_json::json!({ "items": [3], "more": false }),
+                _ => serde_json::json!({ "items": [] }),
+            };
+            Envelope::ok(data)
+        }
+
+        async fn subscribe(
+            &self,
+            _session: &SessionInfo,
+            _filter: EventFilter,
+            _from: Option<Cursor>,
+        ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>> {
+            Err(Box::new(error(Code::UsageError, "no subscriptions")))
+        }
+    }
+
+    /// A session whose hello offers `offer`, served by `dispatcher`.
+    async fn session(
+        offer: BTreeSet<String>,
+        dispatcher: Pages,
+    ) -> ControlClient<tokio::io::DuplexStream> {
+        let (server, stream) = tokio::io::duplex(1 << 16);
+        tokio::spawn(async move {
+            let _ = ControlConnection::new(server, ConnectionLimits::default())
+                .with_server_identity(
+                    EnvironmentId::from_random_bytes([9; 16]),
+                    PeerInfo {
+                        name: "heimdall".into(),
+                        version: "test".into(),
+                    },
+                )
+                .serve(
+                    PrincipalInfo::OsUserUnix { uid: 501 },
+                    dispatcher,
+                    CancellationToken::new(),
+                )
+                .await;
+        });
+        ControlClient::handshake_hello(
+            stream,
+            ClientHello {
+                protocol: PROTOCOL_VERSION,
+                schema_version: SchemaVersion::current(),
+                client: PeerInfo {
+                    name: "pages-test".into(),
+                    version: "0".into(),
+                },
+                capabilities: offer,
+                required: std::iter::once(capability::OPERATIONS_V1.to_owned()).collect(),
+                interaction: InteractionMode::NonInteractive,
+                remote_client: None,
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    fn select_one() -> Select {
+        Select {
+            ids: vec!["dst-a".into()],
+            aliases: Vec::new(),
+        }
+    }
+
+    /// `select_or_page_without_the_capability_is_schema_unsupported`: a session that did not
+    /// negotiate `pages/1` sending `select` or `page` is answered `SCHEMA_UNSUPPORTED` by the
+    /// session gate and never dispatched; the client's own helpers refuse it without sending.
+    /// The same session still dispatches a whole read.
+    #[tokio::test]
+    async fn select_or_page_without_the_capability_is_schema_unsupported() {
+        let mut offer = server_capabilities();
+        assert!(
+            offer.remove(capability::PAGES_V1),
+            "the server offers pages/1"
+        );
+        let dispatcher = Pages::default();
+        let mut client = session(offer, dispatcher.clone()).await;
+        assert!(!client.server().capabilities.contains(capability::PAGES_V1));
+        let forms = [
+            pages_request(InspectSubject::Destinations, Some(select_one()), None),
+            pages_request(
+                InspectSubject::Destinations,
+                None,
+                Some(PageRequest::default()),
+            ),
+            pages_request(InspectSubject::Capabilities, Some(Select::default()), None),
+        ];
+        for request in forms {
+            let env = client.request(request).await.unwrap();
+            assert_eq!(env.code, Code::SchemaUnsupported, "{env:?}");
+        }
+        assert_eq!(
+            dispatcher.calls.load(Ordering::SeqCst),
+            0,
+            "never dispatched"
+        );
+        let env = select_on(&mut client, InspectSubject::Destinations, select_one()).await;
+        assert_eq!(env.code, Code::SchemaUnsupported);
+        let err = traverse_on(&mut client, InspectSubject::Destinations, None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, Code::SchemaUnsupported);
+        assert_eq!(dispatcher.calls.load(Ordering::SeqCst), 0, "nothing sent");
+        let env = client
+            .request(pages_request(InspectSubject::Destinations, None, None))
+            .await
+            .unwrap();
+        assert_eq!(env.code, Code::Ok);
+        assert_eq!(dispatcher.calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// The CLI's and the TUI's hello (`ControlClient::handshake`, the server's set) offers
+    /// `pages/1`, so their sessions negotiate it; the traversal follows `next_page_token`
+    /// until the first page with `more: false`, and `select` answers `missing`.
+    #[tokio::test]
+    async fn traversal_follows_tokens_to_the_last_page() {
+        let dispatcher = Pages::default();
+        let mut client = session(server_capabilities(), dispatcher.clone()).await;
+        assert!(client.server().capabilities.contains(capability::PAGES_V1));
+        let items = traverse_on(&mut client, InspectSubject::Destinations, Some(2))
+            .await
+            .unwrap();
+        assert_eq!(items, [1, 2, 3].map(serde_json::Value::from));
+        assert_eq!(dispatcher.calls.load(Ordering::SeqCst), 2);
+        let env = select_on(&mut client, InspectSubject::Destinations, select_one()).await;
+        assert_eq!(env.data["missing"], serde_json::json!(["dst-a"]));
+    }
 }

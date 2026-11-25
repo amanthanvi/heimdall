@@ -1,0 +1,12 @@
+{
+  "op": "inspect",
+  "subject": "destinations",
+  "select": {
+    "ids": [
+      "lab"
+    ],
+    "aliases": [
+      "build-host"
+    ]
+  }
+}

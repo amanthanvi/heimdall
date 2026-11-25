@@ -973,6 +973,8 @@ mod driver {
                     preview: None,
                     cwd: None,
                     redact: false,
+                    select: None,
+                    page: None,
                 },
             )
             .await

@@ -143,6 +143,8 @@ pub(crate) async fn inspect<S: Session>(
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }))
         .await;
     if env.code.is_success() {
@@ -2307,6 +2309,8 @@ mod tests {
                     preview: None,
                     cwd: None,
                     redact: false,
+                    select: None,
+                    page: None,
                 }))
                 .await;
             let entry = listing.data["decisions"]

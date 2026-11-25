@@ -185,19 +185,26 @@ fn reason_table_lists_every_answer_with_its_code_and_next_action() {
     assert_eq!(Code::all().len(), 30);
 }
 
-/// The revision-7 capabilities are declared and offered to no role.
+/// The revision-7 capabilities: `pages/1` is offered on every read role's session (m07-plan
+/// U3; ADR-0013 §6.1), `request-epoch/1` stays declared and offered to no role.
 #[test]
-fn revision_7_capabilities_are_declared_not_offered() {
+fn revision_7_pages_offered_to_every_role_request_epoch_declared_not_offered() {
     use heimdall_contract::remote::Role;
     assert_eq!(
         capability::REVISION_7_DECLARED,
         [capability::PAGES_V1, capability::REQUEST_EPOCH_V1]
     );
-    for c in capability::REVISION_7_DECLARED {
-        assert!(!capability::ALL.contains(&c), "{c}");
-        for role in [Role::Owner, Role::Requester, Role::Viewer] {
-            assert!(!capability::for_role(role).contains(&c), "{c} {role:?}");
-        }
+    assert!(capability::ALL.contains(&capability::PAGES_V1));
+    assert!(!capability::ALL.contains(&capability::REQUEST_EPOCH_V1));
+    for role in [Role::Owner, Role::Requester, Role::Viewer] {
+        assert!(
+            capability::for_role(role).contains(&capability::PAGES_V1),
+            "{role:?}"
+        );
+        assert!(
+            !capability::for_role(role).contains(&capability::REQUEST_EPOCH_V1),
+            "{role:?}"
+        );
     }
 }
 

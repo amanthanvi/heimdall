@@ -431,9 +431,27 @@ pub struct InspectRequest {
     /// false.
     #[serde(default, skip_serializing_if = "is_false")]
     pub redact: bool,
+    /// ⟨rev7⟩ ADR-0013 §6.1 (D2): a point lookup of 1 to 64 items of a list subject
+    /// ([`crate::page::Select`]), answered as a [`crate::page::Selection`]. Needs `pages/1`;
+    /// omitted when absent, so every earlier request is byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub select: Option<crate::page::Select>,
+    /// ⟨rev7⟩ ADR-0013 §6.1 (D2): one page of a list subject ([`crate::page::PageRequest`]),
+    /// answered as a [`crate::page::Page`]. Needs `pages/1`; never together with `select`
+    /// (`USAGE_ERROR` / `selector_invalid`). Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<crate::page::PageRequest>,
 }
 
 impl InspectRequest {
+    /// ⟨rev7⟩ Whether the request uses a `pages/1` form (`select` or `page`; ADR-0013 §6.1):
+    /// a session that did not negotiate `pages/1` is refused it `SCHEMA_UNSUPPORTED`, so a
+    /// runtime that does not serve the forms refuses them rather than ignores them.
+    #[must_use]
+    pub fn uses_pages_form(&self) -> bool {
+        self.select.is_some() || self.page.is_some()
+    }
+
     /// ⟨M05⟩ Whether the request uses a revision-5 form: one of revision 5's subjects, or
     /// `cwd` or `redact` on any subject (an M01–M03 runtime would ignore either). Joint
     /// wave 0 refuses it `driver_unavailable` before anything is read, and it needs
@@ -1649,6 +1667,10 @@ impl Request {
             Request::Revoke(r) if r.target.is_some() => {
                 Some(crate::ipc::capability::TRUSTED_WORK_V1)
             }
+            // ⟨rev7⟩ ADR-0013 §6.1: `select` and `page` need `pages/1`. A paged revision-5
+            // subject also needs `trusted-work/1`: the session gate checks every capability
+            // of [`Request::required_capabilities`], not only this one.
+            Request::Inspect(r) if r.uses_pages_form() => Some(crate::ipc::capability::PAGES_V1),
             Request::Inspect(r) if r.uses_m05_form() => {
                 Some(crate::ipc::capability::TRUSTED_WORK_V1)
             }
@@ -1664,6 +1686,22 @@ impl Request {
             | Request::Decide(_)
             | Request::ConfirmTime(_) => None,
         }
+    }
+
+    /// ⟨rev7; M07 W10⟩ Every capability a session must have negotiated to send this request:
+    /// [`Request::required_capability`], plus `trusted-work/1` for a `select` or `page` on a
+    /// revision-5 subject. Both forms are gated: a session that negotiated `pages/1` but not
+    /// `trusted-work/1` is refused the revision-5 subject paged exactly as it is refused it
+    /// whole (`SCHEMA_UNSUPPORTED`), so a page never serves a form the session did not
+    /// negotiate.
+    pub fn required_capabilities(&self) -> impl Iterator<Item = &'static str> {
+        let also = match self {
+            Request::Inspect(r) if r.uses_pages_form() && r.uses_m05_form() => {
+                Some(crate::ipc::capability::TRUSTED_WORK_V1)
+            }
+            _ => None,
+        };
+        self.required_capability().into_iter().chain(also)
     }
 
     /// Whether the request may only be served on an attended session and is
@@ -1787,6 +1825,34 @@ mod tests {
             verdict: Verdict::Deny,
         });
         assert_eq!(decide.required_capability(), None);
+    }
+
+    /// ⟨rev7; M07 W10⟩ A paged or selected revision-5 subject needs both `pages/1` and
+    /// `trusted-work/1`, so a session that negotiated only `pages/1` is refused it as it is
+    /// refused the whole read; an M01 subject paged needs `pages/1` alone.
+    #[test]
+    fn a_paged_revision5_subject_needs_both_capabilities() {
+        let caps = |wire: &str| {
+            let r: Request = serde_json::from_str(wire).unwrap();
+            r.required_capabilities().collect::<Vec<_>>()
+        };
+        assert_eq!(
+            caps(r#"{"op":"inspect","subject":"policies","page":{"limit":10}}"#),
+            [capability::PAGES_V1, capability::TRUSTED_WORK_V1]
+        );
+        assert_eq!(
+            caps(r#"{"op":"inspect","subject":"policies","select":{"ids":["x"]}}"#),
+            [capability::PAGES_V1, capability::TRUSTED_WORK_V1]
+        );
+        assert_eq!(
+            caps(r#"{"op":"inspect","subject":"policies"}"#),
+            [capability::TRUSTED_WORK_V1]
+        );
+        assert_eq!(
+            caps(r#"{"op":"inspect","subject":"destinations","page":{}}"#),
+            [capability::PAGES_V1]
+        );
+        assert!(caps(r#"{"op":"inspect","subject":"destinations"}"#).is_empty());
     }
 
     /// The checked-in examples (`schemas/examples/*shutdown*.json`) round-trip

@@ -81,6 +81,8 @@ async fn export_flow(ctx: &Ctx, a: &ExportArgs) -> Result<Exported, Outcome> {
             preview: None,
             cwd: None,
             redact: a.redact,
+            select: None,
+            page: None,
         }))
         .await;
     if !env.code.is_success() {

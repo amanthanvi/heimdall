@@ -2120,6 +2120,8 @@ mod u8b {
                     preview: None,
                     cwd: None,
                     redact: false,
+                    select: None,
+                    page: None,
                 }),
             )
             .await;

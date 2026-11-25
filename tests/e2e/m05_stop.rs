@@ -1245,6 +1245,8 @@ async fn a_targeted_widenings_decision_view_lists_its_policies() {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await

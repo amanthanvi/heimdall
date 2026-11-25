@@ -2123,6 +2123,17 @@
             "null"
           ]
         },
+        "page": {
+          "description": "⟨rev7⟩ ADR-0013 §6.1 (D2): one page of a list subject ([`crate::page::PageRequest`]),\nanswered as a [`crate::page::Page`]. Needs `pages/1`; never together with `select`\n(`USAGE_ERROR` / `selector_invalid`). Omitted when absent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PageRequest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "preview": {
           "description": "Dry-run authority preview: resolved snapshot plus authority delta.",
           "anyOf": [
@@ -2137,6 +2148,17 @@
         "redact": {
           "description": "⟨M05⟩ Revision 5: `export` redacts host names, addresses and labels. Omitted when\nfalse.",
           "type": "boolean"
+        },
+        "select": {
+          "description": "⟨rev7⟩ ADR-0013 §6.1 (D2): a point lookup of 1 to 64 items of a list subject\n([`crate::page::Select`]), answered as a [`crate::page::Selection`]. Needs `pages/1`;\nomitted when absent, so every earlier request is byte-identical.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Select"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "subject": {
           "description": "What to inspect.",
@@ -2623,6 +2645,36 @@
     },
     "OperationId": {
       "description": "Durable operation ID (spec §4.1 \"Operation\").",
+      "type": "string"
+    },
+    "PageRequest": {
+      "description": "`page: {limit?, token?}`: one page of a list.",
+      "type": "object",
+      "properties": {
+        "limit": {
+          "description": "Items per page: default [`PAGE_LIMIT_DEFAULT`], at most [`PAGE_LIMIT_MAX`].",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "token": {
+          "description": "The previous page's `next_page_token`; absent for the first page.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PageToken"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "PageToken": {
+      "description": "An opaque page token: base64url, at most [`MAX_PAGE_TOKEN_LEN`] bytes, never parsed by a\nclient. The runtime integrity-protects it (HMAC-SHA256 over a version, the scoped tuple\nand the position) and re-applies the reader's visibility on every page: a token carries\na position, never authority.",
       "type": "string"
     },
     "PairIssuer": {
@@ -5191,6 +5243,26 @@
           ]
         }
       ]
+    },
+    "Select": {
+      "description": "`select: {ids?, aliases?}`: 1 to [`SELECT_MAX`] entries in all, subject-scoped.",
+      "type": "object",
+      "properties": {
+        "aliases": {
+          "description": "Aliases, for the subjects that have them (destinations).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ids": {
+          "description": "Item IDs.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
     },
     "SetupRequest": {
       "description": "`Request::Setup`, tagged by `action`.",

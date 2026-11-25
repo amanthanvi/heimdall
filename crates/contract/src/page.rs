@@ -1,8 +1,8 @@
-//! ⟨rev7⟩ Whole reads, `select` and pages (ADR-0013 §6.1–§6.2, D2, D21). **Declared, not
-//! served:** `pages/1` ([`crate::ipc::capability::PAGES_V1`]) is in
-//! [`crate::ipc::capability::REVISION_7_DECLARED`] and no runtime offers it, so no session
-//! can send these forms. The `inspect` request gains them (and the server its keyset reads,
-//! HMAC tokens and role sets) in one later change (U3, ADR-0013 §1.3).
+//! ⟨rev7⟩ Whole reads, `select` and pages (ADR-0013 §6.1–§6.2, D2, D21). **Served** (m07-plan
+//! U3): `pages/1` ([`crate::ipc::capability::PAGES_V1`]) is offered on every read role's
+//! session, and the `inspect` request carries the forms
+//! ([`crate::request::InspectRequest::select`], [`crate::request::InspectRequest::page`]); a
+//! session that did not negotiate `pages/1` is refused them `SCHEMA_UNSUPPORTED`.
 //!
 //! * **A whole read** (neither form) answers the complete list, or `USAGE_ERROR` /
 //!   `response_too_large` sized before anything is sent.

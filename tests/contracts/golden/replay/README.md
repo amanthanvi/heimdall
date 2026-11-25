@@ -85,4 +85,5 @@ and it counts these rows as stored, not read.
 - `meta` key `restore_epoch`: no public reader: `Store::open` refuses a missing or non-canonical value, and no method returns it.
 - `meta` key `remote_revocation_claim_seq`: no reader: only `next_remote_claim_seq`, which reads it to advance it (a writer).
 - `meta` key `cleanup_intent_version`: no reader: only `record_cleanup_intent`, which reads it to advance it (a writer).
+- `meta` key `page_token_hmac_key`: no reader: only `page_token_key`, which reads it or creates it once (a writer); the key never leaves the store.
 

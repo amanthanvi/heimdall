@@ -214,6 +214,8 @@ impl OwnerSession for WireSession<'_> {
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }));
         if !listing.code.is_success() {
             return Err(self.refuse(listing));
@@ -259,6 +261,8 @@ impl OwnerSession for WireSession<'_> {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             }));
             crate::m03_cmd::lock_disclosure_text(&capabilities)
         } else {

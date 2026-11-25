@@ -423,6 +423,8 @@ async fn the_login_entry_setup_item_previews_applies_rolls_back_and_refuses() {
                     preview: None,
                     cwd: None,
                     redact: false,
+                    select: None,
+                    page: None,
                 },
             )
             .await

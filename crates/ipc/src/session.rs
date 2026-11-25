@@ -146,6 +146,8 @@ pub fn server_capabilities() -> BTreeSet<String> {
     .chain(capability::M03_DECLARED)
     // ⟨M05⟩ W3 (ADR-0006 §17.8; m05-plan §4 item 10): every trusted-work form is served.
     .chain([capability::TRUSTED_WORK_V1])
+    // ⟨rev7⟩ m07-plan U3 (ADR-0013 §6.1): `inspect`'s `select` and `page` are served.
+    .chain([capability::PAGES_V1])
     .map(str::to_owned)
     .collect()
 }
@@ -1120,7 +1122,7 @@ where
                     };
                     let reply = match msg {
                         ClientMessage::Request { seq, request } => {
-                            if request.required_capability().is_some_and(|c| !negotiated.contains(c)) {
+                            if request.required_capabilities().any(|c| !negotiated.contains(c)) {
                                 // ADR-0006 §2.4, §13.6 item 8: a request outside the
                                 // negotiated capabilities is never dispatched.
                                 Some(response(seq, Code::SchemaUnsupported, "this request needs a capability the session did not negotiate"))

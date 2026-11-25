@@ -1640,6 +1640,8 @@ impl<'a> RemoteEnvController<'a> {
                         preview: None,
                         cwd: None,
                         redact: false,
+                        select: None,
+                        page: None,
                     },
                 )))
                 .await?,

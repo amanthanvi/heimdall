@@ -279,6 +279,8 @@ impl Inst {
                     preview: None,
                     cwd: None,
                     redact,
+                    select: None,
+                    page: None,
                 },
             )
             .await;
@@ -666,6 +668,8 @@ async fn policies_view(a: &Inst) -> PoliciesView {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await
@@ -816,6 +820,8 @@ async fn a18_export_has_no_authority_or_secrets() {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await);
@@ -837,6 +843,8 @@ async fn a18_export_has_no_authority_or_secrets() {
         }),
         cwd,
         redact: false,
+        select: None,
+        page: None,
     };
     let e = err(a
         .ops
@@ -1891,6 +1899,8 @@ async fn set_default_profile_set_read_clear_and_never_moves_a_binding() {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await

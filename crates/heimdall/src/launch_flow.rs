@@ -288,6 +288,8 @@ async fn inspect(
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }))
         .await;
     if env.code.is_success() {

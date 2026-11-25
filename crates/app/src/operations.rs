@@ -292,6 +292,8 @@ mod login_entry_m04;
 mod remote_m06;
 // ⟨M06 W3 grant-path⟩ A runner's grant waits for its issuer (ADR-0012 §4 item 2).
 mod runner_m06;
+// ⟨rev7⟩ m07-plan U3 (ADR-0013 §6.1, §6.2): `inspect`'s `select` and `page`, and page tokens.
+mod pages_m07;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
 pub use login_entry_m04::login_resource_id;
@@ -9590,11 +9592,27 @@ impl Operations {
         ))
     }
 
-    /// `inspect` (read-only, passive; spec §10.2).
+    /// `inspect` (read-only, passive; spec §10.2). ⟨rev7⟩ With `select` or `page`, one of
+    /// `pages/1`'s forms ([`pages_m07`]); without either, the whole read, unchanged.
     pub async fn inspect(
         &self,
         caller: &Caller,
         req: InspectRequest,
+    ) -> OpResult<serde_json::Value> {
+        if req.uses_pages_form() {
+            return self.inspect_form(caller, req).await;
+        }
+        self.inspect_rows(caller, req, pages_m07::Rows::All).await
+    }
+
+    /// The whole read of `req`'s subject for `caller`. ⟨rev7⟩ The arms with a keyset store
+    /// read (destinations, profiles, identities) read only `rows`; every other arm reads its
+    /// whole list, which a `pages/1` form cuts ([`pages_m07`]).
+    async fn inspect_rows(
+        &self,
+        caller: &Caller,
+        req: InspectRequest,
+        rows: pages_m07::Rows,
     ) -> OpResult<serde_json::Value> {
         // ⟨M05⟩ Revision 5's subjects (`workspace`, `policies`, `export`) and its `cwd` and
         // `redact` parameters are M05's (U2, U4, U7); joint wave 0 refuses them before
@@ -9658,6 +9676,8 @@ impl Operations {
                     heimdall_contract::ipc::capability::ENVIRONMENTS_V1,
                     // ⟨M05⟩ W3: offered once every trusted-work form is served.
                     heimdall_contract::ipc::capability::TRUSTED_WORK_V1,
+                    // ⟨rev7⟩ m07-plan U3: `inspect`'s `select` and `page`.
+                    heimdall_contract::ipc::capability::PAGES_V1,
                 ],
                 "schemas": heimdall_contract::schema::public_schemas()
                     .iter()
@@ -9707,7 +9727,7 @@ impl Operations {
                 if !ctx.is_owner() {
                     serde_json::json!({ "items": [] })
                 } else {
-                    self.destinations_view(environment.clone()).await?
+                    self.destinations_view(environment.clone(), rows).await?
                 }
             }
             // ⟨M02⟩ ADR-0007 §12.24 item 1 (profiles): the catalog's current profile
@@ -9718,8 +9738,8 @@ impl Operations {
                     serde_json::json!({ "items": [] })
                 } else {
                     self.write(move |tx, _| {
-                        let items: Vec<serde_json::Value> = tx
-                            .profiles()?
+                        let items: Vec<serde_json::Value> = rows
+                            .profiles(tx)?
                             .iter()
                             .map(|p| {
                                 serde_json::json!({
@@ -9905,7 +9925,7 @@ impl Operations {
                 } else {
                     self.write(move |tx, _| {
                         let mut items = Vec::new();
-                        for identity in tx.identities()? {
+                        for identity in rows.identities(tx)? {
                             items.push(identity_view(tx, &identity, now)?);
                         }
                         Ok(serde_json::json!({ "identities": items }))
@@ -10166,13 +10186,19 @@ impl Operations {
     /// `managed_certificate` preference covered by a standing policy also carries
     /// `preference.connection_policy` from the runtime's wording source, computed after
     /// the transaction (it reads the alias's static observation).
-    async fn destinations_view(&self, env: EnvironmentId) -> Result<serde_json::Value, OpError> {
+    ///
+    /// ⟨rev7⟩ Only `rows` (every destination for a whole read).
+    async fn destinations_view(
+        &self,
+        env: EnvironmentId,
+        rows: pages_m07::Rows,
+    ) -> Result<serde_json::Value, OpError> {
         type Pending = Vec<(usize, String, heimdall_contract::managed::ConnectionPolicy)>;
         let (mut items, pending) = self
             .write(move |tx, _| {
                 let mut items: Vec<serde_json::Value> = Vec::new();
                 let mut pending: Pending = Vec::new();
-                for d in tx.destinations()? {
+                for d in rows.destinations(tx)? {
                     // ⟨M03⟩ U8-Q6: the managed definition's pair preference.
                     let pair = match &d.definition {
                         DestinationDefinition::Managed { account, .. } => {

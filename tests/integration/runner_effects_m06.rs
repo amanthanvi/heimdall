@@ -1119,6 +1119,8 @@ async fn lifted_effects_shown(r: &Rig, decision: &str) -> serde_json::Value {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await

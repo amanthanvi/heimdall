@@ -2912,6 +2912,8 @@ mod tests {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             })
         };
         let listed = d
@@ -3264,6 +3266,8 @@ mod tests {
                     preview: None,
                     cwd: None,
                     redact: false,
+                    select: None,
+                    page: None,
                 }),
             )
             .await;
@@ -3435,6 +3439,8 @@ mod tests {
                     preview: None,
                     cwd: None,
                     redact: false,
+                    select: None,
+                    page: None,
                 }),
             )
             .await

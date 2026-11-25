@@ -450,6 +450,8 @@ impl World {
                     preview: None,
                     cwd: Some(cwd.to_owned()),
                     redact: false,
+                    select: None,
+                    page: None,
                 },
             )
             .await
@@ -468,6 +470,8 @@ impl World {
                     preview: None,
                     cwd: None,
                     redact: false,
+                    select: None,
+                    page: None,
                 },
             )
             .await

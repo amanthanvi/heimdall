@@ -386,6 +386,8 @@ pub(crate) fn status(ctx: &Ctx) -> ExitCode {
                         preview: None,
                         cwd: None,
                         redact: false,
+                        select: None,
+                        page: None,
                     }))
                     .await;
                 env.data["items"].as_array().cloned().unwrap_or_default()
@@ -452,6 +454,8 @@ pub(crate) async fn uninstall_distributions<S: crate::cli::Session, P: crate::cl
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }))
         .await;
     let rows: Vec<serde_json::Value> = listed.data["items"]

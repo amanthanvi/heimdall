@@ -55,6 +55,8 @@ pub mod ext_transport;
 pub mod ext_runner;
 // ⟨M06 U4⟩ Typed narrowing effects: the outbox, acknowledgements and policy revisions (ADR-0012 §7).
 pub mod ext_effects;
+// ⟨rev7⟩ m07-plan U3: the keyset reads of `inspect`'s pages and the restore epoch they bind.
+pub mod ext_m07;
 pub mod migrations;
 
 pub use ext::{DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent, StoredEventPage};
@@ -324,6 +326,10 @@ const META_WINDOWS_PIPE_TOKEN: &str = "windows_environment_pipe_token";
 /// it is damaged ([`StoreError::Corrupt`], `state_corrupt`), never epoch 0 (review U0-R06):
 /// [`verify_schema`] refuses it at every open.
 const META_RESTORE_EPOCH: &str = "restore_epoch";
+/// ⟨rev7⟩ ADR-0013 §6.2: the 32-byte key of the page tokens' HMAC-SHA256, generated once from
+/// the OS RNG by the first page served ([`Txn::page_token_key`]) and kept as 64 lowercase hex
+/// characters. Never exported, printed or logged.
+const META_PAGE_TOKEN_KEY: &str = "page_token_hmac_key";
 
 /// ⟨rev7; review U0-RC04⟩ The stored restore epoch's only form: canonical decimal (`0`, or a
 /// nonzero digit then digits), no sign, no leading zero, no whitespace, within `u64`. Anything
@@ -337,6 +343,46 @@ pub(crate) fn parse_restore_epoch(text: &str) -> Option<u64> {
             .is_some_and(|b| (b'1'..=b'9').contains(b))
             && text.bytes().all(|b| b.is_ascii_digit()));
     if canonical { text.parse().ok() } else { None }
+}
+
+/// ⟨rev7⟩ ADR-0013 §6.2: the page tokens' 32-byte MAC key ([`Txn::page_token_key`]). Its
+/// `Debug` form shows no byte of it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct PageTokenKey([u8; 32]);
+
+impl PageTokenKey {
+    /// The key's bytes, for the MAC only.
+    #[must_use]
+    pub fn expose(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    fn to_hex(&self) -> String {
+        use std::fmt::Write as _;
+        self.0.iter().fold(String::with_capacity(64), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        })
+    }
+
+    fn from_hex(text: &str) -> Option<Self> {
+        let bytes = text.as_bytes();
+        if bytes.len() != 64 || !bytes.iter().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+            return None;
+        }
+        let mut out = [0u8; 32];
+        let (pairs, _) = bytes.as_chunks::<2>();
+        for (o, pair) in out.iter_mut().zip(pairs) {
+            *o = u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()?;
+        }
+        Some(Self(out))
+    }
+}
+
+impl std::fmt::Debug for PageTokenKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PageTokenKey(..)")
+    }
 }
 
 /// A Windows pipe token: 1 to 64 ASCII letters or digits (the credential crate's
@@ -881,6 +927,21 @@ impl Txn<'_> {
         let mut stmt = self.tx.prepare(sql)?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    /// ⟨rev7⟩ ADR-0013 §6.2: the page tokens' MAC key. The first call stores `fresh()` (32
+    /// bytes the caller draws from the OS RNG) in this transaction; every later one reads the
+    /// same key. A stored value that is not 64 lowercase hex characters is damage
+    /// ([`StoreError::Corrupt`]), never replaced silently. The key never leaves the process:
+    /// [`PageTokenKey`] prints no byte of it.
+    pub fn page_token_key(&mut self, fresh: impl FnOnce() -> [u8; 32]) -> Result<PageTokenKey> {
+        if let Some(text) = self.meta(META_PAGE_TOKEN_KEY)? {
+            return PageTokenKey::from_hex(&text)
+                .ok_or_else(|| StoreError::Corrupt("the page token key is malformed".to_owned()));
+        }
+        let key = PageTokenKey(fresh());
+        self.set_meta(META_PAGE_TOKEN_KEY, &key.to_hex())?;
+        Ok(key)
     }
 
     pub(crate) fn meta(&self, key: &str) -> Result<Option<String>> {

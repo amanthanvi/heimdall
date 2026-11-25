@@ -68,6 +68,12 @@ const META_NOT_READ: &[(&str, &str)] = &[
         "cleanup_intent_version",
         "no reader: only `record_cleanup_intent`, which reads it to advance it (a writer)",
     ),
+    // ⟨rev7; M07 W10 U3-1a⟩ The page tokens' MAC key (ADR-0013 §6.2).
+    (
+        "page_token_hmac_key",
+        "no reader: only `page_token_key`, which reads it or creates it once (a writer); \
+         the key never leaves the store",
+    ),
 ];
 
 /// Per table, the key columns (as text) its reader is called with: one row per stored row,

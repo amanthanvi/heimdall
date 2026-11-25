@@ -83,6 +83,8 @@ fn inspect() -> Request {
         preview: None,
         cwd: None,
         redact: false,
+        select: None,
+        page: None,
     })
 }
 

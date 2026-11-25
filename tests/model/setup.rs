@@ -2170,6 +2170,8 @@ async fn inspect_destinations_lists_the_catalog_with_alias_and_definition() {
                         preview: None,
                         cwd: None,
                         redact: false,
+                        select: None,
+                        page: None,
                     },
                 )
                 .await
@@ -2251,6 +2253,8 @@ async fn inspect_profiles_lists_the_catalog_definitions() {
                         preview: None,
                         cwd: None,
                         redact: false,
+                        select: None,
+                        page: None,
                     },
                 )
                 .await

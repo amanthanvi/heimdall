@@ -604,6 +604,8 @@ pub(crate) async fn fetch_lock_disclosure_text<S: crate::cli::Session>(
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         ))
         .await;

@@ -146,6 +146,8 @@ pub(crate) async fn workspace<S: Session>(s: &mut S, cwd: &str) -> Result<Worksp
             preview: None,
             cwd: Some(cwd.to_owned()),
             redact: false,
+            select: None,
+            page: None,
         },
     )
     .await?;
@@ -160,6 +162,8 @@ async fn policies<S: Session>(s: &mut S) -> Result<PoliciesView, Outcome> {
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         },
     )
     .await?;
@@ -184,6 +188,8 @@ async fn profile_def<S: Session>(s: &mut S, id: &ProfileId) -> Result<Option<Pro
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         },
     )
     .await?;
@@ -218,6 +224,8 @@ async fn personal_delta<S: Session>(
             }),
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         },
     )
     .await?;
@@ -247,6 +255,8 @@ async fn pending_extension<S: Session>(
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         },
     )
     .await?;

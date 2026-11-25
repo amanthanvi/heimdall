@@ -574,6 +574,8 @@ mod pty {
                         preview: None,
                         cwd: None,
                         redact: false,
+                        select: None,
+                        page: None,
                     },
                 )
                 .await

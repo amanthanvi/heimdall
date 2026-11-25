@@ -309,6 +309,8 @@ pub(super) async fn inspect_environments(p: &Process, as_caller: &Caller) -> ser
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await

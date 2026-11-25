@@ -28,6 +28,10 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 getrandom = { workspace = true }
 base64ct = { workspace = true }
+# ⟨rev7⟩ m07-plan U3 (ADR-0013 §6.2): the page tokens' HMAC-SHA256. `hmac` 0.12.1 is the
+# release whose `digest` (0.10.7) is the workspace `sha2`'s (0.10.9), already in the lock.
+hmac = { version = "=0.12.1", default-features = false }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 # M03 wave 0 (A2-Q1): virtual time (`tokio::time::pause`) for the deterministic signing-gate and

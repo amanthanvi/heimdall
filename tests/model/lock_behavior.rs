@@ -879,6 +879,8 @@ async fn linux_revoke_on_lock_labelled_signal_unverified() {
         preview: None,
         cwd: None,
         redact: false,
+        select: None,
+        page: None,
     };
     // A `continue` grant carries nothing; a `revoke_on_lock` one is labelled, once.
     let c = w

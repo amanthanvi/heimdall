@@ -270,6 +270,8 @@ async fn a_controller_reaches_a_real_runner_through_its_management_line() {
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }))
         .await
         .unwrap();
@@ -451,6 +453,8 @@ async fn a_controller_reaches_a_real_runner_through_its_management_line() {
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }))
         .await
         .unwrap();

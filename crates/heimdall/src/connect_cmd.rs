@@ -489,6 +489,8 @@ async fn covering_profile(
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }))
         .await;
     if !listed.code.is_success() {
@@ -727,6 +729,8 @@ async fn known_destination(client: &mut Client, alias: &str) -> Result<Option<Kn
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }))
         .await;
     if !listed.code.is_success() {

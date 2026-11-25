@@ -328,6 +328,8 @@ impl World {
                     preview: None,
                     cwd: Some(cwd.to_str().unwrap().to_owned()),
                     redact: false,
+                    select: None,
+                    page: None,
                 },
             )
             .await

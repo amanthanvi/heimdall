@@ -160,6 +160,9 @@ const EXAMPLES: &[(&str, Kind)] = &[
     ("event.operation-state-changed.json", Kind::Event),
     ("snapshot.operations.json", Kind::Snapshot),
     ("request.ensure.json", Kind::Request),
+    // ⟨rev7⟩ m07-plan U3 (ADR-0013 §6.1): `inspect`'s `page` and `select` forms (`pages/1`).
+    ("request.inspect.page.json", Kind::Request),
+    ("request.inspect.select.json", Kind::Request),
     ("request.revoke.json", Kind::Request),
     ("request.policy-cutoff.json", Kind::Request),
     ("request.observe-events.json", Kind::Request),

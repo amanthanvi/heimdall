@@ -1140,6 +1140,8 @@ async fn a19_uncertain_time_stops_activation_but_passive_reads_continue_with_a_w
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await);
@@ -1163,6 +1165,8 @@ async fn a19_inspect_reports_capabilities_decisions_and_previews_without_effects
                 }),
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await);
@@ -1187,6 +1191,8 @@ async fn a19_inspect_reports_capabilities_decisions_and_previews_without_effects
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await);
@@ -5219,6 +5225,8 @@ async fn r1310_view(w: &World, grant: &heimdall_contract::ids::GrantId) -> serde
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await);
@@ -9316,6 +9324,8 @@ async fn r1320_1_a_pending_cleanup_intent_is_visible_until_its_call_is_made() {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await);
@@ -11279,6 +11289,8 @@ mod m02_integration {
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }
     }
 
@@ -14692,6 +14704,8 @@ mod u0b_phase2 {
                     preview: None,
                     cwd: None,
                     redact: false,
+                    select: None,
+                    page: None,
                 },
             )
             .await);
@@ -15525,6 +15539,8 @@ mod wave0_fail_closed {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             }))
             .await;
         assert_eq!(inspect.code, Code::Ok);
@@ -15555,6 +15571,8 @@ async fn inspect_operations(w: &World) -> Completed<serde_json::Value> {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await)

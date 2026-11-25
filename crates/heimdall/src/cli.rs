@@ -1940,6 +1940,8 @@ async fn run_client(ctx: &Ctx, command: Command) -> Result<Done, Done> {
                     preview,
                     cwd: None,
                     redact: false,
+                    select: None,
+                    page: None,
                 }),
             )
             .await
@@ -1955,6 +1957,8 @@ async fn run_client(ctx: &Ctx, command: Command) -> Result<Done, Done> {
                     preview: None,
                     cwd: None,
                     redact: false,
+                    select: None,
+                    page: None,
                 }),
             )
             .await
@@ -1979,6 +1983,8 @@ async fn status(ctx: &Ctx) -> Result<Done, Done> {
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         })
     };
     let ops = client.request(inspect(InspectSubject::Operations)).await;
@@ -2559,6 +2565,8 @@ pub(crate) async fn confirm_and_decide<S: Session, P: Prompter>(
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }))
         .await;
     if !listing.code.is_success() {

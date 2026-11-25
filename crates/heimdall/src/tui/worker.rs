@@ -316,6 +316,8 @@ fn inspect(subject: InspectSubject) -> Request {
         preview: None,
         cwd: None,
         redact: false,
+        select: None,
+        page: None,
     })
 }
 
@@ -860,6 +862,8 @@ impl State {
                     preview: None,
                     cwd: Some(cwd),
                     redact: false,
+                    select: None,
+                    page: None,
                 }),
             ));
         }

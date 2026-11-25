@@ -840,6 +840,8 @@ async fn capabilities_offered_after_activation() {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await
@@ -1657,6 +1659,8 @@ async fn nominally_expired_obligation_keeps_record_grant_still_revoked() {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await
@@ -4078,6 +4082,8 @@ mod wave4 {
                         preview: None,
                         cwd: None,
                         redact: false,
+                        select: None,
+                        page: None,
                     },
                 )
                 .await
@@ -4400,6 +4406,8 @@ async fn inspect_destinations_carries_pair_preference() {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await
@@ -6586,6 +6594,8 @@ mod wave5_r2 {
                 preview: None,
                 cwd: None,
                 redact: false,
+                select: None,
+                page: None,
             },
         )
         .await

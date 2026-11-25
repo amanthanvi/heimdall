@@ -95,6 +95,8 @@ async fn list(ctx: &Ctx) -> Outcome {
             preview: None,
             cwd: None,
             redact: false,
+            select: None,
+            page: None,
         }))
         .await;
     let human = if env.code.is_success() {

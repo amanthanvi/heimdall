@@ -1,0 +1,7 @@
+{
+  "op": "inspect",
+  "subject": "destinations",
+  "page": {
+    "limit": 200
+  }
+}
