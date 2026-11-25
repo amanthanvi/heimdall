@@ -1,0 +1,152 @@
+{
+  "$comment": "Configuration of the M07 native runs (m07-plan §6) for m07-evidence.py (tests/native/m02/m02-evidence.py with the M07 constants). TEMPLATE: no native run has happened yet, and no record exists (records are U9's). The native-run step sets build_commit, started_at, artifacts_root (one directory per build, e.g. tests/evidence/artifacts/m07/exit-<commit>), environment, artifact digests and commands, regenerates tests/native/m07/required-inventory.json at that commit (tests/native/m07/refresh-inventory.sh), and only then runs --write. Every logs, commands_logs and facts path below is relative to artifacts_root; a missing file stops the generator before anything is written. A platform that did not run gets \"unavailable\": \"<the exact missing platform or input>\" (its rows are then blocked on it). A30 needs no entry in the case index: the generator adds its owner-input row (B14, B7; m07-plan §6.1) itself. The exit record (case_id m07-exit-claims) is added here once the case index has its exit claim.",
+  "case_index": "tests/native/m07/case-index.json",
+  "required_inventory": "tests/native/m07/required-inventory.json",
+  "summary_out": "tests/evidence/artifacts/m07/exit-PENDING/case-summary.json",
+  "artifacts_root": "tests/evidence/artifacts/m07/exit-PENDING",
+  "build_commit": null,
+  "artifact_digest": null,
+  "started_at": null,
+  "environment": {},
+  "commands": [
+    "tests/native/m07/refresh-inventory.sh (regenerates tests/native/m07/required-inventory.json at the exit commit, with the Linux and Windows scans)",
+    "the M07 native runs on macos, linux and windows (U9; not written yet)",
+    "python3 -I tests/native/m07/m07-evidence.py --config <artifacts_root>/runs.json --write",
+    "python3 -I tools/validation/validate-records.py"
+  ],
+  "evidence_paths": [
+    "tests/native/m07/case-index.json",
+    "tests/native/m07/runs.json",
+    "tests/native/m07/required-inventory.json",
+    "tests/native/m07/m07-evidence.py",
+    "tests/native/m07/refresh-inventory.sh",
+    "tests/native/m07/selftest.sh",
+    "tests/native/m06/m06-evidence.py",
+    "tests/native/m05/m05-evidence.py",
+    "tests/native/m02/platform-tests.py",
+    "tests/native/m02/refresh-inventory.sh",
+    "tests/native/m02/m02-evidence.py"
+  ],
+  "common_limitations": [
+    "Status discipline (m07-plan §6, M01 rule E15): verified rows mean the required tests ran and passed on that platform in this run; not an independent review of the units. The lowest-row rule applies: a row the case index carries for something not built yet (revision 7) or for an owner input keeps its record blocked, and no claim is widened to cover it.",
+    "A30 is reported blocked on owner inputs B14 and B7 at M07's exit, never as passing (m07-plan §6.1).",
+    "Linux binaries are cross-built on the macOS host with zig and run natively on the devbox; Windows binaries are built and run natively on the PC. Tests that read the repository at its compile-time path read it through HM_REPO_ROOT, which the harnesses set.",
+    "Every fixture is disposable: per-run keys, the loopback fixture sshd, disposable ssh-agents with a scratch HOME, scratch configuration and Heimdall homes; the owners' keys, agents, keychains, ~/.ssh and Git configuration are never test material."
+  ],
+  "platforms": {
+    "macos": {
+      "label": "macos-arm64 (build host)",
+      "logs": [
+        "macos/check.txt",
+        "macos/observations.txt"
+      ],
+      "commands_logs": [
+        "macos/commands.txt"
+      ],
+      "facts": [
+        "macos/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "linux": {
+      "label": "linux-x86_64 (devbox; headless)",
+      "logs": [
+        "linux/tests.txt"
+      ],
+      "commands_logs": [
+        "linux/commands.txt"
+      ],
+      "facts": [
+        "linux/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "windows": {
+      "label": "windows-11-x86_64 (native)",
+      "logs": [
+        "windows/tests.txt"
+      ],
+      "commands_logs": [
+        "windows/commands.txt"
+      ],
+      "facts": [
+        "windows/host.txt"
+      ],
+      "artifact_digest": null
+    }
+  },
+  "extra_rows": {},
+  "records": {
+    "A20": {
+      "case_id": "A20",
+      "path": "tests/evidence/m07-a20-tui-keyboard-responsive.json",
+      "requirement_ids": [
+        "R-UX-05",
+        "R-UX-07"
+      ],
+      "summary": "The TUI is keyboard-only, responsive and restored: every view, focus, controls and results at 40x12 and 120x40, a key answered within 100 ms, a resize, no key acting on a frame not drawn; the Windows row on a pseudoconsole (R-UX-05, R-UX-07).",
+      "limitations": [
+        "By reference, the M02, M03 and M05 TUI tests (their own records). U6's stale-page test arrives with U3 (revision 7)."
+      ]
+    },
+    "A27-M07": {
+      "case_id": "A27",
+      "path": "tests/evidence/m07-a27-powershell-hook.json",
+      "requirement_ids": [
+        "R-SS-04"
+      ],
+      "summary": "A27's M07 rows: the PowerShell hook writes nothing to the shell's stdout, bounds its child, and starts safely with no runtime, an unreachable runtime or a hostile state, on Windows PowerShell 5.1 and PowerShell 7 (R-SS-04).",
+      "limitations": [
+        "The M07 rows of A27 only; M02's and M04's groups and M03's ConPTY rows are their own records. U7's rendered route-helper rows are not indexed yet."
+      ]
+    },
+    "A32": {
+      "case_id": "A32",
+      "path": "tests/evidence/m07-a32-third-party-composition.json",
+      "requirement_ids": [
+        "R-AP-07",
+        "R-AP-08",
+        "R-UX-04",
+        "R-QU-05"
+      ],
+      "summary": "Third-party composition: harnesses H1 and H2 each complete the seven deterministic tasks over the CLI, and the reference wrapper completes its journey over the local protocol, with no private file, database or state path read (R-AP-07, R-AP-08, R-UX-04, R-QU-05).",
+      "limitations": [
+        "Blocked until revision 7: the Windows reference wrapper journey over the named pipe (verified-hello discovery, ADR-0013 D12, U3).",
+        "A32's LLM metrics are M09-T02's (deferred_with_decision)."
+      ]
+    },
+    "CLI-standalone": {
+      "case_id": "M07-CLI-standalone",
+      "path": "tests/evidence/m07-cli-standalone.json",
+      "requirement_ids": [
+        "R-UX-05"
+      ],
+      "summary": "CLI standalone: access and stop through the CLI only (R-UX-05).",
+      "limitations": []
+    },
+    "TUI-standalone": {
+      "case_id": "M07-TUI-standalone",
+      "path": "tests/evidence/m07-tui-standalone.json",
+      "requirement_ids": [
+        "R-UX-05"
+      ],
+      "summary": "TUI standalone: access and stop through the TUI only; the Windows row on a pseudoconsole (R-UX-05).",
+      "limitations": [
+        "Windows: the connect handoff (c) runs through the debug pinned-client redirect (HEIMDALL_TEST_PINNED_CLIENT, testkit's hm-pinned-ssh), not the product's pinned in-box ssh.exe directly; the test asserts the wrapper's `checked:` verdict and no `refused:` line on the ConPTY capture, and ssh's exit status 0 on the drawn frame."
+      ]
+    },
+    "A30": {
+      "case_id": "A30",
+      "path": "tests/evidence/m07-a30-everyday-words.json",
+      "requirement_ids": [
+        "R-UX-03",
+        "R-UX-08",
+        "R-QU-06"
+      ],
+      "summary": "A30: the default surfaces answer the three questions in everyday words. Blocked on owner inputs B14 and B7 at M07's exit, never passing (m07-plan §6.1); U2a's deterministic checks are its rows once the case index holds them.",
+      "limitations": [
+        "The participant session runs inside M09-T01's normal-week study (m07-plan §6.1, Q10)."
+      ]
+    }
+  }
+}

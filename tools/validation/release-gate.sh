@@ -153,6 +153,8 @@ value_for() {
         HEIMDALL_TEST_PINNED_CLIENT) printf '%s/pinned-client' "${vals}" ;;
         HEIMDALL_TEST_IROH_KEY_STORE) printf '%s/iroh-key-store' "${vals}" ;;
         HEIMDALL_TEST_MGMT_STORE) printf 'fixture-file:%s/mgmt-store' "${vals}" ;;
+        HEIMDALL_TEST_TUI_SCREEN) printf '%s/tui-screen.txt' "${vals}" ;;
+        HEIMDALL_TEST_TUI_PANIC) printf 'after_first_frame' ;;
         *) printf '1' ;;   # a variable this script does not know yet: any value must be refused
     esac
 }
@@ -247,7 +249,32 @@ done
 for v in ${launch_vars}; do
     probe "${v}" "run -- true" run -- true
     probe "${v}" "connect x" connect x
+    # ⟨M07 W9⟩ The TUI reads the same launch variables (the pinned-client redirect among
+    # them) before any other check, so a release `tui` with no terminal refuses each with
+    # exit 2 and the refusal text; a build that ignored one would stop at the terminal check
+    # instead, without the refusal text, and the probe fails. The TUI never starts.
+    probe "${v}" "tui (no terminal)" tui
 done
+# ⟨M07 W9; M07-W9-R04⟩ The TUI's own test hooks (tui/mod.rs `test_hooks`: the screen dump and
+# the panic after the first frame) are read with the launch variables, before the terminal
+# check, but are in neither LAUNCH_ENV nor ALL_ENV: probe each through the no-terminal `tui`,
+# and check the screen file was never written.
+for v in HEIMDALL_TEST_TUI_SCREEN HEIMDALL_TEST_TUI_PANIC; do
+    grep -q "\"${v}\"" crates/heimdall/src/tui/mod.rs || {
+        echo "release-gate: ${v} is not a constant of crates/heimdall/src/tui/mod.rs"
+        status=1
+        fail_count=$((fail_count + 1))
+    }
+    probe "${v}" "tui (no terminal)" tui
+done
+probe_count=$((probe_count + 1))
+if [ -e "${vals}/tui-screen.txt" ]; then
+    fail_count=$((fail_count + 1))
+    status=1
+    echo "release-gate: the TUI's screen file was written by a release build: FAIL"
+else
+    echo "release-gate: the TUI's screen file was not written by the release build: PASS"
+fi
 # The script pause directory is read CLI-side by `enroll` (U5's SshStepRunner), so a
 # release `enroll` must refuse it too (U0b row 16).
 probe HEIMDALL_TEST_SCRIPT_PAUSE_DIR "enroll x" enroll x

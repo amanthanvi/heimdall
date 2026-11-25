@@ -201,6 +201,18 @@ fn isolation_args(paths: &SshPaths) -> Vec<OsString> {
 /// Handle `tui` (module docs).
 pub(crate) fn run(config: TuiConfig) -> ExitCode {
     let ctx = &config.ctx;
+    // ⟨M07 W9⟩ The test variables first, before any other check: a release build refuses
+    // every one of them (exit 2) even with no terminal, so `tools/validation/release-gate.sh`
+    // can probe the TUI's refusal without ever starting it.
+    let lookup = |n: &str| std::env::var_os(n);
+    let hooks = match testcfg::launch_hooks(&lookup) {
+        Ok(h) => h,
+        Err(m) => return usage(ctx, &m),
+    };
+    let test = match test_hooks(&lookup) {
+        Ok(t) => t,
+        Err(m) => return usage(ctx, &m),
+    };
     if ctx.json {
         return usage(
             ctx,
@@ -216,15 +228,6 @@ pub(crate) fn run(config: TuiConfig) -> ExitCode {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return usage(ctx, "the TUI needs a terminal on stdin and stdout");
     }
-    let lookup = |n: &str| std::env::var_os(n);
-    let hooks = match testcfg::launch_hooks(&lookup) {
-        Ok(h) => h,
-        Err(m) => return usage(ctx, &m),
-    };
-    let test = match test_hooks(&lookup) {
-        Ok(t) => t,
-        Err(m) => return usage(ctx, &m),
-    };
     let config_dir = ctx.paths().ok().map(|p| p.config_dir);
     let (ssh_paths, isolation) = match &hooks.ssh_home {
         Some(home) => {
@@ -262,7 +265,13 @@ pub(crate) fn run(config: TuiConfig) -> ExitCode {
     }
     let result = Terminal::new(term::TermBackend::new()).and_then(|mut terminal| {
         let mut app = App::new(Timestamp::now(), config.no_color);
-        event_loop(&mut terminal, &mut app, &worker, &test)
+        event_loop(
+            &mut terminal,
+            &mut app,
+            &worker,
+            &test,
+            hooks.pinned_client.as_deref(),
+        )
     });
     term::leave();
     if term::OTHER_THREAD_PANICKED.load(std::sync::atomic::Ordering::SeqCst) {
@@ -287,6 +296,7 @@ fn event_loop(
     app: &mut App,
     worker: &Worker,
     test: &TestHooks,
+    pinned_client: Option<&std::path::Path>,
 ) -> std::io::Result<Exit> {
     let mut reader = term::Reader::new();
     let mut dirty = true;
@@ -328,7 +338,14 @@ fn event_loop(
             }
         }
         dirty |= !effects.is_empty();
-        if let Some(exit) = perform(terminal, app, worker, effects, &mut ignore_interrupts_until)? {
+        if let Some(exit) = perform(
+            terminal,
+            app,
+            worker,
+            effects,
+            &mut ignore_interrupts_until,
+            pinned_client,
+        )? {
             return Ok(exit);
         }
         // ⟨M07⟩ The poll only asks; its answers draw only if they change something
@@ -405,9 +422,14 @@ fn event_loop(
                 for key in keys {
                     let effects = app.key(key);
                     dirty = true;
-                    if let Some(exit) =
-                        perform(terminal, app, worker, effects, &mut ignore_interrupts_until)?
-                    {
+                    if let Some(exit) = perform(
+                        terminal,
+                        app,
+                        worker,
+                        effects,
+                        &mut ignore_interrupts_until,
+                        pinned_client,
+                    )? {
                         return Ok(exit);
                     }
                 }
@@ -433,6 +455,7 @@ fn perform(
     worker: &Worker,
     effects: Vec<Effect>,
     ignore_interrupts_until: &mut Option<Instant>,
+    pinned_client: Option<&std::path::Path>,
 ) -> std::io::Result<Option<Exit>> {
     let mut queue: std::collections::VecDeque<Effect> = effects.into();
     while let Some(effect) = queue.pop_front() {
@@ -444,7 +467,7 @@ fn perform(
                 }
             }
             Effect::Connect(alias) => {
-                let text = connect(terminal, &alias)?;
+                let text = connect(terminal, &alias, pinned_client)?;
                 *ignore_interrupts_until = Some(Instant::now() + INTERRUPT_GRACE);
                 queue.extend(app.handoff_ended(text));
             }
@@ -462,7 +485,11 @@ fn valid_alias(alias: &str) -> bool {
 }
 
 /// The connect action (module docs). Returns the status line describing the result.
-fn connect(terminal: &mut Term, alias: &str) -> std::io::Result<String> {
+fn connect(
+    terminal: &mut Term,
+    alias: &str,
+    pinned_client: Option<&std::path::Path>,
+) -> std::io::Result<String> {
     if !valid_alias(alias) {
         return Ok(
             "refused: the destination must be an alias (no leading '-', no spaces)".to_owned(),
@@ -475,6 +502,13 @@ fn connect(terminal: &mut Term, alias: &str) -> std::io::Result<String> {
             "{alias}: no verified ssh client was found; nothing ran"
         ));
     };
+    // ⟨M07 W9; ADR-0007 §12.52⟩ The debug pinned-client redirect, as `heimdall connect` reads
+    // it (`testcfg::PINNED_CLIENT_ENV`, debug builds only: a release build refused it in
+    // `launch_hooks` before the TUI started, exit 2). It replaces the program path and
+    // nothing else: the path is resolved, reported and launched below exactly as the
+    // selected client's, with the same single argument, environment and terminal. This is
+    // the only difference from the product path.
+    let client = pinned_client.map_or(client, std::path::Path::to_path_buf);
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
     let program = match resolve_program(client.as_os_str(), &env, &cwd, platform) {
         Ok(p) => p,
