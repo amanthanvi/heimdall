@@ -110,11 +110,12 @@ pub struct Cli {
     /// Machine output: one JSON envelope on stdout (NDJSON for event streams).
     #[arg(long, global = true)]
     pub json: bool,
-    /// Never open a browser, dialog, or terminal prompt (spec §11.3). Owner
-    /// decisions then exit 3 with `next.decision_ref` and nothing is sent.
+    // spec §11.3.
+    /// Never open a browser, dialog, or terminal prompt. Owner decisions then exit 3
+    /// with `next.decision_ref` and nothing is sent.
     #[arg(long, global = true)]
     pub non_interactive: bool,
-    /// Override the Heimdall home directory (fixtures and tests).
+    /// Use this Heimdall home directory instead of the default.
     #[arg(long, global = true, env = "HEIMDALL_HOME", value_name = "DIR")]
     pub home: Option<PathBuf>,
     /// Subcommand; with none, the TUI on a terminal, otherwise the runtime status.
@@ -125,89 +126,117 @@ pub struct Cli {
 /// Top-level commands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    // ADR-0007 §5.
     /// Adopt supported local access: preview, apply, roll back or repair the
-    /// managed OpenSSH projection (M02; ADR-0007 §5). Without an action, `apply`.
+    /// managed OpenSSH projection. Without an action, `apply`.
     Setup(SetupArgs),
-    /// Convenience connect through the verified client; ordinary ssh also works
-    /// (M02; ADR-0007 §8).
+    // ADR-0007 §8.
+    /// Convenience connect through the verified client; ordinary ssh also works.
     Connect(ConnectArgs),
-    /// Ensure access then launch argv without a shell (spec §10.4) (M02).
+    // spec §10.4.
+    /// Ensure access then launch argv without a shell.
     Run(RunArgs),
     /// Summary of the runtime, open work, and pending owner decisions. Never
     /// starts the runtime.
     Status,
-    /// Passive diagnostics by default (spec §10.2); explicit probes only by named
-    /// level (M02; ADR-0007 §6). Never starts the runtime.
+    // spec §10.2; ADR-0007 §6.
+    /// Passive diagnostics by default; explicit probes only by named level. Never
+    /// starts the runtime.
     Doctor(DoctorArgs),
-    /// Terminal UI (M02).
+    /// Terminal UI.
     Tui,
-    /// Destination catalog: managed and observed aliases (M02).
+    /// Destination catalog: managed and observed aliases.
     #[command(subcommand)]
     Destination(DestinationCommand),
-    /// Adopted identities and their interaction declarations (M02; ADR-0007 §7).
+    // ADR-0007 §7.
+    /// Adopted identities and their interaction declarations.
     #[command(subcommand)]
     Identity(IdentityCommand),
-    /// Profiles: named sets of destination/account pairs (M02).
+    /// Profiles: named sets of destination/account pairs.
     #[command(subcommand)]
     Profile(ProfileCommand),
-    /// Remove the projection, restore your files, and report what remains (M02).
+    /// Remove the projection, restore your files, and report what remains.
     Uninstall(UninstallArgs),
-    /// The local issuer: its CA key, status, recovery bundle (M03; ADR-0008 D3, D4).
+    // ADR-0008 D3, D4.
+    /// The local issuer: its CA key, status, recovery bundle.
     // ⟨ADR-0008 §17.28 item 6⟩ The ad-hoc-signed macOS update caveat and its recovery.
     #[command(subcommand, after_help = ISSUER_UPDATE_HELP)]
     Issuer(IssuerCommand),
-    /// Enroll a destination for managed credentials and manage its enrollments (M03;
-    /// ADR-0008 D5).
+    // ADR-0008 D5.
+    /// Enroll a destination for managed credentials and manage its enrollments.
     Enroll(EnrollArgs),
-    /// Owned connections and their owner-side close (M03; ADR-0008 D8).
+    // ADR-0008 D8.
+    /// Owned connections and their owner-side close.
     Connections(ConnectionsArgs),
-    /// Helpers the runtime starts itself; not a user surface (M03).
+    /// Helpers the runtime starts itself; not a user surface.
     #[command(subcommand, hide = true)]
     Internal(InternalCommand),
-    /// WSL distributions Heimdall serves: enable, disable, status (M04; ADR-0010 §2, §3).
+    // ADR-0010 §2, §3.
+    /// WSL distributions Heimdall serves: enable, disable, status.
     #[command(subcommand)]
     Wsl(WslCommand),
-    /// Local Linux-container environments and their binding recipe (M04; ADR-0010 §4).
+    // ADR-0010 §4.
+    /// Local Linux-container environments and their binding recipe.
     #[command(subcommand)]
     Container(ContainerCommand),
-    /// Project trust: the trust record of the workspace you are in (M05; ADR-0011 §2).
+    // ADR-0011 §2.
+    /// Project trust: the trust record of the workspace you are in.
     #[command(subcommand)]
     Project(ProjectCommand),
-    /// Activate the profile the working directory's workspace names; the shell hook
-    /// (M05; ADR-0011 §3.2).
+    // ADR-0011 §3.2.
+    /// Activate the profile the working directory's workspace names; the shell hook.
     Activate(ActivateArgs),
-    /// Shell integration (M05; ADR-0011 §3.2).
+    // ADR-0011 §3.2.
+    /// Shell integration.
     #[command(subcommand)]
     Shell(ShellCommand),
-    /// Export your portable intent: profiles and destinations, never authority (M05;
-    /// ADR-0011 §2.4).
+    // ADR-0011 §2.4.
+    /// Export your portable intent: profiles and destinations, never authority.
     Export(ExportArgs),
-    /// Import portable intent from an exported bundle; it grants no access (M05;
-    /// ADR-0011 §2.4).
+    // ADR-0011 §2.4.
+    /// Import portable intent from an exported bundle; it grants no access.
     Import(ImportArgs),
+    // ADR-0012 §3, §7.
     /// Remote runner environments: add, invite, join, revoke-client, remove, update,
-    /// status (M06; ADR-0012 §3, §7).
+    /// status.
     #[command(subcommand)]
     Environment(m06_cmd::EnvironmentCommand),
-    /// This controller device: retire (M06; ADR-0012 §3.4).
+    // ADR-0012 §3.4.
+    /// This controller device: retire.
     #[command(subcommand)]
     Device(m06_cmd::DeviceCommand),
-    /// A destination's approved routes: add, remove, prefer (M06; ADR-0012 §5).
+    // ADR-0012 §5.
+    /// A destination's approved routes: add, remove, prefer.
     #[command(subcommand)]
     Route(m06_cmd::RouteCommand),
-    /// The Iroh transport: enable, disable, adopt-roost (M06; ADR-0012 §1, §2, §2.8).
+    // ADR-0012 §1, §2, §2.8.
+    /// The Iroh transport: enable, disable, adopt-roost.
     #[command(subcommand)]
     Transport(m06_cmd::TransportCommand),
+    // ADR-0012 §3.3, §3.6.
     /// The runner's side of a paired environment: `init` (the bootstrap's runner-local
     /// enrollment) and `serve` (the forced command's bridge). Hidden and frozen: the
-    /// bootstrap session and rendered management lines name them (M06; ADR-0012 §3.3, §3.6).
+    /// bootstrap session and rendered management lines name them.
     #[command(subcommand, hide = true)]
     Remote(m06_cmd::RemoteCommand),
+    // ⟨rev7⟩ ADR-0014 H1: a skeleton until its unit lands (`rev7_cmd`).
+    /// Diagnostics for a support request: a bundle of codes and counts, never secrets or
+    /// free text, previewed before it is written.
+    #[command(subcommand)]
+    Support(SupportCommand),
+    // ⟨rev7⟩ ADR-0014 H3, U0-Q8: skeletons until their unit lands (`rev7_cmd`).
+    /// The local state store: its status, and the attended restore, reset and repair.
+    #[command(subcommand)]
+    State(StateCommand),
     /// Read-only inspection of runtime state. Never starts the runtime.
     Inspect {
         /// Subject: capabilities|environments|profiles|destinations|bindings|grants|operations|decisions
-        /// (M02 adds identities|projections).
+        /// (also identities|projections), or `request` with a request ID.
         subject: String,
+        // ⟨rev7⟩ U0-Q7: `inspect request <REQUEST_ID>` (a skeleton until its unit lands).
+        /// With `request`: the request ID whose state to show.
+        #[arg(value_name = "REQUEST_ID")]
+        id: Option<String>,
         /// Dry-run authority preview for this profile: the resolved snapshot and
         /// the outcome (`allowed`, `approval_required` with the exact delta, or
         /// `denied`) without any effect, record or prompt.
@@ -243,7 +272,8 @@ pub enum Command {
     /// Per-user runtime control.
     #[command(subcommand)]
     Service(ServiceCommand),
-    /// Public schemas and code table (R-AP-08).
+    // R-AP-08.
+    /// Public schemas, the code table, the error reasons and the agent primitives.
     #[command(subcommand)]
     Schema(SchemaCommand),
 }
@@ -251,9 +281,9 @@ pub enum Command {
 /// `run` arguments (ADR-0007 §8; m02-plan U8).
 #[derive(Debug, Args)]
 pub struct RunArgs {
-    /// Profile to ensure. ⟨M05⟩ Without it, the working directory's workspace, else this
-    /// environment's default profile (ADR-0011 §3.1); a trust decision is asked on a
-    /// terminal.
+    // ADR-0011 §3.1.
+    /// Profile to ensure. Without it, the working directory's workspace, else this
+    /// environment's default profile; a trust decision is asked on a terminal.
     #[arg(long)]
     pub profile: Option<String>,
     /// Work ID.
@@ -263,22 +293,23 @@ pub struct RunArgs {
     /// reported when absent). A retry with the same ID never relaunches by itself.
     #[arg(long)]
     pub request_id: Option<String>,
-    /// M05: run the program with a narrower child binding of this parent binding
-    /// (ADR-0011 §6): the program gets only the child's signing endpoint and no
-    /// `HEIMDALL_*` variable. A wider scope or a later deadline is refused
-    /// (`DELEGATION_EXCEEDS_PARENT`) and nothing is launched.
+    // ADR-0011 §6.
+    /// Run the program with a narrower child binding of this parent binding: the program
+    /// gets only the child's signing endpoint and no `HEIMDALL_*` variable. A wider scope
+    /// or a later deadline is refused (`DELEGATION_EXCEEDS_PARENT`) and nothing is
+    /// launched.
     #[arg(long, value_name = "BINDING")]
     pub parent_binding: Option<String>,
-    /// M05, with `--parent-binding`: the child's `destination:account` pairs (repeatable;
-    /// a subset of the parent's; default all of them).
+    /// With `--parent-binding`: the child's `destination:account` pairs (repeatable; a
+    /// subset of the parent's; default all of them).
     #[arg(
         long = "scope",
         value_name = "DEST:ACCOUNT",
         requires = "parent_binding"
     )]
     pub scope: Vec<String>,
-    /// M05, with `--parent-binding`: the child's deadline, an absolute RFC 3339 instant
-    /// not later than the parent's (default the parent's).
+    /// With `--parent-binding`: the child's deadline, an absolute RFC 3339 instant not
+    /// later than the parent's (default the parent's).
     #[arg(long, value_name = "INSTANT", requires = "parent_binding")]
     pub until: Option<String>,
     /// Caller minimums.
@@ -335,7 +366,8 @@ pub enum SetupCommand {
     /// Show what apply would change. Read-only; runs nothing from your
     /// configuration.
     Preview {
-        /// Also plan the global Git include (`core.sshCommand`, ADR-0007 §5.6).
+        // ADR-0007 §5.6.
+        /// Also plan the global Git include (`core.sshCommand`).
         #[arg(long)]
         include_git: bool,
     },
@@ -427,7 +459,7 @@ pub enum DestinationCommand {
         request_id: Option<String>,
     },
     /// Choose which mechanism serves an alias: the managed definition or the existing
-    /// access (M03; takes effect with `setup apply`).
+    /// access (takes effect with `setup apply`).
     Prefer(DestinationPreferArgs),
 }
 
@@ -446,7 +478,7 @@ pub struct DestinationPreferArgs {
 pub enum MechanismArg {
     /// The managed credential (a short-lived certificate).
     Managed,
-    /// The existing access (M02).
+    /// The existing access.
     Existing,
 }
 
@@ -471,7 +503,8 @@ pub struct DestinationAddArgs {
     /// Managed definition: adopted identity (`idn_…`).
     #[arg(long, requires = "hostname")]
     pub identity: Option<String>,
-    /// M04: reach the destination through this destination as a bastion (ADR-0010 §5).
+    // ADR-0010 §5.
+    /// Reach the destination through this destination as a bastion.
     #[arg(long, value_name = "DESTINATION", requires = "hostname")]
     pub jump: Option<String>,
     /// Observed: an alias your own configuration already defines.
@@ -617,13 +650,13 @@ pub struct UninstallArgs {
     /// any remote enrollment is not final, unless `--keep-remote-enrollments` is given.
     #[arg(long)]
     pub purge_state: bool,
-    /// M03: leave the remote enrollments that are not final in place. Alone, it is the
+    // ADR-0008 D4 item 6, §17.25 items 8 and 11.
+    /// Leave the remote enrollments that are not final in place. Alone, it is the
     /// explicit acknowledgement a plain uninstall needs while any remain (the state is
-    /// kept); with `--purge-state` it needs a fresh recovery bundle (`--bundle`;
-    /// ADR-0008 D4 item 6, §17.25 items 8 and 11).
+    /// kept); with `--purge-state` it needs a fresh recovery bundle (`--bundle`).
     #[arg(long)]
     pub keep_remote_enrollments: bool,
-    /// M03: the fresh recovery bundle that records what stays enrolled when the state is
+    /// The fresh recovery bundle that records what stays enrolled when the state is
     /// purged (written by this installation's `heimdall issuer bundle`).
     #[arg(
         long,
@@ -636,14 +669,16 @@ pub struct UninstallArgs {
 /// `access` subcommands.
 #[derive(Debug, Subcommand)]
 pub enum AccessCommand {
-    /// Idempotent access preparation (spec §11.3).
+    // spec §11.3.
+    /// Idempotent access preparation.
     Ensure(EnsureArgs),
     /// Drop this consumer's reference to a binding.
     Release {
         /// Binding ID.
         binding_id: String,
     },
-    /// Revoke a grant and its descendants (spec §6.7).
+    // spec §6.7.
+    /// Revoke a grant and its descendants.
     Revoke {
         /// Grant ID.
         grant_id: String,
@@ -651,7 +686,7 @@ pub enum AccessCommand {
         #[arg(long)]
         request_id: Option<String>,
     },
-    /// Narrower child binding (M05 demo; model in M01).
+    /// Narrower child binding.
     Delegate(DelegateArgs),
     /// Pause automatic activation for a policy, a profile, a workspace or all (owner
     /// channel; narrowing).
@@ -666,9 +701,9 @@ pub enum AccessCommand {
         #[command(flatten)]
         target: AccessTarget,
     },
-    /// Schedule (or clear) a hard stop for a policy, a profile, a workspace or all (spec
-    /// §6.1). An earlier cutoff applies at once; a later one or `--clear` needs an owner
-    /// decision.
+    // spec §6.1.
+    /// Schedule (or clear) a hard stop for a policy, a profile, a workspace or all. An
+    /// earlier cutoff applies at once; a later one or `--clear` needs an owner decision.
     Cutoff {
         /// What to cut off: a policy ID, or one target (M05).
         #[command(flatten)]
@@ -680,20 +715,22 @@ pub enum AccessCommand {
         #[arg(long)]
         clear: bool,
     },
-    /// Choose what a session lock does to a policy's managed grants (M03; narrowing
-    /// is immediate, widening needs an owner decision).
+    /// Choose what a session lock does to a policy's managed grants (narrowing is
+    /// immediate, widening needs an owner decision).
     LockBehavior(LockBehaviorArgs),
     /// Choose what happens to owned connections at the deadline, and whether Heimdall
-    /// owns a multiplex master (M03).
+    /// owns a multiplex master.
     ConnectionPolicy(ConnectionPolicyArgs),
+    // ADR-0011 §4.3.
     /// Owner-initiated review that may widen a workspace's, profile's or policy's
-    /// standing scope; always creates its own decision (M05; ADR-0011 §4.3).
+    /// standing scope; always creates its own decision.
     Allow(AccessAllowArgs),
-    /// Stop now: end one work's access, or a policy's, a profile's, a workspace's or all
-    /// (M05; ADR-0011 §7).
+    // ADR-0011 §7.
+    /// Stop now: end one work's access, or a policy's, a profile's, a workspace's or all.
     Stop(AccessStopArgs),
+    // ADR-0011 §5.1.
     /// The profile a new request without one uses: show, set or clear this environment's
-    /// preference; never authority (M05; ADR-0011 §5.1).
+    /// preference; never authority.
     DefaultProfile(AccessDefaultProfileArgs),
 }
 
@@ -709,17 +746,17 @@ pub enum AccessCommand {
 pub struct AccessTarget {
     /// Policy ID.
     pub policy_id: Option<String>,
-    /// M05: every policy for this profile.
+    /// Every policy for this profile.
     #[arg(long, value_name = "PROFILE")]
     pub profile: Option<String>,
-    /// M05: the policy of the workspace you are in.
+    /// The policy of the workspace you are in.
     #[arg(long)]
     pub workspace: bool,
-    /// M05: every policy.
+    /// Every policy.
     #[arg(long)]
     pub all: bool,
-    /// M05, with `--workspace`: the directory whose workspace is meant (default the
-    /// working directory).
+    /// With `--workspace`: the directory whose workspace is meant (default the working
+    /// directory).
     #[arg(long, value_name = "PATH", requires = "workspace")]
     pub cwd: Option<PathBuf>,
 }
@@ -752,7 +789,7 @@ pub struct AccessAllowArgs {
     /// The directory whose workspace `--workspace` names (default the working directory).
     #[arg(long, value_name = "PATH", requires = "workspace")]
     pub cwd: Option<PathBuf>,
-    /// M06, with `--profile`: review a new policy that names this paired runner
+    /// With `--profile`: review a new policy that names this paired runner
     /// environment. It only lets this controller issue for grants that runner admits for
     /// the profile; it activates nothing on this device.
     #[arg(long, value_name = "ENVIRONMENT", requires = "profile")]
@@ -877,9 +914,9 @@ pub struct RequireArgs {
     /// Credentials must stay usable offline until this RFC 3339 instant.
     #[arg(long = "require-offline-until", value_name = "INSTANT")]
     pub offline_until: Option<String>,
+    // m02-plan §5 item 6.
     /// New authentications must need no human interaction until the deadline,
-    /// including through desktop and vault lock (M02, §5 item 6). `unknown` never
-    /// satisfies it.
+    /// including through desktop and vault lock. `unknown` never satisfies it.
     #[arg(long = "require-unattended")]
     pub unattended: bool,
 }
@@ -949,18 +986,17 @@ pub struct EnsureArgs {
     /// still-pending operation exits 5 with `next.observe`).
     #[arg(long, default_value_t = 30_000)]
     pub timeout_ms: u64,
-    /// M03: close owned connections at the deadline (`EnsureRequest.connection`
-    /// strict).
+    /// Close owned connections at the deadline (`EnsureRequest.connection` strict).
     #[arg(long)]
     pub strict: bool,
     /// Caller minimums.
     #[command(flatten)]
     pub require: RequireArgs,
-    /// ⟨M06 W5; ADR-0012 §4 item 2 ⟨2026-11-21⟩⟩ On a runner, for its local owner at a
-    /// terminal: the CA every named pair waits for (`EnsureRequest.pair_issuers`). Only a
-    /// CA already in the runner's `issuer_trust` is admitted, and only as a pending grant:
-    /// the runner never issues. Hidden: it is the runner owner's path to record source
-    /// (b), not an agent's.
+    // M06 W5; ADR-0012 §4 item 2 (2026-11-21).
+    /// On a runner, for its local owner at a terminal: the CA every named pair waits for
+    /// (`EnsureRequest.pair_issuers`). Only a CA already in the runner's `issuer_trust` is
+    /// admitted, and only as a pending grant: the runner never issues. Hidden: it is the
+    /// runner owner's path to record source (b), not an agent's.
     #[arg(
         long = "issuer-ca",
         value_name = "FINGERPRINT",
@@ -1011,7 +1047,8 @@ pub enum IssuerCommand {
         /// Where the encrypted backup is written.
         #[arg(long, value_name = "PATH")]
         backup_out: PathBuf,
-        /// Replace the kept CA key with this fingerprint (D4 item 1).
+        // ADR-0008 D4 item 1.
+        /// Replace the kept CA key with this fingerprint.
         #[arg(long, value_name = "FINGERPRINT", requires = "orphan_bundle")]
         replace_orphan: Option<String>,
         /// The recovery bundle that is cross-checked against the orphan.
@@ -1188,7 +1225,8 @@ pub enum InternalCommand {
     Issuer,
     /// The session-lock state, read-only.
     SessionLockState,
-    /// The WSL helper the Windows runtime starts inside a distribution (M04; ADR-0010 §2).
+    // ADR-0010 §2.
+    /// The WSL helper the Windows runtime starts inside a distribution.
     WslHelper,
 }
 
@@ -1271,21 +1309,28 @@ pub enum ServiceCommand {
         /// Detach from the terminal (used by on-demand start).
         #[arg(long)]
         detach: bool,
-        /// M04: started by the login entry; yields to a running instance (ADR-0010 §1,
-        /// §6).
+        // ADR-0010 §1, §6.
+        /// Started by the login entry; yields to a running instance.
         #[arg(long)]
         login: bool,
-        /// ⟨M06⟩ Serve as a remote runner with the forced command's paths (this executable
-        /// and the explicit home): `ServiceOptions::runner`. Hidden: started by the runner's
-        /// own wiring (ADR-0012 §3.2, §4).
+        // ADR-0012 §3.2, §4.
+        /// Serve as a remote runner with the forced command's paths (this executable and
+        /// the explicit home): `ServiceOptions::runner`. Hidden: started by the runner's
+        /// own wiring.
         #[arg(long, hide = true)]
         runner: bool,
     },
     /// Report whether a runtime is serving (exit 5 when none is).
     Status,
     /// Ask the runtime to drain and stop.
-    Stop,
-    /// Start the runtime at login: enable, disable, status (M04; ADR-0010 §1, §6).
+    Stop {
+        // ⟨rev7⟩ ADR-0014 H2: a skeleton until its unit lands (`rev7_cmd`).
+        /// Only list what stopping would interrupt; change nothing.
+        #[arg(long)]
+        preview: bool,
+    },
+    // ADR-0010 §1, §6.
+    /// Start the runtime at login: enable, disable, status.
     #[command(subcommand)]
     Autostart(AutostartCommand),
 }
@@ -1412,7 +1457,8 @@ pub struct PlannedArgs {
 pub struct ActivateArgs {
     /// Run as the shell hook: noninteractive, never prompts, activates only what is
     /// already covered.
-    #[arg(long)]
+    // ⟨rev7⟩ ADR-0013 §2.3: an integration endpoint, frozen and hidden from help.
+    #[arg(long, hide = true)]
     pub hook: bool,
     /// The directory the shell is in.
     #[arg(long, value_name = "PATH")]
@@ -1483,6 +1529,48 @@ pub struct ImportArgs {
     pub request_id: Option<String>,
 }
 
+/// ⟨rev7⟩ `support` subcommands (ADR-0014 H1): a skeleton answering "not available in this
+/// build" until its unit lands.
+#[derive(Debug, Subcommand)]
+pub enum SupportCommand {
+    /// Write a support bundle: codes, counts and pseudonyms only, never secrets or free
+    /// text. The preview shows the exact bytes that would be written.
+    Bundle {
+        /// Show the bundle and write nothing.
+        #[arg(long)]
+        preview: bool,
+        /// The file to write (created new, owner-only).
+        #[arg(long, value_name = "FILE", required_unless_present = "preview")]
+        out: Option<PathBuf>,
+        /// Write identifiers typed as public (aliases, host names) instead of pseudonyms.
+        #[arg(long)]
+        include_identifiers: bool,
+    },
+}
+
+/// ⟨rev7⟩ `state` subcommands (ADR-0014 H3, U0-Q8): skeletons answering "not available in
+/// this build" until their unit lands. Restore, reset and repair are attended, with a typed
+/// confirmation, and never run under `--non-interactive`.
+#[derive(Debug, Subcommand)]
+pub enum StateCommand {
+    /// The state store's health, its current generation, earlier generations and backups
+    /// (read-only).
+    Status,
+    /// Restore identity and configuration from a backup of this installation. It recovers
+    /// no access: grants end, policies pause, paired clients need reauthorization.
+    Restore {
+        /// The backup file.
+        #[arg(long, value_name = "FILE")]
+        backup: PathBuf,
+    },
+    /// Start over with a new identity. The old state is kept, never deleted, and what it
+    /// leaves behind on remote hosts is listed first.
+    Reset,
+    /// Repair a damaged request ledger: fence every readable request after the damage,
+    /// raise the restore epoch, then drop the damaged records.
+    Repair,
+}
+
 /// `schema` subcommands.
 #[derive(Debug, Subcommand)]
 pub enum SchemaCommand {
@@ -1496,14 +1584,14 @@ pub enum SchemaCommand {
         /// `schemas/configuration`).
         #[arg(long, default_value = "schemas/configuration")]
         config_out: PathBuf,
-        /// ⟨rev5⟩ Output directory for the trusted-work file formats
+        /// Output directory for the trusted-work file formats
         /// (`manifest.schema.json`, `portable.schema.json`; default `schemas/project`).
         #[arg(long, default_value = "schemas/project")]
         project_out: PathBuf,
     },
     /// Print one schema or the code table to stdout.
     Show {
-        /// Schema name, or `codes`.
+        /// Schema name, or `codes`, `reasons` or `primitives`.
         name: String,
     },
 }
@@ -1626,7 +1714,21 @@ pub fn dispatch(cli: Cli) -> ExitCode {
             return service_cmd::run(&ctx, detach, login, runner);
         }
         Some(Command::Service(ServiceCommand::Status)) => return service_cmd::status(&ctx),
-        Some(Command::Service(ServiceCommand::Stop)) => return service_cmd::stop(&ctx),
+        // ⟨rev7⟩ ADR-0014 H2: the preview answers "not available" until its unit lands.
+        Some(Command::Service(ServiceCommand::Stop { preview: true })) => {
+            return crate::rev7_cmd::not_available(&ctx);
+        }
+        Some(Command::Service(ServiceCommand::Stop { preview: false })) => {
+            return service_cmd::stop(&ctx);
+        }
+        // ⟨rev7⟩ ADR-0014 H1, H3, U0-Q7, Q8: skeletons, whatever their flags (the ruling on
+        // ASK-H3), before any runtime contact, home creation or file read.
+        Some(Command::Support(_) | Command::State(_)) => {
+            return crate::rev7_cmd::not_available(&ctx);
+        }
+        Some(Command::Inspect { ref subject, .. }) if subject == "request" => {
+            return crate::rev7_cmd::not_available(&ctx);
+        }
         // M02 commands: each handler owns its command (all wired in wave 4).
         Some(Command::Setup(args)) => return setup_cmd::run(&ctx, args),
         Some(Command::Connect(args)) => return connect_cmd::run(&ctx, args),
@@ -1795,12 +1897,17 @@ async fn run_client(ctx: &Ctx, command: Command) -> Result<Done, Done> {
             .map_err(|d| crate::doctor_cmd::with_status_chores(ctx, d)),
         Command::Inspect {
             subject,
+            id,
             preview,
             environment,
             until,
             for_duration,
             require,
         } => {
+            // ⟨rev7⟩ Only `inspect request` takes an ID (answered before this, in `dispatch`).
+            if id.is_some() {
+                return Err(Done::of(usage("only `inspect request` takes an ID")));
+            }
             let subject: InspectSubject =
                 serde_json::from_value(serde_json::Value::String(subject))
                     .map_err(|_| Done::of(usage("unknown inspect subject")))?;
@@ -2761,9 +2868,17 @@ async fn follow_events(
 fn schema_show(name: &str) -> ExitCode {
     let doc = if name == "codes" {
         Some(heimdall_contract::schema::code_table())
+    } else if name == "primitives" {
+        // ⟨rev7⟩ ADR-0013 §9, D7.
+        Some(heimdall_contract::primitives::index())
+    } else if name == "reasons" {
+        // ⟨rev7⟩ ADR-0013 D8.
+        Some(heimdall_contract::reasons::table())
     } else {
         heimdall_contract::schema::public_schemas()
             .into_iter()
+            // ⟨rev7⟩ The declared schemas are shown by name too.
+            .chain(heimdall_contract::schema::declared_schemas())
             .find(|s| s.name == name)
             .and_then(|s| serde_json::to_value(&s.schema).ok())
     };
@@ -2808,6 +2923,29 @@ fn schema_export(
         text.push('\n');
         std::fs::write(&codes, text)?;
         written.push(codes.display().to_string());
+        // ⟨rev7⟩ ADR-0013 D7, D8: the primitive index and the reason table, same rendering.
+        for (name, doc) in [
+            ("primitives.json", heimdall_contract::primitives::index()),
+            ("reasons.json", heimdall_contract::reasons::table()),
+        ] {
+            let path = out.join(name);
+            let mut text = serde_json::to_string_pretty(&doc).map_err(std::io::Error::other)?;
+            text.push('\n');
+            std::fs::write(&path, text)?;
+            written.push(path.display().to_string());
+        }
+        // ⟨rev7⟩ The declared schemas (no live document carries them yet), in their own
+        // directory.
+        let declared = out.join(heimdall_contract::schema::DECLARED_DIR);
+        std::fs::create_dir_all(&declared)?;
+        for s in heimdall_contract::schema::declared_schemas() {
+            let path = declared.join(format!("{}.schema.json", s.name));
+            let mut text =
+                serde_json::to_string_pretty(&s.schema).map_err(std::io::Error::other)?;
+            text.push('\n');
+            std::fs::write(&path, text)?;
+            written.push(path.display().to_string());
+        }
         // ⟨rev5⟩ The trusted-work file formats (ADR-0006 §17), same rendering.
         for s in heimdall_contract::schema::project_schemas() {
             let path = project_out.join(format!("{}.schema.json", s.name));
@@ -2842,6 +2980,11 @@ fn schema_export(
         }
     }
 }
+
+/// ⟨rev7⟩ The command-tree golden and the help lint (ADR-0013 D3, D14).
+#[cfg(test)]
+#[path = "cli_tree_tests.rs"]
+mod tree_tests;
 
 #[cfg(test)]
 mod tests {

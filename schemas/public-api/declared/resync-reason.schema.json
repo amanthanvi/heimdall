@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ResyncReason",
+  "description": "⟨rev7⟩ Why a subscription started from a whole snapshot, or why a stream or a page ended\n(ADR-0013 §5.3, §5.4). Every gap ends the stream.",
+  "oneOf": [
+    {
+      "description": "The live buffer (256 events) overran.",
+      "type": "string",
+      "const": "subscriber_lagged"
+    },
+    {
+      "description": "Retention removed events the reader had not received.",
+      "type": "string",
+      "const": "history_trimmed"
+    },
+    {
+      "description": "An event does not fit one frame.",
+      "type": "string",
+      "const": "event_too_large"
+    },
+    {
+      "description": "The missed backlog is longer than [`BACKLOG_MAX`] visible events.",
+      "type": "string",
+      "const": "backlog_too_long"
+    },
+    {
+      "description": "The cursor is beyond the head, malformed, of an unknown version, or another reader's\nor environment's.",
+      "type": "string",
+      "const": "cursor_invalid"
+    }
+  ]
+}

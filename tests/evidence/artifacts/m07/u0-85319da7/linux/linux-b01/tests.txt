@@ -1,0 +1,1916 @@
+### adversarial_agent_client_frames
+
+running 18 tests
+test an_oversized_reply_is_refused_from_its_header ... ok
+test a_well_formed_listing_round_trips_and_discards_comments ... ok
+test bounds_never_exceed_the_hard_maximums ... ok
+test a_foreign_peer_uid_is_refused ... ok
+test errors_never_carry_reply_content ... ok
+test identity_count_bound_is_1024 ... ok
+test malformed_answers_refuse_the_whole_reply ... ok
+test certificates_are_fingerprinted_by_the_certified_key ... ok
+test mutated_answers_stay_consistent ... ok
+test arbitrary_bodies_are_total ... ok
+test generated_answers_parse_exactly ... ok
+test unix_socket::absent_and_non_socket_endpoints_are_refused_without_contact ... ok
+test unix_socket::dropping_the_listing_closes_the_connection_and_spawns_nothing ... ok
+test unix_socket::one_request_over_a_real_socket_and_the_connection_closes ... ok
+test wrong_message_types_and_failures_are_distinct ... ok
+test unix_socket::a_slow_loris_reply_ends_at_the_bound ... ok
+test truncated_replies_are_refused ... ok
+test unix_socket::a_silent_agent_ends_at_the_default_bound ... ok
+
+successes:
+
+---- mutated_answers_stay_consistent stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/agent_client_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- arbitrary_bodies_are_total stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/agent_client_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- generated_answers_parse_exactly stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/agent_client_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    a_foreign_peer_uid_is_refused
+    a_well_formed_listing_round_trips_and_discards_comments
+    an_oversized_reply_is_refused_from_its_header
+    arbitrary_bodies_are_total
+    bounds_never_exceed_the_hard_maximums
+    certificates_are_fingerprinted_by_the_certified_key
+    errors_never_carry_reply_content
+    generated_answers_parse_exactly
+    identity_count_bound_is_1024
+    malformed_answers_refuse_the_whole_reply
+    mutated_answers_stay_consistent
+    truncated_replies_are_refused
+    unix_socket::a_silent_agent_ends_at_the_default_bound
+    unix_socket::a_slow_loris_reply_ends_at_the_bound
+    unix_socket::absent_and_non_socket_endpoints_are_refused_without_contact
+    unix_socket::dropping_the_listing_closes_the_connection_and_spawns_nothing
+    unix_socket::one_request_over_a_real_socket_and_the_connection_closes
+    wrong_message_types_and_failures_are_distinct
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.03s
+
+### adversarial_agent_client_frames exit=0
+### adversarial_agent_frames
+
+running 16 tests
+test a_valid_frame_after_an_oversize_header_is_never_read ... ok
+test disallowed_types_get_failure_and_the_connection_stays_usable ... ok
+test identities_answer_never_exceeds_the_frame_limit ... ok
+test control_bytes_on_the_signing_endpoint_get_failure_and_no_json_parse ... ok
+test m01_default_endpoint_lists_nothing_and_refuses_signing ... ok
+test oversize_signature_becomes_failure ... ok
+test oversize_zero_length_and_truncated_frames_close_without_reply ... ok
+test public_serve_closes_after_thirty_seconds_idle ... ok
+test classify_is_total ... ok
+test shutdown_closes_promptly ... ok
+test report_section4_crafted_frame_corpus ... ok
+test sign_request_reaches_the_signer_verbatim_and_answer_interoperates ... ok
+test sixty_fifth_identity_is_never_listed ... ok
+test sign_fields_are_exact ... ok
+test framer_survives_arbitrary_streams ... ok
+test idle_connection_closes_at_the_idle_timeout ... ok
+
+successes:
+
+---- classify_is_total stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/agent_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- sign_fields_are_exact stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/agent_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- framer_survives_arbitrary_streams stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/agent_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+
+successes:
+    a_valid_frame_after_an_oversize_header_is_never_read
+    classify_is_total
+    control_bytes_on_the_signing_endpoint_get_failure_and_no_json_parse
+    disallowed_types_get_failure_and_the_connection_stays_usable
+    framer_survives_arbitrary_streams
+    identities_answer_never_exceeds_the_frame_limit
+    idle_connection_closes_at_the_idle_timeout
+    m01_default_endpoint_lists_nothing_and_refuses_signing
+    oversize_signature_becomes_failure
+    oversize_zero_length_and_truncated_frames_close_without_reply
+    public_serve_closes_after_thirty_seconds_idle
+    report_section4_crafted_frame_corpus
+    shutdown_closes_promptly
+    sign_fields_are_exact
+    sign_request_reaches_the_signer_verbatim_and_answer_interoperates
+    sixty_fifth_identity_is_never_listed
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+### adversarial_agent_frames exit=0
+### adversarial_ipc_frames
+
+running 10 tests
+test codec_refuses_oversize_from_the_header_without_reserving ... ok
+test attend_on_a_non_interactive_session_is_refused ... ok
+test many_valid_requests_are_all_answered ... ok
+test parse_errors_never_quote_the_input ... ok
+test production_hello_timeout_closes_a_silent_connection ... ok
+test client_messages_round_trip ... ok
+test zero_length_and_wrong_types_after_hello_close_with_goodbye ... ok
+test codec_matches_pure_decoder ... ok
+test decode_frame_never_panics ... ok
+test serve_survives_adversarial_streams ... ok
+
+successes:
+
+---- client_messages_round_trip stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/ipc_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- codec_matches_pure_decoder stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/ipc_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- decode_frame_never_panics stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/ipc_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- serve_survives_adversarial_streams stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/ipc_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+
+successes:
+    attend_on_a_non_interactive_session_is_refused
+    client_messages_round_trip
+    codec_matches_pure_decoder
+    codec_refuses_oversize_from_the_header_without_reserving
+    decode_frame_never_panics
+    many_valid_requests_are_all_answered
+    parse_errors_never_quote_the_input
+    production_hello_timeout_closes_a_silent_connection
+    serve_survives_adversarial_streams
+    zero_length_and_wrong_types_after_hello_close_with_goodbye
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+### adversarial_ipc_frames exit=0
+### adversarial_prompt_injection
+
+running 7 tests
+test a29_an_agent_without_a_terminal_cannot_decide ... ok
+test a29_hostile_manifest_files_are_refused_explicitly_and_bounded ... ok
+test a29_decision_references_from_repository_text_are_not_found_or_stale ... ok
+test agent::the_agent_reads_every_planted_phrasing ... ok
+test a29_approval_claims_in_labels_work_ids_and_agent_names_change_nothing ... ok
+test a29_self_authorizing_manifests_get_nothing_unattended ... ok
+test a29_hostile_working_directories_move_no_trust ... ok
+
+successes:
+
+successes:
+    a29_an_agent_without_a_terminal_cannot_decide
+    a29_approval_claims_in_labels_work_ids_and_agent_names_change_nothing
+    a29_decision_references_from_repository_text_are_not_found_or_stale
+    a29_hostile_manifest_files_are_refused_explicitly_and_bounded
+    a29_hostile_working_directories_move_no_trust
+    a29_self_authorizing_manifests_get_nothing_unattended
+    agent::the_agent_reads_every_planted_phrasing
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+### adversarial_prompt_injection exit=0
+### adversarial_prompt_injection_cli
+
+running 11 tests
+test a29_cli_a_fifo_bundle_is_refused_without_waiting ... ok
+test a29_cli_bundle_files_are_bounded_before_any_runtime_contact ... ok
+test a29_cli_fifo_input_files_are_refused_without_waiting ... ok
+test a29_cli_a_runtime_started_before_its_guard_is_still_stopped ... ok
+test a29_cli_decide_without_a_terminal_is_interaction_required ... ok
+test a29_cli_hook_ignores_a_hostile_environment ... ok
+test a29_cli_hook_stays_silent_with_hostile_state_variables ... ok
+test agent::the_agent_reads_every_planted_phrasing ... ok
+test a29_cli_attended_decide_of_repository_references_applies_nothing ... ok
+test a29_cli_self_authorizing_manifests_get_nothing ... ok
+test a29_cli_names_claiming_approval_change_nothing ... ok
+
+successes:
+
+---- a29_cli_a_runtime_started_before_its_guard_is_still_stopped stdout ----
+
+thread 'a29_cli_a_runtime_started_before_its_guard_is_still_stopped' (1577347) panicked at crates/heimdall/../../tests/adversarial/prompt_injection/cli.rs:1530:9:
+a startup assertion fails before the guard is set
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+a29 observation: runtime pid 1577356 stopped
+
+---- a29_cli_decide_without_a_terminal_is_interaction_required stdout ----
+a29 observation: runtime pid 1577379 start 2e7a23db-b46c-4752-9061-22fcf4233b6e:332512249
+a29 observation: runtime pid 1577379 stopped
+
+---- a29_cli_hook_ignores_a_hostile_environment stdout ----
+a29 observation: runtime pid 1577401 start 2e7a23db-b46c-4752-9061-22fcf4233b6e:332512266
+a29 observation: runtime pid 1577401 stopped
+
+---- a29_cli_hook_stays_silent_with_hostile_state_variables stdout ----
+a29 observation: runtime pid 1577442 start 2e7a23db-b46c-4752-9061-22fcf4233b6e:332512335
+a29 observation: runtime pid 1577442 stopped
+
+---- a29_cli_attended_decide_of_repository_references_applies_nothing stdout ----
+a29 observation: runtime pid 1577363 start 2e7a23db-b46c-4752-9061-22fcf4233b6e:332512246
+a29 observation: runtime pid 1577447 start 2e7a23db-b46c-4752-9061-22fcf4233b6e:332512335
+a29 observation: runtime pid 1577447 stopped
+a29 observation: runtime pid 1577363 stopped
+
+---- a29_cli_self_authorizing_manifests_get_nothing stdout ----
+a29 observation: runtime pid 1577580 start 2e7a23db-b46c-4752-9061-22fcf4233b6e:332512395
+a29 observation: runtime pid 1577580 stopped
+
+---- a29_cli_names_claiming_approval_change_nothing stdout ----
+a29 observation: runtime pid 1577500 start 2e7a23db-b46c-4752-9061-22fcf4233b6e:332512355
+a29 observation: runtime pid 1577688 start 2e7a23db-b46c-4752-9061-22fcf4233b6e:332512486
+a29 observation: runtime pid 1577688 stopped
+a29 observation: runtime pid 1577500 stopped
+
+
+successes:
+    a29_cli_a_fifo_bundle_is_refused_without_waiting
+    a29_cli_a_runtime_started_before_its_guard_is_still_stopped
+    a29_cli_attended_decide_of_repository_references_applies_nothing
+    a29_cli_bundle_files_are_bounded_before_any_runtime_contact
+    a29_cli_decide_without_a_terminal_is_interaction_required
+    a29_cli_fifo_input_files_are_refused_without_waiting
+    a29_cli_hook_ignores_a_hostile_environment
+    a29_cli_hook_stays_silent_with_hostile_state_variables
+    a29_cli_names_claiming_approval_change_nothing
+    a29_cli_self_authorizing_manifests_get_nothing
+    agent::the_agent_reads_every_planted_phrasing
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.70s
+
+### adversarial_prompt_injection_cli exit=0
+### adversarial_signer_requests
+
+running 7 tests
+test one_mebibyte_of_random_data_refused ... ok
+test declared_lengths_past_the_end_refused ... ok
+test oversized_userauth_requests_refused ... ok
+test truncated_userauth_requests_refused ... ok
+test valid_fixture_requests_are_accepted ... ok
+test arbitrary_bytes_refused ... ok
+test mutated_requests_keep_the_purpose_binding ... ok
+
+successes:
+
+---- arbitrary_bytes_refused stdout ----
+proptest: Failed to find absolute path of source file '"crates/credential/../../tests/adversarial/signer_requests.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- mutated_requests_keep_the_purpose_binding stdout ----
+proptest: Failed to find absolute path of source file '"crates/credential/../../tests/adversarial/signer_requests.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    arbitrary_bytes_refused
+    declared_lengths_past_the_end_refused
+    mutated_requests_keep_the_purpose_binding
+    one_mebibyte_of_random_data_refused
+    oversized_userauth_requests_refused
+    truncated_userauth_requests_refused
+    valid_fixture_requests_are_accepted
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+
+### adversarial_signer_requests exit=0
+### adversarial_sshconf_hostile
+
+running 19 tests
+test a_hostile_retired_keyword_line_is_ignored_not_trusted ... ok
+test command_text_with_shell_metacharacters_is_kept_raw_as_data ... ok
+test include_depth_16_loads_and_depth_17_is_a_bound ... ok
+test glob_explosion_is_a_bound_and_reads_nothing ... ok
+test invalid_utf8_in_a_comment_versus_in_a_value ... ok
+test nul_byte_refuses_the_whole_file ... ok
+test include_of_a_fifo_a_directory_or_an_unreadable_file_is_recorded ... ok
+test oversized_line_is_refused_with_its_line_number ... ok
+test file_count_256_loads_and_the_257th_is_a_bound ... ok
+test parse_file_never_panics_on_arbitrary_bytes ... ok
+test pathological_quoting_and_escapes_never_panic ... ok
+test render_path_constructors_never_panic_on_arbitrary_unicode ... ok
+test repeated_inclusion_counts_every_read ... ok
+test shell_metacharacters_in_values_stay_data ... ok
+test total_bytes_bound_over_every_read ... ok
+test walk_is_total_and_bounded ... ok
+test oversized_file_is_refused_whole ... ok
+test every_value_has_the_role_of_its_file ... ok
+test parse_file_never_panics_on_syntax_soup ... ok
+
+successes:
+
+---- parse_file_never_panics_on_arbitrary_bytes stdout ----
+proptest: Failed to find absolute path of source file '"crates/sshconf/../../tests/adversarial/sshconf_hostile.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- render_path_constructors_never_panic_on_arbitrary_unicode stdout ----
+proptest: Failed to find absolute path of source file '"crates/sshconf/../../tests/adversarial/sshconf_hostile.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- walk_is_total_and_bounded stdout ----
+proptest: Failed to find absolute path of source file '"crates/sshconf/../../tests/adversarial/sshconf_hostile.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- every_value_has_the_role_of_its_file stdout ----
+proptest: Failed to find absolute path of source file '"crates/sshconf/../../tests/adversarial/sshconf_hostile.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- parse_file_never_panics_on_syntax_soup stdout ----
+proptest: Failed to find absolute path of source file '"crates/sshconf/../../tests/adversarial/sshconf_hostile.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    a_hostile_retired_keyword_line_is_ignored_not_trusted
+    command_text_with_shell_metacharacters_is_kept_raw_as_data
+    every_value_has_the_role_of_its_file
+    file_count_256_loads_and_the_257th_is_a_bound
+    glob_explosion_is_a_bound_and_reads_nothing
+    include_depth_16_loads_and_depth_17_is_a_bound
+    include_of_a_fifo_a_directory_or_an_unreadable_file_is_recorded
+    invalid_utf8_in_a_comment_versus_in_a_value
+    nul_byte_refuses_the_whole_file
+    oversized_file_is_refused_whole
+    oversized_line_is_refused_with_its_line_number
+    parse_file_never_panics_on_arbitrary_bytes
+    parse_file_never_panics_on_syntax_soup
+    pathological_quoting_and_escapes_never_panic
+    render_path_constructors_never_panic_on_arbitrary_unicode
+    repeated_inclusion_counts_every_read
+    shell_metacharacters_in_values_stay_data
+    total_bytes_bound_over_every_read
+    walk_is_total_and_bounded
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+### adversarial_sshconf_hostile exit=0
+### adversarial_stategen_switch_faults
+
+running 18 tests
+test a_directory_no_intent_names_is_never_removed ... ok
+test a_failed_cleanup_keeps_the_intent_so_start_up_removes_the_leftover ... ok
+test a_written_pointer_that_is_gone_is_corrupt_and_nothing_is_removed ... ok
+test adoption_killed_at_each_step_then_older_build_then_newer_build ... ok
+test an_empty_generations_directory_with_stray_files_is_still_a_new_installation ... ok
+test a_pointer_that_was_never_written_is_discarded_and_run_again ... ok
+test child_publish ... ok
+test inspect_writes_nothing_and_open_removes_the_leftover ... ok
+test an_interrupted_install_is_run_again ... ok
+test migration_notes_never_touch_the_record_and_ignore_a_cut_line ... ok
+test a_failure_while_completing_the_intent_leaves_the_switch_done ... ok
+test reset_then_restart_serves_the_new_generation ... ok
+test restore_restore_reset_keeps_every_earlier_generation ... ok
+test staging_refuses_an_unclosed_database_and_unreported_files ... ok
+test a_failure_while_writing_the_switching_mark_leaves_the_old_generation ... ok
+test unreadable_or_dangling_pointer_stops_and_never_picks_another_generation ... ok
+test switch_survives_a_kill_at_each_step ... ok
+test switch_interrupted_before_and_after_each_sync_and_the_rename ... ok
+
+successes:
+
+successes:
+    a_directory_no_intent_names_is_never_removed
+    a_failed_cleanup_keeps_the_intent_so_start_up_removes_the_leftover
+    a_failure_while_completing_the_intent_leaves_the_switch_done
+    a_failure_while_writing_the_switching_mark_leaves_the_old_generation
+    a_pointer_that_was_never_written_is_discarded_and_run_again
+    a_written_pointer_that_is_gone_is_corrupt_and_nothing_is_removed
+    adoption_killed_at_each_step_then_older_build_then_newer_build
+    an_empty_generations_directory_with_stray_files_is_still_a_new_installation
+    an_interrupted_install_is_run_again
+    child_publish
+    inspect_writes_nothing_and_open_removes_the_leftover
+    migration_notes_never_touch_the_record_and_ignore_a_cut_line
+    reset_then_restart_serves_the_new_generation
+    restore_restore_reset_keeps_every_earlier_generation
+    staging_refuses_an_unclosed_database_and_unreported_files
+    switch_interrupted_before_and_after_each_sync_and_the_rename
+    switch_survives_a_kill_at_each_step
+    unreadable_or_dangling_pointer_stops_and_never_picks_another_generation
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.38s
+
+### adversarial_stategen_switch_faults exit=0
+### adversarial_support_bundle_redaction
+
+running 14 tests
+test an_unreadable_store_reports_only_its_integrity_code ... ok
+test bundle_holds_only_codes_safe_values_and_pseudonyms ... ok
+test canaries_in_every_input_never_reach_the_bundle ... ok
+test free_text_is_never_exported ... ok
+test identifier_bearing_diagnostics_are_withheld_or_pseudonymized ... ok
+test include_identifiers_never_bypasses_secret_checks ... ok
+test previewed_bytes_are_the_written_bytes ... ok
+test bundle_is_plain_text_and_bounded ... ok
+test the_fixture_wires_every_slot ... ok
+test the_inverse_map_is_not_in_the_bundle ... ok
+test unmarked_secrets_never_reach_the_bundle ... ok
+test split_and_multiline_key_material_never_reaches_the_bundle ... ok
+test arbitrary_identifiers_are_pseudonymized_or_withheld ... ok
+test arbitrary_free_text_and_secrets_never_reach_the_bundle ... ok
+
+successes:
+
+successes:
+    an_unreadable_store_reports_only_its_integrity_code
+    arbitrary_free_text_and_secrets_never_reach_the_bundle
+    arbitrary_identifiers_are_pseudonymized_or_withheld
+    bundle_holds_only_codes_safe_values_and_pseudonyms
+    bundle_is_plain_text_and_bounded
+    canaries_in_every_input_never_reach_the_bundle
+    free_text_is_never_exported
+    identifier_bearing_diagnostics_are_withheld_or_pseudonymized
+    include_identifiers_never_bypasses_secret_checks
+    previewed_bytes_are_the_written_bytes
+    split_and_multiline_key_material_never_reaches_the_bundle
+    the_fixture_wires_every_slot
+    the_inverse_map_is_not_in_the_bundle
+    unmarked_secrets_never_reach_the_bundle
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.67s
+
+### adversarial_support_bundle_redaction exit=0
+### contracts
+
+running 135 tests
+test canonical_props::decimal_text_reaches_a_canonical_fixed_point ... ok
+test canonical_props::canonical_output_is_valid_json_and_idempotent ... ok
+test canonical_props::floats_hash_consistently_and_round_trip_text ... ok
+test canonical_props::golden_request_hash_vectors ... ok
+test canonical_props::array_order_changes_canonical_bytes_and_hash ... ok
+test canonical_props::float_roundtrip_parsed_number_canonicalizes_identically ... ok
+test canonical_props::hash_hex_round_trips ... ok
+test canonical_props::context_participates_in_the_hash ... ok
+test canonical_props::hash_parser_is_bounded_and_total ... ok
+test canonical_props::integer_documents_reparse_to_identical_canonical_bytes ... ok
+test canonical_props::numbers_keep_their_serde_json_form ... ok
+test canonical_props::object_keys_sort_bytewise_not_by_utf16_or_locale ... ok
+test canonical_props::strings_use_deterministic_escapes ... ok
+test code_table::adr_13_1_rulings_hold ... ok
+test code_table::code_set_has_no_duplicates_and_covers_the_spec_list ... ok
+test code_table::code_spelling_is_exact_on_the_wire ... ok
+test code_table::decision_stale_row_is_in_table_order ... ok
+test code_table::envelope_with_an_unknown_code_parses_and_is_not_success ... ok
+test code_table::error_envelope_golden_json_for_every_code ... ok
+test code_table::every_code_matches_its_golden_row ... ok
+test code_table::exit_numbers_are_the_documented_wire_numbers ... ok
+test code_table::golden_file_matches_the_adr_table ... ok
+test code_table::launch_failed_row_and_its_126_rule ... ok
+test code_table::retryable_never_applies_to_uncertain_or_refused_outcomes ... ok
+test code_table::unknown_code_reads_as_an_error_with_exit_one_and_round_trips ... ok
+test canonical_props::hash_equality_iff_bytes_equality_with_floats ... ok
+test canonical_props::hash_equality_iff_canonical_byte_equality ... ok
+test examples::decide_and_confirm_time_examples_are_attended_only_requests ... ok
+test examples::decision_stale_example_matches_its_table_row ... ok
+test examples::emitted_documents_always_materialize_next_and_warnings ... ok
+test examples::error_examples_cover_every_exit_class_and_agree_with_the_code_table ... ok
+test examples::every_example_round_trips_exactly_through_the_typed_model ... ok
+test examples::attend_and_subscribed_examples_parse_to_the_documented_shapes ... ok
+test examples::missing_schema_version_is_not_defaulted ... ok
+test canonical_props::key_order_does_not_change_canonical_bytes ... ok
+test examples::state_matches_code_in_the_examples ... ok
+test examples::client_hello_interaction_defaults_to_non_interactive ... ok
+test examples::success_examples_carry_no_private_material_fields ... ok
+test examples::unsupported_schema_major_is_rejected_explicitly ... ok
+test ids::generated_ids_use_the_documented_wire_form ... ok
+test ids::hostile_inputs_are_rejected_without_panic ... ok
+test ids::length_bound_is_exactly_128_bytes ... ok
+test ids::prefixed_ids_require_their_own_prefix ... ok
+test examples::unknown_fields_are_tolerated_at_every_nesting_level ... ok
+test ids::random_bytes_always_make_parseable_ids ... ok
+test ids::serde_enforces_the_same_bounds ... ok
+test ids::prefixed_parsers_accept_only_prefixed_tokens ... ok
+test jsonschema_lite::tests::accepts_and_rejects_basic_shapes ... ok
+test jsonschema_lite::tests::one_of_requires_exactly_one_match ... ok
+test jsonschema_lite::tests::unique_items_detects_duplicates ... ok
+test jsonschema_lite::tests::unsupported_keywords_fail_loudly ... ok
+test limits::framing_and_connection_limits_match_adr_0006 ... ok
+test limits::m02_bounds_are_fixed ... ok
+test limits::request_and_cursor_bounds_are_fixed ... ok
+test limits::versions_and_capability_names_are_stable ... ok
+test ids::token_parsers_match_the_bound_oracle ... ok
+test m02::catalog_examples_pass_the_boundary_checks ... ok
+test m02::classify_never_claims_more_than_the_records_show ... ok
+test m02::error_reasons_are_stable_snake_case_and_complete ... ok
+test examples::schema_validator_is_not_vacuous_for_the_examples ... ok
+test m02::launch_binding_rules ... ok
+test m02::m02_additive_fields_and_defaults ... ok
+test m02::bind_launch_without_argv ... ok
+test m02::preview_intent_repair_rules ... ok
+test m02::run_record_classify_golden ... ok
+test m02::setup_and_catalog_need_setup_1_and_preview_is_read_only ... ok
+test m02::journaled_operation_kinds_match_their_request_kind ... ok
+test m03::contract_code_table_unchanged_30_rows ... ok
+test m03::enforcement_without_m03_fields_decodes_unknown ... ok
+test m03::contract_reason_golden ... ok
+test m03::ensure_data_managed_example_matches_plan ... ok
+test m03::m03_capabilities_declared ... ok
+test m03::ensure_data_without_m03_fields_decodes ... ok
+test m03::m03_requests_need_their_capability_and_unlock_is_attended ... ok
+test m03::policy_lock_and_connection_widening_classification ... ok
+test m03::m03_wire_forms_and_m02_requests_unchanged ... ok
+test m03::revoke_data_timestamps_golden ... ok
+test m03::revoke_data_without_timestamps_decodes ... ok
+test m03::wave5_round2_additive_fields_round_trip_and_omit_when_absent ... ok
+test rev5::rev5_1_dry_run_closed_bundle_and_typed_results ... ok
+test rev5::rev5_1_set_default_profile_forms ... ok
+test rev5::rev5_2_decision_scope ... ok
+test m03::public_schema_has_no_scratch_store_kind ... ok
+test rev5::rev5_capabilities_declared_not_offered_and_required ... ok
+test m02::m02_schemas_are_not_vacuous ... ok
+test rev5::rev5_m01_m03_forms_unchanged ... ok
+test rev5::rev5_reason_golden ... ok
+test rev5::rev5_2_workspace_proposal ... ok
+test rev6::rev6_5_decision_documents ... ok
+test rev6::rev6_capabilities_declared_and_roles ... ok
+test rev6::rev6_additive_documents ... ok
+test rev6::rev6_reason_golden ... ok
+test rev6::rev6_earlier_forms_unchanged ... ok
+test rev7::maximal_destination_item_fits_with_room_to_spare ... ok
+test rev7::maximal_profile_item_fits_with_room_to_spare ... ok
+test rev7::primitive_index_names_six_groups_with_known_schemas_codes_and_capabilities ... ok
+test rev7::reason_table_lists_every_answer_with_its_code_and_next_action ... ok
+test rev7::revision_7_capabilities_are_declared_not_offered ... ok
+test rev7_events::emission_scan_self_check ... ok
+test rev7_events::event_payload_schema_covers_every_emission_site ... ok
+test rev7_views::environment_status_today ... ok
+test rev7_views::every_view_has_its_inventory_table ... ok
+test rev7_views::grant_residual_today ... ok
+test rev5::rev5_examples_round_trip_and_validate ... ok
+test rev7_views::inspect_bindings_today ... ok
+test rev7_views::inspect_decisions_today ... ok
+test rev7_views::inspect_destinations_today ... ok
+test rev7_views::inspect_environments_today ... ok
+test rev7_views::inspect_capabilities_today ... ok
+test rev7_views::inspect_grants_today ... ok
+test rev7_views::inspect_identities_today ... ok
+test rev7_views::inspect_operations_today ... ok
+test rev7_views::inspect_preview_today ... ok
+test rev7_views::inspect_profiles_today ... ok
+test rev7_views::inspect_projections_today ... ok
+test rev7_views::rev7_binding_request_id_reads_and_round_trips ... ok
+test rev7_views::operation_today ... ok
+test rev7_views::status_today ... ok
+test rev7_views::service_status_today ... ok
+test rev7_views::stream_lines_today ... ok
+test rev7_views::subscription_head_today ... ok
+test schema_export::checked_in_project_schemas_match_the_model_exactly ... ok
+test rev7_views::view_schemas_are_objects_unique_and_disjoint_from_the_public_ones ... ok
+test schema_export::code_schema_enumerates_exactly_the_code_table ... ok
+test schema_export::codes_json_rows_equal_the_model_and_golden ... ok
+test schema_export::checked_in_public_api_matches_the_model_exactly ... ok
+test schema_export::declared_schemas_are_disjoint_from_the_public_ones ... ok
+test schema_export::envelope_without_warnings_and_next_still_deserializes ... ok
+test schema_export::envelope_schemas_require_warnings_and_next ... ok
+test schema_export::every_schema_is_a_closed_set_of_supported_keywords ... ok
+test schema_export::public_schemas_tolerate_unknown_fields_except_the_closed_bundle_types ... ok
+test schema_export::schema_ids_are_never_secret_bearing_formats ... ok
+test schema_export::export_is_byte_identical_across_runs ... ok
+test rev6::rev6_request_forms ... ok
+test examples::every_example_validates_against_generated_and_checked_in_schemas ... ok
+
+successes:
+
+---- canonical_props::decimal_text_reaches_a_canonical_fixed_point stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::canonical_output_is_valid_json_and_idempotent stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::array_order_changes_canonical_bytes_and_hash stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::float_roundtrip_parsed_number_canonicalizes_identically stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::hash_hex_round_trips stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::context_participates_in_the_hash stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::hash_parser_is_bounded_and_total stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::integer_documents_reparse_to_identical_canonical_bytes stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::hash_equality_iff_bytes_equality_with_floats stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::hash_equality_iff_canonical_byte_equality stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::key_order_does_not_change_canonical_bytes stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- ids::random_bytes_always_make_parseable_ids stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/ids.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- ids::prefixed_parsers_accept_only_prefixed_tokens stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/ids.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- ids::token_parsers_match_the_bound_oracle stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/ids.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- m02::classify_never_claims_more_than_the_records_show stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/m02.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+
+successes:
+    canonical_props::array_order_changes_canonical_bytes_and_hash
+    canonical_props::canonical_output_is_valid_json_and_idempotent
+    canonical_props::context_participates_in_the_hash
+    canonical_props::decimal_text_reaches_a_canonical_fixed_point
+    canonical_props::float_roundtrip_parsed_number_canonicalizes_identically
+    canonical_props::floats_hash_consistently_and_round_trip_text
+    canonical_props::golden_request_hash_vectors
+    canonical_props::hash_equality_iff_bytes_equality_with_floats
+    canonical_props::hash_equality_iff_canonical_byte_equality
+    canonical_props::hash_hex_round_trips
+    canonical_props::hash_parser_is_bounded_and_total
+    canonical_props::integer_documents_reparse_to_identical_canonical_bytes
+    canonical_props::key_order_does_not_change_canonical_bytes
+    canonical_props::numbers_keep_their_serde_json_form
+    canonical_props::object_keys_sort_bytewise_not_by_utf16_or_locale
+    canonical_props::strings_use_deterministic_escapes
+    code_table::adr_13_1_rulings_hold
+    code_table::code_set_has_no_duplicates_and_covers_the_spec_list
+    code_table::code_spelling_is_exact_on_the_wire
+    code_table::decision_stale_row_is_in_table_order
+    code_table::envelope_with_an_unknown_code_parses_and_is_not_success
+    code_table::error_envelope_golden_json_for_every_code
+    code_table::every_code_matches_its_golden_row
+    code_table::exit_numbers_are_the_documented_wire_numbers
+    code_table::golden_file_matches_the_adr_table
+    code_table::launch_failed_row_and_its_126_rule
+    code_table::retryable_never_applies_to_uncertain_or_refused_outcomes
+    code_table::unknown_code_reads_as_an_error_with_exit_one_and_round_trips
+    examples::attend_and_subscribed_examples_parse_to_the_documented_shapes
+    examples::client_hello_interaction_defaults_to_non_interactive
+    examples::decide_and_confirm_time_examples_are_attended_only_requests
+    examples::decision_stale_example_matches_its_table_row
+    examples::emitted_documents_always_materialize_next_and_warnings
+    examples::error_examples_cover_every_exit_class_and_agree_with_the_code_table
+    examples::every_example_round_trips_exactly_through_the_typed_model
+    examples::every_example_validates_against_generated_and_checked_in_schemas
+    examples::missing_schema_version_is_not_defaulted
+    examples::schema_validator_is_not_vacuous_for_the_examples
+    examples::state_matches_code_in_the_examples
+    examples::success_examples_carry_no_private_material_fields
+    examples::unknown_fields_are_tolerated_at_every_nesting_level
+    examples::unsupported_schema_major_is_rejected_explicitly
+    ids::generated_ids_use_the_documented_wire_form
+    ids::hostile_inputs_are_rejected_without_panic
+    ids::length_bound_is_exactly_128_bytes
+    ids::prefixed_ids_require_their_own_prefix
+    ids::prefixed_parsers_accept_only_prefixed_tokens
+    ids::random_bytes_always_make_parseable_ids
+    ids::serde_enforces_the_same_bounds
+    ids::token_parsers_match_the_bound_oracle
+    jsonschema_lite::tests::accepts_and_rejects_basic_shapes
+    jsonschema_lite::tests::one_of_requires_exactly_one_match
+    jsonschema_lite::tests::unique_items_detects_duplicates
+    jsonschema_lite::tests::unsupported_keywords_fail_loudly
+    limits::framing_and_connection_limits_match_adr_0006
+    limits::m02_bounds_are_fixed
+    limits::request_and_cursor_bounds_are_fixed
+    limits::versions_and_capability_names_are_stable
+    m02::bind_launch_without_argv
+    m02::catalog_examples_pass_the_boundary_checks
+    m02::classify_never_claims_more_than_the_records_show
+    m02::error_reasons_are_stable_snake_case_and_complete
+    m02::journaled_operation_kinds_match_their_request_kind
+    m02::launch_binding_rules
+    m02::m02_additive_fields_and_defaults
+    m02::m02_schemas_are_not_vacuous
+    m02::preview_intent_repair_rules
+    m02::run_record_classify_golden
+    m02::setup_and_catalog_need_setup_1_and_preview_is_read_only
+    m03::contract_code_table_unchanged_30_rows
+    m03::contract_reason_golden
+    m03::enforcement_without_m03_fields_decodes_unknown
+    m03::ensure_data_managed_example_matches_plan
+    m03::ensure_data_without_m03_fields_decodes
+    m03::m03_capabilities_declared
+    m03::m03_requests_need_their_capability_and_unlock_is_attended
+    m03::m03_wire_forms_and_m02_requests_unchanged
+    m03::policy_lock_and_connection_widening_classification
+    m03::public_schema_has_no_scratch_store_kind
+    m03::revoke_data_timestamps_golden
+    m03::revoke_data_without_timestamps_decodes
+    m03::wave5_round2_additive_fields_round_trip_and_omit_when_absent
+    rev5::rev5_1_dry_run_closed_bundle_and_typed_results
+    rev5::rev5_1_set_default_profile_forms
+    rev5::rev5_2_decision_scope
+    rev5::rev5_2_workspace_proposal
+    rev5::rev5_capabilities_declared_not_offered_and_required
+    rev5::rev5_examples_round_trip_and_validate
+    rev5::rev5_m01_m03_forms_unchanged
+    rev5::rev5_reason_golden
+    rev6::rev6_5_decision_documents
+    rev6::rev6_additive_documents
+    rev6::rev6_capabilities_declared_and_roles
+    rev6::rev6_earlier_forms_unchanged
+    rev6::rev6_reason_golden
+    rev6::rev6_request_forms
+    rev7::maximal_destination_item_fits_with_room_to_spare
+    rev7::maximal_profile_item_fits_with_room_to_spare
+    rev7::primitive_index_names_six_groups_with_known_schemas_codes_and_capabilities
+    rev7::reason_table_lists_every_answer_with_its_code_and_next_action
+    rev7::revision_7_capabilities_are_declared_not_offered
+    rev7_events::emission_scan_self_check
+    rev7_events::event_payload_schema_covers_every_emission_site
+    rev7_views::environment_status_today
+    rev7_views::every_view_has_its_inventory_table
+    rev7_views::grant_residual_today
+    rev7_views::inspect_bindings_today
+    rev7_views::inspect_capabilities_today
+    rev7_views::inspect_decisions_today
+    rev7_views::inspect_destinations_today
+    rev7_views::inspect_environments_today
+    rev7_views::inspect_grants_today
+    rev7_views::inspect_identities_today
+    rev7_views::inspect_operations_today
+    rev7_views::inspect_preview_today
+    rev7_views::inspect_profiles_today
+    rev7_views::inspect_projections_today
+    rev7_views::operation_today
+    rev7_views::rev7_binding_request_id_reads_and_round_trips
+    rev7_views::service_status_today
+    rev7_views::status_today
+    rev7_views::stream_lines_today
+    rev7_views::subscription_head_today
+    rev7_views::view_schemas_are_objects_unique_and_disjoint_from_the_public_ones
+    schema_export::checked_in_project_schemas_match_the_model_exactly
+    schema_export::checked_in_public_api_matches_the_model_exactly
+    schema_export::code_schema_enumerates_exactly_the_code_table
+    schema_export::codes_json_rows_equal_the_model_and_golden
+    schema_export::declared_schemas_are_disjoint_from_the_public_ones
+    schema_export::envelope_schemas_require_warnings_and_next
+    schema_export::envelope_without_warnings_and_next_still_deserializes
+    schema_export::every_schema_is_a_closed_set_of_supported_keywords
+    schema_export::export_is_byte_identical_across_runs
+    schema_export::public_schemas_tolerate_unknown_fields_except_the_closed_bundle_types
+    schema_export::schema_ids_are_never_secret_bearing_formats
+
+test result: ok. 135 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.17s
+
+### contracts exit=0
+### heimdall-unit
+
+running 386 tests
+test activate_cmd::tests::status_lines_never_ask ... ok
+test activate_cmd::tests::the_scripts_never_evaluate_what_they_read ... ok
+test activate_cmd::tests::the_hook_reenters_after_expiry_never_after_a_stop_and_splits_groups ... ok
+test activate_cmd::tests::the_hook_never_attends_or_decides_whatever_the_answer ... ok
+test cli::tests::bare_heimdall_is_the_tui_only_on_a_terminal_without_json ... ok
+test cli::tests::decision_approve_by_reference_reports_stale_plainly ... ok
+test catalog_cmd::tests::from_agent_fingerprint_chooses_one_listed_identity ... ok
+test cli::tests::interactive_ensure_attends_before_the_request_and_decides_only_on_yes ... ok
+test cli::tests::decision_stale_retries_with_the_same_key_and_resets_the_confirmation ... ok
+test cli::tests::interactive_needs_a_terminal_and_no_opt_out ... ok
+test cli::tests::interactive_ensure_sends_nothing_more_unless_confirmed ... ok
+test cli::tests::json_is_requested_anywhere_before_the_argv_terminator ... ok
+test cli::tests::m03_policy_actions_attend_only_when_widening ... ok
+test cli::tests::non_interactive_or_non_tty_never_attends_or_prompts ... ok
+test cli::tests::not_confirmed_is_interaction_required_with_the_decision_ref ... ok
+test cli::tests::owner_present_policy_and_decision_flows_attend_first ... ok
+test cli::tests::pending_decision_needs_an_interaction_code_and_a_reference ... ok
+test cli::tests::command_tree_is_consistent ... ok
+test cli::tests::require_unattended_is_carried_into_the_request_never_dropped ... ok
+test cli::tests::the_hidden_issuer_ca_needs_named_pairs_and_a_terminal ... ok
+test cli::tests::run_and_connect_parse_and_refuse_before_the_runtime ... ok
+test cli::tests::usage_messages_never_echo_the_offending_token ... ok
+test cli::tests::m02_argument_trees_refuse_malformed_lines ... ok
+test cli::tree_tests::command_tree_matches_its_golden ... ok
+test cli::tree_tests::help_lint_self_check ... ok
+test cli::tree_tests::every_primitive_index_form_parses ... ok
+test connect_cmd::tests::a_listed_destination_names_its_definition_and_anything_else_reads_managed ... ok
+test connect_cmd::tests::binding_files_follow_the_binding_endpoint_or_refuse ... ok
+test connect_cmd::tests::connect_managed_pair_covering_profile_is_the_one_listed_or_refused ... ok
+test connect_cmd::tests::managed_connect_refuses_without_a_live_binding_endpoint ... ok
+test connect_cmd::tests::only_an_applied_managed_preference_takes_the_managed_flow ... ok
+test connect_cmd::tests::the_alias_identity_follows_the_definition ... ok
+test connections_cmd::tests::close_exit_follows_the_envelope_code ... ok
+test container_cmd::tests::mount_args_print_the_read_only_bind_and_the_uid_notes ... ok
+test delegate_cmd::tests::scope_pair_needs_destination_and_account ... ok
+test delegate_cmd::tests::worker_environment_loses_every_locator_and_a_foreign_agent ... ok
+test dev_home_guard::tests::decision_table ... ok
+test dev_home_guard::tests::environment_rules ... ok
+test dev_home_guard::tests::the_message_names_the_home_variable_and_the_escape ... ok
+test cli::tests::w0_m02_commands_answer_not_available_and_never_contact_the_runtime ... ok
+test doctor_cmd::tests::a_runner_failing_strict_modes_is_a_finding ... ok
+test doctor_cmd::tests::a_runner_gone_owner_only_is_a_finding ... ok
+test doctor_cmd::tests::a_downgrade_the_bridge_could_not_record_is_a_finding ... ok
+test doctor_cmd::tests::an_unreadable_tree_shows_no_prompt ... ok
+test doctor_cmd::tests::authorization_text_lists_found_commands_or_says_none_found_now ... ok
+test doctor_cmd::tests::chores_are_added_to_status_only_when_pending ... ok
+test doctor_cmd::tests::client_trace_finding_names_an_unrecorded_family_and_version ... ok
+test doctor_cmd::tests::interactive_authorization_needs_a_typed_yes ... ok
+test doctor_cmd::tests::issuer_store_finding_only_for_the_access_denial ... ok
+test doctor_cmd::tests::non_interactive_flag_is_the_authorization_and_a_bare_pipe_is_refused ... ok
+test doctor_cmd::tests::q02_nothing_runnable_then_an_alias_appears_runs_nothing ... ok
+test doctor_cmd::tests::q02_unreadable_then_readable_tree_runs_no_evaluation ... ok
+test doctor_cmd::tests::time_confirmation_is_pending_exactly_when_the_gate_lacks_a_reference ... ok
+test enroll_cmd::drive::tests::agent_held_needs_a_concrete_agent_and_identities_only ... ok
+test enroll_cmd::drive::tests::the_handoff_notice_names_the_auth_fallback_residual ... ok
+test enroll_cmd::drive::tests::the_uncertain_message_is_exact ... ok
+test enroll_cmd::render::tests::ca_key_is_cut_as_the_runtime_cuts_it ... ok
+test enroll_cmd::render::tests::held_next_names_the_commands_per_reason ... ok
+test enroll_cmd::render::tests::held_of_prefers_the_runtimes_hold ... ok
+test enroll_cmd::render::tests::only_removed_is_removed ... ok
+test enroll_cmd::render::tests::preview_disclosures_are_the_shared_texts ... ok
+test enroll_cmd::tests::a_redacted_bundle_is_refused_bundle_redacted ... ok
+test enroll_cmd::tests::enroll_then_projection_needs_two_confirmations ... ok
+test enroll_cmd::tests::enroll_then_projection_preserves_a_preference_changed_during_confirmation ... ok
+test enroll_cmd::tests::enrollment_approval_refused_without_the_runtimes_lock_text ... ok
+test enroll_cmd::tests::generic_decision_completion_shows_disclosures_and_needs_the_lock_text ... ok
+test enroll_cmd::tests::lock_disclosure_text_reads_the_runtimes_capabilities ... ok
+test enroll_cmd::tests::the_switches_fail_closed ... ok
+test cli::tree_tests::help_text_names_no_milestone_adr_or_section ... ok
+test input_file::tests::only_a_regular_file_opens_and_nothing_waits ... ok
+test issuer_cmd::render::lost_device_guidance_names_the_restore_and_removal_commands ... ok
+test issuer_cmd::tests::displaced_items_are_those_of_the_ca_with_a_locator ... ok
+test enroll_cmd::tests::typed_yes_timeout_sends_nothing_and_exits_3 ... ok
+test launch_flow::tests::a_binding_that_is_no_longer_active_is_refused_as_binding_released ... ok
+test launch_flow::tests::a_path_outside_the_home_is_shown_as_written_not_canonicalized ... ok
+test launch_flow::tests::an_undetermined_identity_agent_is_named_and_refused_only_unattended ... ok
+test launch_flow::tests::refusal_entries_show_a_home_behind_a_symlink_as_tilde ... ok
+test launch_flow::tests::the_fallback_refusal_fills_error_entries ... ok
+test launch_flow::tests::the_fresh_selection_evaluates_every_invocation_profile ... ok
+test m03_cmd::tests::internal_is_hidden_and_the_rest_are_listed ... ok
+test m03_cmd::tests::internal_issuer_refuses_tty_stdin ... ok
+test m03_cmd::tests::m03_internal_issuer_envelopes_carry_no_wave_0_text ... ok
+test m03_cmd::tests::m03_lines_answer_without_touching_the_home ... ok
+test m03_cmd::tests::the_m03_command_tree_matches_the_plan_table ... ok
+test m03_cmd::wave5_tests::connection_policy_needs_a_flag ... ok
+test m03_cmd::wave5_tests::destination_prefer_renders_the_answer ... ok
+test m03_cmd::wave5_tests::destination_prefer_resolves_the_managed_pair ... ok
+test m03_cmd::wave5_tests::m03_policy_actions_classify_as_widening_or_narrowing ... ok
+test m03_cmd::wave5_tests::m03_reasons_exit_codes_follow_adr_0006_table ... ok
+test m03_cmd::wave5_tests::strict_connection_narrows_existing_only ... ok
+test m05_cmd::tests::a_create_review_shows_the_recorded_scope_or_refuses ... ok
+test m05_cmd::tests::a_targeted_result_renders_each_policy ... ok
+test m05_cmd::tests::recorded_previews_show_the_scope_and_quote_the_label ... ok
+test m05_cmd::tests::workspace_paths_render_as_quoted_data ... ok
+test doctor_cmd::tests::an_unbindable_serve_port_is_a_finding_naming_it ... ok
+test m06_cmd::tests::a_first_remote_init_under_a_plain_runtime_says_to_stop_it_first ... ok
+test m06_cmd::tests::a_helper_that_is_not_the_projected_aliass_proxy_is_refused ... ok
+test m06_cmd::tests::a_managed_jump_hop_needs_the_final_pairs_own_binding ... ok
+test m06_cmd::tests::a_scratch_home_without_the_fixture_variables_never_selects_a_platform_key_store ... ok
+test m06_cmd::tests::an_agent_address_in_use_is_state_unavailable_and_retryable ... ok
+test m06_cmd::tests::an_agent_path_too_long_is_capability_unavailable_and_names_a_shorter_directory ... ok
+test m06_cmd::tests::an_agent_permission_denied_is_capability_unavailable_and_names_the_permissions ... ok
+test m06_cmd::tests::an_unwritable_session_directory_blames_this_controller ... ok
+test m06_cmd::tests::any_other_agent_failure_is_state_unavailable_and_retryable ... ok
+test m06_cmd::tests::confirmation_texts_name_what_is_confirmed ... ok
+test m06_cmd::tests::device_retire_needs_a_terminal ... ok
+test m06_cmd::tests::every_session_opener_failure_on_this_controller_is_classed_as_its_fault ... ok
+test m06_cmd::tests::m06_names_follow_the_freeze ... ok
+test m06_cmd::tests::m06_route_and_transport_commands_are_wired ... ok
+test m06_cmd::tests::remote_init_creates_a_missing_ssh_dir_and_refuses_what_is_not_the_accounts ... ok
+test activate_cmd::tests::the_warm_up_sends_only_request_identities_and_ends_by_the_deadline ... ok
+test m06_cmd::tests::remote_serve_keeps_its_own_arguments_and_remote_is_hidden ... ok
+test m06_cmd::tests::resume_issuance_acknowledges_exactly_the_effects_it_showed ... ok
+test m06_cmd::tests::route_add_relay_names_the_relays_and_nothing_else ... ok
+test m06_cmd::tests::remote_policy_recheck_reports_a_pending_unrecorded_downgrade ... ok
+test m06_cmd::tests::strict_modes_problems_are_reported_and_not_fixed ... ok
+test m06_cmd::tests::the_alias_check_applies_only_when_the_alias_names_this_helper ... ok
+test m06_cmd::tests::the_bootstrap_config_seam_is_the_scratch_ssh_home_only_and_gated_like_run ... ok
+test issuer_cmd::tests::test_store_items_are_deleted_by_exact_locator_in_debug_builds ... ok
+test m06_cmd::tests::the_helpers_expected_proxy_command_is_the_rendered_one ... ok
+test m06_cmd::tests::the_issuer_forms_carry_distinct_request_ids ... ok
+test m06_cmd::tests::the_os_fill_reaches_an_m06_launch_without_program_data ... ok
+test m06_cmd::tests::the_pin_file_holds_only_with_exactly_the_catalogs_keys ... ok
+test m06_cmd::tests::the_recheck_confirmation_shows_its_evidence ... ok
+test m06_cmd::tests::the_runtime_start_offer_says_what_it_runs_and_passes_no_session_credentials ... ok
+test m06_cmd::tests::runner_local_commands_need_a_runner_and_a_terminal_to_widen ... ok
+test output::tests::a_data_field_is_one_inert_quoted_token ... ok
+test output::tests::a_plan_shows_a_removed_file_of_heimdalls_own_as_a_removal ... ok
+test output::tests::a_policy_result_shows_the_lock_behaviour_when_it_carries_one ... ok
+test output::tests::a_wait_reports_the_awaited_operation ... ok
+test output::tests::accepted_without_async_is_not_success ... ok
+test output::tests::access_ensure_strict_reports_strict_disconnect ... ok
+test output::tests::destination_list_renders_the_runtimes_items_shape ... ok
+test output::tests::destination_listing_shows_the_runtimes_connection_policy_wording ... ok
+test output::tests::every_known_code_maps_to_its_table_exit_class ... ok
+test output::tests::human_json_is_inert_and_denotes_the_same_value ... ok
+test output::tests::revoke_output_lists_owned_connections_and_ordinary_note ... ok
+test output::tests::sanitizer_drops_escapes ... ok
+test output::tests::status_answers_the_three_questions ... ok
+test output::tests::status_scopes_project_policies_separately_from_personal_policies ... ok
+test output::tests::status_uses_everyday_vocabulary ... ok
+test output::tests::unknown_code_is_never_success_and_exits_one ... ok
+test portable_cmd::tests::the_import_previews_then_asks_then_applies ... ok
+test m06_cmd::tests::the_sshd_port_flag_is_bounded_needs_serve_and_omits_the_default ... ok
+test prompt::tests::only_y_or_yes_confirms_and_the_default_is_no ... ok
+test purge_sweep::tests::a_group_writable_refusal_names_the_fix ... ok
+test purge_sweep::tests::a_linked_ancestor_refuses_the_anchoring ... ok
+test purge_sweep::tests::a_planted_journal_refuses_with_every_byte_unchanged ... ok
+test m06_cmd::tests::the_bridge_refuses_a_faulty_session_and_notes_a_downgrade_it_cannot_record ... ok
+test purge_sweep::tests::delete_refuses_without_a_recovery_copy ... ok
+test prompt::tests::no_answer_in_time_is_timed_out ... ok
+test purge_sweep::tests::an_entry_placed_inside_a_quarantined_directory_is_deleted ... ok
+test purge_sweep::tests::final_review_companion_failure_preserves_database ... ok
+test purge_sweep::tests::final_review_quarantine_dir_removal_failure_reports_what_is_on_disk ... ok
+test purge_sweep::tests::purge_trusted_top_conditions ... ok
+test purge_sweep::tests::no_purge_created_file_is_restored_or_listed_as_renamed_back ... ok
+test purge_sweep::tests::quarantine_failed_restore_is_left_and_reported ... ok
+test purge_sweep::tests::quarantine_refuses_a_decoy_database_before_its_read ... ok
+test purge_sweep::tests::recheck4_default_unix_home_with_private_group_must_pass ... ok
+test purge_sweep::tests::partial_delete_renames_the_database_back ... ok
+test purge_sweep::tests::quarantine_refuses_a_leaf_replaced_before_it ... ok
+test purge_sweep::tests::secure_path_accepts_the_linux_default_layouts ... ok
+test purge_sweep::tests::secure_path_accepts_the_macos_default_layouts ... ok
+test purge_sweep::tests::secure_path_accepts_the_windows_default_layout ... ok
+test purge_sweep::tests::secure_path_on_synthetic_trees ... ok
+test purge_sweep::tests::secure_path_refuses_unsafe_ancestors_and_roots ... ok
+test purge_sweep::tests::shared_group_home_still_refuses ... ok
+test purge_sweep::tests::restore_never_replaces_an_entry_at_the_original_name ... ok
+test purge_sweep::tests::the_windows_residual_is_listed ... ok
+test purge_sweep::tests::recheck4_leaf_replacement_must_keep_unconfirmed_owner_data ... ok
+test purge_sweep::tests::user_private_group_lookup_runs ... ok
+test purge_sweep::tests::uninstall_purge_link_between_passes_deletes_nothing ... ok
+test purge_sweep::tests::swap_between_quarantine_and_unlink_spares_new_data ... ok
+test purge_sweep::tests::windows_owner_classification ... ok
+test rev7_cmd::tests::every_declared_command_answers_not_available_and_touches_nothing ... ok
+test rev7_cmd::tests::only_inspect_request_takes_an_id ... ok
+test purge_sweep::tests::w5_i01_failed_copy_check_unlinks_nothing ... ok
+test run_cmd::tests::the_argument_bound_counts_every_byte_and_terminator ... ok
+test run_cmd::tests::the_argument_bound_refuses_one_byte_over ... ok
+test run_cmd::tests::the_slot_check_reads_the_bind_outcome_and_claims_nothing ... ok
+test run_m05::tests::a_trust_decision_is_shown_decided_and_the_same_request_reissued ... ok
+test run_m05::tests::mixed_mechanisms_are_requested_group_by_group_under_one_work_id ... ok
+test service_cmd::tests::autostart_enable_is_previewed_attended_and_applied_only_after_a_typed_yes ... ok
+test setup_cmd::tests::a_recorded_plan_other_than_the_one_shown_is_refused ... ok
+test setup_cmd::tests::a_repair_is_complete_only_when_doctor_reports_none_left ... ok
+test setup_cmd::tests::a_replayed_request_id_after_the_plan_changed_says_why ... ok
+test setup_cmd::tests::a_rollback_prompt_shows_heimdalls_own_files_as_removals ... ok
+test setup_cmd::tests::apply_previews_attends_shows_restore_and_decides_only_on_yes ... ok
+test setup_cmd::tests::apply_sends_nothing_more_unless_confirmed ... ok
+test setup_cmd::tests::keep_needs_a_typed_yes_and_sends_nothing_without_one ... ok
+test setup_cmd::tests::non_interactive_apply_never_attends_or_prompts ... ok
+test setup_cmd::tests::personal_default_offer_is_never_made_unattended_or_twice ... ok
+test run_cmd::tests::run_on_a_runner_names_an_undetermined_identity_agent_of_an_existing_pair ... ok
+test setup_cmd::tests::personal_default_offer_shows_the_disclosure_and_creates_only_on_yes ... ok
+test setup_cmd::tests::personal_default_offer_without_a_recorded_scope_approves_nothing ... ok
+test setup_cmd::tests::repair_arguments_parse_or_are_usage_errors ... ok
+test setup_cmd::tests::setup_in_progress_names_both_repair_commands ... ok
+test purge_sweep::tests::w5_j01_restored_copy_failing_verification_keeps_every_original ... ok
+test setup_cmd::tests::u9_command_lines_parse ... ok
+test testcfg::enabled::tests::the_iroh_key_store_variable_is_refused_in_release_and_none_names_the_serve_target ... ok
+test testcfg::enabled::tests::a_test_runtime_never_wires_the_accounts_ssh_configuration ... ok
+test testcfg::tests::a_build_without_the_configuration_refuses_a_request_for_it ... ok
+test testcfg::tests::clock_offset_is_fixed_or_read_from_its_file_at_every_use ... ok
+test testcfg::tests::detection_covers_the_m03_variables_and_all_env_keeps_its_m01_m02_set ... ok
+test testcfg::tests::detection_sees_every_variable_and_nothing_else ... ok
+test testcfg::tests::launch_hooks_parse_and_need_absolute_paths ... ok
+test testcfg::tests::m03_values_are_parsed_and_validated ... ok
+test testcfg::tests::product_file_selector_parses_and_is_checked_against_the_home ... ok
+test testcfg::tests::purge_trusted_top_is_refused_in_a_release_build ... ok
+test testcfg::tests::the_m03_refusal_covers_every_m03_variable ... ok
+test testcfg::tests::the_mgmt_store_variable_is_refused_by_a_release_build ... ok
+test testcfg::tests::the_pinned_client_redirect_is_in_the_launch_set_and_refused_without_the_configuration ... ok
+test tui::data::tests::a_held_setup_operation_is_recognized_by_its_reason ... ok
+test tui::data::tests::catalog_listings_parse_tolerantly ... ok
+test tui::data::tests::clean_removes_escapes_and_controls_and_flattens_lines ... ok
+test tui::keys::tests::a_lone_escape_waits_for_the_timeout_and_split_sequences_join ... ok
+test tui::keys::tests::printable_control_and_navigation_keys_decode ... ok
+test tui::keys::tests::unknown_or_hostile_sequences_never_become_text ... ok
+test tui::m03::tests::every_enrollment_state_has_a_text_marker ... ok
+test tui::m03::tests::listings_parse_tolerantly ... ok
+test tui::m05::tests::a_create_shows_its_recorded_scope_or_offers_no_approval ... ok
+test tui::m05::tests::a_targeted_widening_lists_its_policies ... ok
+test tui::m05::tests::an_unserved_runtime_reads_as_unavailable ... ok
+test tui::m05::tests::decisions_read_back_from_their_wire_forms ... ok
+test tui::m05::tests::each_stop_action_is_the_cli_request ... ok
+test tui::m05::tests::quoted_label_is_inert ... ok
+test tui::m05::tests::the_menu_confirms_before_it_sends ... ok
+test tui::m07::tests::environments_read_back_from_the_published_view ... ok
+test tui::m07::tests::overview_scopes_project_access_and_summarizes_long_fresh_listings ... ok
+test tui::m07::tests::settings_batched_input_cannot_confirm_before_a_frame_is_drawn ... ok
+test tui::m07::tests::settings_narrow_at_once_and_widen_through_the_decision_modal ... ok
+test tui::m07::tests::settings_short_terminal_refuses_to_submit ... ok
+test setup_cmd::tests::personal_default_offer_shows_the_scope_recorded_after_a_catalog_edit ... ok
+test tui::model::tests::a_decision_the_runtime_just_issued_opens_once_listed ... ok
+test tui::model::tests::a_destination_an_import_skipped_is_never_connectable_from_the_tui ... ok
+test tui::m07::tests::tui_actions_send_the_cli_requests ... ok
+test tui::model::tests::a_stale_answer_leaves_an_unrelated_modal_alone ... ok
+test tui::model::tests::batched_cancel_is_not_sent_before_its_operation_is_drawn ... ok
+test tui::model::tests::batched_network_probe_is_not_run_before_its_menu_is_drawn ... ok
+test tui::model::tests::connect_refuses_an_alias_the_catalog_does_not_list ... ok
+test tui::model::tests::config_commands_authorization_requires_typed_yes ... ok
+test tui::model::tests::decision_modal_requires_typed_yes_default_no ... ok
+test tui::model::tests::decision_stale_resets_the_confirmation_and_never_reuses_yes ... ok
+test tui::model::tests::derived_data_is_computed_once_per_change ... ok
+test tui::model::tests::health_is_ready_working_or_needs_attention ... ok
+test tui::model::tests::held_repair_submits_only_after_plan_and_typed_yes ... ok
+test tui::model::tests::held_setup_operation_is_needs_attention_with_its_two_repairs ... ok
+test tui::model::tests::keyboard_only_navigation_reaches_every_m02_action ... ok
+test tui::model::tests::decision_stale_retries_with_the_same_key_and_resets_the_confirmation ... ok
+test tui::model::tests::reading_scrolls_without_skipping_and_remembers_the_end_per_content ... ok
+test tui::model::tests::search_is_immediate_and_produces_no_effect ... ok
+test tui::model::tests::settings_and_activity_rows_are_not_rebuilt_per_key ... ok
+test tui::tests::connect_takes_only_an_alias ... ok
+test tui::tests::probe_isolation_names_only_scratch_files ... ok
+test tui::tests::the_test_hooks_are_parsed_in_debug_and_refused_in_release ... ok
+test tui::model::tests::network_probe_short_terminal_refuses_to_run ... ok
+test tui::view::tests::a30_surfaces_answer_the_three_questions ... ok
+test tui::view::tests::a_decision_diff_with_a_suffix_beyond_the_cell_width_is_readable_in_full ... ok
+test tui::view::tests::a_failed_or_stale_read_never_looks_current_or_healthy ... ok
+test tui::view::tests::a_removed_file_of_heimdalls_own_is_a_summary_line_under_before ... ok
+test tui::view::tests::a_grouped_finding_shows_its_destinations_whatever_the_search ... ok
+test testcfg::enabled::tests::the_runner_sshd_config_variable_is_absolute_and_needs_a_scratch_home ... ok
+test tui::view::tests::ages_read_naturally ... ok
+test tui::view::tests::authorization_shows_the_sentence_and_the_list ... ok
+test tui::view::tests::decision_modal_renders_the_prompt_default_no ... ok
+test tui::view::tests::a_terminal_too_small_to_show_the_content_confirms_nothing ... ok
+test tui::view::tests::a_rollback_decision_shows_the_summary_lines_in_full ... ok
+test tui::view::tests::default_surfaces_use_everyday_vocabulary ... ok
+test tui::view::tests::hostile_strings_never_reach_a_cell_as_controls ... ok
+test tui::view::tests::every_footer_and_help_key_is_bound ... ok
+test tui::view::tests::listing_failure_is_shown_not_empty ... ok
+test tui::view::tests::decision_modal_shows_restore_column ... ok
+test tui::view::tests::m03::lock_disclosure_once ... ok
+test tui::view::tests::m03::m03_decisions_render_the_recorded_request_readably ... ok
+test tui::view::tests::m03::m03_enrollment_detail_shows_reason_next_step_and_late_write ... ok
+test tui::view::tests::m03::m03_search_and_refresh_never_reach_the_issuer ... ok
+test tui::view::tests::m03::m03_testbackend_snapshots_at_40x12_and_120x40 ... ok
+test tui::view::tests::m03::m03_time_chore_is_first_with_its_command ... ok
+test tui::view::tests::m03::m03_time_chore_offline_from_the_store_reader ... ok
+test tui::view::tests::m03::managed_readiness_detail_exact_deadline_strings ... ok
+test tui::view::tests::m03::projection_pending_warning_and_setup_apply_hint ... ok
+test tui::view::tests::m03::tui_shows_slot_free_with_command ... ok
+test tui::view::tests::m05::delta_review_shows_only_added_authority ... ok
+test tui::view::tests::m05::first_trust_detail_lists_scope_environments_and_limits ... ok
+test tui::view::tests::m05::project_label_rendered_as_quoted_data ... ok
+test tui::view::tests::m05::stop_menu_batched_input_cannot_confirm_before_a_frame_is_drawn ... ok
+test tui::view::tests::m05::stop_menu_distinguishes_four_actions ... ok
+test tui::view::tests::m03::cli_decided_kinds_never_offer_approve_and_show_their_command ... ok
+test tui::view::tests::m05::workspace_status_and_policy_history_render ... ok
+test tui::view::tests::m07_views_carry_text_markers ... ok
+test tui::view::tests::m05::stop_menu_short_terminal_refuses_to_submit ... ok
+test m06_cmd::tests::a_downgrade_the_bridge_cannot_write_is_queued_and_the_next_admission_records_it ... ok
+test tui::view::tests::probe_results_label_the_inventory_as_found_before_the_run ... ok
+test tui::view::tests::overview_groups_findings_and_keeps_rows_distinct ... ok
+test tui::view::tests::the_end_stays_shown_for_the_same_content_and_not_for_changed_content ... ok
+test tui::view::tests::no_color_carries_no_color_and_every_state_has_a_text_marker ... ok
+test tui::view::tests::the_refusal_is_visible_in_the_modal ... ok
+test tui::view::tests::wrapping_breaks_at_spaces_and_paths_and_marks_continuations ... ok
+test tui::view::tests::wrapping_keeps_every_character_within_the_width ... ok
+test tui::view::tests::yes_is_refused_until_the_end_has_been_shown ... ok
+test tui::worker::tests::a_failed_listing_keeps_the_last_good_data ... ok
+test tui::worker::tests::a_refresh_without_a_runtime_publishes_what_it_has_as_stale ... ok
+test tui::worker::tests::a_static_pass_that_cannot_run_needs_attention ... ok
+test tui::worker::tests::a_transport_failure_fails_the_rest_of_the_round_and_keeps_the_data ... ok
+test tui::worker::tests::refreshes_and_operation_reads_coalesce_in_order ... ok
+test uninstall_cmd::tests::a_bundle_is_fresh_only_with_fresh_content_and_a_recorded_digest ... ok
+test uninstall_cmd::tests::a_bundle_lists_outstanding_foreign_removals_and_late_writes ... ok
+test uninstall_cmd::tests::a_plain_uninstall_with_live_enrollments_needs_a_typed_yes ... ok
+test tui::view::tests::the_last_entry_of_a_15_construct_inventory_is_reachable_by_keyboard ... ok
+test uninstall_cmd::tests::an_empty_record_is_not_installed ... ok
+test tui::view::tests::testbackend_snapshots_at_40x12_and_120x40 ... ok
+test uninstall_cmd::tests::decision_kinds_are_classified_for_the_snapshot ... ok
+test tui::view::tests::lock_wording_states_only_what_the_runtime_attests ... ok
+test uninstall_cmd::tests::counts_are_read_from_the_store_without_writing ... ok
+test uninstall_cmd::tests::f2_shm_without_wal_reads_by_copy ... ok
+test uninstall_cmd::tests::a_restore_from_before_the_downgrade_is_still_owner_only ... ok
+test uninstall_cmd::tests::final_read_refuses_a_planted_wal ... ok
+test uninstall_cmd::tests::final_read_wal_swapped_during_open_keeps_committed_record ... ok
+test uninstall_cmd::tests::final_review_crash_between_database_and_wal_moves_keeps_every_commit ... ok
+test uninstall_cmd::tests::final_review_failed_retry_retains_pending_display_record ... ok
+test uninstall_cmd::tests::final_review_crash_before_the_copy_is_deleted_keeps_a_complete_database ... ok
+test uninstall_cmd::tests::final_review_partial_report_states_only_what_is_on_disk ... ok
+test uninstall_cmd::tests::final_review_crash_while_vacuum_writes_recovers ... ok
+test uninstall_cmd::tests::final_review_crash_at_each_copy_step_keeps_a_complete_database ... ok
+test uninstall_cmd::tests::final_review_recovery_copy_holds_every_record_by_itself ... ok
+test uninstall_cmd::tests::meta_keys_are_classified_for_the_snapshot ... ok
+test uninstall_cmd::tests::offered_store_items_are_retired_inline_only_on_a_terminal ... ok
+test uninstall_cmd::tests::operation_kinds_are_classified_for_the_snapshot ... ok
+test uninstall_cmd::tests::final_review_restore_does_not_attach_old_wal_to_new_owner_database ... ok
+test uninstall_cmd::tests::plain_uninstall_passes_the_fence_across_retry_rounds ... ok
+test uninstall_cmd::tests::final_review_validating_read_writes_no_family_file ... ok
+test uninstall_cmd::tests::plain_uninstall_fence_compares_bounded_obligations ... ok
+test uninstall_cmd::tests::purge_is_confirmed_only_by_a_typed_yes ... ok
+test uninstall_cmd::tests::purge_without_a_terminal_or_with_non_interactive_is_refused_unread_and_unasked ... ok
+test uninstall_cmd::tests::quarantine_listing_removes_empty_dirs_and_lists_kept_entries ... ok
+test uninstall_cmd::tests::purge_fence_refuses_retry_rounds_exactly ... ok
+test uninstall_cmd::tests::r13_review_checkpoint_probe_never_replays_unvalidated_journal ... ok
+test uninstall_cmd::tests::r13_review_restore_race_preserves_replacement_record ... ok
+test uninstall_cmd::tests::recheck2_purge_refuses_new_ca_from_replacement_that_already_stopped ... ok
+test uninstall_cmd::tests::recheck3_purge_does_not_follow_nested_links ... ok
+test uninstall_cmd::tests::plain_uninstall_refuses_a_changed_remote_obligation ... ok
+test uninstall_cmd::tests::recheck3_purge_never_follows_runtime_root_replacement ... ok
+test uninstall_cmd::tests::recheck3_purge_removes_cleanup_mux_path ... ok
+test uninstall_cmd::tests::recheck3_retry_allowance_rejects_new_remote_obligation ... ok
+test uninstall_cmd::tests::recheck4_transient_state_swap_must_keep_unconfirmed_recovery ... ok
+test uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete ... ok
+test uninstall_cmd::tests::resources_are_absent_only_when_desired_and_observed_absent ... ok
+test uninstall_cmd::tests::refused_purge_keeps_the_original_until_uninstall_confirms ... ok
+test uninstall_cmd::tests::store_item_lines_name_the_item_and_the_fate ... ok
+test uninstall_cmd::tests::recheck_purge_must_exclude_writer_after_final_read ... ok
+test uninstall_cmd::tests::the_purge_prompt_lists_the_database_counts_backups_and_kept_copies ... ok
+test uninstall_cmd::tests::the_inventory_lists_a_runners_owner_only_downgrade ... ok
+test uninstall_cmd::tests::retry_allowance_admits_no_recreated_record_and_nothing_on_failure ... ok
+test uninstall_cmd::tests::uninstall_lists_and_confirms_pending_remote_revocations ... ok
+test uninstall_cmd::tests::uninstall_purge_admits_exactly_its_own_retry ... ok
+test uninstall_cmd::tests::uninstall_purge_admits_only_its_own_retirement ... ok
+test uninstall_cmd::tests::uninstall_purge_excludes_runtime_start_while_locked ... ok
+test uninstall_cmd::tests::uninstall_purge_never_follows_state_root_replacement ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_a_linked_managed_dir ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_a_shared_runtime_root ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_a_replaced_common_parent ... ok
+test uninstall_cmd::tests::the_restore_carries_only_the_downgrade_and_never_lowers_it ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_abandoned_foreign_system_form_removal ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_a_swapped_owner_only_state ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_changed_issuing_set ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_foreign_change_after_declined_retire ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_journal_change_on_unchanged_state ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_new_final_enrollment ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_remote_revocation_added_in_window ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_replaced_store_locator ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_pending_registration_locator ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_unconfirmed_stop ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_withdrawn_late_write ... ok
+test uninstall_cmd::tests::uninstall_report_names_the_swept_roots ... ok
+test uninstall_cmd::tests::uninstall_purge_removes_every_cleanup_intent_path ... ok
+test uninstall_cmd::tests::uninstall_revalidates_under_the_fence ... ok
+test uninstall_cmd::tests::w5_i01_marker_binding_mismatch_keeps_the_database ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_replacement_runtime ... ok
+test uninstall_cmd::tests::w5_i01_original_not_the_recorded_inode_keeps_the_unit ... ok
+test uninstall_cmd::tests::w5_i01_planted_marker_with_garbage_copy_keeps_database ... ok
+test uninstall_cmd::tests::w5_i01_planted_marker_without_copy_keeps_database ... ok
+test wsl_cmd::tests::internal_wsl_helper_refuses_a_terminal_and_a_foreign_host ... ok
+test wsl_cmd::tests::uninstall_disables_mode_a_and_mode_b_distributions_never_starting_one ... ok
+test uninstall_cmd::tests::w5_j01_copy_overwritten_after_check_keeps_originals ... ok
+test uninstall_cmd::tests::w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals ... ok
+test uninstall_cmd::tests::recovery_snapshot_classifies_every_table ... ok
+
+successes:
+
+---- cli::tests::run_and_connect_parse_and_refuse_before_the_runtime stdout ----
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"--meta-file already exists; it is created new","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"--meta-file already exists; it is created new","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"--meta-fd must be an open, writable pipe, socket or regular file above 2","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"LAUNCH_FAILED","data":{"error":{"code":"LAUNCH_FAILED","effect_status":"none","message":"program not found","next":{"action":"fix_request"},"reason":"not_found","retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+heimdall: request ID req-a9786670bdc1e895c3d0f47ea108f6c7
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid work ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"the destination must be an alias (no leading '-', no spaces)","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+
+---- cli::tests::w0_m02_commands_answer_not_available_and_never_contact_the_runtime stdout ----
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"unknown conflict","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"the destination must be an alias (no leading '-', no spaces)","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+heimdall: request ID req-402962ec3167465ce5809f071d08d3e9
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid work ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"unknown probe level","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"the TUI has no machine output; use the commands with --json","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"a managed destination needs --account","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid identity ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"a pair is DEST:ACCOUNT","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+
+---- enroll_cmd::tests::enroll_then_projection_needs_two_confirmations stdout ----
+Enrollment preview for lab (dst_lab), account deploy, form account
+  registry: fixture registry (remote_home)
+  exact line to be written:
+    fixture public line
+  line SHA-256: abababababababababababababababababababababababababababababababab
+  CA: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  approved target: lab.invalid:22 user deploy, no proxy, host key ssh-ed25519 fixture
+  existing access: native_agent identity idn_00112233445566778899aabbccddeeff through /fixture.sock (catalog_record)
+    every remote step runs: ssh IdentityAgent=/fixture.sock IdentitiesOnly=yes -T lab
+  host-trust pins: 
+  verification: positive principal fixture, negative attempt yes, certificates valid at most 60 s
+  rollback: compare_then_rename_by_marker
+  disclosures:
+  plan digest: abababababababababababababababababababababababababababababababab
+Enrollment preview for lab (dst_lab), account deploy, form account
+  registry: fixture registry (remote_home)
+  exact line to be written:
+    fixture public line
+  line SHA-256: abababababababababababababababababababababababababababababababab
+  CA: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  approved target: lab.invalid:22 user deploy, no proxy, host key ssh-ed25519 fixture
+  existing access: native_agent identity idn_00112233445566778899aabbccddeeff through /fixture.sock (catalog_record)
+    every remote step runs: ssh IdentityAgent=/fixture.sock IdentitiesOnly=yes -T lab
+  host-trust pins: 
+  verification: positive principal fixture, negative attempt yes, certificates valid at most 60 s
+  rollback: compare_then_rename_by_marker
+  disclosures:
+  plan digest: abababababababababababababababababababababababababababababababab
+
+---- enroll_cmd::tests::enroll_then_projection_preserves_a_preference_changed_during_confirmation stdout ----
+Enrollment preview for lab (dst_lab), account deploy, form account
+  registry: fixture registry (remote_home)
+  exact line to be written:
+    fixture public line
+  line SHA-256: abababababababababababababababababababababababababababababababab
+  CA: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  approved target: lab.invalid:22 user deploy, no proxy, host key ssh-ed25519 fixture
+  existing access: native_agent identity idn_00112233445566778899aabbccddeeff through /fixture.sock (catalog_record)
+    every remote step runs: ssh IdentityAgent=/fixture.sock IdentitiesOnly=yes -T lab
+  host-trust pins: 
+  verification: positive principal fixture, negative attempt yes, certificates valid at most 60 s
+  rollback: compare_then_rename_by_marker
+  disclosures:
+  plan digest: abababababababababababababababababababababababababababababababab
+Enrollment preview for lab (dst_lab), account deploy, form account
+  registry: fixture registry (remote_home)
+  exact line to be written:
+    fixture public line
+  line SHA-256: abababababababababababababababababababababababababababababababab
+  CA: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  approved target: lab.invalid:22 user deploy, no proxy, host key ssh-ed25519 fixture
+  existing access: native_agent identity idn_00112233445566778899aabbccddeeff through /fixture.sock (catalog_record)
+    every remote step runs: ssh IdentityAgent=/fixture.sock IdentitiesOnly=yes -T lab
+  host-trust pins: 
+  verification: positive principal fixture, negative attempt yes, certificates valid at most 60 s
+  rollback: compare_then_rename_by_marker
+  disclosures:
+  plan digest: abababababababababababababababababababababababababababababababab
+
+---- enroll_cmd::tests::typed_yes_timeout_sends_nothing_and_exits_3 stdout ----
+the enrollment
+Owner decision dec_00112233445566778899aabbccddeeff
+  kind: enroll_account
+  expires: 2026-11-03T00:15:00Z
+  recorded request (exactly what approve applies to):
+    {
+      "plan_digest": "abababababababababababababababababababababababababababababababab"
+    }
+Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.
+Approve exactly this request?
+Type 'yes' to confirm [y/N]: 
+
+---- m03_cmd::tests::m03_lines_answer_without_touching_the_home stdout ----
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"SERVICE_UNAVAILABLE","data":{"error":{"code":"SERVICE_UNAVAILABLE","effect_status":"none","message":"no runtime is running; read-only commands do not start one (effectful commands start it on demand)","next":{"action":"retry_after"},"resource":{"kind":"endpoint"},"retryable":true}},"warnings":[],"next":{"action":"retry_after"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid CA fingerprint (expected SHA256:<43 base64 characters>)","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"SERVICE_UNAVAILABLE","data":{"error":{"code":"SERVICE_UNAVAILABLE","effect_status":"none","message":"no runtime is running; read-only commands do not start one (effectful commands start it on demand)","next":{"action":"retry_after"},"resource":{"kind":"endpoint"},"retryable":true}},"warnings":[],"next":{"action":"retry_after"}}
+{"schema_version":"1","state":"failed","code":"SERVICE_UNAVAILABLE","data":{"error":{"code":"SERVICE_UNAVAILABLE","effect_status":"none","message":"no runtime is running; read-only commands do not start one (effectful commands start it on demand)","next":{"action":"retry_after"},"resource":{"kind":"endpoint"},"retryable":true}},"warnings":[],"next":{"action":"retry_after"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid CA fingerprint","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"SERVICE_UNAVAILABLE","data":{"error":{"code":"SERVICE_UNAVAILABLE","effect_status":"none","message":"no runtime is running; read-only commands do not start one (effectful commands start it on demand)","next":{"action":"retry_after"},"resource":{"kind":"endpoint"},"retryable":true}},"warnings":[],"next":{"action":"retry_after"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid enrollment ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid enrollment ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid enrollment ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid enrollment ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"cannot use the recovery bundle f: NotFound","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid operation ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid operation ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid enrollment ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid profile","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid policy","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid policy","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"connection-policy needs --existing or --multiplexing","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid policy","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"SERVICE_UNAVAILABLE","data":{"error":{"code":"SERVICE_UNAVAILABLE","effect_status":"none","message":"no runtime is running; read-only commands do not start one (effectful commands start it on demand)","next":{"action":"retry_after"},"resource":{"kind":"endpoint"},"retryable":true}},"warnings":[],"next":{"action":"retry_after"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid connection ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+
+---- m06_cmd::tests::device_retire_needs_a_terminal stdout ----
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"device retire needs the owner at this device's terminal (a typed yes); nothing was read, revoked or destroyed","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+
+---- m06_cmd::tests::m06_route_and_transport_commands_are_wired stdout ----
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"--direct takes host, host:port or [v6]:port","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"--direct takes host, host:port or [v6]:port","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"the destination ID is malformed","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"the endpoint ID is malformed (64 lowercase hexadecimal characters)","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"--address takes ip:port","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"the route ID is malformed","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"the route ID is malformed","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"the endpoint ID is malformed (64 lowercase hexadecimal characters)","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"--address belongs to an --iroh route","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+heimdall route connect: usage: route connect --destination <id> --account <account> --endpoint <path> (--account is required)
+heimdall route connect: usage: route connect --destination <id> --account <account> --endpoint <path> (--endpoint is not an absolute path)
+heimdall transport serve: takes exactly --environment <id>
+heimdall transport serve: takes exactly --environment <id>
+
+---- m06_cmd::tests::the_runtime_start_offer_says_what_it_runs_and_passes_no_session_credentials stdout ----
+The runner's runtime was not started. Next step: start it on this runner,
+    <home>/hm-m06-<random>/heimdall-unit --home <home>/hm-m06-<random>/tmp/.tmpecQ3wq/hm service run --runner --detach
+then run `heimdall environment add` on the controller again with the same arguments: it repairs the record after the same confirmation. Until then the controller has recorded nothing.
+
+---- m06_cmd::tests::runner_local_commands_need_a_runner_and_a_terminal_to_widen stdout ----
+{"schema_version":"1","state":"failed","code":"CAPABILITY_UNAVAILABLE","data":{"error":{"code":"CAPABILITY_UNAVAILABLE","effect_status":"none","message":"this installation is not a remote runner (`remote init` first)","next":{"action":"narrow_request"},"reason":"driver_unavailable","retryable":false}},"warnings":[],"next":{"action":"narrow_request"}}
+{"schema_version":"1","state":"failed","code":"CAPABILITY_UNAVAILABLE","data":{"error":{"code":"CAPABILITY_UNAVAILABLE","effect_status":"none","message":"this installation is not a remote runner (`remote init` first)","next":{"action":"narrow_request"},"reason":"driver_unavailable","retryable":false}},"warnings":[],"next":{"action":"narrow_request"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"this decision needs the owner at this runner's terminal (an interactive ssh session counts): nothing was changed","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"this decision needs the owner at this runner's terminal (an interactive ssh session counts): nothing was changed","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"succeeded","code":"OK","data":{"time_source":{"client":"cl_03030303030303030303030303030303","designated_at":"2026-11-24T21:46:31.329070955Z"}},"warnings":[],"next":null}
+{"schema_version":"1","state":"succeeded","code":"OK","data":{"issuer_trust":[]},"warnings":[],"next":null}
+{"schema_version":"1","state":"succeeded","code":"OK","data":{"cleared":true},"warnings":[],"next":null}
+{"schema_version":"1","state":"succeeded","code":"OK","data":{"ca_fingerprint":"SHA256:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC","removed":false},"warnings":[],"next":null}
+
+---- portable_cmd::tests::the_import_previews_then_asks_then_applies stdout ----
+Import plan (a dry run: nothing has been written):
+  would add: 1, unchanged: 1, conflicts (never applied): 1, need a local key: 1, skipped (a route to set up here first): 0
+  destination lab1: add
+  destination lab2: conflict (alias_collision)
+  identity SHA256:BBBB: needs_local
+Host-key fingerprints the exporting installation knew (for your comparison only; an import never trusts a host key):
+  lab1: SHA256:AAAA
+Re-establish locally (an import never carries these):
+  - standing policies and project trust
+
+
+---- m06_cmd::tests::the_bridge_refuses_a_faulty_session_and_notes_a_downgrade_it_cannot_record stdout ----
+heimdall remote serve: the owner-only record was not written
+heimdall remote serve: management session refused: sshd allocated a terminal
+heimdall remote serve: management session refused: sshd delivered a client variable
+heimdall remote serve: management session refused: sshd forwarded an agent
+heimdall remote serve: management session refused: sshd allocated a terminal
+
+---- prompt::tests::no_answer_in_time_is_timed_out stdout ----
+tType 'yes' to confirm [y/N]: 
+tType 'yes' to confirm [y/N]: 
+---- rev7_cmd::tests::every_declared_command_answers_not_available_and_touches_nothing stdout ----
+USAGE_ERROR (failed)
+error: this command is not available in this build
+effect: none
+next: fix_request
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"this command is not available in this build","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+USAGE_ERROR (failed)
+error: this command is not available in this build
+effect: none
+next: fix_request
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"this command is not available in this build","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+USAGE_ERROR (failed)
+error: this command is not available in this build
+effect: none
+next: fix_request
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"this command is not available in this build","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+USAGE_ERROR (failed)
+error: this command is not available in this build
+effect: none
+next: fix_request
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"this command is not available in this build","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+USAGE_ERROR (failed)
+error: this command is not available in this build
+effect: none
+next: fix_request
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"this command is not available in this build","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+USAGE_ERROR (failed)
+error: this command is not available in this build
+effect: none
+next: fix_request
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"this command is not available in this build","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+USAGE_ERROR (failed)
+error: this command is not available in this build
+effect: none
+next: fix_request
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"this command is not available in this build","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+USAGE_ERROR (failed)
+error: this command is not available in this build
+effect: none
+next: fix_request
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"this command is not available in this build","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+
+---- rev7_cmd::tests::only_inspect_request_takes_an_id stdout ----
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"only `inspect request` takes an ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+
+---- purge_sweep::tests::w5_j01_restored_copy_failing_verification_keeps_every_original stdout ----
+
+thread 'purge_sweep::tests::w5_j01_restored_copy_failing_verification_keeps_every_original' (1578234) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving state.db-wal
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- m06_cmd::tests::a_downgrade_the_bridge_cannot_write_is_queued_and_the_next_admission_records_it stdout ----
+heimdall remote serve: the owner-only record was not written
+heimdall remote serve: management session refused: sshd allocated a terminal
+
+---- tui::view::tests::wrapping_keeps_every_character_within_the_width stdout ----
+proptest: Failed to find absolute path of source file '"crates/heimdall/src/tui/view.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- uninstall_cmd::tests::a_restore_from_before_the_downgrade_is_still_owner_only stdout ----
+
+thread 'uninstall_cmd::tests::a_restore_from_before_the_downgrade_is_still_owner_only' (1578388) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving restore
+
+---- uninstall_cmd::tests::final_review_crash_between_database_and_wal_moves_keeps_every_commit stdout ----
+
+thread 'uninstall_cmd::tests::final_review_crash_between_database_and_wal_moves_keeps_every_commit' (1578397) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving state.db-wal
+
+---- uninstall_cmd::tests::final_review_crash_before_the_copy_is_deleted_keeps_a_complete_database stdout ----
+
+thread 'uninstall_cmd::tests::final_review_crash_before_the_copy_is_deleted_keeps_a_complete_database' (1578396) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving delete-copy
+
+---- uninstall_cmd::tests::final_review_crash_while_vacuum_writes_recovers stdout ----
+
+thread 'uninstall_cmd::tests::final_review_crash_while_vacuum_writes_recovers' (1578398) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving copy-written
+
+---- uninstall_cmd::tests::final_review_crash_at_each_copy_step_keeps_a_complete_database stdout ----
+
+thread 'uninstall_cmd::tests::final_review_crash_at_each_copy_step_keeps_a_complete_database' (1578395) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving copy-written
+
+thread 'uninstall_cmd::tests::final_review_crash_at_each_copy_step_keeps_a_complete_database' (1578395) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving restore
+
+---- uninstall_cmd::tests::offered_store_items_are_retired_inline_only_on_a_terminal stdout ----
+deletion offered: the macos_login_keychain item L1 of CA SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; every enrollment under it is final, so the retirement steps delete it (run to `retired`, after a typed yes): uninstall runs them before the runtime stops, or run `heimdall issuer retire SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`; then destroy the offline backup made 2026-11-01T00:00:00Z yourself.
+
+---- uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete stdout ----
+
+thread 'uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete' (1578404) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving state.db-wal
+
+thread 'uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete' (1578404) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving state.db-shm
+
+thread 'uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete' (1578404) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving state.db
+
+---- uninstall_cmd::tests::uninstall_purge_refuses_foreign_change_after_declined_retire stdout ----
+deletion offered: the linux_secret_service item item-1 of CA SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; every enrollment under it is final, so the retirement steps delete it (run to `retired`, after a typed yes): uninstall runs them before the runtime stops, or run `heimdall issuer retire SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`; then destroy the offline backup made 2026-11-01T00:00:00Z yourself.
+
+---- uninstall_cmd::tests::w5_i01_marker_binding_mismatch_keeps_the_database stdout ----
+
+thread 'uninstall_cmd::tests::w5_i01_marker_binding_mismatch_keeps_the_database' (1578469) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving restore
+
+---- uninstall_cmd::tests::w5_i01_original_not_the_recorded_inode_keeps_the_unit stdout ----
+
+thread 'uninstall_cmd::tests::w5_i01_original_not_the_recorded_inode_keeps_the_unit' (1578471) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving restore
+
+---- uninstall_cmd::tests::w5_i01_planted_marker_with_garbage_copy_keeps_database stdout ----
+
+thread 'uninstall_cmd::tests::w5_i01_planted_marker_with_garbage_copy_keeps_database' (1578472) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving restore
+
+---- uninstall_cmd::tests::w5_i01_planted_marker_without_copy_keeps_database stdout ----
+
+thread 'uninstall_cmd::tests::w5_i01_planted_marker_without_copy_keeps_database' (1578473) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving restore
+
+---- uninstall_cmd::tests::w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals stdout ----
+
+thread 'uninstall_cmd::tests::w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals' (1578479) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving state.db-wal
+
+
+successes:
+    activate_cmd::tests::status_lines_never_ask
+    activate_cmd::tests::the_hook_never_attends_or_decides_whatever_the_answer
+    activate_cmd::tests::the_hook_reenters_after_expiry_never_after_a_stop_and_splits_groups
+    activate_cmd::tests::the_scripts_never_evaluate_what_they_read
+    activate_cmd::tests::the_warm_up_sends_only_request_identities_and_ends_by_the_deadline
+    catalog_cmd::tests::from_agent_fingerprint_chooses_one_listed_identity
+    cli::tests::bare_heimdall_is_the_tui_only_on_a_terminal_without_json
+    cli::tests::command_tree_is_consistent
+    cli::tests::decision_approve_by_reference_reports_stale_plainly
+    cli::tests::decision_stale_retries_with_the_same_key_and_resets_the_confirmation
+    cli::tests::interactive_ensure_attends_before_the_request_and_decides_only_on_yes
+    cli::tests::interactive_ensure_sends_nothing_more_unless_confirmed
+    cli::tests::interactive_needs_a_terminal_and_no_opt_out
+    cli::tests::json_is_requested_anywhere_before_the_argv_terminator
+    cli::tests::m02_argument_trees_refuse_malformed_lines
+    cli::tests::m03_policy_actions_attend_only_when_widening
+    cli::tests::non_interactive_or_non_tty_never_attends_or_prompts
+    cli::tests::not_confirmed_is_interaction_required_with_the_decision_ref
+    cli::tests::owner_present_policy_and_decision_flows_attend_first
+    cli::tests::pending_decision_needs_an_interaction_code_and_a_reference
+    cli::tests::require_unattended_is_carried_into_the_request_never_dropped
+    cli::tests::run_and_connect_parse_and_refuse_before_the_runtime
+    cli::tests::the_hidden_issuer_ca_needs_named_pairs_and_a_terminal
+    cli::tests::usage_messages_never_echo_the_offending_token
+    cli::tests::w0_m02_commands_answer_not_available_and_never_contact_the_runtime
+    cli::tree_tests::command_tree_matches_its_golden
+    cli::tree_tests::every_primitive_index_form_parses
+    cli::tree_tests::help_lint_self_check
+    cli::tree_tests::help_text_names_no_milestone_adr_or_section
+    connect_cmd::tests::a_listed_destination_names_its_definition_and_anything_else_reads_managed
+    connect_cmd::tests::binding_files_follow_the_binding_endpoint_or_refuse
+    connect_cmd::tests::connect_managed_pair_covering_profile_is_the_one_listed_or_refused
+    connect_cmd::tests::managed_connect_refuses_without_a_live_binding_endpoint
+    connect_cmd::tests::only_an_applied_managed_preference_takes_the_managed_flow
+    connect_cmd::tests::the_alias_identity_follows_the_definition
+    connections_cmd::tests::close_exit_follows_the_envelope_code
+    container_cmd::tests::mount_args_print_the_read_only_bind_and_the_uid_notes
+    delegate_cmd::tests::scope_pair_needs_destination_and_account
+    delegate_cmd::tests::worker_environment_loses_every_locator_and_a_foreign_agent
+    dev_home_guard::tests::decision_table
+    dev_home_guard::tests::environment_rules
+    dev_home_guard::tests::the_message_names_the_home_variable_and_the_escape
+    doctor_cmd::tests::a_downgrade_the_bridge_could_not_record_is_a_finding
+    doctor_cmd::tests::a_runner_failing_strict_modes_is_a_finding
+    doctor_cmd::tests::a_runner_gone_owner_only_is_a_finding
+    doctor_cmd::tests::an_unbindable_serve_port_is_a_finding_naming_it
+    doctor_cmd::tests::an_unreadable_tree_shows_no_prompt
+    doctor_cmd::tests::authorization_text_lists_found_commands_or_says_none_found_now
+    doctor_cmd::tests::chores_are_added_to_status_only_when_pending
+    doctor_cmd::tests::client_trace_finding_names_an_unrecorded_family_and_version
+    doctor_cmd::tests::interactive_authorization_needs_a_typed_yes
+    doctor_cmd::tests::issuer_store_finding_only_for_the_access_denial
+    doctor_cmd::tests::non_interactive_flag_is_the_authorization_and_a_bare_pipe_is_refused
+    doctor_cmd::tests::q02_nothing_runnable_then_an_alias_appears_runs_nothing
+    doctor_cmd::tests::q02_unreadable_then_readable_tree_runs_no_evaluation
+    doctor_cmd::tests::time_confirmation_is_pending_exactly_when_the_gate_lacks_a_reference
+    enroll_cmd::drive::tests::agent_held_needs_a_concrete_agent_and_identities_only
+    enroll_cmd::drive::tests::the_handoff_notice_names_the_auth_fallback_residual
+    enroll_cmd::drive::tests::the_uncertain_message_is_exact
+    enroll_cmd::render::tests::ca_key_is_cut_as_the_runtime_cuts_it
+    enroll_cmd::render::tests::held_next_names_the_commands_per_reason
+    enroll_cmd::render::tests::held_of_prefers_the_runtimes_hold
+    enroll_cmd::render::tests::only_removed_is_removed
+    enroll_cmd::render::tests::preview_disclosures_are_the_shared_texts
+    enroll_cmd::tests::a_redacted_bundle_is_refused_bundle_redacted
+    enroll_cmd::tests::enroll_then_projection_needs_two_confirmations
+    enroll_cmd::tests::enroll_then_projection_preserves_a_preference_changed_during_confirmation
+    enroll_cmd::tests::enrollment_approval_refused_without_the_runtimes_lock_text
+    enroll_cmd::tests::generic_decision_completion_shows_disclosures_and_needs_the_lock_text
+    enroll_cmd::tests::lock_disclosure_text_reads_the_runtimes_capabilities
+    enroll_cmd::tests::the_switches_fail_closed
+    enroll_cmd::tests::typed_yes_timeout_sends_nothing_and_exits_3
+    input_file::tests::only_a_regular_file_opens_and_nothing_waits
+    issuer_cmd::render::lost_device_guidance_names_the_restore_and_removal_commands
+    issuer_cmd::tests::displaced_items_are_those_of_the_ca_with_a_locator
+    issuer_cmd::tests::test_store_items_are_deleted_by_exact_locator_in_debug_builds
+    launch_flow::tests::a_binding_that_is_no_longer_active_is_refused_as_binding_released
+    launch_flow::tests::a_path_outside_the_home_is_shown_as_written_not_canonicalized
+    launch_flow::tests::an_undetermined_identity_agent_is_named_and_refused_only_unattended
+    launch_flow::tests::refusal_entries_show_a_home_behind_a_symlink_as_tilde
+    launch_flow::tests::the_fallback_refusal_fills_error_entries
+    launch_flow::tests::the_fresh_selection_evaluates_every_invocation_profile
+    m03_cmd::tests::internal_is_hidden_and_the_rest_are_listed
+    m03_cmd::tests::internal_issuer_refuses_tty_stdin
+    m03_cmd::tests::m03_internal_issuer_envelopes_carry_no_wave_0_text
+    m03_cmd::tests::m03_lines_answer_without_touching_the_home
+    m03_cmd::tests::the_m03_command_tree_matches_the_plan_table
+    m03_cmd::wave5_tests::connection_policy_needs_a_flag
+    m03_cmd::wave5_tests::destination_prefer_renders_the_answer
+    m03_cmd::wave5_tests::destination_prefer_resolves_the_managed_pair
+    m03_cmd::wave5_tests::m03_policy_actions_classify_as_widening_or_narrowing
+    m03_cmd::wave5_tests::m03_reasons_exit_codes_follow_adr_0006_table
+    m03_cmd::wave5_tests::strict_connection_narrows_existing_only
+    m05_cmd::tests::a_create_review_shows_the_recorded_scope_or_refuses
+    m05_cmd::tests::a_targeted_result_renders_each_policy
+    m05_cmd::tests::recorded_previews_show_the_scope_and_quote_the_label
+    m05_cmd::tests::workspace_paths_render_as_quoted_data
+    m06_cmd::tests::a_downgrade_the_bridge_cannot_write_is_queued_and_the_next_admission_records_it
+    m06_cmd::tests::a_first_remote_init_under_a_plain_runtime_says_to_stop_it_first
+    m06_cmd::tests::a_helper_that_is_not_the_projected_aliass_proxy_is_refused
+    m06_cmd::tests::a_managed_jump_hop_needs_the_final_pairs_own_binding
+    m06_cmd::tests::a_scratch_home_without_the_fixture_variables_never_selects_a_platform_key_store
+    m06_cmd::tests::an_agent_address_in_use_is_state_unavailable_and_retryable
+    m06_cmd::tests::an_agent_path_too_long_is_capability_unavailable_and_names_a_shorter_directory
+    m06_cmd::tests::an_agent_permission_denied_is_capability_unavailable_and_names_the_permissions
+    m06_cmd::tests::an_unwritable_session_directory_blames_this_controller
+    m06_cmd::tests::any_other_agent_failure_is_state_unavailable_and_retryable
+    m06_cmd::tests::confirmation_texts_name_what_is_confirmed
+    m06_cmd::tests::device_retire_needs_a_terminal
+    m06_cmd::tests::every_session_opener_failure_on_this_controller_is_classed_as_its_fault
+    m06_cmd::tests::m06_names_follow_the_freeze
+    m06_cmd::tests::m06_route_and_transport_commands_are_wired
+    m06_cmd::tests::remote_init_creates_a_missing_ssh_dir_and_refuses_what_is_not_the_accounts
+    m06_cmd::tests::remote_policy_recheck_reports_a_pending_unrecorded_downgrade
+    m06_cmd::tests::remote_serve_keeps_its_own_arguments_and_remote_is_hidden
+    m06_cmd::tests::resume_issuance_acknowledges_exactly_the_effects_it_showed
+    m06_cmd::tests::route_add_relay_names_the_relays_and_nothing_else
+    m06_cmd::tests::runner_local_commands_need_a_runner_and_a_terminal_to_widen
+    m06_cmd::tests::strict_modes_problems_are_reported_and_not_fixed
+    m06_cmd::tests::the_alias_check_applies_only_when_the_alias_names_this_helper
+    m06_cmd::tests::the_bootstrap_config_seam_is_the_scratch_ssh_home_only_and_gated_like_run
+    m06_cmd::tests::the_bridge_refuses_a_faulty_session_and_notes_a_downgrade_it_cannot_record
+    m06_cmd::tests::the_helpers_expected_proxy_command_is_the_rendered_one
+    m06_cmd::tests::the_issuer_forms_carry_distinct_request_ids
+    m06_cmd::tests::the_os_fill_reaches_an_m06_launch_without_program_data
+    m06_cmd::tests::the_pin_file_holds_only_with_exactly_the_catalogs_keys
+    m06_cmd::tests::the_recheck_confirmation_shows_its_evidence
+    m06_cmd::tests::the_runtime_start_offer_says_what_it_runs_and_passes_no_session_credentials
+    m06_cmd::tests::the_sshd_port_flag_is_bounded_needs_serve_and_omits_the_default
+    output::tests::a_data_field_is_one_inert_quoted_token
+    output::tests::a_plan_shows_a_removed_file_of_heimdalls_own_as_a_removal
+    output::tests::a_policy_result_shows_the_lock_behaviour_when_it_carries_one
+    output::tests::a_wait_reports_the_awaited_operation
+    output::tests::accepted_without_async_is_not_success
+    output::tests::access_ensure_strict_reports_strict_disconnect
+    output::tests::destination_list_renders_the_runtimes_items_shape
+    output::tests::destination_listing_shows_the_runtimes_connection_policy_wording
+    output::tests::every_known_code_maps_to_its_table_exit_class
+    output::tests::human_json_is_inert_and_denotes_the_same_value
+    output::tests::revoke_output_lists_owned_connections_and_ordinary_note
+    output::tests::sanitizer_drops_escapes
+    output::tests::status_answers_the_three_questions
+    output::tests::status_scopes_project_policies_separately_from_personal_policies
+    output::tests::status_uses_everyday_vocabulary
+    output::tests::unknown_code_is_never_success_and_exits_one
+    portable_cmd::tests::the_import_previews_then_asks_then_applies
+    prompt::tests::no_answer_in_time_is_timed_out
+    prompt::tests::only_y_or_yes_confirms_and_the_default_is_no
+    purge_sweep::tests::a_group_writable_refusal_names_the_fix
+    purge_sweep::tests::a_linked_ancestor_refuses_the_anchoring
+    purge_sweep::tests::a_planted_journal_refuses_with_every_byte_unchanged
+    purge_sweep::tests::an_entry_placed_inside_a_quarantined_directory_is_deleted
+    purge_sweep::tests::delete_refuses_without_a_recovery_copy
+    purge_sweep::tests::final_review_companion_failure_preserves_database
+    purge_sweep::tests::final_review_quarantine_dir_removal_failure_reports_what_is_on_disk
+    purge_sweep::tests::no_purge_created_file_is_restored_or_listed_as_renamed_back
+    purge_sweep::tests::partial_delete_renames_the_database_back
+    purge_sweep::tests::purge_trusted_top_conditions
+    purge_sweep::tests::quarantine_failed_restore_is_left_and_reported
+    purge_sweep::tests::quarantine_refuses_a_decoy_database_before_its_read
+    purge_sweep::tests::quarantine_refuses_a_leaf_replaced_before_it
+    purge_sweep::tests::recheck4_default_unix_home_with_private_group_must_pass
+    purge_sweep::tests::recheck4_leaf_replacement_must_keep_unconfirmed_owner_data
+    purge_sweep::tests::restore_never_replaces_an_entry_at_the_original_name
+    purge_sweep::tests::secure_path_accepts_the_linux_default_layouts
+    purge_sweep::tests::secure_path_accepts_the_macos_default_layouts
+    purge_sweep::tests::secure_path_accepts_the_windows_default_layout
+    purge_sweep::tests::secure_path_on_synthetic_trees
+    purge_sweep::tests::secure_path_refuses_unsafe_ancestors_and_roots
+    purge_sweep::tests::shared_group_home_still_refuses
+    purge_sweep::tests::swap_between_quarantine_and_unlink_spares_new_data
+    purge_sweep::tests::the_windows_residual_is_listed
+    purge_sweep::tests::uninstall_purge_link_between_passes_deletes_nothing
+    purge_sweep::tests::user_private_group_lookup_runs
+    purge_sweep::tests::w5_i01_failed_copy_check_unlinks_nothing
+    purge_sweep::tests::w5_j01_restored_copy_failing_verification_keeps_every_original
+    purge_sweep::tests::windows_owner_classification
+    rev7_cmd::tests::every_declared_command_answers_not_available_and_touches_nothing
+    rev7_cmd::tests::only_inspect_request_takes_an_id
+    run_cmd::tests::run_on_a_runner_names_an_undetermined_identity_agent_of_an_existing_pair
+    run_cmd::tests::the_argument_bound_counts_every_byte_and_terminator
+    run_cmd::tests::the_argument_bound_refuses_one_byte_over
+    run_cmd::tests::the_slot_check_reads_the_bind_outcome_and_claims_nothing
+    run_m05::tests::a_trust_decision_is_shown_decided_and_the_same_request_reissued
+    run_m05::tests::mixed_mechanisms_are_requested_group_by_group_under_one_work_id
+    service_cmd::tests::autostart_enable_is_previewed_attended_and_applied_only_after_a_typed_yes
+    setup_cmd::tests::a_recorded_plan_other_than_the_one_shown_is_refused
+    setup_cmd::tests::a_repair_is_complete_only_when_doctor_reports_none_left
+    setup_cmd::tests::a_replayed_request_id_after_the_plan_changed_says_why
+    setup_cmd::tests::a_rollback_prompt_shows_heimdalls_own_files_as_removals
+    setup_cmd::tests::apply_previews_attends_shows_restore_and_decides_only_on_yes
+    setup_cmd::tests::apply_sends_nothing_more_unless_confirmed
+    setup_cmd::tests::keep_needs_a_typed_yes_and_sends_nothing_without_one
+    setup_cmd::tests::non_interactive_apply_never_attends_or_prompts
+    setup_cmd::tests::personal_default_offer_is_never_made_unattended_or_twice
+    setup_cmd::tests::personal_default_offer_shows_the_disclosure_and_creates_only_on_yes
+    setup_cmd::tests::personal_default_offer_shows_the_scope_recorded_after_a_catalog_edit
+    setup_cmd::tests::personal_default_offer_without_a_recorded_scope_approves_nothing
+    setup_cmd::tests::repair_arguments_parse_or_are_usage_errors
+    setup_cmd::tests::setup_in_progress_names_both_repair_commands
+    setup_cmd::tests::u9_command_lines_parse
+    testcfg::enabled::tests::a_test_runtime_never_wires_the_accounts_ssh_configuration
+    testcfg::enabled::tests::the_iroh_key_store_variable_is_refused_in_release_and_none_names_the_serve_target
+    testcfg::enabled::tests::the_runner_sshd_config_variable_is_absolute_and_needs_a_scratch_home
+    testcfg::tests::a_build_without_the_configuration_refuses_a_request_for_it
+    testcfg::tests::clock_offset_is_fixed_or_read_from_its_file_at_every_use
+    testcfg::tests::detection_covers_the_m03_variables_and_all_env_keeps_its_m01_m02_set
+    testcfg::tests::detection_sees_every_variable_and_nothing_else
+    testcfg::tests::launch_hooks_parse_and_need_absolute_paths
+    testcfg::tests::m03_values_are_parsed_and_validated
+    testcfg::tests::product_file_selector_parses_and_is_checked_against_the_home
+    testcfg::tests::purge_trusted_top_is_refused_in_a_release_build
+    testcfg::tests::the_m03_refusal_covers_every_m03_variable
+    testcfg::tests::the_mgmt_store_variable_is_refused_by_a_release_build
+    testcfg::tests::the_pinned_client_redirect_is_in_the_launch_set_and_refused_without_the_configuration
+    tui::data::tests::a_held_setup_operation_is_recognized_by_its_reason
+    tui::data::tests::catalog_listings_parse_tolerantly
+    tui::data::tests::clean_removes_escapes_and_controls_and_flattens_lines
+    tui::keys::tests::a_lone_escape_waits_for_the_timeout_and_split_sequences_join
+    tui::keys::tests::printable_control_and_navigation_keys_decode
+    tui::keys::tests::unknown_or_hostile_sequences_never_become_text
+    tui::m03::tests::every_enrollment_state_has_a_text_marker
+    tui::m03::tests::listings_parse_tolerantly
+    tui::m05::tests::a_create_shows_its_recorded_scope_or_offers_no_approval
+    tui::m05::tests::a_targeted_widening_lists_its_policies
+    tui::m05::tests::an_unserved_runtime_reads_as_unavailable
+    tui::m05::tests::decisions_read_back_from_their_wire_forms
+    tui::m05::tests::each_stop_action_is_the_cli_request
+    tui::m05::tests::quoted_label_is_inert
+    tui::m05::tests::the_menu_confirms_before_it_sends
+    tui::m07::tests::environments_read_back_from_the_published_view
+    tui::m07::tests::overview_scopes_project_access_and_summarizes_long_fresh_listings
+    tui::m07::tests::settings_batched_input_cannot_confirm_before_a_frame_is_drawn
+    tui::m07::tests::settings_narrow_at_once_and_widen_through_the_decision_modal
+    tui::m07::tests::settings_short_terminal_refuses_to_submit
+    tui::m07::tests::tui_actions_send_the_cli_requests
+    tui::model::tests::a_decision_the_runtime_just_issued_opens_once_listed
+    tui::model::tests::a_destination_an_import_skipped_is_never_connectable_from_the_tui
+    tui::model::tests::a_stale_answer_leaves_an_unrelated_modal_alone
+    tui::model::tests::batched_cancel_is_not_sent_before_its_operation_is_drawn
+    tui::model::tests::batched_network_probe_is_not_run_before_its_menu_is_drawn
+    tui::model::tests::config_commands_authorization_requires_typed_yes
+    tui::model::tests::connect_refuses_an_alias_the_catalog_does_not_list
+    tui::model::tests::decision_modal_requires_typed_yes_default_no
+    tui::model::tests::decision_stale_resets_the_confirmation_and_never_reuses_yes
+    tui::model::tests::decision_stale_retries_with_the_same_key_and_resets_the_confirmation
+    tui::model::tests::derived_data_is_computed_once_per_change
+    tui::model::tests::health_is_ready_working_or_needs_attention
+    tui::model::tests::held_repair_submits_only_after_plan_and_typed_yes
+    tui::model::tests::held_setup_operation_is_needs_attention_with_its_two_repairs
+    tui::model::tests::keyboard_only_navigation_reaches_every_m02_action
+    tui::model::tests::network_probe_short_terminal_refuses_to_run
+    tui::model::tests::reading_scrolls_without_skipping_and_remembers_the_end_per_content
+    tui::model::tests::search_is_immediate_and_produces_no_effect
+    tui::model::tests::settings_and_activity_rows_are_not_rebuilt_per_key
+    tui::tests::connect_takes_only_an_alias
+    tui::tests::probe_isolation_names_only_scratch_files
+    tui::tests::the_test_hooks_are_parsed_in_debug_and_refused_in_release
+    tui::view::tests::a30_surfaces_answer_the_three_questions
+    tui::view::tests::a_decision_diff_with_a_suffix_beyond_the_cell_width_is_readable_in_full
+    tui::view::tests::a_failed_or_stale_read_never_looks_current_or_healthy
+    tui::view::tests::a_grouped_finding_shows_its_destinations_whatever_the_search
+    tui::view::tests::a_removed_file_of_heimdalls_own_is_a_summary_line_under_before
+    tui::view::tests::a_rollback_decision_shows_the_summary_lines_in_full
+    tui::view::tests::a_terminal_too_small_to_show_the_content_confirms_nothing
+    tui::view::tests::ages_read_naturally
+    tui::view::tests::authorization_shows_the_sentence_and_the_list
+    tui::view::tests::decision_modal_renders_the_prompt_default_no
+    tui::view::tests::decision_modal_shows_restore_column
+    tui::view::tests::default_surfaces_use_everyday_vocabulary
+    tui::view::tests::every_footer_and_help_key_is_bound
+    tui::view::tests::hostile_strings_never_reach_a_cell_as_controls
+    tui::view::tests::listing_failure_is_shown_not_empty
+    tui::view::tests::lock_wording_states_only_what_the_runtime_attests
+    tui::view::tests::m03::cli_decided_kinds_never_offer_approve_and_show_their_command
+    tui::view::tests::m03::lock_disclosure_once
+    tui::view::tests::m03::m03_decisions_render_the_recorded_request_readably
+    tui::view::tests::m03::m03_enrollment_detail_shows_reason_next_step_and_late_write
+    tui::view::tests::m03::m03_search_and_refresh_never_reach_the_issuer
+    tui::view::tests::m03::m03_testbackend_snapshots_at_40x12_and_120x40
+    tui::view::tests::m03::m03_time_chore_is_first_with_its_command
+    tui::view::tests::m03::m03_time_chore_offline_from_the_store_reader
+    tui::view::tests::m03::managed_readiness_detail_exact_deadline_strings
+    tui::view::tests::m03::projection_pending_warning_and_setup_apply_hint
+    tui::view::tests::m03::tui_shows_slot_free_with_command
+    tui::view::tests::m05::delta_review_shows_only_added_authority
+    tui::view::tests::m05::first_trust_detail_lists_scope_environments_and_limits
+    tui::view::tests::m05::project_label_rendered_as_quoted_data
+    tui::view::tests::m05::stop_menu_batched_input_cannot_confirm_before_a_frame_is_drawn
+    tui::view::tests::m05::stop_menu_distinguishes_four_actions
+    tui::view::tests::m05::stop_menu_short_terminal_refuses_to_submit
+    tui::view::tests::m05::workspace_status_and_policy_history_render
+    tui::view::tests::m07_views_carry_text_markers
+    tui::view::tests::no_color_carries_no_color_and_every_state_has_a_text_marker
+    tui::view::tests::overview_groups_findings_and_keeps_rows_distinct
+    tui::view::tests::probe_results_label_the_inventory_as_found_before_the_run
+    tui::view::tests::testbackend_snapshots_at_40x12_and_120x40
+    tui::view::tests::the_end_stays_shown_for_the_same_content_and_not_for_changed_content
+    tui::view::tests::the_last_entry_of_a_15_construct_inventory_is_reachable_by_keyboard
+    tui::view::tests::the_refusal_is_visible_in_the_modal
+    tui::view::tests::wrapping_breaks_at_spaces_and_paths_and_marks_continuations
+    tui::view::tests::wrapping_keeps_every_character_within_the_width
+    tui::view::tests::yes_is_refused_until_the_end_has_been_shown
+    tui::worker::tests::a_failed_listing_keeps_the_last_good_data
+    tui::worker::tests::a_refresh_without_a_runtime_publishes_what_it_has_as_stale
+    tui::worker::tests::a_static_pass_that_cannot_run_needs_attention
+    tui::worker::tests::a_transport_failure_fails_the_rest_of_the_round_and_keeps_the_data
+    tui::worker::tests::refreshes_and_operation_reads_coalesce_in_order
+    uninstall_cmd::tests::a_bundle_is_fresh_only_with_fresh_content_and_a_recorded_digest
+    uninstall_cmd::tests::a_bundle_lists_outstanding_foreign_removals_and_late_writes
+    uninstall_cmd::tests::a_plain_uninstall_with_live_enrollments_needs_a_typed_yes
+    uninstall_cmd::tests::a_restore_from_before_the_downgrade_is_still_owner_only
+    uninstall_cmd::tests::an_empty_record_is_not_installed
+    uninstall_cmd::tests::counts_are_read_from_the_store_without_writing
+    uninstall_cmd::tests::decision_kinds_are_classified_for_the_snapshot
+    uninstall_cmd::tests::f2_shm_without_wal_reads_by_copy
+    uninstall_cmd::tests::final_read_refuses_a_planted_wal
+    uninstall_cmd::tests::final_read_wal_swapped_during_open_keeps_committed_record
+    uninstall_cmd::tests::final_review_crash_at_each_copy_step_keeps_a_complete_database
+    uninstall_cmd::tests::final_review_crash_before_the_copy_is_deleted_keeps_a_complete_database
+    uninstall_cmd::tests::final_review_crash_between_database_and_wal_moves_keeps_every_commit
+    uninstall_cmd::tests::final_review_crash_while_vacuum_writes_recovers
+    uninstall_cmd::tests::final_review_failed_retry_retains_pending_display_record
+    uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete
+    uninstall_cmd::tests::final_review_partial_report_states_only_what_is_on_disk
+    uninstall_cmd::tests::final_review_recovery_copy_holds_every_record_by_itself
+    uninstall_cmd::tests::final_review_restore_does_not_attach_old_wal_to_new_owner_database
+    uninstall_cmd::tests::final_review_validating_read_writes_no_family_file
+    uninstall_cmd::tests::meta_keys_are_classified_for_the_snapshot
+    uninstall_cmd::tests::offered_store_items_are_retired_inline_only_on_a_terminal
+    uninstall_cmd::tests::operation_kinds_are_classified_for_the_snapshot
+    uninstall_cmd::tests::plain_uninstall_fence_compares_bounded_obligations
+    uninstall_cmd::tests::plain_uninstall_passes_the_fence_across_retry_rounds
+    uninstall_cmd::tests::plain_uninstall_refuses_a_changed_remote_obligation
+    uninstall_cmd::tests::purge_fence_refuses_retry_rounds_exactly
+    uninstall_cmd::tests::purge_is_confirmed_only_by_a_typed_yes
+    uninstall_cmd::tests::purge_without_a_terminal_or_with_non_interactive_is_refused_unread_and_unasked
+    uninstall_cmd::tests::quarantine_listing_removes_empty_dirs_and_lists_kept_entries
+    uninstall_cmd::tests::r13_review_checkpoint_probe_never_replays_unvalidated_journal
+    uninstall_cmd::tests::r13_review_restore_race_preserves_replacement_record
+    uninstall_cmd::tests::recheck2_purge_refuses_new_ca_from_replacement_that_already_stopped
+    uninstall_cmd::tests::recheck3_purge_does_not_follow_nested_links
+    uninstall_cmd::tests::recheck3_purge_never_follows_runtime_root_replacement
+    uninstall_cmd::tests::recheck3_purge_removes_cleanup_mux_path
+    uninstall_cmd::tests::recheck3_retry_allowance_rejects_new_remote_obligation
+    uninstall_cmd::tests::recheck4_transient_state_swap_must_keep_unconfirmed_recovery
+    uninstall_cmd::tests::recheck_purge_must_exclude_writer_after_final_read
+    uninstall_cmd::tests::recovery_snapshot_classifies_every_table
+    uninstall_cmd::tests::refused_purge_keeps_the_original_until_uninstall_confirms
+    uninstall_cmd::tests::resources_are_absent_only_when_desired_and_observed_absent
+    uninstall_cmd::tests::retry_allowance_admits_no_recreated_record_and_nothing_on_failure
+    uninstall_cmd::tests::store_item_lines_name_the_item_and_the_fate
+    uninstall_cmd::tests::the_inventory_lists_a_runners_owner_only_downgrade
+    uninstall_cmd::tests::the_purge_prompt_lists_the_database_counts_backups_and_kept_copies
+    uninstall_cmd::tests::the_restore_carries_only_the_downgrade_and_never_lowers_it
+    uninstall_cmd::tests::uninstall_lists_and_confirms_pending_remote_revocations
+    uninstall_cmd::tests::uninstall_purge_admits_exactly_its_own_retry
+    uninstall_cmd::tests::uninstall_purge_admits_only_its_own_retirement
+    uninstall_cmd::tests::uninstall_purge_excludes_runtime_start_while_locked
+    uninstall_cmd::tests::uninstall_purge_never_follows_state_root_replacement
+    uninstall_cmd::tests::uninstall_purge_refuses_a_linked_managed_dir
+    uninstall_cmd::tests::uninstall_purge_refuses_a_replaced_common_parent
+    uninstall_cmd::tests::uninstall_purge_refuses_a_shared_runtime_root
+    uninstall_cmd::tests::uninstall_purge_refuses_a_swapped_owner_only_state
+    uninstall_cmd::tests::uninstall_purge_refuses_abandoned_foreign_system_form_removal
+    uninstall_cmd::tests::uninstall_purge_refuses_changed_issuing_set
+    uninstall_cmd::tests::uninstall_purge_refuses_foreign_change_after_declined_retire
+    uninstall_cmd::tests::uninstall_purge_refuses_journal_change_on_unchanged_state
+    uninstall_cmd::tests::uninstall_purge_refuses_new_final_enrollment
+    uninstall_cmd::tests::uninstall_purge_refuses_pending_registration_locator
+    uninstall_cmd::tests::uninstall_purge_refuses_remote_revocation_added_in_window
+    uninstall_cmd::tests::uninstall_purge_refuses_replaced_store_locator
+    uninstall_cmd::tests::uninstall_purge_refuses_replacement_runtime
+    uninstall_cmd::tests::uninstall_purge_refuses_unconfirmed_stop
+    uninstall_cmd::tests::uninstall_purge_refuses_withdrawn_late_write
+    uninstall_cmd::tests::uninstall_purge_removes_every_cleanup_intent_path
+    uninstall_cmd::tests::uninstall_report_names_the_swept_roots
+    uninstall_cmd::tests::uninstall_revalidates_under_the_fence
+    uninstall_cmd::tests::w5_i01_marker_binding_mismatch_keeps_the_database
+    uninstall_cmd::tests::w5_i01_original_not_the_recorded_inode_keeps_the_unit
+    uninstall_cmd::tests::w5_i01_planted_marker_with_garbage_copy_keeps_database
+    uninstall_cmd::tests::w5_i01_planted_marker_without_copy_keeps_database
+    uninstall_cmd::tests::w5_j01_copy_overwritten_after_check_keeps_originals
+    uninstall_cmd::tests::w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals
+    wsl_cmd::tests::internal_wsl_helper_refuses_a_terminal_and_a_foreign_host
+    wsl_cmd::tests::uninstall_disables_mode_a_and_mode_b_distributions_never_starting_one
+
+test result: ok. 386 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.69s
+
+### heimdall-unit exit=0
+### heimdall_adapters-unit
+
+running 19 tests
+test detect::tests::passive_detection_never_claims_available_or_locked ... ok
+test detect::tests::detected_endpoints_map_to_passive_statuses ... ok
+test detect::tests::relative_socket_paths_and_pipe_names_are_not_endpoints_on_unix ... ok
+test detect::tests::pipe_presence_retries_a_bounded_number_of_listings ... ok
+test integration::tests::adapter_errors_are_classified ... ok
+test detect::tests::ssh_auth_sock_comes_from_the_snapshot_only ... ok
+test integration::tests::auth_sock_values ... ok
+test managed::files::tests::binding_cert_names_follow_the_slot_component ... ok
+test integration::tests::descriptor_enforcement_is_never_fresh ... ok
+test managed::files::tests::slot_dir_level_is_the_projections ... ok
+test managed::files::tests::content_checks ... ok
+test managed::report::tests::completion_bound_matches_d7_item_3 ... ok
+test state::tests::listing_states ... ok
+test managed::report::tests::notes_and_multiplexing ... ok
+test state::tests::non_exclusive_selection_without_clearance_is_a_fallback_refusal ... ok
+test state::tests::table_rows_apply_in_order ... ok
+test state::tests::unattended_is_never_met_without_verified_continuity ... ok
+test tests::descriptors_state_the_existing_access_mechanisms ... ok
+test tests::without_an_endpoint_nothing_is_contacted_or_claimed ... ok
+
+successes:
+
+successes:
+    detect::tests::detected_endpoints_map_to_passive_statuses
+    detect::tests::passive_detection_never_claims_available_or_locked
+    detect::tests::pipe_presence_retries_a_bounded_number_of_listings
+    detect::tests::relative_socket_paths_and_pipe_names_are_not_endpoints_on_unix
+    detect::tests::ssh_auth_sock_comes_from_the_snapshot_only
+    integration::tests::adapter_errors_are_classified
+    integration::tests::auth_sock_values
+    integration::tests::descriptor_enforcement_is_never_fresh
+    managed::files::tests::binding_cert_names_follow_the_slot_component
+    managed::files::tests::content_checks
+    managed::files::tests::slot_dir_level_is_the_projections
+    managed::report::tests::completion_bound_matches_d7_item_3
+    managed::report::tests::notes_and_multiplexing
+    state::tests::listing_states
+    state::tests::non_exclusive_selection_without_clearance_is_a_fallback_refusal
+    state::tests::table_rows_apply_in_order
+    state::tests::unattended_is_never_met_without_verified_continuity
+    tests::descriptors_state_the_existing_access_mechanisms
+    tests::without_an_endpoint_nothing_is_contacted_or_claimed
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### heimdall_adapters-unit exit=0
+all-tests-exit=0

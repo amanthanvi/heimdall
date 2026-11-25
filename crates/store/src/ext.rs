@@ -1740,23 +1740,40 @@ impl Txn<'_> {
     // --- catalog: destinations and identities ----------------------------------------
 
     /// Create or replace a destination by ID. Its alias is unique: an alias held by
-    /// another destination is a [`StoreError::GenerationConflict`] (the catalog
-    /// driver reports `alias_collision`). A revision lower than the stored one, or
+    /// another destination is [`StoreError::DestinationAliasTaken`] (the catalog
+    /// driver reports `alias_collision`). ⟨rev7, U0-Q9⟩ Uniqueness is case-insensitive
+    /// (Heimdall's own renderer refuses case-variant aliases, `sshconf::render`'s
+    /// `DuplicateAlias`, so the catalog stays renderable; OpenSSH itself folds case only in
+    /// canonicalization, `Match final` and `Match host`): a write that creates a destination, or renames
+    /// one, into a case-variant of another destination's alias is refused the same way.
+    /// A write that keeps the destination's own stored alias byte for byte is not, so a
+    /// legacy case-variant pair stays editable ([`Txn::destination_alias_case_collisions`]
+    /// lists such pairs for `doctor`). A revision lower than the stored one, or
     /// the stored revision with other content, is a conflict too (a stale writer
     /// never overwrites); the same content at the same revision is a no-op.
     pub fn upsert_destination(&mut self, destination: &DestinationRecord) -> Result<()> {
-        if let Some(stored) = self.destination(&destination.id)? {
+        let stored = self.destination(&destination.id)?;
+        if let Some(stored) = &stored {
             if stored.revision > destination.revision
-                || (stored.revision == destination.revision && stored != *destination)
+                || (stored.revision == destination.revision && stored != destination)
             {
                 return Err(conflict(format!(
                     "destination {} revision {} is not newer than stored {}",
                     destination.id, destination.revision, stored.revision
                 )));
             }
-            if stored == *destination {
+            if stored == destination {
                 return Ok(());
             }
+        }
+        let keeps_own_alias = stored.is_some_and(|s| s.alias == destination.alias);
+        if !keeps_own_alias
+            && self
+                .destinations_by_alias_ignoring_case(&destination.alias)?
+                .iter()
+                .any(|other| other.id != destination.id)
+        {
+            return Err(StoreError::DestinationAliasTaken);
         }
         self.tx
             .execute(
@@ -1772,7 +1789,7 @@ impl Txn<'_> {
             )
             .map_err(|e| {
                 if unique_violation(&e) {
-                    conflict("the destination alias is taken".to_owned())
+                    StoreError::DestinationAliasTaken
                 } else {
                     StoreError::Sqlite(e)
                 }
@@ -1802,6 +1819,38 @@ impl Txn<'_> {
             "SELECT record_json FROM destinations WHERE alias = ?1",
             [alias],
         )
+    }
+
+    /// ⟨rev7, U0-Q9⟩ Every destination whose alias equals `alias` compared without ASCII
+    /// case (`COLLATE NOCASE`, the index of migration 0014), ordered by alias and ID. More
+    /// than one only for a legacy case-variant pair.
+    pub fn destinations_by_alias_ignoring_case(
+        &mut self,
+        alias: &str,
+    ) -> Result<Vec<DestinationRecord>> {
+        self.docs(
+            "SELECT record_json FROM destinations WHERE alias = ?1 COLLATE NOCASE
+             ORDER BY alias, id",
+            [alias],
+        )
+    }
+
+    /// ⟨rev7, U0-Q9⟩ Every pair of destinations whose aliases differ only in ASCII case,
+    /// each pair once, ordered by alias: what `doctor` reports (`alias_collision`). Never
+    /// rewritten.
+    pub fn destination_alias_case_collisions(
+        &mut self,
+    ) -> Result<Vec<(DestinationRecord, DestinationRecord)>> {
+        let all = self.destinations()?;
+        let mut pairs = Vec::new();
+        for (i, a) in all.iter().enumerate() {
+            for b in &all[i + 1..] {
+                if a.alias != b.alias && a.alias.eq_ignore_ascii_case(&b.alias) {
+                    pairs.push((a.clone(), b.clone()));
+                }
+            }
+        }
+        Ok(pairs)
     }
 
     /// Every destination, ordered by alias.

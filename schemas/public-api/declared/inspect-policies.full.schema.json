@@ -1,0 +1,492 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WithPreview",
+  "description": "⟨rev7⟩ A subject's view typed elsewhere, with `inspect --preview`'s `preview` key beside\nits own keys (the ruling of 2026-11-24 on D1 question 5): the view's keys are flattened, so\nthe document is one flat object, and `preview` is omitted without a preview.",
+  "type": "object",
+  "properties": {
+    "default_profiles": {
+      "description": "⟨M05⟩ Revision 5.1 (§17.9): the default-profile preference of each managed\nenvironment that has one, ordered by environment ID. Omitted when none is set,\nso every revision-5 document is unchanged.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DefaultProfileView"
+      }
+    },
+    "items": {
+      "description": "Every standing policy.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PolicyView"
+      }
+    },
+    "preview": {
+      "description": "`inspect --preview`'s result. Omitted without a preview.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreviewView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "Capability": {
+      "description": "Credential capabilities a caller may request (spec §7.2).",
+      "oneOf": [
+        {
+          "description": "SSH user authentication.",
+          "type": "string",
+          "const": "ssh-authentication"
+        },
+        {
+          "description": "Git commit/tag signing (never implied by authentication; spec §7.2).",
+          "type": "string",
+          "const": "git-signing"
+        },
+        {
+          "description": "Agent forwarding (explicit, disabled by default; spec §8.5).",
+          "type": "string",
+          "const": "agent-forwarding"
+        }
+      ]
+    },
+    "Code": {
+      "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "OK"
+        },
+        {
+          "type": "string",
+          "const": "ACCESS_READY"
+        },
+        {
+          "type": "string",
+          "const": "ACCEPTED"
+        },
+        {
+          "type": "string",
+          "const": "APPROVAL_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "INTERACTION_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "PROVIDER_LOCKED"
+        },
+        {
+          "type": "string",
+          "const": "CAPABILITY_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_PAUSED"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_CUTOFF"
+        },
+        {
+          "type": "string",
+          "const": "CREDENTIAL_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "HOST_TRUST_CHANGED"
+        },
+        {
+          "type": "string",
+          "const": "DELEGATION_EXCEEDS_PARENT"
+        },
+        {
+          "type": "string",
+          "const": "OPERATION_CANCELLED"
+        },
+        {
+          "type": "string",
+          "const": "DESTINATION_UNREACHABLE"
+        },
+        {
+          "type": "string",
+          "const": "TIME_UNCERTAIN"
+        },
+        {
+          "type": "string",
+          "const": "UNSUPPORTED_CLIENT"
+        },
+        {
+          "type": "string",
+          "const": "SERVICE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "STATE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "BACKPRESSURE"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "CONFIG_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "RESYNC_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "DECISION_STALE"
+        },
+        {
+          "type": "string",
+          "const": "OUTCOME_UNKNOWN"
+        },
+        {
+          "type": "string",
+          "const": "USAGE_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "SCHEMA_UNSUPPORTED"
+        },
+        {
+          "type": "string",
+          "const": "NOT_FOUND"
+        },
+        {
+          "type": "string",
+          "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
+        }
+      ]
+    },
+    "DecisionId": {
+      "description": "Server-issued decision record ID (ADR-0006 §3.1 attended confirmation).",
+      "type": "string"
+    },
+    "DefaultProfileView": {
+      "description": "⟨M05⟩ Revision 5.1 (§17.9): one environment's default-profile preference\n(`catalog set_default_profile`; ADR-0011 §5.1). A preference, never authority.",
+      "type": "object",
+      "properties": {
+        "environment_id": {
+          "description": "The environment.",
+          "$ref": "#/$defs/EnvironmentId"
+        },
+        "profile_id": {
+          "description": "Its default profile.",
+          "$ref": "#/$defs/ProfileId"
+        }
+      },
+      "required": [
+        "environment_id",
+        "profile_id"
+      ]
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
+    "PolicyId": {
+      "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
+      "type": "string"
+    },
+    "PolicyRevisionView": {
+      "description": "One applied revision in `inspect policies` (ADR-0011 §4.4).",
+      "type": "object",
+      "properties": {
+        "at": {
+          "description": "When.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "cause": {
+          "description": "`decision` or `narrowing`.",
+          "type": "string"
+        },
+        "decision_id": {
+          "description": "The decision, for `decision`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecisionId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "description": "Revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "revision",
+        "cause",
+        "at"
+      ]
+    },
+    "PolicyView": {
+      "description": "One standing policy in `inspect policies`.",
+      "type": "object",
+      "properties": {
+        "cutoff_at": {
+          "description": "Hard cutoff.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "default": {
+          "description": "The personal default for its environments (at most one per environment).",
+          "type": "boolean"
+        },
+        "environments": {
+          "description": "Environments.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnvironmentId"
+          }
+        },
+        "history": {
+          "description": "Applied revisions, oldest first.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PolicyRevisionView"
+          }
+        },
+        "paused_since": {
+          "description": "Paused since.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "policy_id": {
+          "description": "Policy.",
+          "$ref": "#/$defs/PolicyId"
+        },
+        "profile": {
+          "description": "Profile.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "revision": {
+          "description": "Current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "workspace_id": {
+          "description": "The workspace, for a workspace policy; absent for a personal one.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkspaceId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "policy_id",
+        "revision",
+        "profile",
+        "environments"
+      ]
+    },
+    "PreviewSnapshot": {
+      "description": "What a preview would resolve.",
+      "type": "object",
+      "properties": {
+        "deadline": {
+          "description": "The deadline that would be enforced.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "mechanism": {
+          "description": "The mechanism that would serve it. Omitted when no adapter is resolved (today:\n`null`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile": {
+          "description": "The profile.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "profile_revision": {
+          "description": "Its current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "requested": {
+          "description": "The requested scope.",
+          "$ref": "#/$defs/ScopeView"
+        }
+      },
+      "required": [
+        "profile",
+        "profile_revision",
+        "requested",
+        "deadline"
+      ]
+    },
+    "PreviewView": {
+      "description": "`inspect --preview`'s `preview` key: resolution without effects, added to the data of\nany subject but `export` when the request carries `preview`. Tagged by `outcome`.",
+      "oneOf": [
+        {
+          "description": "Existing authority covers the request.",
+          "type": "object",
+          "properties": {
+            "effective": {
+              "description": "The effective authority (the domain `EffectiveAuthority`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "allowed"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "effective"
+          ]
+        },
+        {
+          "description": "Only the delta needs an owner decision.",
+          "type": "object",
+          "properties": {
+            "covered": {
+              "description": "What existing authority already covers (the domain `EffectiveAuthority`,\nverbatim). Omitted when nothing is covered (today: `null`)."
+            },
+            "delta": {
+              "description": "What needs a decision (the domain `AuthorityDelta`, verbatim)."
+            },
+            "outcome": {
+              "type": "string",
+              "const": "approval_required"
+            },
+            "snapshot": {
+              "description": "What would be resolved.",
+              "$ref": "#/$defs/PreviewSnapshot"
+            }
+          },
+          "required": [
+            "outcome",
+            "snapshot",
+            "delta"
+          ]
+        },
+        {
+          "description": "Refused.",
+          "type": "object",
+          "properties": {
+            "code": {
+              "description": "The refusal's code.",
+              "$ref": "#/$defs/Code"
+            },
+            "message": {
+              "description": "The refusal's message.",
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "denied"
+            }
+          },
+          "required": [
+            "outcome",
+            "code",
+            "message"
+          ]
+        }
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "ScopeView": {
+      "description": "A set of destination/account pairs and the capabilities permitted on them, as views\nshow a scope (the domain `Scope`'s wire form: two arrays, each sorted and unique).",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "description": "Capabilities permitted on every pair.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        },
+        "pairs": {
+          "description": "Destination/account pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        }
+      },
+      "required": [
+        "pairs",
+        "capabilities"
+      ]
+    },
+    "WorkspaceId": {
+      "description": "Workspace (adopted checkout) ID (spec §4.1 \"Workspace\").",
+      "type": "string"
+    }
+  }
+}

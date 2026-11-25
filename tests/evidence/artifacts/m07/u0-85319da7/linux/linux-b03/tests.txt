@@ -1,0 +1,599 @@
+### heimdall_sshconf-unit
+
+running 42 tests
+test client::tests::default_identities_per_client_are_kept_as_data ... ok
+test client::tests::default_identities_are_exactly_the_union_of_clients_and_manuals ... ok
+test client::tests::expansion_is_literal_only_where_observed ... ok
+test client::tests::behaviour_is_unknown_only_where_the_observations_do_not_settle_it ... ok
+test client::tests::keywords_follow_the_observed_boundary ... ok
+test client::tests::match_criteria_follow_the_observed_boundary ... ok
+test client::tests::observations_are_unique_per_version ... ok
+test eval::tests::patterns_follow_openssh ... ok
+test client::tests::windows_inbox_9_5p2_row_records_only_what_the_native_run_settled ... ok
+test eval::tests::three_valued_slot_keeps_every_candidate_that_may_apply ... ok
+test eval::tests::env_names_lists_every_variable ... ok
+test include::tests::glob_match_basics ... ok
+test include::tests::mem_source_symlink_and_kinds ... ok
+test include::tests::written_path_is_the_path_as_requested_never_the_canonical_one ... ok
+test lex::tests::hash_starts_a_comment_only_at_a_token_start ... ok
+test lex::tests::blank_lines ... ok
+test lex::tests::keyword_and_simple_arguments ... ok
+test lex::tests::missing_argument_is_refused ... ok
+test lex::tests::quoted_or_equals_first_keyword_is_refused ... ok
+test lex::tests::raw_is_the_rest_of_the_line_as_parse_command_keeps_it ... ok
+test lex::tests::single_equals_after_the_keyword ... ok
+test mgmt::tests::golden_isolated_config_direct ... ok
+test mgmt::tests::golden_isolated_config_windows_pipe_agent ... ok
+test mgmt::tests::golden_isolated_config_jump ... ok
+test relevant::tests::base64_round_trips ... ok
+test mgmt::tests::refused_inputs ... ok
+test mgmt::tests::identity_agent_none_never_combines_with_forward_agent_path ... ok
+test render::tests::duplicate_alias_is_refused ... ok
+test relevant::tests::fingerprint_matches_openssh_form ... ok
+test render::tests::managed_alias_renders_proxyjump_and_never_forwardagent_by_default ... ok
+test render::tests::managed_render_is_deterministic_sorted_and_closed ... ok
+test render::tests::owned_arguments_follow_ssh_option_parsing ... ok
+test routes::tests::golden_one_route_keeps_the_native_rendering ... ok
+test routes::tests::golden_several_routes_render_the_helper ... ok
+test routes::tests::golden_windows_helper_command_quotes_the_program_and_the_pipe ... ok
+test routes::tests::helper_refuses_untyped_or_shell_active_values ... ok
+test routes::tests::pin_file_lines_are_sorted_plain_keys ... ok
+test tests::keyword_table_has_no_duplicate_spelling ... ok
+test tests::limits_are_the_m02_plan_bounds ... ok
+test tests::every_known_keyword_spelling_round_trips_case_insensitively ... ok
+test routes::tests::static_pin_status_keeps_undetermined_apart_from_defeated ... ok
+test routes::tests::static_pin_check_requires_every_pin_setting_to_come_from_p ... ok
+
+successes:
+
+successes:
+    client::tests::behaviour_is_unknown_only_where_the_observations_do_not_settle_it
+    client::tests::default_identities_are_exactly_the_union_of_clients_and_manuals
+    client::tests::default_identities_per_client_are_kept_as_data
+    client::tests::expansion_is_literal_only_where_observed
+    client::tests::keywords_follow_the_observed_boundary
+    client::tests::match_criteria_follow_the_observed_boundary
+    client::tests::observations_are_unique_per_version
+    client::tests::windows_inbox_9_5p2_row_records_only_what_the_native_run_settled
+    eval::tests::env_names_lists_every_variable
+    eval::tests::patterns_follow_openssh
+    eval::tests::three_valued_slot_keeps_every_candidate_that_may_apply
+    include::tests::glob_match_basics
+    include::tests::mem_source_symlink_and_kinds
+    include::tests::written_path_is_the_path_as_requested_never_the_canonical_one
+    lex::tests::blank_lines
+    lex::tests::hash_starts_a_comment_only_at_a_token_start
+    lex::tests::keyword_and_simple_arguments
+    lex::tests::missing_argument_is_refused
+    lex::tests::quoted_or_equals_first_keyword_is_refused
+    lex::tests::raw_is_the_rest_of_the_line_as_parse_command_keeps_it
+    lex::tests::single_equals_after_the_keyword
+    mgmt::tests::golden_isolated_config_direct
+    mgmt::tests::golden_isolated_config_jump
+    mgmt::tests::golden_isolated_config_windows_pipe_agent
+    mgmt::tests::identity_agent_none_never_combines_with_forward_agent_path
+    mgmt::tests::refused_inputs
+    relevant::tests::base64_round_trips
+    relevant::tests::fingerprint_matches_openssh_form
+    render::tests::duplicate_alias_is_refused
+    render::tests::managed_alias_renders_proxyjump_and_never_forwardagent_by_default
+    render::tests::managed_render_is_deterministic_sorted_and_closed
+    render::tests::owned_arguments_follow_ssh_option_parsing
+    routes::tests::golden_one_route_keeps_the_native_rendering
+    routes::tests::golden_several_routes_render_the_helper
+    routes::tests::golden_windows_helper_command_quotes_the_program_and_the_pipe
+    routes::tests::helper_refuses_untyped_or_shell_active_values
+    routes::tests::pin_file_lines_are_sorted_plain_keys
+    routes::tests::static_pin_check_requires_every_pin_setting_to_come_from_p
+    routes::tests::static_pin_status_keeps_undetermined_apart_from_defeated
+    tests::every_known_keyword_spelling_round_trips_case_insensitively
+    tests::keyword_table_has_no_duplicate_spelling
+    tests::limits_are_the_m02_plan_bounds
+
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### heimdall_sshconf-unit exit=0
+### heimdall_stategen-unit
+
+running 12 tests
+test ledger::tests::a_failed_append_is_an_error_so_the_request_does_not_proceed ... ok
+test ledger::tests::a_damaged_record_makes_the_ledger_unreadable_and_untrimmed ... ok
+test ledger::tests::digests_separate_keys_and_unfenced_selects_by_record ... ok
+test ledger::tests::retention_follows_the_idempotency_contract ... ok
+test ledger::tests::an_append_to_a_damaged_ledger_is_refused_and_writes_nothing ... ok
+test ledger::tests::append_read_and_a_torn_tail ... ok
+test record::tests::a_cut_or_altered_record_does_not_decode ... ok
+test record::tests::names_cannot_leave_the_generations_directory ... ok
+test record::tests::pointer_is_exact ... ok
+test ledger::tests::a_final_record_of_zeros_is_a_torn_tail ... ok
+test ledger::tests::the_directory_is_synced_until_one_sync_has_succeeded ... ok
+test ledger::tests::trim_drops_only_what_ended_and_survives_a_stop_at_each_step ... ok
+
+successes:
+
+successes:
+    ledger::tests::a_damaged_record_makes_the_ledger_unreadable_and_untrimmed
+    ledger::tests::a_failed_append_is_an_error_so_the_request_does_not_proceed
+    ledger::tests::a_final_record_of_zeros_is_a_torn_tail
+    ledger::tests::an_append_to_a_damaged_ledger_is_refused_and_writes_nothing
+    ledger::tests::append_read_and_a_torn_tail
+    ledger::tests::digests_separate_keys_and_unfenced_selects_by_record
+    ledger::tests::retention_follows_the_idempotency_contract
+    ledger::tests::the_directory_is_synced_until_one_sync_has_succeeded
+    ledger::tests::trim_drops_only_what_ended_and_survives_a_stop_at_each_step
+    record::tests::a_cut_or_altered_record_does_not_decode
+    record::tests::names_cannot_leave_the_generations_directory
+    record::tests::pointer_is_exact
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+### heimdall_stategen-unit exit=0
+### heimdall_store-unit
+
+running 62 tests
+test codec::tests::enum_names_round_trip ... ok
+test codec::tests::fixed_width_timestamps_sort_chronologically ... ok
+test codec::tests::key_armor_is_refused ... ok
+test ext_effects::tests::policy_revisions_are_producer_scoped_ordered_and_only_shorten ... ok
+test ext_effects::tests::an_acknowledgement_needs_its_durable_record ... ok
+test ext_effects::tests::contact_observations_keep_the_latest_seen_instant ... ok
+test ext_effects::tests::a_lift_acknowledgement_needs_a_delivered_pause_or_cutoff ... ok
+test ext_effects::tests::the_outbox_is_keyed_and_an_acknowledgement_settles_a_row_once ... ok
+test ext_m03::tests::close_moves_only_toward_closed ... ok
+test ext_effects::tests::the_authority_report_lists_tombstones_and_revisions ... ok
+test ext_m03::tests::indexed_states_are_the_enrollment_path ... ok
+test ext_m03::tests::every_source_is_embedded ... ok
+test ext_m03::tests::bundle_digest_records_never_lower_and_refuse_other_forms ... ok
+test ext_m03::tests::placeholder_discarded_tables_have_no_writer ... ok
+test ext_m06::controller_tests::controller_pins_insert_replace_list_and_remove ... ok
+test ext_m06::controller_tests::bootstrap_owner_is_enrolled_once_and_retries_are_idempotent ... ok
+test ext_m06::tests::client_endpoints_are_admitted_only_by_the_invitation_and_replacement_moves_the_generation ... ok
+test ext_m06::tests::expiry_tombstones_and_mismatched_join_writes_nothing ... ok
+test ext_m06::tests::inconsistent_insert_is_refused ... ok
+test ext_effects::tests::the_report_says_which_delivered_effects_are_still_in_force ... ok
+test ext_m06::tests::invite_join_revoke_round_trip_and_generations ... ok
+test ext_m06::tests::line_bookkeeping_is_conditional_on_the_state_it_was_computed_from ... ok
+test ext_m06::tests::iroh_admission_is_the_clients_and_the_bootstrap_owner_adds_but_never_replaces ... ok
+test ext_m06::tests::local_widening_records_have_no_client_and_dedup_by_delta_digest ... ok
+test ext_m06::tests::revocation_deletes_the_endpoint_row_in_the_tombstone_transaction ... ok
+test ext_m06::tests::widening_records_are_keyed_settled_once_and_keep_their_result ... ok
+test ext_routes::tests::route_lists_round_trip_in_order_and_move_the_generation ... ok
+test ext_runner::tests::a_grant_is_pinned_once_and_never_repinned_to_another_issuer ... ok
+test ext_runner::tests::issuer_trust_and_the_time_source_are_kept_and_removed ... ok
+test ext_runner::tests::a_restore_carries_the_downgrade_forward_and_never_lowers_it ... ok
+test ext_runner::tests::the_downgrade_keeps_its_first_cause_and_a_lift_is_bound_to_its_epoch ... ok
+test ext_runner::tests::the_bridges_write_never_creates_or_writes_a_database_that_is_not_a_runners ... ok
+test ext_transport::tests::consents_round_trip_and_removal_narrows ... ok
+test ext_transport::tests::key_references_rotate_withdraw_and_move_the_admission_generation ... ok
+test ext_transport::tests::the_serve_port_is_recorded_once_and_cleared ... ok
+test migrations::tests::failing_step_rolls_back_whole_step_and_version ... ok
+test ext_runner::tests::the_bridges_write_is_set_only_idempotent_and_bounded ... ok
+test migrations::tests::migrations_are_contiguous_from_one ... ok
+test migrations::tests::newer_and_unversioned_schemas_are_refused ... ok
+test migrations::tests::apply_is_idempotent_and_sets_user_version ... ok
+test migrations::tests::local_widening_step_keeps_paired_rows_and_constrains_the_origin ... ok
+test migrations::tests::remote_client_endpoints_step_applies_on_version_10_and_rolls_back_whole ... ok
+test migrations::tests::remote_lift_acks_step_applies_on_version_11_and_rolls_back_whole ... ok
+test migrations::tests::remote_step_applies_on_the_previous_version_and_rolls_back_whole ... ok
+test migrations::tests::remote_widening_step_applies_on_version_9_and_rolls_back_whole ... ok
+test tests::catalog_aliases_are_unique_without_case_at_write ... ok
+test tests::event_seq_marker_parses_only_store_markers ... ok
+test migrations::tests::restore_epoch_step_keeps_the_seeded_rows_at_epoch_zero_and_rolls_back_whole ... ok
+test tests::failing_0002_step_leaves_the_v1_database_untouched ... ok
+test tests::failing_0003_step_leaves_the_v2_database_untouched ... ok
+test tests::fresh_file_needs_no_backup_and_pending_step_is_backed_up_first ... ok
+test tests::failing_0004_step_leaves_the_v3_database_untouched ... ok
+test tests::migration_0002_preserves_a_populated_v1_database ... ok
+test tests::a_lost_restore_epoch_is_damage_never_epoch_zero ... ok
+test tests::migration_fault_points_fire_and_leave_consistent_versions ... ok
+test tests::migration_0003_preserves_a_populated_v2_database_and_backfills_the_basis ... ok
+test tests::migration_0004_preserves_a_populated_v3_database_and_backfills_the_origin ... ok
+test tests::the_restore_epoch_is_canonical_decimal_only ... ok
+test tests::windows_pipe_token_recorded_once_and_stable ... ok
+test tests::read_only_open_never_rolls_back_a_hot_journal ... ok
+test ext_m06::tests::two_concurrent_first_sets_cannot_both_win ... ok
+test tests::purge_never_touches_tombstones_policies_or_meta ... ok
+
+successes:
+
+---- tests::purge_never_touches_tombstones_policies_or_meta stdout ----
+proptest: Failed to find absolute path of source file '"crates/store/src/lib.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+
+successes:
+    codec::tests::enum_names_round_trip
+    codec::tests::fixed_width_timestamps_sort_chronologically
+    codec::tests::key_armor_is_refused
+    ext_effects::tests::a_lift_acknowledgement_needs_a_delivered_pause_or_cutoff
+    ext_effects::tests::an_acknowledgement_needs_its_durable_record
+    ext_effects::tests::contact_observations_keep_the_latest_seen_instant
+    ext_effects::tests::policy_revisions_are_producer_scoped_ordered_and_only_shorten
+    ext_effects::tests::the_authority_report_lists_tombstones_and_revisions
+    ext_effects::tests::the_outbox_is_keyed_and_an_acknowledgement_settles_a_row_once
+    ext_effects::tests::the_report_says_which_delivered_effects_are_still_in_force
+    ext_m03::tests::bundle_digest_records_never_lower_and_refuse_other_forms
+    ext_m03::tests::close_moves_only_toward_closed
+    ext_m03::tests::every_source_is_embedded
+    ext_m03::tests::indexed_states_are_the_enrollment_path
+    ext_m03::tests::placeholder_discarded_tables_have_no_writer
+    ext_m06::controller_tests::bootstrap_owner_is_enrolled_once_and_retries_are_idempotent
+    ext_m06::controller_tests::controller_pins_insert_replace_list_and_remove
+    ext_m06::tests::client_endpoints_are_admitted_only_by_the_invitation_and_replacement_moves_the_generation
+    ext_m06::tests::expiry_tombstones_and_mismatched_join_writes_nothing
+    ext_m06::tests::inconsistent_insert_is_refused
+    ext_m06::tests::invite_join_revoke_round_trip_and_generations
+    ext_m06::tests::iroh_admission_is_the_clients_and_the_bootstrap_owner_adds_but_never_replaces
+    ext_m06::tests::line_bookkeeping_is_conditional_on_the_state_it_was_computed_from
+    ext_m06::tests::local_widening_records_have_no_client_and_dedup_by_delta_digest
+    ext_m06::tests::revocation_deletes_the_endpoint_row_in_the_tombstone_transaction
+    ext_m06::tests::two_concurrent_first_sets_cannot_both_win
+    ext_m06::tests::widening_records_are_keyed_settled_once_and_keep_their_result
+    ext_routes::tests::route_lists_round_trip_in_order_and_move_the_generation
+    ext_runner::tests::a_grant_is_pinned_once_and_never_repinned_to_another_issuer
+    ext_runner::tests::a_restore_carries_the_downgrade_forward_and_never_lowers_it
+    ext_runner::tests::issuer_trust_and_the_time_source_are_kept_and_removed
+    ext_runner::tests::the_bridges_write_is_set_only_idempotent_and_bounded
+    ext_runner::tests::the_bridges_write_never_creates_or_writes_a_database_that_is_not_a_runners
+    ext_runner::tests::the_downgrade_keeps_its_first_cause_and_a_lift_is_bound_to_its_epoch
+    ext_transport::tests::consents_round_trip_and_removal_narrows
+    ext_transport::tests::key_references_rotate_withdraw_and_move_the_admission_generation
+    ext_transport::tests::the_serve_port_is_recorded_once_and_cleared
+    migrations::tests::apply_is_idempotent_and_sets_user_version
+    migrations::tests::failing_step_rolls_back_whole_step_and_version
+    migrations::tests::local_widening_step_keeps_paired_rows_and_constrains_the_origin
+    migrations::tests::migrations_are_contiguous_from_one
+    migrations::tests::newer_and_unversioned_schemas_are_refused
+    migrations::tests::remote_client_endpoints_step_applies_on_version_10_and_rolls_back_whole
+    migrations::tests::remote_lift_acks_step_applies_on_version_11_and_rolls_back_whole
+    migrations::tests::remote_step_applies_on_the_previous_version_and_rolls_back_whole
+    migrations::tests::remote_widening_step_applies_on_version_9_and_rolls_back_whole
+    migrations::tests::restore_epoch_step_keeps_the_seeded_rows_at_epoch_zero_and_rolls_back_whole
+    tests::a_lost_restore_epoch_is_damage_never_epoch_zero
+    tests::catalog_aliases_are_unique_without_case_at_write
+    tests::event_seq_marker_parses_only_store_markers
+    tests::failing_0002_step_leaves_the_v1_database_untouched
+    tests::failing_0003_step_leaves_the_v2_database_untouched
+    tests::failing_0004_step_leaves_the_v3_database_untouched
+    tests::fresh_file_needs_no_backup_and_pending_step_is_backed_up_first
+    tests::migration_0002_preserves_a_populated_v1_database
+    tests::migration_0003_preserves_a_populated_v2_database_and_backfills_the_basis
+    tests::migration_0004_preserves_a_populated_v3_database_and_backfills_the_origin
+    tests::migration_fault_points_fire_and_leave_consistent_versions
+    tests::purge_never_touches_tombstones_policies_or_meta
+    tests::read_only_open_never_rolls_back_a_hot_journal
+    tests::the_restore_epoch_is_canonical_decimal_only
+    tests::windows_pipe_token_recorded_once_and_stable
+
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.45s
+
+### heimdall_store-unit exit=0
+### heimdall_support-unit
+
+running 11 tests
+test bundle::tests::pseudonyms_are_stable_within_a_bundle_and_counted_per_kind ... ok
+test screen::tests::code_shape_accepts_enumerated_codes_and_refuses_everything_else ... ok
+test screen::tests::codes_carrying_markers_or_key_like_runs_fail_the_secret_check ... ok
+test bundle::tests::an_unreadable_store_contributes_its_integrity_code_only ... ok
+test screen::tests::fingerprints_and_heimdall_ids_need_their_exact_shapes ... ok
+test screen::tests::invisible_and_format_characters_of_every_class_are_refused ... ok
+test screen::tests::versions_and_build_ids_have_exact_shapes ... ok
+test value::tests::debug_output_never_shows_what_the_bundle_would_withhold ... ok
+test bundle::tests::the_container_is_deterministic_and_the_digest_is_the_manifests ... ok
+test bundle::tests::timestamps_are_rfc3339_utc_seconds ... ok
+test screen::tests::ordinary_identifiers_pass_and_marked_ones_do_not ... ok
+
+successes:
+
+successes:
+    bundle::tests::an_unreadable_store_contributes_its_integrity_code_only
+    bundle::tests::pseudonyms_are_stable_within_a_bundle_and_counted_per_kind
+    bundle::tests::the_container_is_deterministic_and_the_digest_is_the_manifests
+    bundle::tests::timestamps_are_rfc3339_utc_seconds
+    screen::tests::code_shape_accepts_enumerated_codes_and_refuses_everything_else
+    screen::tests::codes_carrying_markers_or_key_like_runs_fail_the_secret_check
+    screen::tests::fingerprints_and_heimdall_ids_need_their_exact_shapes
+    screen::tests::invisible_and_format_characters_of_every_class_are_refused
+    screen::tests::ordinary_identifiers_pass_and_marked_ones_do_not
+    screen::tests::versions_and_build_ids_have_exact_shapes
+    value::tests::debug_output_never_shows_what_the_bundle_would_withhold
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### heimdall_support-unit exit=0
+### heimdall_testkit-unit
+
+running 71 tests
+test console::tests::strip_escapes_joins_text_split_by_sequences ... ok
+test ca::ceremony::tests::passphrase_and_fingerprint_are_found_in_a_transcript ... ok
+test home::tests::judge_refuses_empty_list_tilde_outside_and_undetermined_only ... ok
+test home::tests::judge_refuses_unreadable_tree_and_foreign_agent ... ok
+test home::tests::quoting ... ok
+test home::tests::scratch_path_through_symlink_out_is_refused ... ok
+test home::tests::scratch_source_refuses_outside_paths_before_reading ... ok
+test agent::tests::wire_round_trips ... ok
+test home::tests::version_parsing ... ok
+test hook::tests::config_lines_quote_and_double_percent ... ok
+test home::tests::user_config_gets_the_fixture_account_last_and_only_when_set ... ok
+test hook::tests::usage_errors_exit_2 ... ok
+test agent::tests::fixture_keys_are_fresh_ed25519_with_canary_comments ... ok
+test hook::tests::touch_askpass_and_revert_in_process ... ok
+test ledger_tests::ledger_child_process_helper ... ok
+test ledger_tests::in_process_new_instance_over_the_same_ledger_reconciles_applied ... ok
+test ledger_tests::torn_final_record_is_not_an_effect_and_malformed_records_are_refused ... ok
+test managed::tests::base64_matches_rfc4648_vectors ... ok
+test managed::tests::seeded_k_env_is_deterministic_and_separated ... ok
+test managed::tests::seeded_k_env_matches_the_vault ... ok
+test ledger_tests::effect_survives_the_death_of_the_process_that_applied_it ... ok
+test console::tests::unix_terminal_types_an_answer_and_reports_the_exit_code ... ok
+test pinned_ssh::tests::adds_only_the_isolation_then_the_callers_arguments ... ok
+test pinned_ssh::tests::fixture_pipe_prefix_is_the_fixtures ... ok
+test pinned_ssh::tests::guard_accepts_fixture_agents_and_passes_the_checked_identity_agent ... ok
+test pinned_ssh::tests::guard_refuses_a_hop_or_a_local_command_that_may_run ... ok
+test pinned_ssh::tests::guard_refuses_an_identity_agent_that_is_missing_or_outside_scratch ... ok
+test pinned_ssh::tests::guard_refuses_identity_files_outside_scratch_or_default ... ok
+test pinned_ssh::tests::guard_refuses_known_hosts_outside_scratch ... ok
+test pinned_ssh::tests::a_forbidden_option_with_leading_whitespace_is_refused ... ok
+test pinned_ssh::tests::a_forbidden_option_with_a_quoted_keyword_is_refused ... ok
+test pinned_ssh::tests::guard_refuses_the_system_agent_pipe ... ok
+test pinned_ssh::tests::guard_refuses_unless_identities_only_is_yes ... ok
+test pinned_ssh::tests::guard_refuses_when_the_check_fails ... ok
+test pinned_ssh::tests::the_built_wrapper_refuses_the_reviewers_proxy_jump ... FAILED
+test pinned_ssh::tests::the_built_wrapper_refuses_to_run_without_the_scratch_config ... FAILED
+test ledger_tests::two_live_instances_share_effects_through_the_ledger ... ok
+test pinned_ssh::tests::the_reviewers_proxy_jump_reproduction_is_refused ... ok
+test pinned_ssh::tests::refuses_a_hop_in_the_callers_arguments_or_the_sidecar ... ok
+test procstat::tests::synthetic_fixtures_match_the_shared_parser ... ok
+test registry::tests::disposable_distribution_names ... ok
+test pinned_ssh::tests::trailing_options_and_a_callers_own_config_are_refused ... ok
+test registry::tests::snippet_is_single_quoted_and_names_the_fifo_and_pid_file ... ok
+test registry::tests::reports_parse ... ok
+test registry::tests::truncation_cut_points_cover_every_prefix ... ok
+test pinned_ssh::tests::refuses_without_the_scratch_config_or_the_isolated_option_set ... ok
+test repo::tests::a_set_directory_wins_over_the_compile_time_root ... ok
+test repo::tests::a_set_value_that_is_not_an_absolute_directory_fails_closed ... ok
+test session_lock::tests::changed_wakes_a_waiter ... ok
+test session_lock::tests::every_transition_into_locked_increments_and_ack_clears_only_its_epoch ... ok
+test session_lock::tests::lock_then_unlock_while_consumer_paused_still_latches ... ok
+test session_lock::tests::starting_locked_latches_nothing ... ok
+test session_lock::tests::state_file_drives_the_source ... ok
+test shells::tests::prefix_report_parses_and_checks_order ... ok
+test shells::tests::shim_texts_name_the_real_programs ... ok
+test scratch_store::tests::scratch_store_is_test_kind_and_an_unavailable_one_writes_nothing ... ok
+test sshd::tests::accepted_log_reads_from_where_the_fixture_started ... ok
+test sshd::tests::account_names_are_plain_or_refused ... ok
+test sshd::tests::config_binds_loopback_only_and_restricts_keys ... ok
+test sshd::tests::external_sshd_is_adopted_without_a_lease_and_refuses_what_it_cannot_honour ... ok
+test sshd::tests::harness_registry_needs_both_paths_on_the_default_server ... ok
+test sshd::tests::harness_selection_never_ignores_a_setting ... ok
+test sshd::tests::registry_append_is_read_back_or_fails ... ok
+test sshd::tests::the_forwarding_guard_treats_10_1_and_unreadable_banners_as_blocking ... ok
+test term::tests::a_runner_that_ignores_sigint_hands_on_the_default_after_the_call ... ok
+test term::tests::term_child ... ignored, child-mode entry of term::tests, started by them
+test tests::scripted_faults_match_in_order ... ok
+test tests::virtual_clock_sleeps_restarts_and_reboots ... ok
+test repo::tests::no_other_test_reads_the_compile_time_root ... ok
+test pinned_ssh::tests::the_check_run_is_bounded ... ok
+test sshd::tests::a_harness_lease_has_one_holder_and_refuses_its_own_thread ... ok
+
+successes:
+
+successes:
+    agent::tests::fixture_keys_are_fresh_ed25519_with_canary_comments
+    agent::tests::wire_round_trips
+    ca::ceremony::tests::passphrase_and_fingerprint_are_found_in_a_transcript
+    console::tests::strip_escapes_joins_text_split_by_sequences
+    console::tests::unix_terminal_types_an_answer_and_reports_the_exit_code
+    home::tests::judge_refuses_empty_list_tilde_outside_and_undetermined_only
+    home::tests::judge_refuses_unreadable_tree_and_foreign_agent
+    home::tests::quoting
+    home::tests::scratch_path_through_symlink_out_is_refused
+    home::tests::scratch_source_refuses_outside_paths_before_reading
+    home::tests::user_config_gets_the_fixture_account_last_and_only_when_set
+    home::tests::version_parsing
+    hook::tests::config_lines_quote_and_double_percent
+    hook::tests::touch_askpass_and_revert_in_process
+    hook::tests::usage_errors_exit_2
+    ledger_tests::effect_survives_the_death_of_the_process_that_applied_it
+    ledger_tests::in_process_new_instance_over_the_same_ledger_reconciles_applied
+    ledger_tests::ledger_child_process_helper
+    ledger_tests::torn_final_record_is_not_an_effect_and_malformed_records_are_refused
+    ledger_tests::two_live_instances_share_effects_through_the_ledger
+    managed::tests::base64_matches_rfc4648_vectors
+    managed::tests::seeded_k_env_is_deterministic_and_separated
+    managed::tests::seeded_k_env_matches_the_vault
+    pinned_ssh::tests::a_forbidden_option_with_a_quoted_keyword_is_refused
+    pinned_ssh::tests::a_forbidden_option_with_leading_whitespace_is_refused
+    pinned_ssh::tests::adds_only_the_isolation_then_the_callers_arguments
+    pinned_ssh::tests::fixture_pipe_prefix_is_the_fixtures
+    pinned_ssh::tests::guard_accepts_fixture_agents_and_passes_the_checked_identity_agent
+    pinned_ssh::tests::guard_refuses_a_hop_or_a_local_command_that_may_run
+    pinned_ssh::tests::guard_refuses_an_identity_agent_that_is_missing_or_outside_scratch
+    pinned_ssh::tests::guard_refuses_identity_files_outside_scratch_or_default
+    pinned_ssh::tests::guard_refuses_known_hosts_outside_scratch
+    pinned_ssh::tests::guard_refuses_the_system_agent_pipe
+    pinned_ssh::tests::guard_refuses_unless_identities_only_is_yes
+    pinned_ssh::tests::guard_refuses_when_the_check_fails
+    pinned_ssh::tests::refuses_a_hop_in_the_callers_arguments_or_the_sidecar
+    pinned_ssh::tests::refuses_without_the_scratch_config_or_the_isolated_option_set
+    pinned_ssh::tests::the_check_run_is_bounded
+    pinned_ssh::tests::the_reviewers_proxy_jump_reproduction_is_refused
+    pinned_ssh::tests::trailing_options_and_a_callers_own_config_are_refused
+    procstat::tests::synthetic_fixtures_match_the_shared_parser
+    registry::tests::disposable_distribution_names
+    registry::tests::reports_parse
+    registry::tests::snippet_is_single_quoted_and_names_the_fifo_and_pid_file
+    registry::tests::truncation_cut_points_cover_every_prefix
+    repo::tests::a_set_directory_wins_over_the_compile_time_root
+    repo::tests::a_set_value_that_is_not_an_absolute_directory_fails_closed
+    repo::tests::no_other_test_reads_the_compile_time_root
+    scratch_store::tests::scratch_store_is_test_kind_and_an_unavailable_one_writes_nothing
+    session_lock::tests::changed_wakes_a_waiter
+    session_lock::tests::every_transition_into_locked_increments_and_ack_clears_only_its_epoch
+    session_lock::tests::lock_then_unlock_while_consumer_paused_still_latches
+    session_lock::tests::starting_locked_latches_nothing
+    session_lock::tests::state_file_drives_the_source
+    shells::tests::prefix_report_parses_and_checks_order
+    shells::tests::shim_texts_name_the_real_programs
+    sshd::tests::a_harness_lease_has_one_holder_and_refuses_its_own_thread
+    sshd::tests::accepted_log_reads_from_where_the_fixture_started
+    sshd::tests::account_names_are_plain_or_refused
+    sshd::tests::config_binds_loopback_only_and_restricts_keys
+    sshd::tests::external_sshd_is_adopted_without_a_lease_and_refuses_what_it_cannot_honour
+    sshd::tests::harness_registry_needs_both_paths_on_the_default_server
+    sshd::tests::harness_selection_never_ignores_a_setting
+    sshd::tests::registry_append_is_read_back_or_fails
+    sshd::tests::the_forwarding_guard_treats_10_1_and_unreadable_banners_as_blocking
+    term::tests::a_runner_that_ignores_sigint_hands_on_the_default_after_the_call
+    tests::scripted_faults_match_in_order
+    tests::virtual_clock_sleeps_restarts_and_reboots
+
+failures:
+
+---- pinned_ssh::tests::the_built_wrapper_refuses_the_reviewers_proxy_jump stdout ----
+
+thread 'pinned_ssh::tests::the_built_wrapper_refuses_the_reviewers_proxy_jump' (1581690) panicked at crates/testkit/src/pinned_ssh.rs:1497:49:
+hm-pinned-ssh is not built: run `cargo build -p heimdall-testkit --bin hm-pinned-ssh`
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- pinned_ssh::tests::the_built_wrapper_refuses_to_run_without_the_scratch_config stdout ----
+
+thread 'pinned_ssh::tests::the_built_wrapper_refuses_to_run_without_the_scratch_config' (1581691) panicked at crates/testkit/src/pinned_ssh.rs:1785:49:
+hm-pinned-ssh is not built: run `cargo build -p heimdall-testkit --bin hm-pinned-ssh`
+
+
+failures:
+    pinned_ssh::tests::the_built_wrapper_refuses_the_reviewers_proxy_jump
+    pinned_ssh::tests::the_built_wrapper_refuses_to_run_without_the_scratch_config
+
+test result: FAILED. 68 passed; 2 failed; 1 ignored; 0 measured; 1 filtered out; finished in 0.57s
+
+### heimdall_testkit-unit exit=101
+### heimdall_transport_iroh-unit
+
+running 26 tests
+test admission::tests::empty_allowlist_is_refused ... ok
+test admission::tests::channel_authority_revoke_and_eof ... ok
+test e2e_tests::direct_endpoint_close_with_a_live_connection_is_bounded ... ok
+test e2e_tests::loopback_round_trip_and_every_bound_socket_is_loopback ... ok
+test e2e_tests::reported_lease_loss_closes_every_stream ... ok
+test e2e_tests::revoking_an_endpoint_closes_its_live_stream_and_refuses_new_ones ... ok
+test e2e_tests::server_shutdown_with_a_live_stream_is_bounded ... ok
+test e2e_tests::non_admitted_dialers_are_refused_before_any_byte_reaches_the_target ... ok
+test endpoint::tests::dial_hook_refuses_addresses_outside_the_route ... ok
+test endpoint::tests::dial_plan_peer_address_comes_from_the_approved_route ... ok
+test endpoint::tests::plan_refuses_hints_addresses_and_relays_outside_the_policy ... ok
+test keys::tests::in_memory_source_returns_its_key_and_debug_redacts ... ok
+test keys::tests::key_source_errors_answer_transport_key_store_unavailable ... ok
+test e2e_tests::unacknowledged_generation_closes_streams_and_refuses_until_a_fresh_lease ... ok
+test policy::tests::a_named_serve_port_is_kept_and_zero_or_relay_only_is_refused ... ok
+test policy::tests::address_outside_policy_is_refused ... ok
+test policy::tests::minimal_policy_is_loopback_without_relays_or_lookup ... ok
+test policy::tests::policy_the_endpoint_cannot_apply_is_refused ... ok
+test policy::tests::relay_hint_outside_policy_is_refused ... ok
+test policy::tests::relay_hints_default_to_the_policy_relays ... ok
+test target::tests::non_loopback_target_is_refused ... ok
+test target::tests::target_socket_binds_loopback_before_connect ... ok
+test tests::alpn_is_pigeons_0_and_availability_follows_the_feature ... ok
+test lifecycle::tests::bounded_returns_at_the_bound_for_a_close_that_never_completes ... ok
+test e2e_tests::dial_and_serve_do_not_depend_on_stdin ... ok
+test e2e_tests::lease_loss_closes_every_stream_and_ends_the_server ... ok
+
+successes:
+
+successes:
+    admission::tests::channel_authority_revoke_and_eof
+    admission::tests::empty_allowlist_is_refused
+    e2e_tests::dial_and_serve_do_not_depend_on_stdin
+    e2e_tests::direct_endpoint_close_with_a_live_connection_is_bounded
+    e2e_tests::lease_loss_closes_every_stream_and_ends_the_server
+    e2e_tests::loopback_round_trip_and_every_bound_socket_is_loopback
+    e2e_tests::non_admitted_dialers_are_refused_before_any_byte_reaches_the_target
+    e2e_tests::reported_lease_loss_closes_every_stream
+    e2e_tests::revoking_an_endpoint_closes_its_live_stream_and_refuses_new_ones
+    e2e_tests::server_shutdown_with_a_live_stream_is_bounded
+    e2e_tests::unacknowledged_generation_closes_streams_and_refuses_until_a_fresh_lease
+    endpoint::tests::dial_hook_refuses_addresses_outside_the_route
+    endpoint::tests::dial_plan_peer_address_comes_from_the_approved_route
+    endpoint::tests::plan_refuses_hints_addresses_and_relays_outside_the_policy
+    keys::tests::in_memory_source_returns_its_key_and_debug_redacts
+    keys::tests::key_source_errors_answer_transport_key_store_unavailable
+    lifecycle::tests::bounded_returns_at_the_bound_for_a_close_that_never_completes
+    policy::tests::a_named_serve_port_is_kept_and_zero_or_relay_only_is_refused
+    policy::tests::address_outside_policy_is_refused
+    policy::tests::minimal_policy_is_loopback_without_relays_or_lookup
+    policy::tests::policy_the_endpoint_cannot_apply_is_refused
+    policy::tests::relay_hint_outside_policy_is_refused
+    policy::tests::relay_hints_default_to_the_policy_relays
+    target::tests::non_loopback_target_is_refused
+    target::tests::target_socket_binds_loopback_before_connect
+    tests::alpn_is_pigeons_0_and_availability_follows_the_feature
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.07s
+
+### heimdall_transport_iroh-unit exit=0
+### heimdall_wsl-unit
+
+running 23 tests
+test channel_tests::a_host_without_wsl_answers_wsl_unavailable ... ok
+test channel_tests::a_stopped_distribution_is_never_started_in_the_background ... ok
+test channel_tests::helper_unavailable_when_no_linux_path_resolves ... ok
+wsl-helper: the run directory's base or an ancestor can be replaced by another principal
+test channel_tests::helper_answers_mode_b_requests_and_ends_on_a_protocol_error ... ok
+wsl-helper: no safe run directory for Mode B: XDG_RUNTIME_DIR can be replaced by another principal (a component writable by others and not sticky, not the account's or root's, or missing), and the home base (the account's state directory) can be replaced by another principal (a component writable by others and not sticky, not the account's or root's, or missing)
+test channel_tests::helper_hello_mismatch_ends_session ... ok
+wsl-helper: the run directory's base is reached through a symbolic link that is not root's, or whose target another principal can replace: set XDG_RUNTIME_DIR, or use a base without links
+wsl-helper: a live endpoint of live1 is not ours; left in place
+test channel_tests::mode_b_refusal_names_both_when_xdg_runtime_dir_and_the_home_base_are_unsafe ... ok
+test channel_tests::mode_b_refuses_a_run_base_reached_through_a_replaceable_link ... ok
+test channel_tests::mode_b_refuses_a_run_dir_too_long_for_a_socket_path ... ok
+test discover::tests::lxss_entries_parse_to_guid_identity ... ok
+test discover::tests::wsl_running_list_utf16_parse ... ok
+test helper::identity::tests::append_windows_path_reads_the_interop_section_only ... ok
+wsl-helper: the endpoint directory's path no longer names the verified directory
+wsl-helper: could not remove b1 completely: wsl_withdraw_incomplete
+test channel_tests::mode_b_answers_paths_only_through_a_verified_unreplaced_tree ... ok
+test helper::tests::heimdall_dir_is_owner_only_whatever_the_base_is ... ok
+test proto::tests::helper_sink_calls_are_validated_before_they_are_persisted ... ok
+wsl-helper: an endpoint path is occupied; left in place
+test channel_tests::mode_b_uses_the_home_base_when_xdg_runtime_dir_is_writable_by_others ... ok
+test proto::tests::wire_mirrors_round_trip_losslessly ... ok
+test spawn::tests::child_environment_keeps_only_the_listed_variables ... ok
+test spawn::tests::commands_are_exact_and_refuse_option_like_names ... ok
+test spawn::tests::wsl_exe_carries_what_an_interop_ssh_exe_needs ... ok
+test spawn::tests::wslpath_output_must_be_one_absolute_path ... ok
+test helper::lock::tests::a_second_holder_is_busy_and_a_symlink_is_unsafe ... ok
+test channel_tests::helper_withdraw_of_old_generation_keeps_replacement ... ok
+test proto::tests::wsl_proto_bounds_and_unknown_frames_refused ... ok
+
+successes:
+
+successes:
+    channel_tests::a_host_without_wsl_answers_wsl_unavailable
+    channel_tests::a_stopped_distribution_is_never_started_in_the_background
+    channel_tests::helper_answers_mode_b_requests_and_ends_on_a_protocol_error
+    channel_tests::helper_hello_mismatch_ends_session
+    channel_tests::helper_unavailable_when_no_linux_path_resolves
+    channel_tests::helper_withdraw_of_old_generation_keeps_replacement
+    channel_tests::mode_b_answers_paths_only_through_a_verified_unreplaced_tree
+    channel_tests::mode_b_refusal_names_both_when_xdg_runtime_dir_and_the_home_base_are_unsafe
+    channel_tests::mode_b_refuses_a_run_base_reached_through_a_replaceable_link
+    channel_tests::mode_b_refuses_a_run_dir_too_long_for_a_socket_path
+    channel_tests::mode_b_uses_the_home_base_when_xdg_runtime_dir_is_writable_by_others
+    discover::tests::lxss_entries_parse_to_guid_identity
+    discover::tests::wsl_running_list_utf16_parse
+    helper::identity::tests::append_windows_path_reads_the_interop_section_only
+    helper::lock::tests::a_second_holder_is_busy_and_a_symlink_is_unsafe
+    helper::tests::heimdall_dir_is_owner_only_whatever_the_base_is
+    proto::tests::helper_sink_calls_are_validated_before_they_are_persisted
+    proto::tests::wire_mirrors_round_trip_losslessly
+    proto::tests::wsl_proto_bounds_and_unknown_frames_refused
+    spawn::tests::child_environment_keeps_only_the_listed_variables
+    spawn::tests::commands_are_exact_and_refuse_option_like_names
+    spawn::tests::wsl_exe_carries_what_an_interop_ssh_exe_needs
+    spawn::tests::wslpath_output_must_be_one_absolute_path
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+### heimdall_wsl-unit exit=0
+all-tests-exit=101

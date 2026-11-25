@@ -1,4 +1,4 @@
-Schedule (or clear) a hard stop for a policy, a profile, a workspace or all (spec §6.1). An earlier cutoff applies at once; a later one or `--clear` needs an owner decision
+Schedule (or clear) a hard stop for a policy, a profile, a workspace or all. An earlier cutoff applies at once; a later one or `--clear` needs an owner decision
 
 Usage: heimdall access cutoff [OPTIONS] <POLICY_ID|--profile <PROFILE>|--workspace|--all>
 
@@ -7,12 +7,12 @@ Arguments:
 
 Options:
       --json               Machine output: one JSON envelope on stdout (NDJSON for event streams)
-      --profile <PROFILE>  M05: every policy for this profile
-      --non-interactive    Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
-      --workspace          M05: the policy of the workspace you are in
-      --all                M05: every policy
-      --home <DIR>         Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
-      --cwd <PATH>         M05, with `--workspace`: the directory whose workspace is meant (default the working directory)
+      --profile <PROFILE>  Every policy for this profile
+      --non-interactive    Never open a browser, dialog, or terminal prompt. Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --workspace          The policy of the workspace you are in
+      --all                Every policy
+      --home <DIR>         Use this Heimdall home directory instead of the default [env: HEIMDALL_HOME=]
+      --cwd <PATH>         With `--workspace`: the directory whose workspace is meant (default the working directory)
       --at <AT>            RFC 3339 instant with explicit offset
       --clear              Clear the cutoff deliberately
   -h, --help               Print help

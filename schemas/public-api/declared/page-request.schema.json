@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PageRequest",
+  "description": "`page: {limit?, token?}`: one page of a list.",
+  "type": "object",
+  "properties": {
+    "limit": {
+      "description": "Items per page: default [`PAGE_LIMIT_DEFAULT`], at most [`PAGE_LIMIT_MAX`].",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
+    },
+    "token": {
+      "description": "The previous page's `next_page_token`; absent for the first page.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PageToken"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "PageToken": {
+      "description": "An opaque page token: base64url, at most [`MAX_PAGE_TOKEN_LEN`] bytes, never parsed by a\nclient. The runtime integrity-protects it (HMAC-SHA256 over a version, the scoped tuple\nand the position) and re-applies the reader's visibility on every page: a token carries\na position, never authority.",
+      "type": "string"
+    }
+  }
+}

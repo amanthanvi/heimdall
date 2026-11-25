@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ServiceStatusView",
+  "description": "`heimdall service status --json` data. Today it combines the runtime advertisement\n(`pid`, `version`) with the verified hello (`environment_id`, `capabilities`,\n`principal`). From revision 7 (D12; ADR-0013 §8 \"Discovery\") every field comes from,\nor is checked against, the verified connection: `control_endpoint` is the endpoint\nconnected to; `environment_id`, `protocol`, `capabilities`, `principal` and `version`\ncome from the hello; `pid` is the verified peer's and must equal the advertisement's.\nNo runtime is `SERVICE_UNAVAILABLE`/`runtime_not_running`; a mismatch is\n`SERVICE_UNAVAILABLE`/`endpoint_untrusted`.",
+  "type": "object",
+  "properties": {
+    "capabilities": {
+      "description": "The capabilities in effect on the session (from its hello).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "control_endpoint": {
+      "description": "**Revision 7, not emitted yet** (D12): the control endpoint connected to and\nverified. Omitted until emitted.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "environment_id": {
+      "description": "The runtime's environment (from its hello).",
+      "$ref": "#/$defs/EnvironmentId"
+    },
+    "pid": {
+      "description": "The runtime's process ID (today: the advertisement's; revision 7: the verified\npeer's, equal to the advertisement's).",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "principal": {
+      "description": "How the runtime authenticated this client (from its hello).",
+      "$ref": "#/$defs/PrincipalInfo"
+    },
+    "protocol": {
+      "description": "**Revision 7, not emitted yet** (D12): the protocol version in effect (from the\nhello). Omitted until emitted.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "running": {
+      "description": "Always true in a success.",
+      "type": "boolean"
+    },
+    "time_sync_observation": {
+      "description": "⟨M04⟩ The host's read-only time-synchronization observation, a diagnostic only.",
+      "$ref": "#/$defs/TimeSyncObservationView"
+    },
+    "version": {
+      "description": "The runtime's build version (today: the advertisement's; revision 7: the hello's\n`server.version`).",
+      "type": "string"
+    }
+  },
+  "required": [
+    "running",
+    "pid",
+    "version",
+    "environment_id",
+    "capabilities",
+    "principal",
+    "time_sync_observation"
+  ],
+  "$defs": {
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
+    "PrincipalInfo": {
+      "description": "How the server authenticated the client (reported back for transparency).",
+      "oneOf": [
+        {
+          "description": "Unix peer credentials matched the runtime's user.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "os_user_unix"
+            },
+            "uid": {
+              "description": "Numeric user ID.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "uid"
+          ]
+        },
+        {
+          "description": "Windows client SID matched the runtime's user.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "os_user_windows"
+            },
+            "sid": {
+              "description": "SID string; an identifier, not a secret.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "sid"
+          ]
+        }
+      ]
+    },
+    "TimeSyncObservationView": {
+      "description": "⟨M04⟩ The host's read-only synchronization observation (ADR-0010 §9 item 6). The time\ngate never reads it.",
+      "type": "object",
+      "properties": {
+        "interface": {
+          "description": "The interface read: `adjtimex`, `ntp_adjtime` or `none`.",
+          "type": "string"
+        },
+        "max_error_us": {
+          "description": "The kernel's maximum error estimate, in microseconds. Present exactly for\n`synchronized` and `not_synchronized`.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "reading": {
+          "description": "What it reported.",
+          "$ref": "#/$defs/TimeSyncReading"
+        },
+        "sta_unsync": {
+          "description": "Whether `STA_UNSYNC` was set (ignored by the rule). Present exactly for\n`synchronized` and `not_synchronized`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "used_by_time_gate": {
+          "description": "Always false: the time gate does not use it.",
+          "type": "boolean"
+        },
+        "why": {
+          "description": "What went wrong. Present exactly for `unavailable`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "interface",
+        "reading",
+        "used_by_time_gate"
+      ]
+    },
+    "TimeSyncReading": {
+      "description": "A time-synchronization reading.",
+      "oneOf": [
+        {
+          "description": "The rule reads \"synchronized\".",
+          "type": "string",
+          "const": "synchronized"
+        },
+        {
+          "description": "The rule reads \"not synchronized\".",
+          "type": "string",
+          "const": "not_synchronized"
+        },
+        {
+          "description": "The interface failed or returned a value no rule can read.",
+          "type": "string",
+          "const": "unavailable"
+        },
+        {
+          "description": "This platform has no documented read-only interface.",
+          "type": "string",
+          "const": "no_interface"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,271 @@
+{
+  "homes": [
+    {
+      "home": "main",
+      "rows": {
+        "binding_holders": 0,
+        "bindings": 2,
+        "credential_instances": 0,
+        "decisions": 5,
+        "destinations": 0,
+        "enrollments": 0,
+        "environments": 1,
+        "events": 37,
+        "foreign_removals": 0,
+        "grant_anchors": 2,
+        "grant_prepared_facts": 2,
+        "grant_references": 1,
+        "grants": 4,
+        "idempotency": 5,
+        "idempotency_markers": 0,
+        "identities": 0,
+        "interaction_declarations": 0,
+        "issuance_log": 0,
+        "issuers": 0,
+        "managed_slots": 0,
+        "meta": 6,
+        "operations": 5,
+        "owned_connections": 0,
+        "pair_preferences": 0,
+        "policies": 2,
+        "profile_snapshots": 2,
+        "profiles": 2,
+        "projection_consent": 0,
+        "projection_records": 0,
+        "recovery_intents": 5,
+        "resources": 0,
+        "stage_receipts": 24,
+        "tombstones": 1,
+        "verification_issuance": 0
+      },
+      "steps": [
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "service run"
+        },
+        {
+          "code": "ACCESS_READY",
+          "exit": 0,
+          "step": "ensure (ready)"
+        },
+        {
+          "code": "ACCESS_READY",
+          "exit": 0,
+          "step": "ensure (replay)"
+        },
+        {
+          "code": "REQUEST_CONFLICT",
+          "exit": 6,
+          "step": "ensure (conflict)"
+        },
+        {
+          "code": "INTERACTION_REQUIRED",
+          "exit": 3,
+          "step": "ensure (pending)"
+        },
+        {
+          "code": "INTERACTION_REQUIRED",
+          "exit": 3,
+          "step": "ensure (to deny)"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "decision deny (attended)"
+        },
+        {
+          "code": "INTERACTION_REQUIRED",
+          "exit": 3,
+          "step": "ensure (to approve)"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "decision approve (attended)"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "access pause"
+        },
+        {
+          "code": "INTERACTION_REQUIRED",
+          "exit": 3,
+          "step": "access resume (pending)"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "access resume (attended)"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "access cutoff"
+        },
+        {
+          "code": "INTERACTION_REQUIRED",
+          "exit": 3,
+          "step": "access cutoff --clear (pending)"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "access lock-behavior"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "inspect bindings"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "access release"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "access revoke"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "operation events"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "service stop"
+        }
+      ],
+      "user_version": 6
+    },
+    {
+      "home": "slow",
+      "rows": {
+        "binding_holders": 0,
+        "bindings": 0,
+        "credential_instances": 0,
+        "decisions": 0,
+        "destinations": 0,
+        "enrollments": 0,
+        "environments": 1,
+        "events": 6,
+        "foreign_removals": 0,
+        "grant_anchors": 1,
+        "grant_prepared_facts": 1,
+        "grant_references": 0,
+        "grants": 1,
+        "idempotency": 1,
+        "idempotency_markers": 0,
+        "identities": 0,
+        "interaction_declarations": 0,
+        "issuance_log": 0,
+        "issuers": 0,
+        "managed_slots": 0,
+        "meta": 6,
+        "operations": 1,
+        "owned_connections": 0,
+        "pair_preferences": 0,
+        "policies": 2,
+        "profile_snapshots": 2,
+        "profiles": 2,
+        "projection_consent": 0,
+        "projection_records": 0,
+        "recovery_intents": 1,
+        "resources": 0,
+        "stage_receipts": 6,
+        "tombstones": 0,
+        "verification_issuance": 0
+      },
+      "steps": [
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "service run"
+        },
+        {
+          "code": "ACCEPTED",
+          "exit": 0,
+          "step": "ensure --async"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "operation cancel"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "service stop"
+        }
+      ],
+      "user_version": 6
+    },
+    {
+      "home": "lost",
+      "rows": {
+        "binding_holders": 0,
+        "bindings": 1,
+        "credential_instances": 0,
+        "decisions": 0,
+        "destinations": 0,
+        "enrollments": 0,
+        "environments": 1,
+        "events": 7,
+        "foreign_removals": 0,
+        "grant_anchors": 1,
+        "grant_prepared_facts": 1,
+        "grant_references": 1,
+        "grants": 1,
+        "idempotency": 1,
+        "idempotency_markers": 0,
+        "identities": 0,
+        "interaction_declarations": 0,
+        "issuance_log": 0,
+        "issuers": 0,
+        "managed_slots": 0,
+        "meta": 5,
+        "operations": 1,
+        "owned_connections": 0,
+        "pair_preferences": 0,
+        "policies": 2,
+        "profile_snapshots": 2,
+        "profiles": 2,
+        "projection_consent": 0,
+        "projection_records": 0,
+        "recovery_intents": 1,
+        "resources": 0,
+        "stage_receipts": 10,
+        "tombstones": 0,
+        "verification_issuance": 0
+      },
+      "steps": [
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "service run"
+        },
+        {
+          "code": "OUTCOME_UNKNOWN",
+          "exit": 7,
+          "step": "ensure (outcome unknown)"
+        },
+        {
+          "code": "ACCESS_READY",
+          "exit": 0,
+          "step": "ensure (same key retry)"
+        },
+        {
+          "code": "OK",
+          "exit": 0,
+          "step": "service stop"
+        }
+      ],
+      "user_version": 6
+    }
+  ],
+  "milestone": "m03"
+}

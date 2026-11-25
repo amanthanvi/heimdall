@@ -1,0 +1,697 @@
+{
+  "excluded": [
+    "pause",
+    "resume",
+    "cutoff",
+    "access stop (broader than one work)",
+    "access allow",
+    "decisions",
+    "time confirmation",
+    "setup",
+    "enrollment",
+    "the issuer",
+    "uninstall"
+  ],
+  "groups": [
+    {
+      "callers": "every role, within its visibility",
+      "codes": [
+        {
+          "code": "OK",
+          "exit_code": 0,
+          "next_action": "none"
+        },
+        {
+          "code": "NOT_FOUND",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "CAPABILITY_UNAVAILABLE",
+          "exit_code": 4,
+          "next_action": "narrow_request"
+        },
+        {
+          "code": "USAGE_ERROR",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "SCHEMA_UNSUPPORTED",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "SERVICE_UNAVAILABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "STATE_UNAVAILABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "BACKPRESSURE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "INTERNAL_ERROR",
+          "exit_code": 1,
+          "next_action": "report"
+        }
+      ],
+      "forms": [
+        {
+          "capabilities": [
+            "operations/1"
+          ],
+          "cli": "heimdall --json inspect <subject> [--preview <profile> [--environment E] [--until T | --for D] [--require-* …]]",
+          "request_id": "none",
+          "wire": "inspect"
+        }
+      ],
+      "group": "inspect",
+      "roles": [
+        "owner",
+        "requester",
+        "viewer"
+      ],
+      "schemas": [
+        "inspect-environments",
+        "inspect-workspace",
+        "inspect-policies",
+        "issuer-status",
+        "envelope.error"
+      ]
+    },
+    {
+      "callers": "owner, requester",
+      "codes": [
+        {
+          "code": "ACCESS_READY",
+          "exit_code": 0,
+          "next_action": "use_binding"
+        },
+        {
+          "code": "ACCEPTED",
+          "exit_code": 0,
+          "next_action": "observe"
+        },
+        {
+          "code": "APPROVAL_REQUIRED",
+          "exit_code": 3,
+          "next_action": "observe"
+        },
+        {
+          "code": "INTERACTION_REQUIRED",
+          "exit_code": 3,
+          "next_action": "interact"
+        },
+        {
+          "code": "PROVIDER_LOCKED",
+          "exit_code": 3,
+          "next_action": "interact"
+        },
+        {
+          "code": "CAPABILITY_UNAVAILABLE",
+          "exit_code": 4,
+          "next_action": "narrow_request"
+        },
+        {
+          "code": "POLICY_PAUSED",
+          "exit_code": 4,
+          "next_action": "owner_decision"
+        },
+        {
+          "code": "POLICY_CUTOFF",
+          "exit_code": 4,
+          "next_action": "owner_decision"
+        },
+        {
+          "code": "CREDENTIAL_EXPIRED",
+          "exit_code": 4,
+          "next_action": "new_work"
+        },
+        {
+          "code": "HOST_TRUST_CHANGED",
+          "exit_code": 4,
+          "next_action": "review_host_trust"
+        },
+        {
+          "code": "OPERATION_CANCELLED",
+          "exit_code": 4,
+          "next_action": "none"
+        },
+        {
+          "code": "DESTINATION_UNREACHABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "TIME_UNCERTAIN",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "UNSUPPORTED_CLIENT",
+          "exit_code": 5,
+          "next_action": "change_client"
+        },
+        {
+          "code": "REQUEST_CONFLICT",
+          "exit_code": 6,
+          "next_action": "new_request_id"
+        },
+        {
+          "code": "REQUEST_EXPIRED",
+          "exit_code": 6,
+          "next_action": "new_request_id"
+        },
+        {
+          "code": "DECISION_STALE",
+          "exit_code": 6,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "OUTCOME_UNKNOWN",
+          "exit_code": 7,
+          "next_action": "reconcile"
+        },
+        {
+          "code": "NOT_FOUND",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "USAGE_ERROR",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "SCHEMA_UNSUPPORTED",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "SERVICE_UNAVAILABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "STATE_UNAVAILABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "BACKPRESSURE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "INTERNAL_ERROR",
+          "exit_code": 1,
+          "next_action": "report"
+        }
+      ],
+      "forms": [
+        {
+          "capabilities": [
+            "operations/1"
+          ],
+          "cli": "heimdall --json --non-interactive access ensure --profile P --work-id W --request-id R [--pair D:A …] [--environment E] [--until T | --for D] [--async] [--timeout-ms N] [--require-* …]",
+          "request_id": "required",
+          "wire": "ensure"
+        }
+      ],
+      "group": "ensure",
+      "roles": [
+        "owner",
+        "requester"
+      ],
+      "schemas": [
+        "envelope.ensure",
+        "envelope.error"
+      ]
+    },
+    {
+      "callers": "the binding's holder; the owner",
+      "codes": [
+        {
+          "code": "ACCESS_READY",
+          "exit_code": 0,
+          "next_action": "use_binding"
+        },
+        {
+          "code": "APPROVAL_REQUIRED",
+          "exit_code": 3,
+          "next_action": "observe"
+        },
+        {
+          "code": "INTERACTION_REQUIRED",
+          "exit_code": 3,
+          "next_action": "interact"
+        },
+        {
+          "code": "PROVIDER_LOCKED",
+          "exit_code": 3,
+          "next_action": "interact"
+        },
+        {
+          "code": "CAPABILITY_UNAVAILABLE",
+          "exit_code": 4,
+          "next_action": "narrow_request"
+        },
+        {
+          "code": "POLICY_PAUSED",
+          "exit_code": 4,
+          "next_action": "owner_decision"
+        },
+        {
+          "code": "POLICY_CUTOFF",
+          "exit_code": 4,
+          "next_action": "owner_decision"
+        },
+        {
+          "code": "CREDENTIAL_EXPIRED",
+          "exit_code": 4,
+          "next_action": "new_work"
+        },
+        {
+          "code": "DESTINATION_UNREACHABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "TIME_UNCERTAIN",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "UNSUPPORTED_CLIENT",
+          "exit_code": 5,
+          "next_action": "change_client"
+        },
+        {
+          "code": "REQUEST_CONFLICT",
+          "exit_code": 6,
+          "next_action": "new_request_id"
+        },
+        {
+          "code": "REQUEST_EXPIRED",
+          "exit_code": 6,
+          "next_action": "new_request_id"
+        },
+        {
+          "code": "OUTCOME_UNKNOWN",
+          "exit_code": 7,
+          "next_action": "reconcile"
+        },
+        {
+          "code": "NOT_FOUND",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "LAUNCH_FAILED",
+          "exit_code": 127,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "USAGE_ERROR",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "SCHEMA_UNSUPPORTED",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "SERVICE_UNAVAILABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "STATE_UNAVAILABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "BACKPRESSURE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "INTERNAL_ERROR",
+          "exit_code": 1,
+          "next_action": "report"
+        }
+      ],
+      "forms": [
+        {
+          "capabilities": [
+            "operations/1"
+          ],
+          "cli": "heimdall run [--profile P] [--work-id W] [--request-id R] [--meta-fd N | --meta-file F] -- <argv>",
+          "request_id": "required",
+          "wire": "bind"
+        },
+        {
+          "capabilities": [
+            "operations/1"
+          ],
+          "cli": "(wire only: materialize)",
+          "request_id": "required",
+          "wire": "bind"
+        }
+      ],
+      "group": "bind",
+      "roles": [
+        "owner",
+        "requester"
+      ],
+      "schemas": [
+        "run-record",
+        "envelope.ensure",
+        "envelope.error"
+      ]
+    },
+    {
+      "callers": "the parent binding's holder",
+      "codes": [
+        {
+          "code": "ACCESS_READY",
+          "exit_code": 0,
+          "next_action": "use_binding"
+        },
+        {
+          "code": "CAPABILITY_UNAVAILABLE",
+          "exit_code": 4,
+          "next_action": "narrow_request"
+        },
+        {
+          "code": "CREDENTIAL_EXPIRED",
+          "exit_code": 4,
+          "next_action": "new_work"
+        },
+        {
+          "code": "DELEGATION_EXCEEDS_PARENT",
+          "exit_code": 4,
+          "next_action": "narrow_request"
+        },
+        {
+          "code": "REQUEST_CONFLICT",
+          "exit_code": 6,
+          "next_action": "new_request_id"
+        },
+        {
+          "code": "REQUEST_EXPIRED",
+          "exit_code": 6,
+          "next_action": "new_request_id"
+        },
+        {
+          "code": "OUTCOME_UNKNOWN",
+          "exit_code": 7,
+          "next_action": "reconcile"
+        },
+        {
+          "code": "NOT_FOUND",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "LAUNCH_FAILED",
+          "exit_code": 127,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "USAGE_ERROR",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "SCHEMA_UNSUPPORTED",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "SERVICE_UNAVAILABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "STATE_UNAVAILABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "BACKPRESSURE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "INTERNAL_ERROR",
+          "exit_code": 1,
+          "next_action": "report"
+        }
+      ],
+      "forms": [
+        {
+          "capabilities": [
+            "operations/1"
+          ],
+          "cli": "heimdall --json access delegate --parent B --work-id W --request-id R [--pair D:A …] [--until T]",
+          "request_id": "required",
+          "wire": "delegate"
+        },
+        {
+          "capabilities": [
+            "operations/1"
+          ],
+          "cli": "heimdall run --parent-binding B [--scope D:A …] [--until T] -- <argv>",
+          "request_id": "required",
+          "wire": "delegate"
+        }
+      ],
+      "group": "delegate",
+      "roles": [
+        "owner",
+        "requester"
+      ],
+      "schemas": [
+        "envelope.ensure",
+        "run-record",
+        "envelope.error"
+      ]
+    },
+    {
+      "callers": "the operation's caller; the local owner",
+      "codes": [
+        {
+          "code": "OK",
+          "exit_code": 0,
+          "next_action": "none"
+        },
+        {
+          "code": "ACCEPTED",
+          "exit_code": 0,
+          "next_action": "observe"
+        },
+        {
+          "code": "OPERATION_CANCELLED",
+          "exit_code": 4,
+          "next_action": "none"
+        },
+        {
+          "code": "RESYNC_REQUIRED",
+          "exit_code": 6,
+          "next_action": "resync"
+        },
+        {
+          "code": "OUTCOME_UNKNOWN",
+          "exit_code": 7,
+          "next_action": "reconcile"
+        },
+        {
+          "code": "NOT_FOUND",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "USAGE_ERROR",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "SCHEMA_UNSUPPORTED",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "SERVICE_UNAVAILABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "STATE_UNAVAILABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "BACKPRESSURE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "INTERNAL_ERROR",
+          "exit_code": 1,
+          "next_action": "report"
+        }
+      ],
+      "forms": [
+        {
+          "capabilities": [
+            "operations/1"
+          ],
+          "cli": "heimdall --json operation show|wait <OPERATION_ID>",
+          "request_id": "none",
+          "wire": "observe"
+        },
+        {
+          "capabilities": [
+            "operations/1",
+            "events/1"
+          ],
+          "cli": "heimdall --json operation events [--operation O] [--cursor C] [--limit N]",
+          "request_id": "none",
+          "wire": "observe"
+        },
+        {
+          "capabilities": [
+            "operations/1",
+            "events/1"
+          ],
+          "cli": "heimdall --json operation events --follow [--operation O] [--cursor C] [--max-events N]",
+          "request_id": "none",
+          "wire": "subscribe"
+        },
+        {
+          "capabilities": [
+            "operations/1"
+          ],
+          "cli": "heimdall --json operation cancel <OPERATION_ID>",
+          "request_id": "none",
+          "wire": "cancel"
+        }
+      ],
+      "group": "observe",
+      "roles": [
+        "owner",
+        "requester",
+        "viewer"
+      ],
+      "schemas": [
+        "envelope",
+        "event",
+        "snapshot",
+        "envelope.error"
+      ]
+    },
+    {
+      "callers": "release: the holder; revoke: the grant's holder, own grant only, or the owner",
+      "codes": [
+        {
+          "code": "OK",
+          "exit_code": 0,
+          "next_action": "none"
+        },
+        {
+          "code": "CAPABILITY_UNAVAILABLE",
+          "exit_code": 4,
+          "next_action": "narrow_request"
+        },
+        {
+          "code": "REQUEST_CONFLICT",
+          "exit_code": 6,
+          "next_action": "new_request_id"
+        },
+        {
+          "code": "REQUEST_EXPIRED",
+          "exit_code": 6,
+          "next_action": "new_request_id"
+        },
+        {
+          "code": "OUTCOME_UNKNOWN",
+          "exit_code": 7,
+          "next_action": "reconcile"
+        },
+        {
+          "code": "NOT_FOUND",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "USAGE_ERROR",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "SCHEMA_UNSUPPORTED",
+          "exit_code": 2,
+          "next_action": "fix_request"
+        },
+        {
+          "code": "SERVICE_UNAVAILABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "STATE_UNAVAILABLE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "BACKPRESSURE",
+          "exit_code": 5,
+          "next_action": "retry_after"
+        },
+        {
+          "code": "INTERNAL_ERROR",
+          "exit_code": 1,
+          "next_action": "report"
+        }
+      ],
+      "forms": [
+        {
+          "capabilities": [
+            "operations/1"
+          ],
+          "cli": "heimdall --json access release <binding>",
+          "request_id": "none",
+          "wire": "release"
+        },
+        {
+          "capabilities": [
+            "operations/1"
+          ],
+          "cli": "heimdall --json access revoke <grant> --request-id R",
+          "request_id": "required",
+          "wire": "revoke"
+        }
+      ],
+      "group": "release_revoke",
+      "roles": [
+        "owner",
+        "requester"
+      ],
+      "schemas": [
+        "envelope",
+        "envelope.revoke",
+        "envelope.error"
+      ]
+    }
+  ],
+  "schema_version": "1"
+}

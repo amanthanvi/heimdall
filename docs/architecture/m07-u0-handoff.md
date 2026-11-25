@@ -1,7 +1,9 @@
 # M07 U0 handoff list
 
-**Status:** prepared 2026-11-22 by the M07 integrator for the contract owner, to be ruled on together
-when M06's contract closes. Docs only: nothing here is applied. Sources: ADR-0013 (revision 3) §11 to
+**Status:** prepared 2026-11-22 by the M07 integrator for the contract owner; **ruled 2026-11-24**
+(U0-Q1 to Q14, and the U0 plan's asks). The rulings and what U0 landed for each are ADR-0006 §19
+(revision 7, provisional) and `docs/architecture/u0-plan.md`; this list is kept as the record of
+the questions. U0-Q8 to Q10 were added by M08 W2 (2026-11-23). Sources: ADR-0013 (revision 3) §11 to
 §13, ADR-0014 §7 (H1 to H13), `docs/architecture/m07-plan.md`, and what the M07 W3 and W4 real-binary
 journeys observed on main `6a087fbb` (macOS and the devbox; Windows where stated).
 
@@ -28,8 +30,9 @@ correction in U3, with its emitters, every in-tree reader and its goldens.
 | D14 help-text rule and lint | U0 and U2b | — | — |
 | D15 to D18 ratifications | the contract owner | — | — |
 | D19 `response_too_large` | the reason | PC4 | CLI exit tests, the wrapper |
-| D20 write-time item bounds | the bounds | PC11 | CLI refusals |
+| D20 write-time item bounds | the bounds, `MAX_ADDRESS_BYTES` included | PC11; and **the address strings** (ruled 2026-11-24): each `direct_addresses` entry and `BindScope::Interface.address` parsed as an IP address with an optional zone and stored canonically, refused over 64 bytes (`item_too_large`) or unparseable (`USAGE_ERROR`, `fix_request`), stored values that fail reported and never rewritten | CLI refusals |
 | D21 `page_token_invalid`, `selector_invalid`, `route_undetermined` | the reasons | U3 | the wrapper, both harnesses |
+| M06's handoff: M06-F7 and ADR-0006 §18.9 item 10 (ruled 2026-11-24) | the reason `local_widening_needs_attended_owner` (`INTERACTION_REQUIRED`, next `interact`) | U3: the emitter for an unattended local widening; `route add` of an Iroh leg in a build without the driver refused `CAPABILITY_UNAVAILABLE` / `driver_unavailable` before any decision is recorded | the wrapper and both harnesses' reason tables |
 
 ## 2. M08's deltas that touch M07's consumers (ADR-0014 §7)
 
@@ -168,6 +171,18 @@ Each has what today's build does (observed, with where), and a recommendation.
   the user's configuration or an included file.
 - **Question:** produce them (the passive doctor and setup report a user `Host` section that names
   a managed alias), or remove them from the contract. U1b's new test follows whichever is decided.
+
+### For M08 U1b (Q9, Q10; review U0-R05, ruled 2026-11-24)
+
+- The catalog's case-insensitive alias rule exists because **Heimdall's own renderer refuses
+  case-variant aliases** (`sshconf::render`, `DuplicateAlias`), not because of how OpenSSH
+  matches `Host`. OpenSSH matches `Host` patterns byte for byte by default, and folds case only
+  in canonicalization, `Match final` and `Match host`.
+- So the `doctor` finding `alias_collision` and the `setup` conflict `AliasCollision` (Q10) must
+  not claim anything about OpenSSH's `Host` matching unless an `ssh -G` fixture test verifies
+  it, run on scratch `-F` configurations only.
+- `Txn::destination_alias_case_collisions` lists the legacy case-variant pairs the store holds,
+  for `doctor`.
 
 ## 4. Rulings already made that U0 or U4b must carry
 
