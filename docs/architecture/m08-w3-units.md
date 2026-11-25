@@ -263,6 +263,23 @@ Each lands with its emitters, every in-tree reader and its goldens (ADR-0013 §1
         runner does.
     - **`access release`:** `--request-id` and `--request-epoch` (U0-Q7(a), ASK-FLAGS), with
       its check.
+    - **`run --parent-binding`** prints the request ID it mints without the epoch
+      (`delegate_cmd.rs`, granted to U2b-3).
+      - **This is a known gap in U2b-2 until then.** A retry after a restore that carries no
+        epoch is bound at receipt. The window is narrow, but it is real.
+    - **Checks that still run after the request fence** (ruling of 2026-11-25 on `065f3a45`):
+      - The attended-only rule for an unattended local owner's widening `runner_local` forms
+        (`trust_issuer`, `designate_time_source`, `policy_recheck`) moves into one dispatcher
+        check before the fence.
+      - The application's own refusals inside `ops.*` keep their ledger entry, because the
+        idempotency contract records the ID. The dedupe and the trim bound them.
+  - **Follow-ups A and B landed** (`94fb545e`, merged as `065f3a45`, gate green):
+    - `PairedRunner::frame` is split into the check and the runner's answer. The orchestrator,
+      as M06's owner after its exit, ratified the split.
+    - Ordering is confirmed: authorization comes first, so a frame refused for its role gets
+      the role refusal, stamped with its frame epoch, even when that epoch is stale.
+    - ADR-0006 §18.1 row 4, §18.2 reading 5 and §19.3 now give the requester set as including
+      `request-epoch/1`.
   - **M07's owner review of the readers (`ee022654..3cfcfdfc`): accepted, with nothing
     blocking.** One non-blocking nit, for a later change: the TUI's `kept_epochs` gains one
     entry per request the owner starts and is never pruned. Human actions in a single TUI
