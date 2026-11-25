@@ -234,6 +234,39 @@ Each lands with its emitters, every in-tree reader and its goldens (ADR-0013 §1
     outstanding page tokens (tokens also bind `restore_epoch`). Snapshot and restore code
     never copy it in either direction, and its `META_RECOVERY` class stays as M07 set it.
 
+- **U2b-2's rulings (orchestrator, 2026-11-25, on `3cfcfdfc`):**
+  - **Before U2b-2 merges to main (follow-ups A and B):**
+    - **A:**
+      - The role checks and the uninstall-fence admission run before the request ledger's
+        append, so a refused frame leaves no entry. This is tested, with a revert proof.
+      - `request-epoch/1` is offered to `REQUESTER` as well as the owner.
+    - **B:**
+      - The epoch appears beside the request ID in `environment invite`'s pending message and
+        in `run`'s minted ID.
+      - `request-epoch/1` is in `inspect capabilities`.
+      - The `parse_args` error is formatted.
+  - **To U2b-3:**
+    - **Soak precondition: the ledger is bounded.** The append is deduped by the key's digest,
+      and the trim is wired. A bound test covers an authorized session's flood of distinct
+      keys: the ledger stays bounded, and an append's cost does not grow with history beyond
+      the bound. **The soak does not start until this test passes.**
+    - **Stale decision references:** a decision reference with an epoch older than the
+      current one answers `DECISION_STALE` / `restore_epoch_stale`, whether or not the decision
+      is recorded, and never `NOT_FOUND` (§3.6 step 2).
+    - **Terminal records before restore lands:** the M06 request-ID kinds get terminal records
+      before restore lands. Those kinds are `environment invite`, the runner-local trust,
+      designate, enroll and policy-recheck, `route add`/`prefer`, and `transport enable`/`adopt`
+      (the M06 files are granted).
+      - Until then, a raise fences them fail-closed: a retry gets `REQUEST_STALE`, and nothing
+        runs twice.
+      - With this, `environment invite`'s management session offers `request-epoch/1` when the
+        runner does.
+    - **`access release`:** `--request-id` and `--request-epoch` (U0-Q7(a), ASK-FLAGS), with
+      its check.
+  - **To M07, after U2b-2 is on main:**
+    - `docs/api/local-protocol.md`, the skill ("keep the pair") and the wrapper's README.
+    - The missing `routes/1` in `inspect capabilities`.
+
 ## 3. Order of the first days
 
 1. U3c, by the integrator, merged first (small, and it frees the release graph).
