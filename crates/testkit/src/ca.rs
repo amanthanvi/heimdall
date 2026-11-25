@@ -495,6 +495,53 @@ pub mod ceremony {
         None
     }
 
+    /// ⟨M08-W3-F1⟩ `text` as a failure message may show it. Every line on which
+    /// [`find_passphrase`] finds a shown passphrase becomes `<passphrase>`, and so does any
+    /// token of exactly 26 base32 symbols (a passphrase typed or echoed without its spaces).
+    /// No test prints a passphrase; text without one is returned unchanged.
+    #[must_use]
+    pub fn without_passphrase(text: &str) -> String {
+        let mut lines = String::with_capacity(text.len());
+        for line in text.split_inclusive('\n') {
+            let body = line.trim_end_matches(['\r', '\n']);
+            if find_passphrase(body.as_bytes()).is_some() {
+                lines.push_str("<passphrase>");
+                lines.push_str(&line[body.len()..]);
+            } else {
+                lines.push_str(line);
+            }
+        }
+        let b32 = |c: char| c.is_ascii() && is_b32(c as u8);
+        let mut out = String::with_capacity(lines.len());
+        let mut chars = lines.char_indices().peekable();
+        let mut prev: Option<char> = None;
+        while let Some((start, c)) = chars.next() {
+            if !b32(c) || prev.is_some_and(|p| p.is_ascii_alphanumeric()) {
+                out.push(c);
+                prev = Some(c);
+                continue;
+            }
+            let mut end = start + 1;
+            while let Some(&(i, d)) = chars.peek() {
+                if !b32(d) {
+                    break;
+                }
+                end = i + 1;
+                chars.next();
+            }
+            let joined_on = chars
+                .peek()
+                .is_some_and(|&(_, d)| d.is_ascii_alphanumeric());
+            if end - start == 26 && !joined_on {
+                out.push_str("<passphrase>");
+            } else {
+                out.push_str(&lines[start..end]);
+            }
+            prev = lines[..end].chars().next_back();
+        }
+        out
+    }
+
     /// The first `SHA256:<43 base64>` in `transcript` that is a valid CA fingerprint.
     #[must_use]
     pub fn find_fingerprint(transcript: &[u8]) -> Option<CaFingerprint> {
@@ -645,6 +692,31 @@ pub mod ceremony {
             assert!(find_fingerprint(b"SHA256:short").is_none());
             let p = Passphrase(b"ABC".to_vec());
             assert_eq!(format!("{p:?}"), "Passphrase(3 symbols)");
+        }
+
+        /// ⟨M08-W3-F1⟩ A failure message never shows a passphrase: the shown line (spaced
+        /// or dashed) and a joined token are replaced; a fingerprint, a word and the line
+        /// endings are kept.
+        #[test]
+        fn without_passphrase_hides_every_form_and_keeps_the_rest() {
+            let t = "Backup passphrase:\r\n    ABCDE FGH23 KLMNO PQRS7 UVWXY Z\r\nType written: ";
+            assert_eq!(
+                without_passphrase(t),
+                "Backup passphrase:\r\n<passphrase>\r\nType written: "
+            );
+            assert_eq!(
+                without_passphrase("x\nABCDE-FGH23-KLMNO-PQRS7-UVWXY-Z\n"),
+                "x\n<passphrase>\n"
+            );
+            assert_eq!(
+                without_passphrase("typed: ABCDEFGH23KLMNOPQRS7UVWXYZ.\n"),
+                "typed: <passphrase>.\n"
+            );
+            let kept = format!(
+                "CA SHA256:{} registered; ABCDEFGH23KLMNOPQRS7UVWXYZa; HEIMDALL_TEST; é\n",
+                "A".repeat(43)
+            );
+            assert_eq!(without_passphrase(&kept), kept);
         }
     }
 }

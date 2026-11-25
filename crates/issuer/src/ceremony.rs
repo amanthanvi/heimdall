@@ -729,9 +729,10 @@ pub enum CeremonyError {
     /// No active CA to rotate.
     #[error("the issuer is not initialized")]
     NotInitialized,
-    /// Store items no registration names exist: `--replace-orphan` or `restore`.
-    #[error("{0} store item(s) no registration names exist")]
-    OrphansPresent(usize),
+    /// Store items no registration names exist (their fingerprints): `--replace-orphan`
+    /// or `restore`.
+    #[error("{}", orphans_message(.0))]
+    OrphansPresent(Vec<CaFingerprint>),
     /// The fingerprint is not an orphan (absent from the store, or registered).
     #[error("that CA key is not an orphan store item")]
     NotAnOrphan,
@@ -756,6 +757,22 @@ pub enum CeremonyError {
     /// A [`CeremonyProbe`] stopped the ceremony (tests only).
     #[error("the ceremony was interrupted")]
     Interrupted,
+}
+
+/// ⟨M08-W3-F1⟩ [`CeremonyError::OrphansPresent`]'s message, the command's answer in
+/// `--json` too: the items' fingerprints and both ways out, worded as `issuer status`
+/// words them. One orphan is named in the replace command itself.
+fn orphans_message(fingerprints: &[CaFingerprint]) -> String {
+    let named: Vec<&str> = fingerprints.iter().map(CaFingerprint::as_str).collect();
+    let replace = match fingerprints {
+        [one] => one.as_str(),
+        _ => "<fingerprint>",
+    };
+    format!(
+        "{} store item(s) no registration names exist ({}): restore it (`heimdall issuer restore --backup <file> --not-stolen`) or replace it (`heimdall issuer init --backup-out <path> --replace-orphan {replace} --bundle <file>`, or `--no-bundle-available` without a bundle)",
+        fingerprints.len(),
+        named.join(", ")
+    )
 }
 
 impl CeremonyError {
@@ -1325,7 +1342,9 @@ pub fn init_probed(
             tty,
             "A CA key no registration names is in the store. Restore it (`heimdall issuer restore --backup <file> --not-stolen`), or replace it (`heimdall issuer init --replace-orphan <fingerprint>`).\n",
         )?;
-        return Err(CeremonyError::OrphansPresent(orphaned.len()));
+        return Err(CeremonyError::OrphansPresent(
+            orphaned.into_iter().map(|i| i.fingerprint).collect(),
+        ));
     }
     create_ca(tty, client, store, options.backup_out, None, probe)
 }

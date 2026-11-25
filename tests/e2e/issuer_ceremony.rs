@@ -1161,11 +1161,16 @@ fn windows_ceremony_registration_prompt_times_out_and_sends_nothing() {
         assert!(
             asked.elapsed() < Duration::from_secs(30),
             "the unanswered prompt did not time out: {}",
-            t.text()
+            heimdall_testkit::ca::ceremony::without_passphrase(&t.text())
         );
         std::thread::sleep(Duration::from_millis(25));
     };
-    assert_eq!(code, 0, "child exit; console: {}", t.text());
+    assert_eq!(
+        code,
+        0,
+        "child exit; console: {}",
+        heimdall_testkit::ca::ceremony::without_passphrase(&t.text())
+    );
     assert!(
         asked.elapsed() >= SHORT_TIMEOUT - Duration::from_millis(200),
         "not before the bound: {:?}",
