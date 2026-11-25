@@ -1,8 +1,14 @@
-# M04 exit record (draft) — platform realization: native Windows, WSL, containers and bastions
+# M04 exit record — platform realization: native Windows, WSL, containers and bastions
 
 **Date:** 2026-11-20 · **Build:** `50dbc86b` (the exit commit: `m04/u7` with main `ce5b0dc2`, M05's exit
 and M03-F1, merged); the Mode B harness run at `06784973` (harness files only after `50dbc86b`) ·
-**Status:** draft for the orchestrator's exit decision (ADR-0004).
+**Decided by:** the orchestrator, under the owner's delegation (ADR-0004), on 2026-11-25.
+
+**Decision:** **M04 exits at `50dbc86b29df42b052071eae040bc074d148e81e`**, under the rule below. One row stays
+open: the A03 Mode B lock row is `blocked` on its exact physical input (the owner away, so the PC's console
+sits idle for 15 minutes, then the owner unlocks it; section 2). M03 exited the same way with its macOS lock
+row blocked. A later records commit adds the row. This file keeps its draft name because the M04 records,
+their artifacts and the M05 exit record cite this path.
 
 **Result:** every platform row of every M04 record is `verified` on macOS arm64, Linux x86-64 (the devbox),
 Windows 11 x64 (the full harness) and the PC's WSL rows (Mode B, containers, systemd login), except rows

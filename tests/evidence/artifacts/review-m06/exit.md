@@ -279,7 +279,7 @@ The product code changes are confined to C2, C4, C7 and C8. Each changes live be
 None found. The only hits are synthetic redaction-test inputs:
 
 - in `tests/native/m06/selftest_synthetic.py`: `HEIMDALL_CANARY_<fixture>`, `S-1-5-21-1-2-3`, `<synthetic home path>`,
-  `192.168.1.7` and `<synthetic home path>`;
+  `192.0.2.7` (a private-range address when reviewed, replaced 2026-11-25 by this documentation address) and `<synthetic home path>`;
 - in `record-windows-controller.ps1`'s self-test: `HEIMDALL_CANARY_<fixture>`, `10.1.2.3`, `2001:db8::5` and `Some One`;
 - the SHA-256 of `abc` and an all-zero commit.
 

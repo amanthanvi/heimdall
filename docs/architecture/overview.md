@@ -526,6 +526,15 @@ ADR-0007 §12.48 item 2):
     flag is kept.
   * **The current user's SID:** read from the token user, for `PrincipalRef::WindowsUser`.
   * **Memory:** every `LocalAlloc`ed result is freed exactly once.
+  * ⟨M07 W9e⟩ **A pipe's server, for `hm-pinned-ssh`'s declared agent pipe** (ADR-0007
+    §12.52): `pipe_server_process` accepts only a `\\.\pipe\<one component>` name, opens it
+    with `CreateFileW` (`GENERIC_READ | GENERIC_WRITE`, no sharing, `OPEN_EXISTING`,
+    `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`; `WaitNamedPipeW` while busy, bounded),
+    requires `GetFileType` to be `FILE_TYPE_PIPE`, and reads `GetNamedPipeServerProcessId`;
+    no byte is written or read. `process_creation_time` reads `GetProcessTimes` on an
+    `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` handle. Every handle is an `OwnedHandle`,
+    closed exactly once; every name is a NUL-terminated UTF-16 buffer that outlives its call;
+    every out-pointer is a valid local.
 * `crates/testkit/src/conpty.rs` (`#![allow(unsafe_code)]`, Windows only, feature `fixtures`;
   M03 wave 6, U13): the pseudoconsole behind `console::TerminalCommand`, G02's proven
   `X1Pty.Start` approach.
