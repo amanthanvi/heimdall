@@ -263,6 +263,11 @@ Each lands with its emitters, every in-tree reader and its goldens (ADR-0013 §1
         runner does.
     - **`access release`:** `--request-id` and `--request-epoch` (U0-Q7(a), ASK-FLAGS), with
       its check.
+  - **M07's owner review of the readers (`ee022654..3cfcfdfc`): accepted, with nothing
+    blocking.** One non-blocking nit, for a later change: the TUI's `kept_epochs` gains one
+    entry per request the owner starts and is never pruned. Human actions in a single TUI
+    session bound it, so it is acceptable for 1.0. A later change can drop an entry once its
+    operation is terminal.
   - **To M07, after U2b-2 is on main:**
     - `docs/api/local-protocol.md`, the skill ("keep the pair") and the wrapper's README.
     - The missing `routes/1` in `inspect capabilities`.
