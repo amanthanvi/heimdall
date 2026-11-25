@@ -222,6 +222,16 @@ Each lands with its emitters, every in-tree reader and its goldens (ADR-0013 §1
   unaffected. Windows proof: `uninstall_cmd::tests` rerun with the default TEMP, at the merge
   candidate.
 
+- **M07's page-token key (heads-up, 2026-11-25; M07 W10 U3-1/D2, `pages/1`):** 32 random
+  bytes in the state store's metadata, provisionally named `page_token_hmac_key` (M07 confirms
+  it when it lands). M07's U3-1a also has two granted lines in the brokered `tui/worker.rs`
+  (`select: None, page: None` in its two `InspectRequest` literals), outside the request-ID
+  and epoch path; U2b-2 builds on them or rebases over them.
+  - **U6b:** the support bundle excludes that metadata entry, and its leak test proves it.
+  - **U2b-3/U2b-4:** the key is state. It travels in a backup, and after a restore-epoch change
+    earlier tokens are refused `page_token_invalid` (M07 builds that refusal). If U2b-3 or
+    U2b-4 would rather rotate the key at restore, tell the orchestrator first.
+
 ## 3. Order of the first days
 
 1. U3c, by the integrator, merged first (small, and it frees the release graph).

@@ -786,6 +786,11 @@ fn no_test_builds_the_state_database_path_by_hand() {
             "a word the harness sources must never contain; it builds no path",
         ),
         (
+            "tests/adversarial/issuer_reservation_replay.rs",
+            "letdb=dir.path().join(\"state.db\");",
+            "a scratch store in a temporary directory's root: no home, no layout (U1b, merged after U2b-1)",
+        ),
+        (
             "tests/integration/issuer_child.rs",
             "letdb=dir.path().join(\"state.db\");",
             "a scratch store in a temporary directory's root: no home, no layout",
