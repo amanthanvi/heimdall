@@ -2205,7 +2205,8 @@ fn issuer_status_bundle_unlock_json_envelopes() {
     assert_eq!(recorded, None, "a redacted bundle is not recorded");
     assert_eq!(last, Some(created_at));
     // No path is recorded anywhere in the state database.
-    let db = std::fs::read(rig.state_dir().join("state.db")).unwrap_or_default();
+    let db = std::fs::read(heimdall_store::layout::db_path(&rig.state_dir()).unwrap())
+        .unwrap_or_default();
     let shown = out_path.to_string_lossy().into_owned();
     assert!(!db.windows(shown.len()).any(|w| w == shown.as_bytes()));
 
@@ -3516,7 +3517,7 @@ fn residual_leader_shaped_sign_unconfirmed_stop_keeps_no_admission() {
     let mut rig = Rig::new();
     rig.seed_ca();
     let ops = rig.service.as_ref().unwrap().ops.clone();
-    let db = rig.state_dir().join("state.db");
+    let db = heimdall_store::layout::db_path(&rig.state_dir()).unwrap();
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

@@ -149,7 +149,8 @@ impl<F: Fs + ?Sized> Fs for &F {
 /// **Windows:** there is no directory sync, so [`Fs::sync_dir`] does nothing there, and
 /// [`Fs::rename_over`] flushes the renamed file after the rename. ADR-0014 §3.6 asks for a
 /// write-through rename (`MOVEFILE_WRITE_THROUGH`), which needs an FFI call and so an
-/// `unsafe` module; that is left to the integration (see the crate documentation).
+/// `unsafe` module. ⟨M08 U2b-1, H15⟩ The product's writes go through the runtime's
+/// `PlatformFs` instead, which makes that call (see the crate documentation).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RealFs;
 

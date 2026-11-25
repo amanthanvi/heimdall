@@ -803,7 +803,7 @@ impl World {
         let timeline = Arc::new(Timeline::default());
         let store = Arc::new(
             Store::open(
-                &dir.path().join("state").join("state.db"),
+                &heimdall_store::layout::db_path(&dir.path().join("state")).unwrap(),
                 Arc::new(TimelineFaults(timeline.clone())),
             )
             .unwrap(),

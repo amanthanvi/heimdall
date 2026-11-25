@@ -240,7 +240,8 @@ pub const STATE_DB_FILE: &str = "state.db";
 /// creating or opening the state database: every `.hm-purge-*` entry (an interrupted
 /// uninstall's quarantine: the database family's directory, or a quarantined tree), and,
 /// when `state.db` is absent, its `-wal`, `-shm` and `-journal` (SQLite creating a new
-/// database there would discard a log holding the only copy of commits). Sorted; empty
+/// database there would discard a log holding the only copy of commits). ⟨M08 U2b-1⟩ The
+/// same for the family of the generation `CURRENT` names. Sorted; empty
 /// when start-up may open the store. Read after the instance lock is taken, so no
 /// uninstall is moving files meanwhile.
 ///
@@ -257,9 +258,18 @@ pub fn quarantine_leftovers(
         }
     }
     let present = |p: &std::path::Path| std::fs::symlink_metadata(p).is_ok();
-    if !present(&state_dir.join(STATE_DB_FILE)) {
+    // ⟨M08 U2b-1⟩ The flat family and, when the pointer names one, the generation's family
+    // (named from the pointer alone: this only refuses, it selects nothing).
+    let families = std::iter::once(state_dir.join(STATE_DB_FILE))
+        .chain(heimdall_store::layout::pointed_db(state_dir));
+    for db in families {
+        if present(&db) {
+            continue;
+        }
         for sfx in ["-wal", "-shm", "-journal"] {
-            let p = state_dir.join(format!("{STATE_DB_FILE}{sfx}"));
+            let mut name = db.as_os_str().to_owned();
+            name.push(sfx);
+            let p = std::path::PathBuf::from(name);
             if present(&p) {
                 out.push(p);
             }
@@ -724,12 +734,17 @@ impl Service {
         if !leftovers.is_empty() {
             return Err(ServiceError::App(quarantine_present(&leftovers)));
         }
-        //    Store: open, integrity check, migrations (with backup).
-        let db = paths.state_dir.join(STATE_DB_FILE);
+        //    Store: ⟨M08 U2b-1; ADR-0014 §3.6⟩ through the generation layout, under the lock:
+        //    the generation `CURRENT` names, the flat store adopted, or a first install. Then
+        //    integrity check and migrations in place (with backup).
+        let state_dir = paths.state_dir.clone();
         let faults = options.store_faults.clone();
-        let store = blocking(move || Store::open(&db, faults)).await??;
+        let now = options.clock.wall();
+        let opened =
+            blocking(move || crate::state_store::open_locked(&state_dir, faults, now)).await??;
+        tracing::info!(began = ?opened.began, "the state store was opened");
         let phases = phases.mark("store_ms");
-        let store = Arc::new(store);
+        let store = Arc::new(opened.store);
 
         // 3. Environment identity: the recorded one, or a new random one at first
         //    start (recorded by `Operations::start`, never replaced).

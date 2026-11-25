@@ -102,6 +102,32 @@ const RUN_TREES: [&str; 3] = ["b", "c", "mux"];
 #[cfg(unix)]
 const LOCK_FILE: &str = "service.lock";
 
+/// ⟨M08 U2b-1; ADR-0014 §3.6⟩ The generation layout's entries under `<state>` that the
+/// purge removes once the store's family and its recovery copy are deleted: the
+/// temporaries, every generation (the current one with its record and migration notes,
+/// and each earlier one), the flat family an adoption fenced, the request ledger, the
+/// intent, and **the pointer last**.
+///
+/// The pointer and the generations cannot be removed in one step. A crash or I/O error
+/// between these removals therefore leaves a pointer without its store, or generations
+/// without a pointer. The next start then refuses with `state_corrupt`; no data is lost
+/// that the owner did not confirm deleting. The named residual is
+/// `purge_layout_removal_interrupted_leaves_state_corrupt`.
+#[cfg_attr(not(any(unix, windows)), allow(dead_code))]
+const LAYOUT_ENTRIES: [&str; 11] = [
+    heimdall_store::layout::stategen::generations::CURRENT_TMP,
+    heimdall_store::layout::stategen::generations::INTENT_TMP,
+    heimdall_store::layout::stategen::generations::GENERATIONS,
+    "state.db-journal",
+    "state.db-wal",
+    "state.db-shm",
+    heimdall_store::layout::DB_FILE,
+    heimdall_store::layout::stategen::ledger::LEDGER_TMP,
+    heimdall_store::layout::stategen::ledger::LEDGER,
+    heimdall_store::layout::stategen::generations::INTENT,
+    heimdall_store::layout::stategen::generations::CURRENT,
+];
+
 /// ⟨ADR-0008 §17.33 items 4, 7⟩ The Windows residual window, named (module docs).
 // The name the claims table and ADR-0008 cite; nothing reads it at run time.
 #[allow(dead_code)]
@@ -275,8 +301,9 @@ impl Anchors {
         runtime_dir: &Path,
         top: Option<&Path>,
     ) -> std::io::Result<Anchors> {
+        let family = family_dir(state_dir)?;
         Ok(Anchors {
-            inner: imp::Anchors::open(state_dir, runtime_dir, top)?,
+            inner: imp::Anchors::open(state_dir, runtime_dir, family.as_deref(), top)?,
         })
     }
 
@@ -292,8 +319,15 @@ impl Anchors {
         top: Option<&Path>,
         group: &dyn Fn() -> std::io::Result<Option<u32>>,
     ) -> std::io::Result<Anchors> {
+        let family = family_dir(state_dir)?;
         Ok(Anchors {
-            inner: imp::Anchors::open_with_group(state_dir, runtime_dir, top, group)?,
+            inner: imp::Anchors::open_with_group(
+                state_dir,
+                runtime_dir,
+                family.as_deref(),
+                top,
+                group,
+            )?,
         })
     }
 
@@ -343,6 +377,17 @@ impl Anchors {
     /// tree renamed back when its name is free; whatever cannot be is reported as left.
     pub(crate) fn recover(&self, db_file: &str, ops: &RecoverOps<'_>) -> Recovered {
         self.inner.recover(db_file, ops)
+    }
+
+    /// ⟨M08 U2b-1; ADR-0014 §3.6⟩ After [`Quarantine::delete`] succeeded (the store's family
+    /// and its recovery copy are gone), remove the generation layout's entries in
+    /// `<state>` ([`LAYOUT_ENTRIES`]: every generation, the fenced flat family, the
+    /// intent, the pointer last), still under the lock. Nothing in the flat layout.
+    ///
+    /// # Errors
+    /// A removal failed: the entries still there are listed (`stuck`).
+    pub(crate) fn remove_layout(&mut self) -> Result<(), QuarantineError> {
+        self.inner.remove_layout()
     }
 
     /// Quarantine, validate and delete in one go (the deletion without a database read).
@@ -543,8 +588,21 @@ pub(crate) struct Recovered {
     pub(crate) unverified: Vec<std::path::PathBuf>,
 }
 
+/// ⟨M08 U2b-1; ADR-0014 §3.6⟩ The directory of the store's family: the generation the
+/// pointer names (`Some`), or `<state>` itself in the flat layout (`None`). It reads the
+/// pointer alone: while an interrupted purge holds the family in quarantine, the
+/// generation's record lists a file that is not there, and recovery must still put the
+/// family back where it was. A damaged pointer refuses: the purge never guesses where the
+/// store is. The store itself is checked by the purge's final read.
+fn family_dir(state_dir: &Path) -> std::io::Result<Option<std::path::PathBuf>> {
+    heimdall_store::layout::pointed_generation(state_dir)
+        .map_err(|_| refused("the state directory's pointer is damaged (state_corrupt)"))
+}
+
 /// ⟨§17.35 item 7⟩ Whether `<state>` or `<run>` shows a `.hm-purge-*` entry, or a
 /// database log without its database (a hint by path; the recovery itself is anchored).
+/// ⟨M08 U2b-1⟩ The family checked is the flat one and, when the pointer names one, the
+/// generation's.
 pub(crate) fn leftovers_present(state_dir: &Path, runtime_dir: &Path, db_file: &str) -> bool {
     let marked = |d: &Path| {
         std::fs::read_dir(d).is_ok_and(|es| {
@@ -552,11 +610,18 @@ pub(crate) fn leftovers_present(state_dir: &Path, runtime_dir: &Path, db_file: &
                 .any(|e| e.file_name().to_string_lossy().starts_with(".hm-purge-"))
         })
     };
-    let orphan = std::fs::symlink_metadata(state_dir.join(db_file)).is_err()
-        && ["-wal", "-shm", "-journal"].iter().any(|sfx| {
-            std::fs::symlink_metadata(state_dir.join(format!("{db_file}{sfx}"))).is_ok()
-        });
-    marked(state_dir) || marked(runtime_dir) || orphan
+    let orphan_in = |dir: &Path| {
+        std::fs::symlink_metadata(dir.join(db_file)).is_err()
+            && ["-wal", "-shm", "-journal"]
+                .iter()
+                .any(|sfx| std::fs::symlink_metadata(dir.join(format!("{db_file}{sfx}"))).is_ok())
+    };
+    let generation = heimdall_store::layout::pointed_db(state_dir)
+        .and_then(|db| db.parent().map(Path::to_path_buf));
+    marked(state_dir)
+        || marked(runtime_dir)
+        || orphan_in(state_dir)
+        || generation.as_deref().is_some_and(orphan_in)
 }
 
 #[cfg(test)]
@@ -784,6 +849,9 @@ mod imp {
     pub(super) struct Anchors {
         state: Root,
         run: Option<Root>,
+        /// ⟨M08 U2b-1⟩ The directory of the store's family: the generation `CURRENT` names,
+        /// anchored like the roots; `None` in the flat layout, where it is `<state>`.
+        family: Option<Root>,
     }
 
     /// The held lock file.
@@ -795,11 +863,13 @@ mod imp {
         pub(super) fn open(
             state_dir: &Path,
             runtime_dir: &Path,
+            family_dir: Option<&Path>,
             top: Option<&Path>,
         ) -> std::io::Result<Anchors> {
             Self::open_with_group(
                 state_dir,
                 runtime_dir,
+                family_dir,
                 top,
                 &heimdall_runtime::platform::user_private_group,
             )
@@ -808,16 +878,56 @@ mod imp {
         pub(super) fn open_with_group(
             state_dir: &Path,
             runtime_dir: &Path,
+            family_dir: Option<&Path>,
             top: Option<&Path>,
             group: GroupOracle<'_>,
         ) -> std::io::Result<Anchors> {
             let Some(state) = open_chain(state_dir, top, group)? else {
                 return Err(refused("the state directory does not exist"));
             };
+            let family = match family_dir {
+                Some(dir) => Some(open_chain(dir, top, group)?.ok_or_else(|| {
+                    refused("the store generation the pointer names does not exist")
+                })?),
+                None => None,
+            };
             Ok(Anchors {
                 state,
                 run: open_chain(runtime_dir, top, group)?,
+                family,
             })
+        }
+
+        /// ⟨M08 U2b-1⟩ The directory holding the store's family.
+        fn fam(&self) -> &Root {
+            self.family.as_ref().unwrap_or(&self.state)
+        }
+
+        /// ⟨M08 U2b-1; ADR-0014 §3.6⟩ After the store's family and its recovery copy are
+        /// deleted, the generation layout's entries in `<state>` (`super::LAYOUT_ENTRIES`,
+        /// the pointer last), each removed relative to the anchored `<state>` without
+        /// following a link. Nothing in the flat layout.
+        pub(super) fn remove_layout(&mut self) -> Result<(), super::QuarantineError> {
+            if self.family.take().is_none() {
+                return Ok(());
+            }
+            for name in super::LAYOUT_ENTRIES {
+                if let Err(cause) = remove_tree(&self.state.fd, OsStr::new(name)) {
+                    let stuck = super::LAYOUT_ENTRIES
+                        .iter()
+                        .map(OsStr::new)
+                        .filter(|n| !matches!(kind(&self.state.fd, n), Ok(None)))
+                        .map(|n| self.state.path.join(n))
+                        .collect();
+                    return Err(super::QuarantineError {
+                        cause,
+                        stuck,
+                        restored: Vec::new(),
+                    });
+                }
+            }
+            let _ = rustix::fs::fsync(&self.state.fd);
+            Ok(())
         }
 
         pub(super) fn try_lock(&self) -> std::io::Result<Option<Lock>> {
@@ -843,14 +953,17 @@ mod imp {
         }
 
         pub(super) fn verify(&self, db_file: &str) -> std::io::Result<()> {
-            for r in std::iter::once(&self.state).chain(self.run.as_ref()) {
+            for r in std::iter::once(&self.state)
+                .chain(self.run.as_ref())
+                .chain(self.family.as_ref())
+            {
                 let now = rustix::fs::stat(r.path.as_path())?;
                 if id(&now) != r.id {
                     return Err(refused("a purge root was replaced"));
                 }
             }
-            let under = kind(&self.state.fd, OsStr::new(db_file))?;
-            let by_path = match rustix::fs::lstat(self.state.path.join(db_file).as_path()) {
+            let under = kind(&self.fam().fd, OsStr::new(db_file))?;
+            let by_path = match rustix::fs::lstat(self.fam().path.join(db_file).as_path()) {
                 Ok(st) => Some(id(&st)),
                 Err(rustix::io::Errno::NOENT) => None,
                 Err(e) => return Err(e.into()),
@@ -862,10 +975,10 @@ mod imp {
         }
 
         fn root(&self, which: usize) -> Option<&Root> {
-            if which == 0 {
-                Some(&self.state)
-            } else {
-                self.run.as_ref()
+            match which {
+                0 => Some(&self.state),
+                1 => self.run.as_ref(),
+                _ => Some(self.fam()),
             }
         }
 
@@ -876,10 +989,11 @@ mod imp {
                 out.extend(RUN_TREES.iter().map(|t| (1, OsString::from(t), false)));
             }
             out.extend(STATE_TREES.iter().map(|t| (0, OsString::from(t), false)));
+            // ⟨M08 U2b-1⟩ The family, in its own directory (root 2: `<state>` when flat).
             out.extend(
                 DB_SUFFIXES
                     .iter()
-                    .map(|sfx| (0, OsString::from(format!("{db_file}{sfx}")), true)),
+                    .map(|sfx| (2, OsString::from(format!("{db_file}{sfx}")), true)),
             );
             out
         }
@@ -1209,14 +1323,17 @@ mod imp {
     /// identity) **alone** as `<state>/<db_file>`, by one no-replace rename, when none of
     /// the family's names in `<state>` is occupied: one atomic step, with no log to
     /// attach. The original family stays in the unit. (Paths renamed back, paths left.)
+    /// ⟨M08 U2b-1⟩ `units` holds the unit (`<state>`); `state` is where the family lives
+    /// (`<state>`, or the generation `CURRENT` names).
     fn restore_copy(
+        units: &Root,
         state: &Root,
         dir: &OwnedFd,
         name: &OsStr,
         db_file: &OsStr,
         copy: Option<(u64, u64)>,
     ) -> (Vec<PathBuf>, Vec<PathBuf>) {
-        let here = state.path.join(name);
+        let here = units.path.join(name);
         let kept = |restored: Vec<PathBuf>| (restored, left_now(dir, &here));
         if super::restore_fails() {
             return kept(Vec::new());
@@ -1245,7 +1362,7 @@ mod imp {
 
     impl Unit {
         fn restore(&self, a: &Anchors, db_file: &OsStr) -> (Vec<PathBuf>, Vec<PathBuf>) {
-            restore_copy(&a.state, &self.dir, &self.name, db_file, self.copy)
+            restore_copy(&a.state, a.fam(), &self.dir, &self.name, db_file, self.copy)
         }
 
         /// ⟨§17.36 item 1⟩ Delete the unit: the original family's companions first, then
@@ -1485,7 +1602,7 @@ mod imp {
             for (n, m) in family {
                 #[cfg(test)]
                 super::tests::move_hook(&n);
-                rename_between(&a.state.fd, &n, &unit.dir, &n)?;
+                rename_between(&a.fam().fd, &n, &unit.dir, &n)?;
                 unit.members.push((n, m));
             }
             Ok(())
@@ -1859,10 +1976,11 @@ mod imp {
                     }
                 }
             }
-            if matches!(kind(&self.state.fd, db), Ok(None)) {
+            let fam = self.fam();
+            if matches!(kind(&fam.fd, db), Ok(None)) {
                 for n in family(db).iter().skip(1) {
-                    if !matches!(kind(&self.state.fd, n), Ok(None)) {
-                        out.left.push(self.state.path.join(n));
+                    if !matches!(kind(&fam.fd, n), Ok(None)) {
+                        out.left.push(fam.path.join(n));
                     }
                 }
             }
@@ -1877,8 +1995,10 @@ mod imp {
             db: &OsStr,
             ops: &super::RecoverOps<'_>,
         ) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
-            let state = &self.state;
-            let here = state.path.join(name);
+            // ⟨M08 U2b-1⟩ The unit is in `<state>`; the family goes back to its own directory.
+            let units = &self.state;
+            let state = self.fam();
+            let here = units.path.join(name);
             let all_left = |dir: &OwnedFd| (Vec::new(), left_now(dir, &here), Vec::new());
             let names = family(db);
             // An incomplete copy is never used.
@@ -1962,7 +2082,7 @@ mod imp {
                     if !matches!(kind(&state.fd, db), Ok(None)) {
                         return all_left(&dir);
                     }
-                    let (r, _) = restore_copy(state, &dir, name, db, Some(bound.id));
+                    let (r, _) = restore_copy(units, state, &dir, name, db, Some(bound.id));
                     if r.is_empty() {
                         return all_left(&dir);
                     }
@@ -1989,7 +2109,7 @@ mod imp {
                 for n in [DELETING, RECORD] {
                     let _ = rustix::fs::unlinkat(&dir, n, AtFlags::empty());
                 }
-                let left = if remove_unit_dir(state, name, id).is_ok() {
+                let left = if remove_unit_dir(units, name, id).is_ok() {
                     Vec::new()
                 } else {
                     left_now(&dir, &here)
@@ -2025,7 +2145,7 @@ mod imp {
                     if !db_in_unit {
                         // Nothing to restore: the purge had deleted the database.
                         let _ = rustix::fs::unlinkat(&dir, RECORD, AtFlags::empty());
-                        let left = if remove_unit_dir(state, name, id).is_ok() {
+                        let left = if remove_unit_dir(units, name, id).is_ok() {
                             Vec::new()
                         } else {
                             left_now(&dir, &here)
@@ -2040,7 +2160,7 @@ mod imp {
                     Ok(Some((FileType::RegularFile, d, i))) => Some((d, i)),
                     _ => None,
                 };
-                let (r, _) = restore_copy(state, &dir, name, db, copy);
+                let (r, _) = restore_copy(units, state, &dir, name, db, copy);
                 if r.is_empty() {
                     return all_left(&dir);
                 }
@@ -2065,7 +2185,7 @@ mod imp {
                 }
             }
             let _ = rustix::fs::unlinkat(&dir, RECORD, AtFlags::empty());
-            let left = if remove_unit_dir(state, name, id).is_ok() {
+            let left = if remove_unit_dir(units, name, id).is_ok() {
                 Vec::new()
             } else {
                 left_now(&dir, &here)
@@ -2303,7 +2423,13 @@ mod imp {
     pub(super) struct Anchors {
         state: PathBuf,
         run: Option<PathBuf>,
+        /// ⟨M08 U2b-1⟩ The directory of the store's family: the generation `CURRENT` names,
+        /// pinned like the roots; `None` in the flat layout, where it is `<state>`.
+        family: Option<PathBuf>,
         _held: Vec<std::fs::File>,
+        /// The family directory's chain, pinned apart so that it can be released before
+        /// the layout is removed ([`Anchors::remove_layout`]).
+        family_held: Vec<std::fs::File>,
     }
 
     /// The held lock (the runtime's own lock type, by path below the pinned chain).
@@ -2315,6 +2441,7 @@ mod imp {
         pub(super) fn open(
             state_dir: &Path,
             runtime_dir: &Path,
+            family_dir: Option<&Path>,
             _top: Option<&Path>,
         ) -> std::io::Result<Anchors> {
             let Some(mut held) = pin_chain(state_dir)? else {
@@ -2327,11 +2454,66 @@ mod imp {
                 }
                 None => None,
             };
+            let (family, family_held) = match family_dir {
+                Some(dir) => match pin_chain(dir)? {
+                    Some(h) => (Some(dir.to_path_buf()), h),
+                    None => {
+                        return Err(refused(
+                            "the store generation the pointer names does not exist",
+                        ));
+                    }
+                },
+                None => (None, Vec::new()),
+            };
             Ok(Anchors {
                 state: state_dir.to_path_buf(),
                 run,
+                family,
                 _held: held,
+                family_held,
             })
+        }
+
+        /// ⟨M08 U2b-1⟩ The directory holding the store's family.
+        fn fam(&self) -> &PathBuf {
+            self.family.as_ref().unwrap_or(&self.state)
+        }
+
+        /// ⟨M08 U2b-1; ADR-0014 §3.6⟩ As on Unix: after the store's family and its recovery
+        /// copy are deleted, the generation layout's entries in `<state>`, the pointer
+        /// last. The family directory's pins are released first (a pinned directory cannot
+        /// be removed). A reparse point is never followed: it refuses, and is left.
+        pub(super) fn remove_layout(&mut self) -> Result<(), super::QuarantineError> {
+            if self.family.take().is_none() {
+                return Ok(());
+            }
+            drop(std::mem::take(&mut self.family_held));
+            for name in super::LAYOUT_ENTRIES {
+                let path = self.state.join(name);
+                let removed = match std::fs::symlink_metadata(&path) {
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(e) => Err(e),
+                    Ok(m) if m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 => {
+                        Err(refused("a layout entry is a reparse point"))
+                    }
+                    // Never follows a link or junction inside: it removes the link itself.
+                    Ok(m) if m.is_dir() => std::fs::remove_dir_all(&path),
+                    Ok(_) => std::fs::remove_file(&path),
+                };
+                if let Err(cause) = removed {
+                    let stuck = super::LAYOUT_ENTRIES
+                        .iter()
+                        .map(|n| self.state.join(n))
+                        .filter(|p| std::fs::symlink_metadata(p).is_ok())
+                        .collect();
+                    return Err(super::QuarantineError {
+                        cause,
+                        stuck,
+                        restored: Vec::new(),
+                    });
+                }
+            }
+            Ok(())
         }
 
         pub(super) fn try_lock(&self) -> std::io::Result<Option<Lock>> {
@@ -2349,10 +2531,10 @@ mod imp {
         }
 
         fn root(&self, which: usize) -> Option<&PathBuf> {
-            if which == 0 {
-                Some(&self.state)
-            } else {
-                self.run.as_ref()
+            match which {
+                0 => Some(&self.state),
+                1 => self.run.as_ref(),
+                _ => Some(self.fam()),
             }
         }
 
@@ -2371,10 +2553,11 @@ mod imp {
                 targets.extend(RUN_TREES.iter().map(|t| (1, (*t).to_owned(), false)));
             }
             targets.extend(STATE_TREES.iter().map(|t| (0, (*t).to_owned(), false)));
+            // ⟨M08 U2b-1⟩ The family, in its own directory (root 2: `<state>` when flat).
             targets.extend(
                 DB_SUFFIXES
                     .iter()
-                    .map(|x| (0, format!("{db_file}{x}"), true)),
+                    .map(|x| (2, format!("{db_file}{x}"), true)),
             );
             let mut trees = Vec::new();
             let mut family = Vec::new();
@@ -2684,7 +2867,7 @@ mod imp {
             held: Option<&std::fs::File>,
         ) -> (Vec<PathBuf>, Vec<PathBuf>) {
             self.unpin();
-            restore_copy(&a.state, &self.path, db_file, self.copy, held)
+            restore_copy(a.fam(), &self.path, db_file, self.copy, held)
         }
 
         /// ⟨§17.36 item 1⟩ The original family's companions, then the original database,
@@ -2923,9 +3106,9 @@ mod imp {
                     }
                 }
             }
-            if std::fs::symlink_metadata(self.state.join(db_file)).is_err() {
+            if std::fs::symlink_metadata(self.fam().join(db_file)).is_err() {
                 for n in family(db_file).iter().skip(1) {
-                    let p = self.state.join(n);
+                    let p = self.fam().join(n);
                     if std::fs::symlink_metadata(&p).is_ok() {
                         out.left.push(p);
                     }
@@ -2941,7 +3124,8 @@ mod imp {
             db_file: &str,
             ops: &super::RecoverOps<'_>,
         ) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
-            let state = &self.state;
+            // ⟨M08 U2b-1⟩ The family goes back to its own directory (the unit is `here`).
+            let state = self.fam();
             let all_left = || (Vec::new(), left_now(here), Vec::new());
             let names = family(db_file);
             for part in super::UNIT_COPY_PART_FILES {
@@ -3215,7 +3399,7 @@ mod imp {
             for (n, m) in family {
                 #[cfg(test)]
                 super::tests::move_hook(std::ffi::OsStr::new(&n));
-                heimdall_ipc::windows::move_no_replace(&a.state.join(&n), &unit.path.join(&n))?;
+                heimdall_ipc::windows::move_no_replace(&a.fam().join(&n), &unit.path.join(&n))?;
                 unit.members.push((n, m));
             }
             Ok(())

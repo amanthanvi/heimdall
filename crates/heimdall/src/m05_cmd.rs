@@ -1172,9 +1172,9 @@ fn recorded_runners(ctx: &Ctx) -> BTreeSet<EnvironmentId> {
     let Ok(paths) = ctx.paths() else {
         return BTreeSet::new();
     };
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
+    let Ok(db) = heimdall_store::layout::db_path(&paths.state_dir) else {
+        return BTreeSet::new();
+    };
     if !db.exists() {
         return BTreeSet::new();
     }

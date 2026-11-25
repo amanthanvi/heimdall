@@ -41,13 +41,13 @@
 //!    refused in that state. The expected direction, not built: an attended recovery
 //!    with a typed confirmation, never non-interactive, that says the epoch and the
 //!    identity binding start fresh; restore from a backup the owner names, reset otherwise.
-//! 5. *Windows:* the pointer's rename is `std::fs::rename` followed by a flush of the
-//!    renamed file. **Windows durability is therefore weaker than ADR-0014 §3.6 asks
-//!    until the product wiring lands:** the ADR's write-through rename (`MoveFileExW`
-//!    with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`) needs an FFI call. It
-//!    goes into the existing Windows platform module that already holds the workspace's
-//!    other `unsafe` Windows calls, when this crate is wired into the product (U2b), and
-//!    reaches this crate through [`Fs::rename_over`]. No `unsafe` module is added here.
+//! 5. *Windows:* [`RealFs`]'s rename is `std::fs::rename` followed by a flush of the
+//!    renamed file. ⟨M08 U2b-1, delta H15⟩ The product does not use it for a write: the
+//!    store's layout (`heimdall_store::layout`) makes every call through the runtime's
+//!    `heimdall_runtime::state_store::PlatformFs`. Its [`Fs::rename_over`] is the ADR's
+//!    write-through rename (`MoveFileExW` with `MOVEFILE_REPLACE_EXISTING |
+//!    MOVEFILE_WRITE_THROUGH`, in the runtime's platform module beside the workspace's
+//!    other `unsafe` Windows calls). No `unsafe` module is added here.
 //! 6. *An interrupted first publication (install or adoption) is discarded and run again,*
 //!    the ADR's rule for an adoption applied to an install too, **but only when the pointer
 //!    was never written** (ruled 2026-11-23). The intent records its progress durably: it

@@ -689,6 +689,13 @@ impl<F: Fs> StateDir<F> {
             .collect())
     }
 
+    /// ⟨M08 U2b-1⟩ The generation the pointer names, read alone: no record or file is
+    /// checked. For refusals only, such as the runtime's check for a database log left without
+    /// its database. It never selects what is served; [`StateDir::open`] does that.
+    pub fn pointer(&self) -> Result<Option<GenerationName>, StateError> {
+        self.read_pointer()
+    }
+
     /// Every generation directory other than the current one, for the uninstall inventory
     /// and the purge. Reads only.
     pub fn residue(&self) -> Result<Vec<Residue>, StateError> {

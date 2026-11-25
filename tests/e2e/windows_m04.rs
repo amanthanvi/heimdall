@@ -466,9 +466,7 @@ mod native {
         start();
         cli(&["service", "stop"]);
         // An active CA, its key in the DPAPI test store.
-        let db = inst
-            .state_dir()
-            .join(heimdall_runtime::service::STATE_DB_FILE);
+        let db = heimdall_store::layout::db_path(&inst.state_dir()).unwrap();
         let ca = SecretCaKey::generate().unwrap();
         let fp = ca.fingerprint().unwrap();
         let store = heimdall_store::Store::open(&db, std::sync::Arc::new(heimdall_store::NoFaults))

@@ -450,8 +450,13 @@ impl World {
         quiet_crashes();
         let home = ScratchHome::new();
         std::fs::create_dir_all(home.root.join("etc-ssh")).unwrap();
-        let store =
-            Arc::new(Store::open(&home.state_dir.join("state.db"), faults.clone()).unwrap());
+        let store = Arc::new(
+            Store::open(
+                &heimdall_store::layout::db_path(&home.state_dir).unwrap(),
+                faults.clone(),
+            )
+            .unwrap(),
+        );
         let clock = VirtualClock::at(t0());
         let sync = ScriptedTimeSync::new(SyncStatus::Synchronized);
         let hook = Arc::new(Hook::default());
@@ -2939,8 +2944,13 @@ async fn include_target_glob_is_its_own_manual_reason() {
     std::fs::create_dir_all(home.root.join("etc-ssh")).unwrap();
     let globbed = home.root.join("cfg[1]");
     std::fs::create_dir_all(&globbed).unwrap();
-    let store =
-        Arc::new(Store::open(&home.state_dir.join("state.db"), Arc::new(NoFaults)).unwrap());
+    let store = Arc::new(
+        Store::open(
+            &heimdall_store::layout::db_path(&home.state_dir).unwrap(),
+            Arc::new(NoFaults),
+        )
+        .unwrap(),
+    );
     let paths = SshPaths::with_test_override(home.git_home.clone(), home.root.join("etc-ssh"));
     let config = ProjectionConfig::new(paths, Platform::current(), globbed);
     let wired = wire_projection(store.clone(), config);
@@ -3728,7 +3738,7 @@ impl ChildPaths {
             home: home.git_home.clone(),
             etc: home.root.join("etc-ssh"),
             config: home.config_dir.clone(),
-            db: home.state_dir.join("state.db"),
+            db: heimdall_store::layout::db_path(&home.state_dir).unwrap(),
             update,
         }
     }

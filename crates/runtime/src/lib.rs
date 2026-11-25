@@ -42,6 +42,8 @@ pub mod platform;
 // launch and lifetime.
 pub mod runner;
 pub mod service;
+// ⟨M08 U2b-1⟩ The store through the generation layout (ADR-0014 §3.6, H12, H15).
+pub mod state_store;
 // ⟨M05⟩ U6 (ADR-0011 §5): managed-slot handover.
 pub mod slot_handover;
 // ⟨M03⟩ U9: the session-lock sources (ADR-0008 D9 item 3; m03-plan U9).

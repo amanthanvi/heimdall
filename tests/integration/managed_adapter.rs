@@ -840,7 +840,7 @@ impl World {
         let dir = tempfile::tempdir().unwrap();
         owner_only_anchor(&dir.path().join("state"));
         owner_only_anchor(&dir.path().join("run"));
-        let db = dir.path().join("state").join("state.db");
+        let db = heimdall_store::layout::db_path(&dir.path().join("state")).unwrap();
         let store = Arc::new(Store::open(&db, Arc::new(NoFaults)).unwrap());
         let ca = SecretCaKey::generate().unwrap();
         let ca_fp = ca.fingerprint().unwrap();

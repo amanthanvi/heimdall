@@ -436,12 +436,13 @@ pub fn recorded_owner_only(store: &Store) -> Option<OwnerOnlyCause> {
     }
 }
 
-/// The state database of the home a forced command names (`remote serve --home`).
-#[must_use]
-pub fn state_db_of_home(home: &Path) -> PathBuf {
-    crate::Paths::under(home)
-        .state_dir
-        .join(crate::service::STATE_DB_FILE)
+/// The state database of the home a forced command names (`remote serve --home`), following
+/// the pointer (⟨M08 U2b-1⟩ `heimdall_store::layout::db_path`).
+///
+/// # Errors
+/// The home's layout is corrupt (`state_corrupt`): no database is named.
+pub fn state_db_of_home(home: &Path) -> heimdall_store::Result<PathBuf> {
+    heimdall_store::layout::db_path(&crate::Paths::under(home).state_dir)
 }
 
 /// ⟨ADR-0006 §18.7 items 17–18; ADR-0012 §3.2 "How the downgrade is kept"⟩ The bridge's
@@ -463,7 +464,7 @@ pub fn record_owner_only_in_home(
     now: Timestamp,
 ) -> heimdall_store::Result<()> {
     heimdall_store::ext_runner::bridge_record_runner_downgrade(
-        &state_db_of_home(home),
+        &state_db_of_home(home)?,
         cause.token(),
         now,
     )
@@ -719,9 +720,25 @@ fn drain_marker(dir: &Path, store: &Store, now: Timestamp) -> Drained {
 
 /// The marker directory of the home whose state database is `db` (the bridge's own rule,
 /// [`state_db_of_home`], read backwards); `None` for a database that is not a home's.
+/// ⟨M08 U2b-1⟩ The database is `<state>/state.db` in the flat layout, or
+/// `<state>/generations/<generation>/state.db`: either names the home.
 fn marker_dir_of_db(db: &Path) -> Option<PathBuf> {
-    let home = db.parent()?.parent()?;
-    (state_db_of_home(home) == db).then(|| crate::Paths::under(home).log_dir)
+    use heimdall_store::layout::stategen::{GenerationName, generations::GENERATIONS};
+    if db.file_name()? != std::ffi::OsStr::new(crate::service::STATE_DB_FILE) {
+        return None;
+    }
+    let parent = db.parent()?;
+    let state_dir = match parent.parent() {
+        Some(generations)
+            if generations.file_name() == Some(std::ffi::OsStr::new(GENERATIONS))
+                && GenerationName::parse(parent.file_name()?.to_str()?).is_some() =>
+        {
+            generations.parent()?
+        }
+        _ => parent,
+    };
+    let paths = crate::Paths::under(state_dir.parent()?);
+    (paths.state_dir == state_dir).then_some(paths.log_dir)
 }
 
 impl RunnerPolicy {
@@ -2932,7 +2949,11 @@ mod tests {
         let paths = crate::Paths::under(&home);
         std::fs::create_dir_all(&paths.state_dir).unwrap();
         let store = Arc::new(
-            Store::open(&state_db_of_home(&home), Arc::new(heimdall_store::NoFaults)).unwrap(),
+            Store::open(
+                &state_db_of_home(&home).unwrap(),
+                Arc::new(heimdall_store::NoFaults),
+            )
+            .unwrap(),
         );
         (dir, store, paths.log_dir)
     }

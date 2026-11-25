@@ -286,8 +286,13 @@ pub async fn produce(dir: &Path) -> Produced {
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
-    let store =
-        Arc::new(Store::open(&state.join("state.db"), Arc::new(heimdall_store::NoFaults)).unwrap());
+    let store = Arc::new(
+        Store::open(
+            &heimdall_store::layout::db_path(&state).unwrap(),
+            Arc::new(heimdall_store::NoFaults),
+        )
+        .unwrap(),
+    );
     seed(&store);
     let adapter = Arc::new(Existing {
         descriptor: AdapterDescriptor {

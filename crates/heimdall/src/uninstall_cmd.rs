@@ -1901,10 +1901,10 @@ fn remaining(ctx: &Ctx, dirs: &[PathBuf], purged: bool) -> Vec<RemainingArtifact
         for b in entries(&paths.state_dir.join("backups")) {
             push(&mut out, RemainingArtifactKind::Backup, &b);
         }
-        let db = paths
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE);
-        if db.exists() {
+        // ⟨M08 U2b-1⟩ The store the pointer names.
+        if let Ok(db) = heimdall_store::layout::db_path(&paths.state_dir)
+            && db.exists()
+        {
             push(&mut out, RemainingArtifactKind::StateStore, &db);
         }
     }
@@ -2004,11 +2004,21 @@ impl Discard {
     /// Read what a purge of `state_dir` would discard.
     fn read(ctx: &Ctx, state_dir: &Path, dirs: &[PathBuf]) -> Discard {
         let home = home();
-        let db = state_dir.join(heimdall_runtime::service::STATE_DB_FILE);
+        // ⟨M08 U2b-1⟩ The store the pointer names; a damaged layout names none.
+        let located = heimdall_store::layout::db_path(state_dir);
+        let db = located
+            .as_ref()
+            .map_or_else(|_| state_dir.to_path_buf(), Clone::clone);
         Discard {
             database: shown(&db, &home),
-            bytes: std::fs::metadata(&db).map_or(0, |m| m.len()),
-            counts: read_counts(&db),
+            bytes: located
+                .as_ref()
+                .ok()
+                .and_then(|db| std::fs::metadata(db).ok())
+                .map_or(0, |m| m.len()),
+            counts: located
+                .map_err(|_| "the state store's pointer is damaged")
+                .and_then(|db| read_counts(&db)),
             backups: entries(&state_dir.join("backups"))
                 .iter()
                 .map(|b| shown(b, &home))
@@ -2534,9 +2544,13 @@ async fn uninstall_after_recovery<P: Prompter>(
         Err(e) => return Outcome::of(output::error_value(*e)),
     };
     let dirs = artifact_dirs(ctx).unwrap_or_default();
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
+    // ⟨M08 U2b-1⟩ The store the pointer names (the flat store before its adoption). A
+    // damaged layout is an unreadable state store.
+    let db = match heimdall_store::layout::db_path(&paths.state_dir) {
+        Ok(db) => db,
+        Err(_) if purge => return unreadable("the state store's pointer is damaged"),
+        Err(_) => paths.state_dir.clone(),
+    };
     if !db.exists() {
         let _ = quarantine_listing(&dirs, true);
         let left = remaining(ctx, &dirs, false);
@@ -2599,6 +2613,13 @@ async fn uninstall_after_recovery<P: Prompter>(
     {
         Ok(c) => c,
         Err(e) => return Outcome::of(output::error_value(*e)),
+    };
+    // ⟨M08 U2b-1⟩ The runtime this session started may have adopted the flat store into a
+    // generation: from here the store is the one the pointer names now.
+    let db = match heimdall_store::layout::db_path(&paths.state_dir) {
+        Ok(db) => db,
+        Err(_) if purge => return unreadable("the state store's pointer is damaged"),
+        Err(_) => db,
     };
     // Close admission, then revalidate against the state about to be changed: an
     // inventory (or a bundle) that no longer matches what the owner confirmed lifts
@@ -3233,8 +3254,9 @@ async fn purge_locked(
 ) -> PurgeEnd {
     use heimdall_runtime::service::STATE_DB_FILE;
     // ⟨§17.33 item 10 (audit B3)⟩ One anchored `<state>` (and `<run>`) for the lock, the
-    // final read, the bundle check and the deletion.
-    let Ok(anchors) = crate::purge_sweep::Anchors::open(state_dir, runtime_dir, top) else {
+    // final read, the bundle check and the deletion. ⟨M08 U2b-1⟩ With the store's family
+    // where the pointer names it (the current generation), anchored too.
+    let Ok(mut anchors) = crate::purge_sweep::Anchors::open(state_dir, runtime_dir, top) else {
         return PurgeEnd::Unavailable(ROOTS_REFUSED);
     };
     let lock = match anchored_lock(&anchors, wait).await {
@@ -3305,6 +3327,9 @@ async fn purge_locked(
     // ⟨W5-I01 (§17.38)⟩ The recovery copy opens read-only on its own and reads before
     // any original is deleted.
     let deleted = q.delete(&copy_reads);
+    // ⟨M08 U2b-1; ADR-0014 §3.6⟩ Then, still under the lock, every generation, the fenced
+    // flat family, the intent and the pointer (last).
+    let deleted = deleted.and_then(|()| anchors.remove_layout());
     drop(lock);
     PurgeEnd::Purged(deleted)
 }
@@ -4551,7 +4576,8 @@ mod tests {
     }
 
     fn db_of(state: &Path) -> PathBuf {
-        state.join(heimdall_runtime::service::STATE_DB_FILE)
+        // ⟨M08 U2b-1⟩ The store the pointer names (the flat one before any runtime start).
+        heimdall_store::layout::db_path(state).unwrap_or_else(|e| panic!("{e}"))
     }
 
     /// The runtime directory beside a test's state directory.
@@ -4768,6 +4794,143 @@ mod tests {
         );
     }
 
+    /// ⟨M08 U2b-1; ADR-0014 §3.4, §3.6⟩ `purge_removes_every_generation_under_the_lock`: a
+    /// state directory in the generation layout. It was adopted from a flat store, so the
+    /// fenced flat family is there too, and it holds an earlier generation beside the current
+    /// one. While another process holds the instance lock, the purge refuses and deletes
+    /// nothing. Under its own lock it reads the **current** generation's store (a start-up
+    /// at its pause point fails `AlreadyRunning`), then removes the store's family, every
+    /// generation, the fenced flat family, the intent and the pointer. The lock file stays,
+    /// and the next start-up begins a new installation.
+    #[test]
+    fn purge_removes_every_generation_under_the_lock() {
+        use heimdall_store::layout::stategen::generations::{CURRENT, GENERATIONS, INTENT};
+        use heimdall_store::layout::stategen::{GenerationName, Operation, Plan, StateDir};
+        let (d, state, _) = state_dir();
+        let root = d.path().to_path_buf();
+        // The runtime's start-up open, under the lock: the flat store is adopted.
+        let first = {
+            let _lock = heimdall_runtime::InstanceLock::try_acquire(&state)
+                .unwrap_or_else(|e| panic!("{e}"));
+            heimdall_runtime::state_store::open_locked(&state, Arc::new(NoFaults), Timestamp::now())
+                .unwrap_or_else(|e| panic!("{e}"))
+        };
+        assert_eq!(first.current.record.operation, Operation::Adopt);
+        let (first_db, first_env) = (
+            first.db.clone(),
+            first.current.record.environment_id.clone(),
+        );
+        drop(first);
+        // A second generation, a copy of the first staged through SQLite (as a restore will
+        // stage one), through the platform file system: it becomes current.
+        let second = StateDir::new(heimdall_runtime::state_store::PlatformFs, &state)
+            .publish(
+                Plan {
+                    name: GenerationName::fresh().unwrap_or_else(|e| panic!("{e}")),
+                    operation: Operation::Restore,
+                    created_at: Timestamp::now(),
+                    backup_sha256: Some("ab".repeat(32)),
+                    environment_id: first_env,
+                    restore_epoch: 1,
+                },
+                |dir: &Path| -> Result<Vec<String>, StoreError> {
+                    Store::open_read_only(&first_db, Arc::new(NoFaults))?
+                        .vacuum_into(&dir.join(heimdall_store::layout::DB_FILE))?;
+                    Ok(vec![heimdall_store::layout::DB_FILE.to_owned()])
+                },
+            )
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        assert_eq!(
+            db_of(&state),
+            second.dir.join(heimdall_store::layout::DB_FILE)
+        );
+        // A start serves it (as uninstall's own session does before the purge), and the
+        // owner confirms what it holds.
+        {
+            let _lock = heimdall_runtime::InstanceLock::try_acquire(&state)
+                .unwrap_or_else(|e| panic!("{e}"));
+            let served = heimdall_runtime::state_store::open_locked(
+                &state,
+                Arc::new(NoFaults),
+                Timestamp::now(),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(served.current.name, second.name);
+        }
+        let confirmed = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        let generations: Vec<PathBuf> = std::fs::read_dir(state.join(GENERATIONS))
+            .unwrap_or_else(|e| panic!("{e}"))
+            .map(|e| e.unwrap_or_else(|e| panic!("{e}")).path())
+            .collect();
+        assert_eq!(generations.len(), 2, "{generations:?}");
+        let layout = [
+            CURRENT,
+            INTENT,
+            GENERATIONS,
+            heimdall_store::layout::DB_FILE,
+        ];
+        for name in layout {
+            assert!(
+                state.join(name).exists(),
+                "{name} is there before the purge"
+            );
+        }
+
+        // Another process holds the lock: refused, nothing deleted.
+        let held =
+            heimdall_runtime::InstanceLock::try_acquire(&state).unwrap_or_else(|e| panic!("{e}"));
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {
+            panic!("nothing is read or deleted while another process holds the lock")
+        });
+        assert_eq!(refused_unavailable(&end), Some(LOCK_HELD));
+        drop(held);
+        for name in layout {
+            assert!(
+                state.join(name).exists(),
+                "{name} is kept by the refused purge"
+            );
+        }
+        assert!(
+            generations.iter().all(|g| g.exists()),
+            "every generation is kept"
+        );
+
+        // Under its own lock: a start-up between the final read and the deletion fails,
+        // then every generation, the fenced flat family, the intent and the pointer go.
+        let mut tried = None;
+        let end = purge_now(&state, &confirmed, Duration::from_millis(200), || {
+            tried = Some(start_runtime(&root));
+        });
+        let shown = match &end {
+            PurgeEnd::Unavailable(m) => format!("unavailable: {m}"),
+            PurgeEnd::Stuck(p) => format!("stuck: {p:?}"),
+            PurgeEnd::Changed(_) => "changed".to_owned(),
+            PurgeEnd::Purged(r) => format!("purged: {:?}", r.as_ref().err().map(|e| &e.stuck)),
+            _ => "other".to_owned(),
+        };
+        let tried = tried.unwrap_or_else(|| panic!("the pause point was not reached: {shown}"));
+        assert!(
+            tried.as_ref().is_err_and(|e| e.contains("AlreadyRunning")),
+            "a start-up got past the lock the purge holds: {tried:?}"
+        );
+        assert!(matches!(end, PurgeEnd::Purged(Ok(()))), "the purge ran");
+        for name in layout
+            .into_iter()
+            .chain(["state.db-wal", "state.db-shm", "backups"])
+        {
+            assert!(!state.join(name).exists(), "{name} was removed");
+        }
+        assert!(state.join("service.lock").exists(), "the lock file is kept");
+        // The next start-up begins a new installation.
+        assert_eq!(start_runtime(&root), Ok(()));
+        match heimdall_store::layout::locate(&state) {
+            Ok(heimdall_store::layout::Located::Generation { current, .. }) => {
+                assert_eq!(current.record.operation, Operation::Install);
+            }
+            other => panic!("a new installation was expected: {other:?}"),
+        }
+    }
+
     /// `uninstall_purge_refuses_replacement_runtime` (ADR-0008 §17.31 item 1, W5-C01): a
     /// replacement runtime started after the stop holds the instance lock and writes (a
     /// foreign-removal obligation): the purge waits its bound, then refuses with nothing
@@ -4822,7 +4985,9 @@ mod tests {
         drop(service);
         drop(rt);
         assert!(db.exists(), "the database was not deleted");
-        let now = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        // ⟨M08 U2b-1⟩ The replacement runtime adopted the flat store: its record is in the
+        // generation the pointer names now.
+        let now = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(now.foreign, vec![f], "the replacement's record is kept");
         // A briefly held lock is waited for.
         let (_d2, state2, confirmed2) = state_dir();
@@ -8037,6 +8202,67 @@ mod tests {
         assert!(crashed);
         assert!(!db.exists(), "the database moved before the crash");
         after_crash_start_refuses_and_uninstall_restores(&state, &wal, true);
+    }
+
+    /// ⟨M08 U2b-1; ADR-0014 §3.6⟩ `purge_interrupted_in_a_generation_is_restored_into_it`:
+    /// the purge of a generation layout stops (a simulated crash) after the store's database
+    /// moved into its quarantine directory and before its log did. Record 7 is only in that
+    /// log, and the generation's record lists a database that is not there. The runtime's
+    /// start-up refuses (a quarantine is present). `heimdall uninstall`'s first step finds
+    /// the family's directory from the pointer alone and puts the family back there. The
+    /// layout is whole again, and the store shows record 7.
+    #[test]
+    fn purge_interrupted_in_a_generation_is_restored_into_it() {
+        let (_d, state, _) = state_dir();
+        {
+            let _lock = heimdall_runtime::InstanceLock::try_acquire(&state)
+                .unwrap_or_else(|e| panic!("{e}"));
+            heimdall_runtime::state_store::open_locked(
+                &state,
+                Arc::new(NoFaults),
+                Timestamp::now(),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        }
+        let db = db_of(&state);
+        assert_ne!(
+            db,
+            state.join(heimdall_runtime::service::STATE_DB_FILE),
+            "a generation"
+        );
+        let confirmed = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        let wal = wal_of(&state, |tx| tx.insert_foreign_removal(&foreign(7)));
+        std::fs::write(companion(&db, "-wal"), &wal).unwrap_or_else(|e| panic!("{e}"));
+        let crashed = crate::purge_sweep::tests::crashing_at("move", "state.db-wal", || {
+            let _ = purge_now(&state, &confirmed, Duration::from_millis(300), || {});
+        });
+        assert!(crashed);
+        assert!(!db.exists(), "the database moved before the crash");
+        assert!(
+            heimdall_store::layout::db_path(&state).is_err(),
+            "the generation's record names a database that is in quarantine"
+        );
+        assert!(
+            !heimdall_runtime::service::quarantine_leftovers(&state)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .is_empty(),
+            "the runtime would start over the crash's leftovers"
+        );
+        let top = state.parent().map(Path::to_path_buf);
+        let restored = block_on(recover_quarantine(&paths_of(&state), top.as_deref()))
+            .unwrap_or_else(|out| panic!("not restored: {}", out.env.data));
+        assert!(!restored.is_empty(), "{restored:?}");
+        assert!(
+            heimdall_runtime::service::quarantine_leftovers(&state)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .is_empty()
+        );
+        assert_eq!(
+            db_of(&state),
+            db,
+            "back in the generation the pointer names"
+        );
+        assert!(shows(&db, 7), "a commit is lost");
     }
 
     /// `final_review_crash_at_each_copy_step_keeps_a_complete_database` (ADR-0008 §17.36

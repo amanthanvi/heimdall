@@ -203,7 +203,7 @@ impl Rt {
 
     fn store(&self) -> Store {
         Store::open_read_only(
-            &self.home.join("state").join("state.db"),
+            &heimdall_store::layout::db_path(&self.home.join("state")).unwrap(),
             Arc::new(NoFaults),
         )
         .unwrap()

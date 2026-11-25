@@ -161,7 +161,7 @@ impl Rt {
     /// Every decision row, whatever its state (`table_counts`, read-only).
     fn decisions(&self) -> u64 {
         let store = Store::open_read_only(
-            &self.home.join("state").join("state.db"),
+            &heimdall_store::layout::db_path(&self.home.join("state")).unwrap(),
             Arc::new(NoFaults),
         )
         .unwrap();
