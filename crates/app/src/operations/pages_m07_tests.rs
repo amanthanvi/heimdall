@@ -835,3 +835,68 @@ async fn whole_reads_are_unchanged_by_pages() {
         .collect();
     assert_eq!(aliases, ["alias-dst-a", "alias-dst-b", "alias-dst-c"]);
 }
+
+/// ⟨U3-1b; ruled 2026-11-25⟩ `two_first_pages_create_one_key`: the page key is read in a read
+/// transaction and created only when absent, re-checked under the write lock.
+/// 1. The store: two first readers both find no key (held at a barrier after their read),
+///    then both take the write path with different fresh bytes; the re-check keeps the first
+///    writer's key, so both get the same key and it is the stored one.
+/// 2. Two concurrent first pages through `Operations` on a fresh store: both answer the same
+///    next-page token (same scope, same position, one key), the stored key verifies it, and a
+///    later page reads the key without writing (the stored key is unchanged).
+#[tokio::test]
+async fn two_first_pages_create_one_key() {
+    let store = store();
+    assert!(
+        store.read_page_token_key().unwrap().0.is_none(),
+        "no key yet"
+    );
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let handles: Vec<_> = [[1u8; 32], [2u8; 32]]
+        .into_iter()
+        .map(|bytes| {
+            let (store, barrier) = (store.clone(), barrier.clone());
+            std::thread::spawn(move || {
+                let (read, epoch) = store.read_page_token_key().unwrap();
+                assert!(read.is_none(), "both readers find no key");
+                assert_eq!(epoch, 0);
+                barrier.wait();
+                store.transaction(|tx| tx.page_token_key(|| bytes)).unwrap()
+            })
+        })
+        .collect();
+    let keys: Vec<PageTokenKey> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let (stored, _) = store.read_page_token_key().unwrap();
+    let stored = stored.expect("one key was created");
+    assert_eq!(keys[0], keys[1], "both writers get the one key");
+    assert_eq!(keys[0], stored);
+    assert!(
+        stored.expose() == &[1u8; 32] || stored.expose() == &[2u8; 32],
+        "the key is one writer's fresh bytes"
+    );
+
+    let store = self::store();
+    seed_catalog(&store);
+    let ops = ops_on(store.clone(), env_id()).await;
+    let who = owner();
+    let first = || ops.inspect(&who, paged(InspectSubject::Destinations, Some(1), None));
+    let (a, b) = tokio::join!(first(), first());
+    let (a, b) = (a.unwrap().data, b.unwrap().data);
+    assert_eq!(a["more"], true);
+    assert_eq!(
+        a["next_page_token"], b["next_page_token"],
+        "one key seals both first pages"
+    );
+    let (key, _) = store.read_page_token_key().unwrap();
+    let key = key.expect("the first page created the key");
+    let token = PageToken::parse(a["next_page_token"].as_str().unwrap()).unwrap();
+    let next = ops
+        .inspect(
+            &owner(),
+            paged(InspectSubject::Destinations, Some(1), Some(token)),
+        )
+        .await
+        .unwrap();
+    assert_eq!(next.data["items"].as_array().map(Vec::len), Some(1));
+    assert_eq!(store.read_page_token_key().unwrap().0, Some(key));
+}

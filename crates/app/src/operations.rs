@@ -3964,7 +3964,8 @@ fn catalog_pairs(
 /// ⟨M04 U6⟩ The route of `pair` for a grant whose scope is `scope` (ADR-0010 §5
 /// item 2), or `route_dependency_out_of_scope` when its jump hop is neither a managed
 /// pair in the same scope nor existing access (also a jump that no longer resolves to
-/// a valid one: fail closed).
+/// a valid one: fail closed). ⟨rev7⟩ ADR-0013 §6.3 (D21): a jump that names no catalog
+/// destination (the hop is absent) is `route_undetermined` instead, never read as no route.
 pub(crate) fn pair_route(
     view: &heimdall_domain::catalog::RouteCatalogView,
     pair: &AccessPair,
@@ -3973,14 +3974,22 @@ pub(crate) fn pair_route(
     let Some(route) = view.route_of(pair) else {
         return Ok(None);
     };
-    let out_of_scope = |_| {
-        OpError::new(
-            Code::CapabilityUnavailable,
-            "the pair's destination is reached through a jump whose access is neither a managed pair in this grant's scope nor existing access",
-        )
-        .with_reason(heimdall_contract::envelope::reason::ROUTE_DEPENDENCY_OUT_OF_SCOPE)
-        .with_effect(EffectStatus::None)
-        .with_resource("destination", Some(pair.destination.to_string()))
+    let out_of_scope = |r: heimdall_domain::catalog::RouteRefusal| {
+        let (message, reason) = if r == heimdall_domain::catalog::RouteRefusal::UnknownJump {
+            (
+                "the pair's destination is reached through a jump destination that is not in the catalog, so its route cannot be determined",
+                heimdall_contract::envelope::reason::ROUTE_UNDETERMINED,
+            )
+        } else {
+            (
+                "the pair's destination is reached through a jump whose access is neither a managed pair in this grant's scope nor existing access",
+                heimdall_contract::envelope::reason::ROUTE_DEPENDENCY_OUT_OF_SCOPE,
+            )
+        };
+        OpError::new(Code::CapabilityUnavailable, message)
+            .with_reason(reason)
+            .with_effect(EffectStatus::None)
+            .with_resource("destination", Some(pair.destination.to_string()))
     };
     let route = route.map_err(out_of_scope)?;
     let access = view
@@ -15600,5 +15609,86 @@ mod tests {
             other.enforcement, claimed.report,
             "another mechanism: unchanged"
         );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod route_dependency_tests {
+    //! ⟨rev7⟩ ADR-0013 §6.3 (D21) at the runtime's own dependency check (`pair_route`, which
+    //! `ensure` admission and `catalog_pairs` call): `deleted_hop_fails_closed`.
+
+    use super::*;
+    use heimdall_contract::ids::AccountName;
+    use heimdall_domain::catalog::{DestinationRecord, RouteCatalogView};
+
+    fn record(id: &str, definition: DestinationDefinition) -> DestinationRecord {
+        DestinationRecord {
+            id: DestinationId::parse(id).unwrap(),
+            alias: id.to_owned(),
+            revision: 1,
+            definition,
+            label: None,
+            updated_at: "2026-11-25T09:00:00Z".parse().unwrap(),
+        }
+    }
+
+    fn managed(jump: Option<&str>) -> DestinationDefinition {
+        DestinationDefinition::Managed {
+            hostname: "10.0.0.9".into(),
+            port: None,
+            account: AccountName::parse("ops").unwrap(),
+            identity: heimdall_contract::ids::IdentityId::from_random_bytes([3; 16]),
+            jump: jump.map(|j| DestinationId::parse(j).unwrap()),
+        }
+    }
+
+    fn reason_of(e: OpError) -> (Code, Option<String>) {
+        let env = e.into_envelope();
+        (env.code, env.data.error.reason)
+    }
+
+    /// A routed pair whose hop is absent from the catalog (the row deleted) is
+    /// `CAPABILITY_UNAVAILABLE` / `route_undetermined`, never no route; a hop that is present
+    /// but not a valid one (observed) keeps `route_dependency_out_of_scope`; a present managed
+    /// hop resolves.
+    #[test]
+    fn deleted_hop_fails_closed() {
+        let pair = AccessPair {
+            destination: DestinationId::parse("lab").unwrap(),
+            account: AccountName::parse("ops").unwrap(),
+        };
+        let scope: BTreeSet<AccessPair> = std::iter::once(pair.clone()).collect();
+        let mut view = RouteCatalogView::default();
+        view.destinations.insert(
+            DestinationId::parse("lab").unwrap(),
+            record("lab", managed(Some("bastion"))),
+        );
+        let deleted = pair_route(&view, &pair, &scope).unwrap_err();
+        assert_eq!(
+            reason_of(deleted),
+            (
+                Code::CapabilityUnavailable,
+                Some(heimdall_contract::envelope::reason::ROUTE_UNDETERMINED.to_owned())
+            )
+        );
+        view.destinations.insert(
+            DestinationId::parse("bastion").unwrap(),
+            record("bastion", DestinationDefinition::Observed),
+        );
+        let observed = pair_route(&view, &pair, &scope).unwrap_err();
+        assert_eq!(
+            reason_of(observed),
+            (
+                Code::CapabilityUnavailable,
+                Some(heimdall_contract::envelope::reason::ROUTE_DEPENDENCY_OUT_OF_SCOPE.to_owned())
+            )
+        );
+        view.destinations.insert(
+            DestinationId::parse("bastion").unwrap(),
+            record("bastion", managed(None)),
+        );
+        let route = pair_route(&view, &pair, &scope).unwrap().unwrap();
+        assert_eq!(route.approved.jump.as_str(), "bastion");
     }
 }

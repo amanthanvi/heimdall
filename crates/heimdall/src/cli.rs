@@ -2260,6 +2260,11 @@ pub(crate) trait Session {
     }
     /// Send `Attend` for this session.
     async fn attend(&mut self) -> Envelope<serde_json::Value>;
+    /// ⟨rev7⟩ Whether the session negotiated `pages/1`, so a point lookup may be sent
+    /// (`client::lookup`). The unit tests' fakes answer `select` (`client::answered`).
+    fn serves_pages(&self) -> bool {
+        true
+    }
 }
 
 impl Session for Client {
@@ -2268,6 +2273,9 @@ impl Session for Client {
     }
     async fn attend(&mut self) -> Envelope<serde_json::Value> {
         Client::attend(self).await
+    }
+    fn serves_pages(&self) -> bool {
+        Client::serves_pages(self)
     }
 }
 
@@ -2559,28 +2567,18 @@ pub(crate) async fn confirm_and_decide<S: Session, P: Prompter>(
     let Ok(decision_id) = DecisionId::parse(decision) else {
         return usage("invalid decision reference");
     };
-    let listing = s
-        .request(Request::Inspect(InspectRequest {
-            subject: InspectSubject::Decisions,
-            preview: None,
-            cwd: None,
-            redact: false,
-            select: None,
-            page: None,
-        }))
-        .await;
-    if !listing.code.is_success() {
-        return listing;
-    }
-    let record = listing
-        .data
-        .get("decisions")
-        .and_then(|d| d.as_array())
-        .and_then(|list| {
-            list.iter()
-                .find(|d| d.get("decision_id").and_then(|v| v.as_str()) == Some(decision))
-                .cloned()
-        });
+    // ⟨rev7⟩ The decision by a point lookup of exactly its ID (ADR-0013 §6.3).
+    let record = match crate::client::lookup(
+        s,
+        InspectSubject::Decisions,
+        &[decision.to_owned()],
+        &[],
+    )
+    .await
+    {
+        Ok(found) => found.item("decision_id", decision).cloned(),
+        Err(e) => return *e,
+    };
     if answered.is_some()
         && record
             .as_ref()
@@ -3427,12 +3425,17 @@ mod tests {
         async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
             self.sent.push(request.kind().to_owned());
             let queue = self.answers.entry(request.kind()).or_default();
-            self.requests.push(request);
-            if queue.is_empty() {
+            let mut env = if queue.is_empty() {
                 Envelope::ok(serde_json::json!({}))
             } else {
                 queue.remove(0)
+            };
+            // ⟨rev7⟩ A point lookup reads the scripted listing as the runtime answers `select`.
+            if env.code.is_success() {
+                env.data = crate::client::answered(&request, env.data);
             }
+            self.requests.push(request);
+            env
         }
         async fn attend(&mut self) -> Envelope<serde_json::Value> {
             self.sent.push("attend".to_owned());

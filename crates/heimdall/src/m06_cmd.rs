@@ -920,7 +920,9 @@ impl HelperPorts<'_> {
             .await;
     }
 
-    /// The catalog facts of the jump destination of `route`.
+    /// The catalog facts of the jump destination of `route`, by point lookups of exactly
+    /// that destination and its identity in one read-only transaction; `None` when the
+    /// destination is absent or not managed, or the read failed.
     fn jump_facts(&self, route: &heimdall_domain::catalog::ApprovedRoute) -> Option<JumpFacts> {
         let state =
             heimdall_store::Store::open_read_only(&self.db, Arc::new(heimdall_store::NoFaults))
@@ -1006,9 +1008,12 @@ impl heimdall_app::routes::RouteHelperPorts for HelperPorts<'_> {
         binding: &heimdall_app::routes::RouteBinding,
     ) -> Result<heimdall_app::routes::JumpHop, heimdall_app::routes::RouteHelperError> {
         use heimdall_app::routes::RouteHelperError;
+        // ⟨rev7⟩ ADR-0013 §6.3 (D21): a hop that is absent or malformed (no managed catalog
+        // destination), or unreadable (the read failed), leaves this route undetermined; the
+        // route is not attempted, as any route refused here.
         let facts = self
             .jump_facts(route)
-            .ok_or(RouteHelperError::Unavailable)?;
+            .ok_or(RouteHelperError::NoUsableRoute(reason::ROUTE_UNDETERMINED))?;
         // ⟨ADR-0012 §5.4; ADR-0010 §5 item 2⟩ The same-grant check, on every jump attempted:
         // the binding the alias's endpoint serves for the jump pair is the binding resolved
         // for the final pair (so its grant, and the certificate the endpoint lists for the
@@ -6302,6 +6307,83 @@ mod tests {
             )
             .unwrap_err(),
             RouteHelperError::NoUsableRoute("route_dependency_out_of_scope")
+        );
+    }
+
+    /// ⟨rev7⟩ m07-plan U3 (ADR-0013 §6.3, D21) through the route helper's own port:
+    /// `deleted_hop_fails_closed` and `failed_hop_lookup_fails_closed`. The jump's catalog facts
+    /// are read by point lookups of exactly the hop; a hop that is absent from the store (the
+    /// row deleted), one that is not a managed destination, and a store that cannot be read
+    /// each leave the route `route_undetermined` (the route is not attempted), never
+    /// `Unavailable` read as "no route". The same-grant check is unchanged: a hop that is
+    /// present is still built only for the final pair's own binding
+    /// ([`a_managed_jump_hop_needs_the_final_pairs_own_binding`]).
+    #[test]
+    fn a_hop_that_is_absent_or_unreadable_leaves_the_helper_route_undetermined() {
+        use heimdall_app::routes::{RouteBinding, RouteHelperError, RouteHelperPorts as _};
+        use heimdall_contract::environment::JumpAccess;
+        let dir = tempfile::tempdir().unwrap();
+        let paths = helper_paths(dir.path());
+        std::fs::create_dir_all(&paths.state_dir).unwrap();
+        let db = paths
+            .state_dir
+            .join(heimdall_runtime::service::STATE_DB_FILE);
+        let store = heimdall_store::Store::open(&db, Arc::new(heimdall_store::NoFaults)).unwrap();
+        let route = approved_jump("jump");
+        let ctx = Ctx {
+            json: true,
+            non_interactive: true,
+            home: Some(dir.path().join("hm")),
+            stdin_tty: false,
+        };
+        let binding = RouteBinding {
+            binding: heimdall_contract::ids::BindingId::from_random_bytes([1; 16]),
+            grant: heimdall_contract::ids::GrantId::from_random_bytes([2; 16]),
+            endpoint: "/run/hm/signing.sock".into(),
+            pairs: std::collections::BTreeSet::new(),
+        };
+        let hop = |db: PathBuf, access: JumpAccess| {
+            let ports = HelperPorts {
+                ctx: &ctx,
+                db,
+                paths: helper_paths(dir.path()),
+                endpoint: "/run/hm/signing.sock".into(),
+                pin_text: None,
+            };
+            let route = route.clone();
+            let binding = binding.clone();
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async move { ports.jump_hop(&route, access, &binding).await })
+        };
+        let undetermined = RouteHelperError::NoUsableRoute(reason::ROUTE_UNDETERMINED);
+        // The hop's row is absent (deleted): for a managed jump and for existing access alike.
+        for access in [JumpAccess::Managed, JumpAccess::Existing] {
+            assert_eq!(hop(db.clone(), access).unwrap_err(), undetermined);
+        }
+        // The hop is listed but is not a managed destination (malformed as a hop).
+        store
+            .transaction(|tx| {
+                tx.upsert_destination(&heimdall_domain::catalog::DestinationRecord {
+                    id: route.jump.clone(),
+                    alias: "bast".into(),
+                    revision: 1,
+                    definition: heimdall_domain::catalog::DestinationDefinition::Observed,
+                    label: None,
+                    updated_at: "2026-11-25T09:00:00Z".parse().unwrap(),
+                })
+            })
+            .unwrap();
+        assert_eq!(
+            hop(db.clone(), JumpAccess::Managed).unwrap_err(),
+            undetermined
+        );
+        // The lookup itself fails: the store cannot be opened.
+        assert_eq!(
+            hop(dir.path().join("absent.db"), JumpAccess::Managed).unwrap_err(),
+            undetermined
         );
     }
 

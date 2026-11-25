@@ -392,6 +392,24 @@ fn items_by_id(
 }
 
 impl Operations {
+    /// The page tokens' key and the restore epoch (ADR-0013 §6.2; ruled 2026-11-25): read in a
+    /// read transaction; only when no key exists yet is a write transaction opened, and
+    /// [`Txn::page_token_key`] re-checks under its write lock, so two first readers create one
+    /// key (the second finds the first's and its fresh bytes are dropped).
+    pub(super) async fn page_key(&self) -> Result<(PageTokenKey, u64), OpError> {
+        let store = std::sync::Arc::clone(&self.inner.config.store);
+        let (stored, epoch) = tokio::task::spawn_blocking(move || store.read_page_token_key())
+            .await
+            .map_err(|_| internal("the page key read failed"))??;
+        if let Some(key) = stored {
+            return Ok((key, epoch));
+        }
+        let mut fresh = [0u8; 32];
+        getrandom::fill(&mut fresh).map_err(|_| internal("no randomness for the page key"))?;
+        self.write(move |tx, _| Ok((tx.page_token_key(move || fresh)?, tx.restore_epoch()?)))
+            .await
+    }
+
     /// `inspect` with `select` or `page` (ADR-0013 §6.1), on a session that negotiated
     /// `pages/1` (the IPC gate refuses any other with `SCHEMA_UNSUPPORTED` first).
     pub(super) async fn inspect_form(
@@ -488,11 +506,7 @@ impl Operations {
         token: Option<PageToken>,
     ) -> OpResult<serde_json::Value> {
         let subject = whole.subject;
-        let mut fresh = [0u8; 32];
-        getrandom::fill(&mut fresh).map_err(|_| internal("no randomness for the page key"))?;
-        let (key, epoch) = self
-            .write(move |tx, _| Ok((tx.page_token_key(move || fresh)?, tx.restore_epoch()?)))
-            .await?;
+        let (key, epoch) = self.page_key().await?;
         let scope = scope_digest(
             &caller.context,
             &self.inner.config.environment,

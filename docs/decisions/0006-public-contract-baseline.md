@@ -2936,3 +2936,32 @@ shapes no journey produces. The tables and `meta` keys with no reader are listed
 README ("Stored, not read"). Each build's genuineness (its `heimdall` build graph equals the
 crates cargo compiled; every binary's SHA-256 differs) is recorded in
 `tests/contracts/golden/replay/README.md`. The recipe is `docs/architecture/u0-plan.md` §5.
+
+### 19.10 `pages/1` served (m07-plan U3-1): readings where ADR-0013 is silent (ruled 2026-11-25)
+
+U3-1a (`bbe92261`) serves `pages/1` on every read role's session (D2, ADR-0013 §6.1–§6.2), and
+U3-1b moves internal resolution to point lookups (§6.3, D21). Where ADR-0013 names no answer,
+these readings landed in U3-1a; the contract owner ruled them on 2026-11-25:
+
+- **A subject that is not a list** (`capabilities`, `issuer`, `workspace`, `export`) with
+  `select` or `page` is `USAGE_ERROR` / `selector_invalid`, as every other form that cannot
+  apply.
+- **`aliases` on a subject without aliases** (any subject but `destinations`) is `USAGE_ERROR` /
+  `selector_invalid`, not an entry in `missing`.
+- **A page limit of 0, or over 1000,** is `USAGE_ERROR`; it is not clamped.
+- **A selection over the 768 KiB budget** is `USAGE_ERROR` / `response_too_large` (D19), naming
+  the item at which it overflowed in `data.error.resource`.
+- **A paged or selected revision-5 inspect** (a revision-5 subject such as `policies`, or one
+  that carries `cwd` or `redact`) needs `trusted-work/1` as well as `pages/1`:
+  `Request::required_capabilities` names both, and a session that negotiated only one of them
+  is refused the request with `SCHEMA_UNSUPPORTED` before dispatch.
+- **A `select` of an item the session may not see** answers it in `missing`, exactly as an absent
+  one, so a non-owner's point lookup of a container environment by ID is `NOT_FOUND` (the CLI says
+  "not found, or not visible to this session", never that the item does not exist), while the
+  whole read of `environments` for a non-owner keeps its `CAPABILITY_UNAVAILABLE`: that reveals
+  only the rule, not whether an environment exists (ruled 2026-11-25).
+
+U3-1b also adds `inspect`'s `select` and `page` forms to the primitive index (D7; wire only,
+`operations/1` and `pages/1`, answering `selection` and `page`), and reads the page tokens' key
+in a read transaction first, opening a write transaction only when it is absent (the write
+re-checks, so two first readers create one key).

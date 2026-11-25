@@ -134,15 +134,14 @@ impl Client {
         &mut self.inner
     }
 
-    /// ⟨rev7⟩ A point lookup ([`select_on`]).
-    // The callers move to it in U3-1b (m07-plan U3: no caller migrates in U3-1a).
-    #[allow(dead_code)]
-    pub async fn select(
-        &mut self,
-        subject: InspectSubject,
-        select: Select,
-    ) -> Envelope<serde_json::Value> {
-        select_on(&mut self.inner, subject, select).await
+    /// ⟨rev7⟩ Whether this session negotiated `pages/1` (`select` and `page` are sent only
+    /// then; [`lookup`] refuses locally otherwise).
+    #[must_use]
+    pub fn serves_pages(&self) -> bool {
+        self.inner
+            .server()
+            .capabilities
+            .contains(capability::PAGES_V1)
     }
 
     /// ⟨rev7⟩ An enumeration ([`traverse_on`]).
@@ -150,7 +149,9 @@ impl Client {
     /// # Errors
     ///
     /// The first refused page's envelope, as [`traverse_on`].
-    // The callers move to it in U3-1b (m07-plan U3: no caller migrates in U3-1a).
+    // ⟨U3-1b⟩ No CLI enumeration traverses yet: every list output keeps its whole read, whose
+    // answer (order, wrapper key, the extra fields some subjects carry) its goldens fix; the
+    // traversal is for enumeration only (ADR-0013 §6.3), never for a resolution.
     #[allow(dead_code)]
     pub async fn traverse(
         &mut self,
@@ -192,26 +193,28 @@ where
     })
 }
 
-/// ⟨rev7⟩ m07-plan U3 (ADR-0013 §6.1, §6.3): a point lookup of `select`'s entries in
-/// `subject`, answered `{items, missing}` (`missing`: the entries that do not exist or are not
-/// visible to this caller). On a session without `pages/1`, `SCHEMA_UNSUPPORTED`, sent nowhere.
-pub async fn select_on<S>(
-    client: &mut ControlClient<S>,
-    subject: InspectSubject,
-    select: Select,
-) -> Envelope<serde_json::Value>
+/// ⟨rev7⟩ Every control session is a [`crate::cli::Session`]: the CLI's [`Client`] wraps
+/// one, and the point lookup ([`lookup`]) runs on either.
+impl<S> crate::cli::Session for ControlClient<S>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
 {
-    if let Some(refused) = pages_unsupported(client) {
-        return refused;
+    async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+        match ControlClient::request(self, request).await {
+            Ok(env) => env,
+            Err(e) => crate::output::error_value(transport_failure_envelope(&e, true)),
+        }
     }
-    match client
-        .request(pages_request(subject, Some(select), None))
-        .await
-    {
-        Ok(env) => env,
-        Err(e) => crate::output::error_value(transport_failure_envelope(&e, false)),
+
+    async fn attend(&mut self) -> Envelope<serde_json::Value> {
+        match ControlClient::attend(self).await {
+            Ok(env) => env,
+            Err(e) => crate::output::error_value(transport_failure_envelope(&e, false)),
+        }
+    }
+
+    fn serves_pages(&self) -> bool {
+        pages_unsupported(self).is_none()
     }
 }
 
@@ -278,6 +281,149 @@ where
             _ => return Err(malformed()),
         }
     }
+}
+
+/// ⟨rev7⟩ m07-plan U3 build step 1 (ADR-0013 §6.3, S3): the answer of a point lookup, the one
+/// way internal resolution reads the records it needs (routes, hops, aliases, profiles,
+/// identities, bindings, decisions, environments by ID). `missing` names the entries that
+/// matched nothing this caller may read.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Selection {
+    pub(crate) items: Vec<serde_json::Value>,
+    pub(crate) missing: Vec<String>,
+}
+
+impl Selection {
+    /// The selected item whose string field `field` is `value`.
+    pub(crate) fn item(&self, field: &str, value: &str) -> Option<&serde_json::Value> {
+        self.items
+            .iter()
+            .find(|i| i.get(field).and_then(serde_json::Value::as_str) == Some(value))
+    }
+
+    /// A `select` answer read as `{items, missing}`: a refusal is returned unchanged; an
+    /// answer of another form is `INTERNAL_ERROR` (unreadable: never read as "absent").
+    pub(crate) fn of(
+        env: Envelope<serde_json::Value>,
+    ) -> Result<Self, Box<Envelope<serde_json::Value>>> {
+        if !env.code.is_success() {
+            return Err(Box::new(env));
+        }
+        let malformed = || {
+            Box::new(crate::output::error_value(error(
+                Code::InternalError,
+                "the runtime answered a point lookup that breaks the select form",
+            )))
+        };
+        let serde_json::Value::Array(items) = env.data["items"].clone() else {
+            return Err(malformed());
+        };
+        let missing = match env.data.get("missing") {
+            None => Vec::new(),
+            Some(m) => serde_json::from_value(m.clone()).map_err(|_| malformed())?,
+        };
+        Ok(Self { items, missing })
+    }
+}
+
+/// ⟨rev7⟩ The `select` request of `ids` and `aliases` in `subject` (no preview, `cwd` or
+/// `redact`).
+pub(crate) fn select_request(
+    subject: InspectSubject,
+    ids: Vec<String>,
+    aliases: Vec<String>,
+) -> Request {
+    pages_request(subject, Some(Select { ids, aliases }), None)
+}
+
+/// ⟨rev7⟩ m07-plan U3 build step 1 (ADR-0013 §6.3): the point lookup of `ids` and `aliases`
+/// in `subject` on any control session, sent as one `select` per [`SELECT_MAX`] entries.
+/// On a session that did not negotiate `pages/1`, `SCHEMA_UNSUPPORTED`, sent nowhere: never a
+/// whole read instead.
+///
+/// # Errors
+///
+/// The first refusal (unchanged), or `INTERNAL_ERROR` for an answer that breaks the form.
+pub(crate) async fn lookup<S: crate::cli::Session>(
+    s: &mut S,
+    subject: InspectSubject,
+    ids: &[String],
+    aliases: &[String],
+) -> Result<Selection, Box<Envelope<serde_json::Value>>> {
+    use heimdall_contract::page::SELECT_MAX;
+    if !s.serves_pages() {
+        return Err(Box::new(crate::output::error_value(error(
+            Code::SchemaUnsupported,
+            "the runtime does not serve select or page (pages/1)",
+        ))));
+    }
+    let mut out = Selection::default();
+    let entries: Vec<(bool, &String)> = ids
+        .iter()
+        .map(|i| (true, i))
+        .chain(aliases.iter().map(|a| (false, a)))
+        .collect();
+    for chunk in entries.chunks(SELECT_MAX) {
+        let (ids, aliases): (Vec<_>, Vec<_>) = chunk.iter().partition(|(id, _)| *id);
+        let request = select_request(
+            subject,
+            ids.into_iter().map(|(_, i)| (*i).clone()).collect(),
+            aliases.into_iter().map(|(_, a)| (*a).clone()).collect(),
+        );
+        let part = Selection::of(s.request(request).await)?;
+        out.items.extend(part.items);
+        out.missing.extend(part.missing);
+    }
+    Ok(out)
+}
+
+/// ⟨rev7⟩ Test seam: the answer a runtime gives `request` when a fake holds the whole read
+/// `whole` of its subject. A `select` answers `{items, missing}` from `whole`'s list (by the
+/// subject's ID field, and by `alias` for destinations); any other request gets `whole`.
+#[cfg(test)]
+pub(crate) fn answered(request: &Request, whole: serde_json::Value) -> serde_json::Value {
+    let Request::Inspect(InspectRequest {
+        subject,
+        select: Some(select),
+        ..
+    }) = request
+    else {
+        return whole;
+    };
+    let (key, id) = match subject {
+        InspectSubject::Environments => ("items", "environment_id"),
+        InspectSubject::Profiles => ("items", "profile_id"),
+        InspectSubject::Destinations => ("items", "destination_id"),
+        InspectSubject::Grants => ("grants", "grant_id"),
+        InspectSubject::Bindings => ("bindings", "binding_id"),
+        InspectSubject::Operations => ("operations", "operation_id"),
+        InspectSubject::Decisions => ("decisions", "decision_id"),
+        InspectSubject::Identities => ("identities", "identity_id"),
+        InspectSubject::Enrollments => ("enrollments", "enrollment_id"),
+        InspectSubject::Policies => ("items", "policy_id"),
+        _ => ("items", "id"),
+    };
+    let list = whole[key].as_array().cloned().unwrap_or_default();
+    let mut items = Vec::new();
+    let mut missing = Vec::new();
+    let found = |field: &str, wanted: &str| {
+        list.iter()
+            .find(|i| i.get(field).and_then(serde_json::Value::as_str) == Some(wanted))
+            .cloned()
+    };
+    for wanted in &select.ids {
+        match found(id, wanted) {
+            Some(i) => items.push(i),
+            None => missing.push(wanted.clone()),
+        }
+    }
+    for wanted in &select.aliases {
+        match found("alias", wanted) {
+            Some(i) => items.push(i),
+            None => missing.push(wanted.clone()),
+        }
+    }
+    serde_json::json!({ "items": items, "missing": missing })
 }
 
 fn launch_error(e: &LaunchError) -> Envelope<ErrorData> {
@@ -563,6 +709,10 @@ mod pages_tests {
         .unwrap()
     }
 
+    fn a() -> Vec<String> {
+        vec!["dst-a".into()]
+    }
+
     fn select_one() -> Select {
         Select {
             ids: vec!["dst-a".into()],
@@ -602,8 +752,10 @@ mod pages_tests {
             0,
             "never dispatched"
         );
-        let env = select_on(&mut client, InspectSubject::Destinations, select_one()).await;
-        assert_eq!(env.code, Code::SchemaUnsupported);
+        let err = lookup(&mut client, InspectSubject::Destinations, &a(), &[])
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, Code::SchemaUnsupported);
         let err = traverse_on(&mut client, InspectSubject::Destinations, None)
             .await
             .unwrap_err();
@@ -630,7 +782,13 @@ mod pages_tests {
             .unwrap();
         assert_eq!(items, [1, 2, 3].map(serde_json::Value::from));
         assert_eq!(dispatcher.calls.load(Ordering::SeqCst), 2);
-        let env = select_on(&mut client, InspectSubject::Destinations, select_one()).await;
-        assert_eq!(env.data["missing"], serde_json::json!(["dst-a"]));
+        let selected = lookup(&mut client, InspectSubject::Destinations, &a(), &[])
+            .await
+            .unwrap();
+        assert_eq!(selected.missing, ["dst-a"]);
     }
 }
+
+#[cfg(test)]
+#[path = "client_resolution_tests.rs"]
+mod resolution_tests;

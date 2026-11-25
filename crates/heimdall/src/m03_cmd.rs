@@ -135,7 +135,8 @@ pub(crate) async fn destination_prefer(ctx: &Ctx, args: DestinationPreferArgs) -
         Ok(c) => c,
         Err(o) => return o,
     };
-    let listing = match setup_cmd::inspect(&mut client, InspectSubject::Destinations).await {
+    // ⟨rev7⟩ The alias by a point lookup of exactly that name (ADR-0013 §6.3).
+    let listing = match setup_cmd::destination_named(&mut client, &args.alias).await {
         Ok(d) => d,
         Err(o) => return o,
     };

@@ -78,6 +78,52 @@ async fn read(
     }
 }
 
+/// ⟨rev7⟩ One item of `subject` read by a point lookup of exactly `wanted` (ADR-0013 §6.3):
+/// by ID (`id_key`), and for destinations by alias too; an ID match comes first. A refused
+/// lookup is refused with its own code; no item is `NOT_FOUND` (`what`).
+async fn lookup_one<S: Session>(
+    s: &mut S,
+    subject: InspectSubject,
+    id_key: &str,
+    wanted: &str,
+    what: &str,
+) -> Result<serde_json::Value, Outcome> {
+    let aliases = if subject == InspectSubject::Destinations {
+        vec![wanted.to_owned()]
+    } else {
+        Vec::new()
+    };
+    let found = crate::client::lookup(s, subject, &[wanted.to_owned()], &aliases)
+        .await
+        .map_err(|e| Outcome::of(*e))?;
+    found
+        .item(id_key, wanted)
+        .or_else(|| found.item("alias", wanted))
+        .cloned()
+        .ok_or_else(|| not_found(what))
+}
+
+/// ⟨rev7⟩ [`lookup_one`] on a read-only session (never starts the runtime), rendered.
+async fn show(
+    ctx: &Ctx,
+    subject: InspectSubject,
+    id_key: &str,
+    wanted: &str,
+    what: &str,
+) -> Outcome {
+    let mut client = match session(ctx, false).await {
+        Ok(c) => c,
+        Err(o) => return o,
+    };
+    match lookup_one(&mut client, subject, id_key, wanted, what).await {
+        Ok(data) => {
+            let human = pretty(&data);
+            Outcome::of(Envelope::ok(data)).with_human(human)
+        }
+        Err(o) => o,
+    }
+}
+
 /// One catalog request on a session that may start the runtime.
 async fn send(ctx: &Ctx, request: CatalogRequest) -> Outcome {
     if let Err(e) = request.validate() {
@@ -100,30 +146,18 @@ fn not_found(what: &str) -> Outcome {
     Outcome::of(failure(Code::NotFound, &format!("no such {what}"), None))
 }
 
-/// The item of `items` (under `key`) whose `id_key` or `alias` equals `wanted`.
-fn find(
-    data: &serde_json::Value,
-    key: &str,
-    id_key: &str,
-    wanted: &str,
-) -> Option<serde_json::Value> {
-    data.get("items")
-        .or_else(|| data.get(key))?
-        .as_array()?
-        .iter()
-        .find(|d| {
-            d.get(id_key).and_then(|v| v.as_str()) == Some(wanted)
-                || d.get("alias").and_then(|v| v.as_str()) == Some(wanted)
-                || d.get("id").and_then(|v| v.as_str()) == Some(wanted)
-        })
-        .cloned()
-}
-
-/// A destination's ID from its ID or alias (the catalog listing, read-only).
+/// A destination's ID from its ID or alias (⟨rev7⟩ a point lookup of exactly that name,
+/// read-only).
 async fn destination_id(ctx: &Ctx, wanted: &str) -> Result<DestinationId, Outcome> {
     if let Ok(mut client) = session(ctx, false).await
-        && let Ok(data) = inspect(&mut client, InspectSubject::Destinations).await
-        && let Some(d) = find(&data, "destinations", "destination_id", wanted)
+        && let Ok(d) = lookup_one(
+            &mut client,
+            InspectSubject::Destinations,
+            "destination_id",
+            wanted,
+            "destination",
+        )
+        .await
         && let Some(id) = d
             .get("destination_id")
             .or_else(|| d.get("id"))
@@ -147,10 +181,13 @@ async fn destination_flow(ctx: &Ctx, command: DestinationCommand) -> Outcome {
         DestinationCommand::Prefer(a) => crate::m03_cmd::destination_prefer(ctx, a).await,
         DestinationCommand::List => read(ctx, InspectSubject::Destinations, Ok).await,
         DestinationCommand::Show { destination } => {
-            read(ctx, InspectSubject::Destinations, |data| {
-                find(&data, "destinations", "destination_id", &destination)
-                    .ok_or_else(|| not_found("destination"))
-            })
+            show(
+                ctx,
+                InspectSubject::Destinations,
+                "destination_id",
+                &destination,
+                "destination",
+            )
             .await
         }
         DestinationCommand::Remove {
@@ -635,23 +672,14 @@ async fn stored_profile(
     id: &ProfileId,
 ) -> Result<(BTreeSet<AccessPairRef>, Option<String>), Outcome> {
     let mut client = session(ctx, true).await?;
-    let data = inspect(&mut client, InspectSubject::Profiles).await?;
-    let item = data
-        .get("items")
-        .or_else(|| data.get("profiles"))
-        .and_then(|v| v.as_array())
-        .and_then(|items| {
-            items
-                .iter()
-                .find(|p| {
-                    p.get("profile_id")
-                        .or_else(|| p.get("id"))
-                        .and_then(|v| v.as_str())
-                        == Some(id.as_str())
-                })
-                .cloned()
-        })
-        .ok_or_else(|| not_found("profile"))?;
+    let item = lookup_one(
+        &mut client,
+        InspectSubject::Profiles,
+        "profile_id",
+        id.as_str(),
+        "profile",
+    )
+    .await?;
     let scope = item.get("scope").cloned().unwrap_or_default();
     let raw = scope
         .get("pairs")
@@ -670,23 +698,13 @@ async fn profile_flow(ctx: &Ctx, command: ProfileCommand) -> Outcome {
     match command {
         ProfileCommand::List => read(ctx, InspectSubject::Profiles, Ok).await,
         ProfileCommand::Show { profile } => {
-            read(ctx, InspectSubject::Profiles, |data| {
-                data.get("items")
-                    .or_else(|| data.get("profiles"))
-                    .and_then(|v| v.as_array())
-                    .and_then(|items| {
-                        items
-                            .iter()
-                            .find(|p| {
-                                p.get("profile_id")
-                                    .or_else(|| p.get("id"))
-                                    .and_then(|v| v.as_str())
-                                    == Some(profile.as_str())
-                            })
-                            .cloned()
-                    })
-                    .ok_or_else(|| not_found("profile"))
-            })
+            show(
+                ctx,
+                InspectSubject::Profiles,
+                "profile_id",
+                &profile,
+                "profile",
+            )
             .await
         }
         ProfileCommand::Create {

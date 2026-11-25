@@ -154,6 +154,24 @@ pub(crate) async fn inspect<S: Session>(
     }
 }
 
+/// ⟨rev7⟩ The point lookup of the destination named `wanted` (its alias or its ID; ADR-0013
+/// §6.3), answered as a listing of what it found (`{"items": [..]}`): an absent destination
+/// is an empty listing, a refused lookup its own refusal.
+pub(crate) async fn destination_named<S: Session>(
+    s: &mut S,
+    wanted: &str,
+) -> Result<serde_json::Value, Outcome> {
+    let found = crate::client::lookup(
+        s,
+        InspectSubject::Destinations,
+        &[wanted.to_owned()],
+        &[wanted.to_owned()],
+    )
+    .await
+    .map_err(|e| Outcome::of(*e))?;
+    Ok(serde_json::json!({ "items": found.items }))
+}
+
 // --- the owner-present flow (ADR-0006 §3.1) ----------------------------------------------
 
 /// The pending decision a result asks for, if any.
@@ -267,18 +285,18 @@ async fn confirm_recorded<S: Session, P: Prompter>(
     let Ok(decision_id) = DecisionId::parse(decision) else {
         return failure(Code::UsageError, "invalid decision reference", None);
     };
-    let listing = match inspect(s, InspectSubject::Decisions).await {
-        Ok(d) => d,
-        Err(o) => return o.env,
+    // ⟨rev7⟩ The decision by a point lookup of exactly its ID (ADR-0013 §6.3).
+    let record = match crate::client::lookup(
+        s,
+        InspectSubject::Decisions,
+        &[decision.to_owned()],
+        &[],
+    )
+    .await
+    {
+        Ok(found) => found.item("decision_id", decision).cloned(),
+        Err(e) => return *e,
     };
-    let record = listing
-        .get("decisions")
-        .and_then(|d| d.as_array())
-        .and_then(|l| {
-            l.iter()
-                .find(|d| d.get("decision_id").and_then(|v| v.as_str()) == Some(decision))
-                .cloned()
-        });
     let Some(record) = record else {
         return not_confirmed(
             Some(decision),
@@ -1435,23 +1453,33 @@ mod tests {
 
     impl Session for Recorder {
         async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
-            let k = kind_of(&request);
-            self.sent.push(k.clone());
-            let key: &'static str = match k.as_str() {
-                "setup.preview" => "setup.preview",
-                "setup.apply" => "setup.apply",
-                "setup.rollback" => "setup.rollback",
-                "setup.repair" => "setup.repair",
-                "inspect" => "inspect",
-                "decide" => "decide",
-                _ => "other",
-            };
-            let queue = self.answers.entry(key).or_default();
-            if queue.is_empty() {
-                Envelope::ok(serde_json::json!({}))
-            } else {
-                queue.remove(0)
+            let probe = request.clone();
+            #[allow(clippy::needless_return)]
+            let mut env: Envelope<serde_json::Value> = async {
+                let k = kind_of(&request);
+                self.sent.push(k.clone());
+                let key: &'static str = match k.as_str() {
+                    "setup.preview" => "setup.preview",
+                    "setup.apply" => "setup.apply",
+                    "setup.rollback" => "setup.rollback",
+                    "setup.repair" => "setup.repair",
+                    "inspect" => "inspect",
+                    "decide" => "decide",
+                    _ => "other",
+                };
+                let queue = self.answers.entry(key).or_default();
+                if queue.is_empty() {
+                    Envelope::ok(serde_json::json!({}))
+                } else {
+                    queue.remove(0)
+                }
             }
+            .await;
+            // ⟨rev7⟩ A point lookup reads the scripted listing as the runtime answers `select`.
+            if env.code.is_success() {
+                env.data = crate::client::answered(&probe, env.data);
+            }
+            env
         }
         async fn attend(&mut self) -> Envelope<serde_json::Value> {
             self.sent.push("attend".to_owned());
@@ -2278,7 +2306,8 @@ mod tests {
             let recorded: Vec<DecisionScope> = session
                 .decisions
                 .iter()
-                .flat_map(|l| l["decisions"].as_array().cloned().unwrap_or_default())
+                // ⟨rev7⟩ The offer reads its decision by a point lookup (`items`).
+                .flat_map(|l| l["items"].as_array().cloned().unwrap_or_default())
                 .filter_map(|d| recorded_scope(&d))
                 .collect();
             let created = runtime

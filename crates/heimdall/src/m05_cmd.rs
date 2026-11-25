@@ -180,26 +180,13 @@ pub(crate) struct ProfileDef {
     pub(crate) capabilities: BTreeSet<Capability>,
 }
 
+/// ⟨rev7⟩ The profile by a point lookup of exactly its ID (ADR-0013 §6.3).
 async fn profile_def<S: Session>(s: &mut S, id: &ProfileId) -> Result<Option<ProfileDef>, Outcome> {
-    let data = read(
-        s,
-        InspectRequest {
-            subject: InspectSubject::Profiles,
-            preview: None,
-            cwd: None,
-            redact: false,
-            select: None,
-            page: None,
-        },
-    )
-    .await?;
-    let items: Vec<ProfileDef> = data
-        .get("items")
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|_| unreadable("profiles"))?
-        .unwrap_or_default();
+    let found = crate::client::lookup(s, InspectSubject::Profiles, &[id.to_string()], &[])
+        .await
+        .map_err(|e| Outcome::of(*e))?;
+    let items: Vec<ProfileDef> = serde_json::from_value(serde_json::Value::Array(found.items))
+        .map_err(|_| unreadable("profiles"))?;
     Ok(items.into_iter().find(|p| &p.profile_id == id))
 }
 
@@ -1688,16 +1675,29 @@ mod tests {
 
     impl Session for Owner {
         async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
-            self.sent.push(request.kind().to_owned());
-            match request {
-                Request::Inspect(_) => Envelope::ok(self.listing.clone()),
-                Request::Policy(_) => output::error_value(
-                    heimdall_app::OpError::new(Code::ApprovalRequired, "owner approval required")
+            let probe = request.clone();
+            #[allow(clippy::needless_return)]
+            let mut env: Envelope<serde_json::Value> = async {
+                self.sent.push(request.kind().to_owned());
+                match request {
+                    Request::Inspect(_) => Envelope::ok(self.listing.clone()),
+                    Request::Policy(_) => output::error_value(
+                        heimdall_app::OpError::new(
+                            Code::ApprovalRequired,
+                            "owner approval required",
+                        )
                         .with_decision(DEC.to_owned())
                         .into_envelope(),
-                ),
-                _ => Envelope::ok(serde_json::json!({"decided": true})),
+                    ),
+                    _ => Envelope::ok(serde_json::json!({"decided": true})),
+                }
             }
+            .await;
+            // ⟨rev7⟩ A point lookup reads the scripted listing as the runtime answers `select`.
+            if env.code.is_success() {
+                env.data = crate::client::answered(&probe, env.data);
+            }
+            env
         }
         async fn attend(&mut self) -> Envelope<serde_json::Value> {
             self.sent.push("attend".to_owned());

@@ -339,21 +339,23 @@ pub(crate) async fn fresh_identities(client: &mut Client) -> Result<IdentitiesVi
 /// exited) still reads `ACCESS_READY`; it is refused here ([`binding_released`]), and
 /// nothing is launched. A binding the listing does not show (released bindings hold no
 /// reference, so they are not listed) is refused the same way (fail closed). A listing
-/// that cannot be read is refused with the `inspect` failure itself.
+/// that cannot be read is refused with the `inspect` failure itself. ⟨rev7⟩ The binding is
+/// read by a point lookup of exactly that binding (ADR-0013 §6.3).
 pub(crate) async fn confirm_binding_active(
     client: &mut Client,
     binding: &BindingId,
 ) -> Result<(), Failure> {
-    let data = inspect(client, InspectSubject::Bindings).await?;
-    let active = data
-        .get("bindings")
-        .and_then(|v| v.as_array())
-        .is_some_and(|items| {
-            items.iter().any(|b| {
-                b.get("binding_id").and_then(|v| v.as_str()) == Some(binding.as_str())
-                    && b.get("state").and_then(|v| v.as_str()) == Some("active")
-            })
-        });
+    let found = crate::client::lookup(
+        client,
+        InspectSubject::Bindings,
+        &[binding.to_string()],
+        &[],
+    )
+    .await
+    .map_err(|e| Failure::of(*e))?;
+    let active = found
+        .item("binding_id", binding.as_str())
+        .is_some_and(|b| b.get("state").and_then(|v| v.as_str()) == Some("active"));
     if active {
         return Ok(());
     }

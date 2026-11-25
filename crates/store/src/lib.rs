@@ -630,6 +630,35 @@ impl Store {
         Ok(out)
     }
 
+    /// ⟨rev7⟩ ADR-0013 §6.2 (m07-plan U3, ruled 2026-11-25): the page tokens' MAC key and the
+    /// restore epoch, read together in one **read** (deferred) transaction, which takes no
+    /// write lock. The key is `None` until the first page creates it
+    /// ([`Txn::page_token_key`], under the write lock, which re-checks). A malformed key or
+    /// epoch is [`StoreError::Corrupt`].
+    pub fn read_page_token_key(&self) -> Result<(Option<PageTokenKey>, u64)> {
+        fire(self.faults.as_ref(), FaultPoint::BeforeTransaction)?;
+        let mut conn = self.lock();
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
+            .map_err(codec::classify)?;
+        let mut txn = Txn { tx };
+        let read = (|| {
+            let key = txn
+                .meta(META_PAGE_TOKEN_KEY)?
+                .map(|text| {
+                    PageTokenKey::from_hex(&text).ok_or_else(|| {
+                        StoreError::Corrupt("the page token key is malformed".to_owned())
+                    })
+                })
+                .transpose()?;
+            Ok((key, txn.restore_epoch()?))
+        })()
+        .map_err(codec::reclassify)?;
+        // A read writes nothing: the transaction ends without a commit.
+        drop(txn);
+        Ok(read)
+    }
+
     /// Schema version on disk.
     pub fn schema_version(&self) -> Result<u32> {
         migrations::user_version(&self.lock())

@@ -70,6 +70,24 @@
           "cli": "heimdall --json inspect <subject> [--preview <profile> [--environment E] [--until T | --for D] [--require-* …]]",
           "request_id": "none",
           "wire": "inspect"
+        },
+        {
+          "capabilities": [
+            "operations/1",
+            "pages/1"
+          ],
+          "cli": "(wire only: select {ids, aliases}, a point lookup of a list subject)",
+          "request_id": "none",
+          "wire": "inspect"
+        },
+        {
+          "capabilities": [
+            "operations/1",
+            "pages/1"
+          ],
+          "cli": "(wire only: page {limit, token}, one page of a list subject)",
+          "request_id": "none",
+          "wire": "inspect"
         }
       ],
       "group": "inspect",
@@ -83,6 +101,8 @@
         "inspect-workspace",
         "inspect-policies",
         "issuer-status",
+        "selection",
+        "page",
         "envelope.error"
       ]
     },

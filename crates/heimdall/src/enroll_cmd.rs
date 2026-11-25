@@ -166,16 +166,13 @@ fn with_data(
     env
 }
 
-/// The pending decision's recorded request (`inspect decisions`), if listed.
+/// The pending decision's recorded request (`inspect decisions`), if listed. ⟨rev7⟩ By a
+/// point lookup of exactly that decision (ADR-0013 §6.3).
 async fn decision_request<S: Session>(s: &mut S, decision: &str) -> Option<serde_json::Value> {
-    let listing = setup_cmd::inspect(s, InspectSubject::Decisions)
+    crate::client::lookup(s, InspectSubject::Decisions, &[decision.to_owned()], &[])
         .await
-        .ok()?;
-    listing
-        .get("decisions")?
-        .as_array()?
-        .iter()
-        .find(|d| d.get("decision_id").and_then(|v| v.as_str()) == Some(decision))
+        .ok()?
+        .item("decision_id", decision)
         .and_then(|d| d.get("request").cloned())
 }
 
@@ -325,7 +322,8 @@ async fn start<P: Prompter>(ctx: &Ctx, p: &mut P, a: EnrollStartArgs) -> Outcome
         Ok(c) => c,
         Err(o) => return o,
     };
-    let listing = match setup_cmd::inspect(&mut s, InspectSubject::Destinations).await {
+    // ⟨rev7⟩ The destination by a point lookup of exactly its alias or ID (ADR-0013 §6.3).
+    let listing = match setup_cmd::destination_named(&mut s, &wanted).await {
         Ok(d) => d,
         Err(o) => return o,
     };
@@ -560,18 +558,27 @@ async fn status(ctx: &Ctx) -> Outcome {
         Ok(v) => v,
         Err(o) => return o,
     };
-    let listing = setup_cmd::inspect(&mut s, InspectSubject::Destinations)
-        .await
-        .unwrap_or(serde_json::Value::Null);
+    // ⟨rev7⟩ The listed records' destinations, by point lookups of exactly those IDs
+    // (ADR-0013 §6.3); a refused lookup only leaves the aliases out, as before.
+    let wanted: std::collections::BTreeSet<String> = view
+        .get("enrollments")
+        .and_then(|e| e.as_array())
+        .map_or(&[][..], Vec::as_slice)
+        .iter()
+        .filter_map(|e| e.get("destination_id").and_then(|v| v.as_str()))
+        .map(str::to_owned)
+        .collect();
+    let wanted: Vec<String> = wanted.into_iter().collect();
+    let listing = if wanted.is_empty() {
+        crate::client::Selection::default()
+    } else {
+        crate::client::lookup(&mut s, InspectSubject::Destinations, &wanted, &[])
+            .await
+            .unwrap_or_default()
+    };
     let alias_of = |dest: &str| {
         listing
-            .get("items")
-            .and_then(|i| i.as_array())
-            .and_then(|items| {
-                items
-                    .iter()
-                    .find(|d| d.get("destination_id").and_then(|v| v.as_str()) == Some(dest))
-            })
+            .item("destination_id", dest)
             .and_then(|d| d.get("alias").and_then(|v| v.as_str()).map(str::to_owned))
     };
     let mut human = render::status(&view, &alias_of);
@@ -711,15 +718,11 @@ async fn listed<S: Session>(
     s: &mut S,
     id: &EnrollmentId,
 ) -> Result<Option<serde_json::Value>, Outcome> {
-    let view = setup_cmd::inspect(s, InspectSubject::Enrollments).await?;
-    Ok(view
-        .get("enrollments")
-        .and_then(|e| e.as_array())
-        .and_then(|l| {
-            l.iter()
-                .find(|e| e.get("enrollment_id").and_then(|v| v.as_str()) == Some(id.as_str()))
-                .cloned()
-        }))
+    // ⟨rev7⟩ By a point lookup of exactly that record (ADR-0013 §6.3).
+    let found = crate::client::lookup(s, InspectSubject::Enrollments, &[id.to_string()], &[])
+        .await
+        .map_err(|e| Outcome::of(*e))?;
+    Ok(found.item("enrollment_id", id.as_str()).cloned())
 }
 
 fn system_removal_text(what: &str, verify: &str) -> String {
@@ -1165,27 +1168,38 @@ mod tests {
         }
         impl Session for Fake<'_> {
             async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
-                if let Request::Catalog(CatalogRequest::SetPreference { mechanism, .. }) = &request
-                {
-                    self.preference.set(*mechanism);
+                let probe = request.clone();
+                #[allow(clippy::needless_return)]
+                let mut env: Envelope<serde_json::Value> = async {
+                    if let Request::Catalog(CatalogRequest::SetPreference { mechanism, .. }) =
+                        &request
+                    {
+                        self.preference.set(*mechanism);
+                        self.sent.push(request);
+                        return Envelope::ok(serde_json::Value::Null);
+                    }
+                    let (kind, result) = self.steps.pop_front().expect("unexpected request");
+                    assert_eq!(request.kind(), kind);
+                    let result = if kind == "setup.apply"
+                        && self.preference.get() == PreferredMechanism::Existing
+                    {
+                        setup_cmd::failure(
+                            Code::ConfigConflict,
+                            "preview is stale; no files were written",
+                            None,
+                        )
+                    } else {
+                        result
+                    };
                     self.sent.push(request);
-                    return Envelope::ok(serde_json::Value::Null);
-                }
-                let (kind, result) = self.steps.pop_front().expect("unexpected request");
-                assert_eq!(request.kind(), kind);
-                let result = if kind == "setup.apply"
-                    && self.preference.get() == PreferredMechanism::Existing
-                {
-                    setup_cmd::failure(
-                        Code::ConfigConflict,
-                        "preview is stale; no files were written",
-                        None,
-                    )
-                } else {
                     result
-                };
-                self.sent.push(request);
-                result
+                }
+                .await;
+                // ⟨rev7⟩ A point lookup reads the scripted listing as the runtime answers `select`.
+                if env.code.is_success() {
+                    env.data = crate::client::answered(&probe, env.data);
+                }
+                env
             }
             async fn attend(&mut self) -> Envelope<serde_json::Value> {
                 Envelope::ok(serde_json::Value::Null)
@@ -1354,15 +1368,25 @@ mod tests {
 
     impl Session for Recorder {
         async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
-            self.sent.push(request.kind().to_owned());
-            match request {
-                Request::Inspect { .. } => Envelope::ok(serde_json::json!({"decisions": [{
-                    "decision_id": DEC, "kind": "enroll_account", "state": "pending",
-                    "expires_at": "2026-11-03T00:15:00Z",
-                    "request": {"plan_digest": "ab".repeat(32)},
-                }]})),
-                _ => Envelope::ok(serde_json::json!({})),
+            let probe = request.clone();
+            #[allow(clippy::needless_return)]
+            let mut env: Envelope<serde_json::Value> = async {
+                self.sent.push(request.kind().to_owned());
+                match request {
+                    Request::Inspect { .. } => Envelope::ok(serde_json::json!({"decisions": [{
+                        "decision_id": DEC, "kind": "enroll_account", "state": "pending",
+                        "expires_at": "2026-11-03T00:15:00Z",
+                        "request": {"plan_digest": "ab".repeat(32)},
+                    }]})),
+                    _ => Envelope::ok(serde_json::json!({})),
+                }
             }
+            .await;
+            // ⟨rev7⟩ A point lookup reads the scripted listing as the runtime answers `select`.
+            if env.code.is_success() {
+                env.data = crate::client::answered(&probe, env.data);
+            }
+            env
         }
         async fn attend(&mut self) -> Envelope<serde_json::Value> {
             self.sent.push("attend".to_owned());
@@ -1471,25 +1495,35 @@ mod tests {
 
     impl Session for Consent {
         async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
-            match request {
-                Request::Inspect(i) => {
-                    let subject = serde_json::to_value(i.subject).unwrap();
-                    self.sent
-                        .push(format!("inspect:{}", subject.as_str().unwrap_or("?")));
-                    match i.subject {
-                        InspectSubject::Capabilities => self.capabilities.clone(),
-                        _ => Envelope::ok(serde_json::json!({"decisions": [{
-                            "decision_id": DEC, "kind": self.kind, "state": "pending",
-                            "expires_at": "2026-11-03T00:15:00Z", "expired": false,
-                            "request": self.request.clone(),
-                        }]})),
+            let probe = request.clone();
+            #[allow(clippy::needless_return)]
+            let mut env: Envelope<serde_json::Value> = async {
+                match request {
+                    Request::Inspect(i) => {
+                        let subject = serde_json::to_value(i.subject).unwrap();
+                        self.sent
+                            .push(format!("inspect:{}", subject.as_str().unwrap_or("?")));
+                        match i.subject {
+                            InspectSubject::Capabilities => self.capabilities.clone(),
+                            _ => Envelope::ok(serde_json::json!({"decisions": [{
+                                "decision_id": DEC, "kind": self.kind, "state": "pending",
+                                "expires_at": "2026-11-03T00:15:00Z", "expired": false,
+                                "request": self.request.clone(),
+                            }]})),
+                        }
+                    }
+                    other => {
+                        self.sent.push(other.kind().to_owned());
+                        Envelope::ok(serde_json::json!({}))
                     }
                 }
-                other => {
-                    self.sent.push(other.kind().to_owned());
-                    Envelope::ok(serde_json::json!({}))
-                }
             }
+            .await;
+            // ⟨rev7⟩ A point lookup reads the scripted listing as the runtime answers `select`.
+            if env.code.is_success() {
+                env.data = crate::client::answered(&probe, env.data);
+            }
+            env
         }
         async fn attend(&mut self) -> Envelope<serde_json::Value> {
             self.sent.push("attend".to_owned());

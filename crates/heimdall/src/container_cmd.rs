@@ -147,7 +147,19 @@ async fn mount_args(ctx: &Ctx, environment: &str) -> Outcome {
 /// The container environment named by `environment` (an environment ID, or a label), from
 /// `inspect environments`. A label names one container environment in the set.
 async fn resolve<S: Session>(s: &mut S, environment: &str) -> Result<EnvironmentView, Outcome> {
-    let data = setup_cmd::inspect(s, InspectSubject::Environments).await?;
+    let by_id = EnvironmentId::parse(environment).ok();
+    // ⟨rev7⟩ An ID is read by a point lookup of exactly that environment (ADR-0013 §6.3); a
+    // label is a search over the set, which only the whole read answers.
+    let data = match &by_id {
+        Some(id) => {
+            let found =
+                crate::client::lookup(s, InspectSubject::Environments, &[id.to_string()], &[])
+                    .await
+                    .map_err(|e| Outcome::of(*e))?;
+            serde_json::json!({ "items": found.items })
+        }
+        None => setup_cmd::inspect(s, InspectSubject::Environments).await?,
+    };
     let items = data
         .get("items")
         .cloned()
@@ -160,7 +172,6 @@ async fn resolve<S: Session>(s: &mut S, environment: &str) -> Result<Environment
                 None,
             ))
         })?;
-    let by_id = EnvironmentId::parse(environment).ok();
     let mut found: Vec<EnvironmentView> = items
         .items
         .into_iter()
@@ -178,7 +189,7 @@ async fn resolve<S: Session>(s: &mut S, environment: &str) -> Result<Environment
         1 => Ok(found.remove(0)),
         0 => Err(Outcome::of(failure(
             Code::NotFound,
-            "no container environment has that ID or label",
+            "no container environment with that ID or label was found, or it is not visible to this session",
             None,
         ))),
         _ => Err(setup_cmd::usage(

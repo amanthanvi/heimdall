@@ -181,25 +181,35 @@ mod tests {
 
     impl Session for Recorder {
         async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
-            match &request {
-                Request::Ensure(e) => self.sent.push(format!(
-                    "ensure {} {} {}",
-                    e.request_id,
-                    e.work_id,
-                    e.scope.len()
-                )),
-                other => self.sent.push(other.kind().to_owned()),
+            let probe = request.clone();
+            #[allow(clippy::needless_return)]
+            let mut env: Envelope<serde_json::Value> = async {
+                match &request {
+                    Request::Ensure(e) => self.sent.push(format!(
+                        "ensure {} {} {}",
+                        e.request_id,
+                        e.work_id,
+                        e.scope.len()
+                    )),
+                    other => self.sent.push(other.kind().to_owned()),
+                }
+                if matches!(request, Request::Ensure(_)) && !self.answers.is_empty() {
+                    self.answers.remove(0)
+                } else if let Request::Inspect(_) = request {
+                    Envelope::ok(serde_json::json!({"decisions": [{
+                        "decision_id": DEC, "kind": "trust_workspace", "expires_at": "x",
+                        "request": {"kind": "trust_workspace", "action": {"action": "trust_workspace",
+                            "cwd": "/w", "access_digest": "", "proposal": {"profile": "dev"}}}}]}))
+                } else {
+                    Envelope::ok(serde_json::json!({}))
+                }
             }
-            if matches!(request, Request::Ensure(_)) && !self.answers.is_empty() {
-                self.answers.remove(0)
-            } else if let Request::Inspect(_) = request {
-                Envelope::ok(serde_json::json!({"decisions": [{
-                    "decision_id": DEC, "kind": "trust_workspace", "expires_at": "x",
-                    "request": {"kind": "trust_workspace", "action": {"action": "trust_workspace",
-                        "cwd": "/w", "access_digest": "", "proposal": {"profile": "dev"}}}}]}))
-            } else {
-                Envelope::ok(serde_json::json!({}))
+            .await;
+            // ⟨rev7⟩ A point lookup reads the scripted listing as the runtime answers `select`.
+            if env.code.is_success() {
+                env.data = crate::client::answered(&probe, env.data);
             }
+            env
         }
         async fn attend(&mut self) -> Envelope<serde_json::Value> {
             self.sent.push("attend".into());

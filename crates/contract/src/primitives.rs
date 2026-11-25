@@ -4,8 +4,8 @@
 //! Exactly six groups. Each gives its CLI and wire forms, the schemas of its answers, the
 //! codes it can answer with each code's exit class and default next action (from the code
 //! table, so they cannot drift), whether it takes a `request_id`, and who may call it. The
-//! forms are the ones this build serves; a form a later revision adds (`inspect`'s `select`
-//! and `page`, ADR-0013 D2) joins its group when it is served.
+//! forms are the ones this build serves: `inspect`'s `select` and `page` (ADR-0013 D2,
+//! `pages/1`) joined their group when they were served (m07-plan U3).
 //!
 //! **Excluded** (ADR-0013 §9): pause, resume, cutoff, broader `access stop`, `access allow`,
 //! decisions, time confirmation, setup, enrollment, the issuer and uninstall. Consent never
@@ -65,6 +65,7 @@ pub struct Group {
 
 const OPS: &[&str] = &[capability::OPERATIONS_V1];
 const OPS_EVENTS: &[&str] = &[capability::OPERATIONS_V1, capability::EVENTS_V1];
+const OPS_PAGES: &[&str] = &[capability::OPERATIONS_V1, capability::PAGES_V1];
 
 /// The codes every form can answer whatever it asks (a refused or failed exchange).
 const COMMON: &[Code] = &[
@@ -80,17 +81,33 @@ const COMMON: &[Code] = &[
 pub const GROUPS: &[Group] = &[
     Group {
         name: "inspect",
-        forms: &[Form {
-            wire: "inspect",
-            cli: "heimdall --json inspect <subject> [--preview <profile> [--environment E] [--until T | --for D] [--require-* …]]",
-            capabilities: OPS,
-            request_id: RequestIdUse::None,
-        }],
+        forms: &[
+            Form {
+                wire: "inspect",
+                cli: "heimdall --json inspect <subject> [--preview <profile> [--environment E] [--until T | --for D] [--require-* …]]",
+                capabilities: OPS,
+                request_id: RequestIdUse::None,
+            },
+            Form {
+                wire: "inspect",
+                cli: "(wire only: select {ids, aliases}, a point lookup of a list subject)",
+                capabilities: OPS_PAGES,
+                request_id: RequestIdUse::None,
+            },
+            Form {
+                wire: "inspect",
+                cli: "(wire only: page {limit, token}, one page of a list subject)",
+                capabilities: OPS_PAGES,
+                request_id: RequestIdUse::None,
+            },
+        ],
         schemas: &[
             "inspect-environments",
             "inspect-workspace",
             "inspect-policies",
             "issuer-status",
+            "selection",
+            "page",
             "envelope.error",
         ],
         codes: &[Code::Ok, Code::NotFound, Code::CapabilityUnavailable],

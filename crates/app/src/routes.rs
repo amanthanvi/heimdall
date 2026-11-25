@@ -497,10 +497,12 @@ pub fn plan_routes(
                         final_port: port.unwrap_or(22),
                         hop: None,
                     },
+                    // ⟨rev7⟩ ADR-0013 §6.3 (D21): a jump that names no catalog destination
+                    // (the hop is absent) leaves this route undetermined.
                     Err(r) => {
                         plan.refused.push((
                             route.id.clone(),
-                            r.reason().unwrap_or(reason::ROUTE_DEPENDENCY_OUT_OF_SCOPE),
+                            r.reason().unwrap_or(reason::ROUTE_UNDETERMINED),
                         ));
                         continue;
                     }

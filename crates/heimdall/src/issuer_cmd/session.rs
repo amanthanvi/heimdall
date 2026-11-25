@@ -162,15 +162,9 @@ impl WireSession<'_> {
     }
 }
 
-/// The `request` of the pending decision `id` in an `inspect decisions` listing.
-fn recorded_request(listing: &serde_json::Value, id: &str) -> Option<serde_json::Value> {
-    listing
-        .get("decisions")?
-        .as_array()?
-        .iter()
-        .find(|d| d.get("decision_id").and_then(|v| v.as_str()) == Some(id))?
-        .get("request")
-        .cloned()
+/// The `request` of the pending decision `id` in a point lookup of it.
+fn recorded_request(listing: &crate::client::Selection, id: &str) -> Option<serde_json::Value> {
+    listing.item("decision_id", id)?.get("request").cloned()
 }
 
 impl OwnerSession for WireSession<'_> {
@@ -209,17 +203,16 @@ impl OwnerSession for WireSession<'_> {
             return Err(self.refuse(env));
         };
         self.decision = Some(decision.clone());
-        let listing = self.send(Request::Inspect(InspectRequest {
-            subject: InspectSubject::Decisions,
-            preview: None,
-            cwd: None,
-            redact: false,
-            select: None,
-            page: None,
-        }));
-        if !listing.code.is_success() {
-            return Err(self.refuse(listing));
-        }
+        // ⟨rev7⟩ The decision by a point lookup of exactly its ID (ADR-0013 §6.3).
+        let listing = match self.rt.block_on(crate::client::lookup(
+            &mut self.client,
+            InspectSubject::Decisions,
+            std::slice::from_ref(&decision),
+            &[],
+        )) {
+            Ok(found) => found,
+            Err(refused) => return Err(self.refuse(*refused)),
+        };
         let stale = || {
             failure(
                 Code::DecisionStale,
@@ -227,7 +220,7 @@ impl OwnerSession for WireSession<'_> {
                 None,
             )
         };
-        let Some(recorded) = recorded_request(&listing.data, &decision)
+        let Some(recorded) = recorded_request(&listing, &decision)
             .filter(|r| r.get("kind").and_then(|k| k.as_str()) == Some("register_issuer"))
         else {
             return Err(self.refuse(stale()));

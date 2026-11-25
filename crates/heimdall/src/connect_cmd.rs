@@ -78,6 +78,12 @@
 //!    its files are `key.pub` and `cert-<destination-id>.pub` in the binding's
 //!    directory `<runtime_dir>/b/<16 hex>/` (ADR-0008 D6 item 1 step 6; reading R6).
 //!
+//! **⟨rev7⟩ Point lookups (ADR-0013 §6.3; m07-plan U3).** The alias, the hop of its route and
+//! the binding re-checked before launch are each read by a point lookup of exactly that
+//! record (`client::lookup`), never by reading a whole list. A managed pair's route is
+//! resolved before anything is ensured: a hop that is absent, malformed or unreadable is
+//! `CAPABILITY_UNAVAILABLE`, `route_undetermined` (D21), never "no route" ([`route_of`]).
+//!
 //! ⟨M03 wave 4, round 3 (ADR-0008 §17.22 item 13; R2C-Q2)⟩ The runtime names the binding
 //! endpoint in the `bind` result from its endpoint registry, for that exact live binding
 //! (`OperationsDispatcher::with_binding_endpoints`); a result that names none (the
@@ -188,7 +194,7 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
             let flow = ManagedConnect {
                 alias: &alias,
                 pair,
-                route: known.route.clone(),
+                jump: known.jump.clone(),
                 program: &program,
                 interaction,
                 check,
@@ -269,8 +275,26 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
 struct Known {
     definition: Definition,
     managed: Option<AccessPairRef>,
-    /// ⟨M04 U6⟩ The jump hop of the destination's single-hop route, when it has one.
-    route: Option<RouteDep>,
+    /// ⟨M04 U6⟩ The jump hop the destination's single-hop route names, when it names one.
+    jump: Option<Jump>,
+}
+
+/// ⟨rev7⟩ The jump a listed destination names (ADR-0013 §6.3): a destination ID, resolved
+/// by its own point lookup ([`route_of`]), or a `jump` field that is not one (malformed:
+/// the route is undetermined, never "no route").
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Jump {
+    Via(String),
+    Malformed,
+}
+
+/// The `jump` of a listed destination: absent (or `null`) is no route.
+fn jump_of(item: &serde_json::Value) -> Option<Jump> {
+    match item.get("jump")? {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(via) => Some(Jump::Via(via.clone())),
+        _ => Some(Jump::Malformed),
+    }
 }
 
 /// ⟨M04 U6; ADR-0010 §5 item 2⟩ A destination's jump hop: its pair (the jump
@@ -283,24 +307,71 @@ struct RouteDep {
     managed: bool,
 }
 
-/// The route of a listed destination: its `jump` (a destination ID) looked up in the
-/// same listing, for the jump's account and preference.
-fn route_of(item: &serde_json::Value, listing: &[serde_json::Value]) -> Option<RouteDep> {
-    let jump = item.get("jump")?.as_str()?;
-    let hop = listing
-        .iter()
-        .find(|d| d.get("destination_id").and_then(|v| v.as_str()) == Some(jump))?;
-    Some(RouteDep {
-        jump_pair: AccessPairRef {
+/// ⟨rev7⟩ m07-plan U3 build step 2 (ADR-0013 §6.3, D21): the route `destination`'s `jump`
+/// names, its hop read by a point lookup of exactly that destination, for the hop's account
+/// and preference. A hop that is absent (deleted, or not visible), malformed (no readable
+/// pair), or unreadable (the lookup failed, or the record was refused for size) is
+/// `CAPABILITY_UNAVAILABLE` / `route_undetermined`: never "no route", and never the
+/// projection path. `None` only when the destination names no jump.
+async fn route_of<S: crate::cli::Session>(
+    s: &mut S,
+    destination: &AccessPairRef,
+    jump: Option<&Jump>,
+) -> Result<Option<RouteDep>, Failure> {
+    let Some(jump) = jump else {
+        return Ok(None);
+    };
+    let undetermined = |why: &str| {
+        Failure::of(output::error_value(
+            heimdall_app::OpError::new(
+                Code::CapabilityUnavailable,
+                format!(
+                    "the route of this destination cannot be determined: {why}; nothing was \
+                     ensured or launched"
+                ),
+            )
+            .with_effect(heimdall_contract::envelope::EffectStatus::None)
+            .with_reason(heimdall_contract::envelope::reason::ROUTE_UNDETERMINED)
+            .with_resource("destination", Some(destination.destination.to_string()))
+            .into_envelope(),
+        ))
+    };
+    let Jump::Via(via) = jump else {
+        return Err(undetermined("its jump is not a destination ID"));
+    };
+    let found = crate::client::lookup(
+        s,
+        InspectSubject::Destinations,
+        std::slice::from_ref(via),
+        &[],
+    )
+    .await
+    .map_err(|e| {
+        undetermined(&format!(
+            "the lookup of its jump destination failed ({})",
+            e.code.as_str()
+        ))
+    })?;
+    let Some(hop) = found.item("destination_id", via) else {
+        return Err(undetermined("its jump destination is not in the catalog"));
+    };
+    let pair = (|| {
+        Some(AccessPairRef {
             destination: serde_json::from_value(hop.get("destination_id")?.clone()).ok()?,
             account: serde_json::from_value(hop.get("account")?.clone()).ok()?,
-        },
+        })
+    })();
+    let Some(jump_pair) = pair else {
+        return Err(undetermined("its jump destination has no readable pair"));
+    };
+    Ok(Some(RouteDep {
+        jump_pair,
         managed: hop
             .get("preference")
             .and_then(|p| p.get("mechanism"))
             .and_then(|m| m.as_str())
             == Some(launch_flow::MANAGED_CERTIFICATE),
-    })
+    }))
 }
 
 /// The pair of a listed destination whose preference is `managed_certificate` with its
@@ -355,7 +426,7 @@ struct ManagedLaunch {
 struct ManagedConnect<'a> {
     alias: &'a str,
     pair: AccessPairRef,
-    route: Option<RouteDep>,
+    jump: Option<Jump>,
     program: &'a heimdall_launch::resolve::ResolvedProgram,
     interaction: heimdall_contract::request::InteractionMode,
     check: bool,
@@ -368,6 +439,9 @@ impl ManagedConnect<'_> {
         client: &mut Client,
         hooks: &testcfg::LaunchHooks,
     ) -> Result<ManagedLaunch, Failure> {
+        // ⟨rev7⟩ The route first, by its own point lookup (ADR-0013 §6.3): a jump that
+        // cannot be determined refuses before anything is ensured.
+        let route = route_of(client, &self.pair, self.jump.as_ref()).await?;
         // 2. The covering profile, then `ensure` for the pair. ⟨M04 U6; ADR-0010 §9
         // item 4⟩ A managed jump hop joins the ensure only when the selected profile
         // covers it; otherwise `connect` refuses and never adds scope outside the
@@ -376,7 +450,7 @@ impl ManagedConnect<'_> {
         let (profile, covered) = covering_profile(client, &self.pair).await?;
         let mut scope: std::collections::BTreeSet<AccessPairRef> =
             std::iter::once(self.pair.clone()).collect();
-        if let Some(route) = self.route.as_ref().filter(|r| r.managed) {
+        if let Some(route) = route.as_ref().filter(|r| r.managed) {
             if !covered.contains(&route.jump_pair) {
                 return Err(Failure::new(
                     Code::CapabilityUnavailable,
@@ -721,30 +795,22 @@ fn listed_items(data: &serde_json::Value) -> Vec<serde_json::Value> {
 }
 
 /// `alias`'s definition when it is a known destination, `None` otherwise (module
-/// docs).
+/// docs). ⟨rev7⟩ The alias is read by a point lookup of exactly that alias (ADR-0013 §6.3):
+/// a refused lookup is refused here with its own code.
 async fn known_destination(client: &mut Client, alias: &str) -> Result<Option<Known>, Failure> {
-    let listed = client
-        .request(Request::Inspect(InspectRequest {
-            subject: InspectSubject::Destinations,
-            preview: None,
-            cwd: None,
-            redact: false,
-            select: None,
-            page: None,
-        }))
-        .await;
-    if !listed.code.is_success() {
-        return Err(Failure::of(listed));
-    }
-    let items = listed_items(&listed.data);
-    if let Some(item) = items
-        .iter()
-        .find(|d| d.get("alias").and_then(|a| a.as_str()) == Some(alias))
-    {
+    let found = crate::client::lookup(
+        client,
+        InspectSubject::Destinations,
+        &[],
+        &[alias.to_owned()],
+    )
+    .await
+    .map_err(|e| Failure::of(*e))?;
+    if let Some(item) = found.item("alias", alias) {
         return Ok(Some(Known {
             definition: definition_of(item),
             managed: managed_pair_of(item),
-            route: route_of(item, &items),
+            jump: jump_of(item),
         }));
     }
     let record = launch_flow::projection_record(client).await?;
@@ -755,7 +821,7 @@ async fn known_destination(client: &mut Client, alias: &str) -> Result<Option<Kn
         .then_some(Known {
             definition: Definition::Managed,
             managed: None,
-            route: None,
+            jump: None,
         }))
 }
 
@@ -1251,5 +1317,296 @@ mod tests {
             )),
             None
         );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod route_tests {
+    //! ⟨rev7⟩ m07-plan U3 "Resolution" (ADR-0013 §6.3, D21): `connect`'s route resolution over
+    //! a real `Operations` on an in-memory store (the runtime's own `select`, no socket, no key
+    //! store), through the session seam every CLI read uses.
+
+    use std::sync::Arc;
+
+    use heimdall_app::Caller;
+    use heimdall_contract::envelope::Envelope;
+    use heimdall_contract::ids::{AccountName, DestinationId, EnvironmentId, IdentityId};
+    use heimdall_contract::page::PageRequest;
+    use heimdall_domain::catalog::{DestinationDefinition, DestinationRecord};
+    use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+    use heimdall_store::Store;
+
+    use super::*;
+
+    const LAB: &str = "dst-a-lab";
+    const HOP: &str = "dst-z-bastion";
+
+    fn t0() -> heimdall_contract::Timestamp {
+        "2026-11-25T09:00:00Z".parse().unwrap()
+    }
+
+    fn block<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(f)
+    }
+
+    fn record(id: &str, definition: DestinationDefinition) -> DestinationRecord {
+        DestinationRecord {
+            id: DestinationId::parse(id).unwrap(),
+            alias: id.trim_start_matches("dst-").to_owned(),
+            revision: 1,
+            definition,
+            label: None,
+            updated_at: t0(),
+        }
+    }
+
+    fn managed(jump: Option<&str>) -> DestinationDefinition {
+        DestinationDefinition::Managed {
+            hostname: "10.0.0.9".into(),
+            port: None,
+            account: AccountName::parse("ops").unwrap(),
+            identity: IdentityId::from_random_bytes([3; 16]),
+            jump: jump.map(|j| DestinationId::parse(j).unwrap()),
+        }
+    }
+
+    /// A store with `dst-a-lab` (jump `dst-z-bastion`), its hop, and `fillers` observed
+    /// destinations between them in ID order.
+    fn catalog(fillers: usize) -> Arc<Store> {
+        let store = Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+        let environment = EnvironmentId::from_random_bytes([9; 16]);
+        store
+            .transaction(|tx| {
+                tx.init_self_environment(&environment)?;
+                tx.upsert_destination(&record(HOP, managed(None)))?;
+                tx.upsert_destination(&record(LAB, managed(Some(HOP))))?;
+                for n in 0..fillers {
+                    tx.upsert_destination(&record(
+                        &format!("dst-m-{n:04}"),
+                        DestinationDefinition::Observed,
+                    ))?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        store
+    }
+
+    /// A control session answered by the runtime's own `Operations` (as its owner), counting
+    /// the requests: resolution sends `select` only. `refuse` answers every request instead.
+    struct Runtime {
+        ops: heimdall_app::Operations,
+        who: Caller,
+        refuse: Option<Envelope<serde_json::Value>>,
+        pages: bool,
+        selects: usize,
+    }
+
+    impl crate::cli::Session for Runtime {
+        async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+            let Request::Inspect(r) = request else {
+                panic!("resolution only reads");
+            };
+            assert!(r.select.is_some() && r.page.is_none(), "a point lookup");
+            self.selects += 1;
+            if let Some(refused) = &self.refuse {
+                return refused.clone();
+            }
+            match self.ops.inspect(&self.who, r).await {
+                Ok(done) => done.into_envelope(),
+                Err(e) => output::error_value(e.into_envelope()),
+            }
+        }
+        async fn attend(&mut self) -> Envelope<serde_json::Value> {
+            unreachable!("resolution never attends")
+        }
+        fn serves_pages(&self) -> bool {
+            self.pages
+        }
+    }
+
+    async fn runtime(store: Arc<Store>) -> Runtime {
+        let ops = heimdall_app::Operations::start(heimdall_app::OperationsConfig {
+            store,
+            clock: heimdall_testkit::VirtualClock::at(t0()),
+            time_sync: heimdall_testkit::ScriptedTimeSync::new(
+                heimdall_domain::time::SyncStatus::Synchronized,
+            ),
+            time_policy: heimdall_domain::time::TimePolicy::default(),
+            environment: EnvironmentId::from_random_bytes([9; 16]),
+            adapters: Vec::new(),
+            stage_hook: Arc::new(heimdall_app::ensure::NoStageHook),
+            limits: heimdall_app::operations::Limits::default(),
+            default_window: std::time::Duration::from_secs(3600),
+            projection: None,
+        })
+        .await
+        .unwrap();
+        Runtime {
+            ops,
+            who: Caller::unattended(CallerContext {
+                principal: PrincipalRef::UnixUser { uid: 501 },
+                role: ClientRole::Owner,
+                remote_client: None,
+            }),
+            refuse: None,
+            pages: true,
+            selects: 0,
+        }
+    }
+
+    fn lab_pair() -> AccessPairRef {
+        AccessPairRef {
+            destination: DestinationId::parse(LAB).unwrap(),
+            account: AccountName::parse("ops").unwrap(),
+        }
+    }
+
+    /// `lab`'s own listed item, and the jump it names, by the alias lookup `connect` makes.
+    async fn lab_jump(s: &mut Runtime) -> Option<Jump> {
+        let found = crate::client::lookup(s, InspectSubject::Destinations, &[], &["a-lab".into()])
+            .await
+            .unwrap();
+        jump_of(found.item("alias", "a-lab").expect("lab is listed"))
+    }
+
+    fn undetermined(r: Result<Option<RouteDep>, Failure>) -> String {
+        let Err(f) = r else {
+            panic!("the route must be undetermined, got {:?}", r.ok());
+        };
+        assert_eq!(f.env.code, Code::CapabilityUnavailable, "{:?}", f.env);
+        assert_eq!(
+            f.env.data["error"]["reason"],
+            heimdall_contract::envelope::reason::ROUTE_UNDETERMINED,
+            "{:?}",
+            f.env
+        );
+        assert_eq!(f.env.data["error"]["resource"]["id"], LAB, "{:?}", f.env);
+        assert_eq!(f.exit, ExitCode::Denied);
+        f.env.data["error"]["message"].as_str().unwrap().to_owned()
+    }
+
+    /// `managed_hop_on_a_later_page_than_its_destination`: the destination sorts first, its
+    /// hop last, with 250 destinations between them (more than one default page of 200): the
+    /// first page holds the destination and not the hop, and resolution still finds the hop,
+    /// by one point lookup of exactly it.
+    #[test]
+    fn managed_hop_on_a_later_page_than_its_destination() {
+        block(async {
+            let mut s = runtime(catalog(250)).await;
+            let first = s
+                .ops
+                .inspect(
+                    &s.who,
+                    InspectRequest {
+                        subject: InspectSubject::Destinations,
+                        preview: None,
+                        cwd: None,
+                        redact: false,
+                        select: None,
+                        page: Some(PageRequest::default()),
+                    },
+                )
+                .await
+                .unwrap()
+                .data;
+            let ids: Vec<&str> = first["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["destination_id"].as_str().unwrap())
+                .collect();
+            assert_eq!(first["more"], true);
+            assert!(ids.contains(&LAB) && !ids.contains(&HOP), "a page apart");
+            let jump = lab_jump(&mut s).await;
+            assert_eq!(jump, Some(Jump::Via(HOP.into())));
+            s.selects = 0;
+            let route = route_of(&mut s, &lab_pair(), jump.as_ref()).await.ok();
+            assert_eq!(
+                route,
+                Some(Some(RouteDep {
+                    jump_pair: AccessPairRef {
+                        destination: DestinationId::parse(HOP).unwrap(),
+                        account: AccountName::parse("ops").unwrap(),
+                    },
+                    managed: false,
+                }))
+            );
+            assert_eq!(s.selects, 1, "one point lookup of the hop");
+            // A destination that names no jump has no route, and nothing is read for it.
+            assert_eq!(route_of(&mut s, &lab_pair(), None).await.ok(), Some(None));
+            assert_eq!(s.selects, 1);
+        });
+    }
+
+    /// `deleted_hop_fails_closed`: the hop row is gone (deleted under the catalog's rule, as a
+    /// damaged or legacy store has it), so the lookup answers it `missing`: the route is
+    /// `CAPABILITY_UNAVAILABLE` / `route_undetermined` (exit 4), never "no route". So are a
+    /// `jump` that is not an ID and a hop with no readable pair (malformed).
+    #[test]
+    fn deleted_hop_fails_closed() {
+        block(async {
+            let store = catalog(3);
+            let mut s = runtime(store.clone()).await;
+            let jump = lab_jump(&mut s).await;
+            store
+                .transaction(|tx| tx.remove_destination(&DestinationId::parse(HOP).unwrap()))
+                .unwrap();
+            let why = undetermined(route_of(&mut s, &lab_pair(), jump.as_ref()).await);
+            assert!(why.contains("not in the catalog"), "{why}");
+            undetermined(route_of(&mut s, &lab_pair(), Some(&Jump::Malformed)).await);
+            assert_eq!(
+                jump_of(&serde_json::json!({ "jump": 7 })),
+                Some(Jump::Malformed)
+            );
+            assert_eq!(jump_of(&serde_json::json!({ "jump": null })), None);
+            // A hop that is listed but has no pair (an observed destination).
+            store
+                .transaction(|tx| {
+                    tx.upsert_destination(&record(HOP, DestinationDefinition::Observed))
+                })
+                .unwrap();
+            let why = undetermined(route_of(&mut s, &lab_pair(), jump.as_ref()).await);
+            assert!(why.contains("no readable pair"), "{why}");
+        });
+    }
+
+    /// `failed_hop_lookup_fails_closed`: the hop's lookup itself fails (the record refused for
+    /// size, the runtime unreachable, or a runtime without `pages/1`, refused locally): each is
+    /// `route_undetermined`, and nothing falls back to a whole read (the session counts select
+    /// requests only; the local refusal sends nothing).
+    #[test]
+    fn failed_hop_lookup_fails_closed() {
+        block(async {
+            let mut s = runtime(catalog(3)).await;
+            let jump = lab_jump(&mut s).await;
+            for (code, why) in [
+                (
+                    Code::UsageError,
+                    Some(heimdall_contract::envelope::reason::RESPONSE_TOO_LARGE),
+                ),
+                (Code::ServiceUnavailable, None),
+                (Code::InternalError, None),
+            ] {
+                let mut e = heimdall_app::OpError::new(code.clone(), "refused".to_owned());
+                if let Some(r) = why {
+                    e = e.with_reason(r);
+                }
+                s.refuse = Some(output::error_value(e.into_envelope()));
+                let message = undetermined(route_of(&mut s, &lab_pair(), jump.as_ref()).await);
+                assert!(message.contains(code.as_str()), "{message}");
+            }
+            s.refuse = None;
+            s.pages = false;
+            let sent = s.selects;
+            let message = undetermined(route_of(&mut s, &lab_pair(), jump.as_ref()).await);
+            assert!(message.contains("SCHEMA_UNSUPPORTED"), "{message}");
+            assert_eq!(s.selects, sent, "nothing sent");
+        });
     }
 }
