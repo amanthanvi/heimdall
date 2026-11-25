@@ -212,6 +212,16 @@ Each lands with its emitters, every in-tree reader and its goldens (ADR-0013 §1
   reset, not refused, and both mean "port closed", so the test accepts both for this fault
   only. The other faults' expectations are unchanged.
 
+- **U2b-1's Windows run (PC job 63, at `a9b038a7`):** every step passed except four
+  `uninstall_cmd::tests` tests. They failed with `state_dir_unsafe`: their `state_dir()` helper
+  made the state directory with a plain `create_dir`, which on Windows inherits TEMP's ACL, and
+  that PC's TEMP grants a local group read access. The runtime's start check refuses that,
+  correctly. **Test-only fix** (with U1b's integration): on Windows the helper builds the
+  directories with `Paths::ensure`, so the state directory gets its protected owner-only DACL.
+  The `purge_sweep` test helpers that make state directories start no runtime, so they are
+  unaffected. Windows proof: `uninstall_cmd::tests` rerun with the default TEMP, at the merge
+  candidate.
+
 ## 3. Order of the first days
 
 1. U3c, by the integrator, merged first (small, and it frees the release graph).

@@ -1,0 +1,74 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running unittests src\main.rs (target\debug\deps\heimdall-1f50c0936ffbbaed.exe)
+
+running 67 tests
+test uninstall_cmd::tests::an_empty_record_is_not_installed ... ok
+test uninstall_cmd::tests::decision_kinds_are_classified_for_the_snapshot ... ok
+test uninstall_cmd::tests::a_plain_uninstall_with_live_enrollments_needs_a_typed_yes ... ok
+test uninstall_cmd::tests::a_bundle_lists_outstanding_foreign_removals_and_late_writes ... ok
+test uninstall_cmd::tests::a_bundle_is_fresh_only_with_fresh_content_and_a_recorded_digest ... ok
+test uninstall_cmd::tests::final_review_failed_retry_retains_pending_display_record ... ok
+test uninstall_cmd::tests::counts_are_read_from_the_store_without_writing ... ok
+test uninstall_cmd::tests::final_review_partial_report_states_only_what_is_on_disk ... ok
+test uninstall_cmd::tests::f2_shm_without_wal_reads_by_copy ... ok
+test uninstall_cmd::tests::final_review_crash_between_database_and_wal_moves_keeps_every_commit ... ok
+test uninstall_cmd::tests::final_review_crash_before_the_copy_is_deleted_keeps_a_complete_database ... ok
+test uninstall_cmd::tests::meta_keys_are_classified_for_the_snapshot ... ok
+test uninstall_cmd::tests::offered_store_items_are_retired_inline_only_on_a_terminal ... ok
+test uninstall_cmd::tests::operation_kinds_are_classified_for_the_snapshot ... ok
+test uninstall_cmd::tests::a_restore_from_before_the_downgrade_is_still_owner_only ... ok
+test uninstall_cmd::tests::final_review_crash_while_vacuum_writes_recovers ... ok
+test uninstall_cmd::tests::final_review_recovery_copy_holds_every_record_by_itself ... ok
+test uninstall_cmd::tests::plain_uninstall_passes_the_fence_across_retry_rounds ... ok
+test uninstall_cmd::tests::final_review_crash_at_each_copy_step_keeps_a_complete_database ... ok
+test uninstall_cmd::tests::purge_is_confirmed_only_by_a_typed_yes ... ok
+test uninstall_cmd::tests::final_review_restore_does_not_attach_old_wal_to_new_owner_database ... ok
+test uninstall_cmd::tests::purge_without_a_terminal_or_with_non_interactive_is_refused_unread_and_unasked ... ok
+test uninstall_cmd::tests::quarantine_listing_removes_empty_dirs_and_lists_kept_entries ... ok
+test uninstall_cmd::tests::purge_fence_refuses_retry_rounds_exactly ... ok
+test uninstall_cmd::tests::plain_uninstall_fence_compares_bounded_obligations ... ok
+test uninstall_cmd::tests::final_review_validating_read_writes_no_family_file ... ok
+test uninstall_cmd::tests::r13_review_checkpoint_probe_never_replays_unvalidated_journal ... ok
+test uninstall_cmd::tests::purge_interrupted_in_a_generation_is_restored_into_it ... ok
+test uninstall_cmd::tests::r13_review_restore_race_preserves_replacement_record ... ok
+test uninstall_cmd::tests::recheck2_purge_refuses_new_ca_from_replacement_that_already_stopped ... ok
+test uninstall_cmd::tests::resources_are_absent_only_when_desired_and_observed_absent ... ok
+test uninstall_cmd::tests::recheck3_retry_allowance_rejects_new_remote_obligation ... ok
+test uninstall_cmd::tests::store_item_lines_name_the_item_and_the_fate ... ok
+test uninstall_cmd::tests::plain_uninstall_refuses_a_changed_remote_obligation ... ok
+test uninstall_cmd::tests::the_purge_prompt_lists_the_database_counts_backups_and_kept_copies ... ok
+test uninstall_cmd::tests::refused_purge_keeps_the_original_until_uninstall_confirms ... ok
+test uninstall_cmd::tests::the_inventory_lists_a_runners_owner_only_downgrade ... ok
+test uninstall_cmd::tests::purge_removes_every_generation_under_the_lock ... ok
+test uninstall_cmd::tests::recheck_purge_must_exclude_writer_after_final_read ... ok
+test uninstall_cmd::tests::retry_allowance_admits_no_recreated_record_and_nothing_on_failure ... ok
+test uninstall_cmd::tests::uninstall_lists_and_confirms_pending_remote_revocations ... ok
+test uninstall_cmd::tests::uninstall_purge_admits_exactly_its_own_retry ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_abandoned_foreign_system_form_removal ... ok
+test uninstall_cmd::tests::uninstall_purge_excludes_runtime_start_while_locked ... ok
+test uninstall_cmd::tests::uninstall_purge_admits_only_its_own_retirement ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_foreign_change_after_declined_retire ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_changed_issuing_set ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_new_final_enrollment ... ok
+test uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_journal_change_on_unchanged_state ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_remote_revocation_added_in_window ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_unconfirmed_stop ... ok
+test uninstall_cmd::tests::uninstall_report_names_the_swept_roots ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_replaced_store_locator ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_withdrawn_late_write ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_pending_registration_locator ... ok
+test uninstall_cmd::tests::uninstall_revalidates_under_the_fence ... ok
+test uninstall_cmd::tests::uninstall_purge_removes_every_cleanup_intent_path ... ok
+test uninstall_cmd::tests::w5_i01_marker_binding_mismatch_keeps_the_database ... ok
+test uninstall_cmd::tests::the_restore_carries_only_the_downgrade_and_never_lowers_it ... ok
+test uninstall_cmd::tests::w5_i01_original_not_the_recorded_inode_keeps_the_unit ... ok
+test uninstall_cmd::tests::w5_i01_planted_marker_with_garbage_copy_keeps_database ... ok
+test uninstall_cmd::tests::w5_i01_planted_marker_without_copy_keeps_database ... ok
+test uninstall_cmd::tests::w5_j01_copy_overwritten_after_check_keeps_originals ... ok
+test uninstall_cmd::tests::w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_replacement_runtime ... ok
+test uninstall_cmd::tests::recovery_snapshot_classifies_every_table ... ok
+
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 289 filtered out; finished in 15.35s
+

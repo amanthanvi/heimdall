@@ -4550,21 +4550,30 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{e}"));
         }
         let state = d.path().join("state");
-        std::fs::create_dir(&state).unwrap_or_else(|e| panic!("{e}"));
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700))
-                .unwrap_or_else(|e| panic!("{e}"));
-        }
         // The runtime directory beside it, owner-only as `Paths::ensure` makes it.
         let run = d.path().join("run");
-        std::fs::create_dir(&run).unwrap_or_else(|e| panic!("{e}"));
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            std::fs::set_permissions(&run, std::fs::Permissions::from_mode(0o700))
-                .unwrap_or_else(|e| panic!("{e}"));
+        // ⟨M08 W3; PC job 63⟩ On Windows the directories come from `Paths::ensure` itself,
+        // so the state directory gets its protected owner-only DACL. A plain `create_dir`
+        // inherits TEMP's ACL, which on a host whose TEMP grants another principal access is
+        // refused by the runtime's start check (`state_dir_unsafe`), correctly.
+        #[cfg(windows)]
+        heimdall_runtime::Paths {
+            config_dir: d.path().join("config"),
+            state_dir: state.clone(),
+            runtime_dir: run.clone(),
+            log_dir: d.path().join("log"),
+        }
+        .ensure()
+        .unwrap_or_else(|e| panic!("{e}"));
+        #[cfg(not(windows))]
+        for dir in [&state, &run] {
+            std::fs::create_dir(dir).unwrap_or_else(|e| panic!("{e}"));
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+                    .unwrap_or_else(|e| panic!("{e}"));
+            }
         }
         let db = database(&state, |tx| tx.insert_issuer(&issuer()));
         std::fs::create_dir(state.join("backups")).unwrap_or_else(|e| panic!("{e}"));

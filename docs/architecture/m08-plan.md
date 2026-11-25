@@ -137,7 +137,7 @@
 | Export above the 1 MiB bundle cap | m07-plan §9 | Deferred (§10) |
 | Licence and project-name checks | ADR-0001 §8 | U4a (the checks); B17 (the decision) |
 | **M04-F4** (a follower commit must check its own lock continuity) | `progress.md` | Not M08's to fix. It blocks any `lock_continuity` claim entry, so U8's claim audit refuses a candidate that ships such an entry while F4 is open |
-| The M04 exit, waiting on the owner's A03 lock row | `m04-exit-draft.md` | A gate-ledger row (§1.5) |
+| The M04 exit: **decided 2026-11-25 at `50dbc86b`** (the orchestrator). The A03 Mode B lock row is `blocked` on its physical input, as M03's precedent allows, and no longer gates the exit | `m04-exit-draft.md` (the name the records cite; merged to `main` with the orchestrator's reconciliation commit) | A gate-ledger row (§1.5) |
 
 ### 1.5 The gate ledger
 
@@ -148,7 +148,7 @@ Plan §5 gates M08 on "all technical gate decisions recorded". U8 writes the led
 | G01 | ADR-0001 (**proposed**); ADR-0004 §4 (provisional floors) | The floors' clean-machine confirmation (U3b). The baseline worksheet (B7, M09) |
 | G02 | ADR-0002 (accepted) | Q-D: practical distribution and signing, closed by U3 and U4 or the release is `preview-only` |
 | G03 | ADR-0010 (accepted); the G03 records | Rows blocked on B2, B4, B5 |
-| G04 | ADR-0005 (accepted); ADR-0008 (**proposed**, revision 6) | The M04 exit decision (the A03 lock row); B3, B11, B12, B13; M04-F4 |
+| G04 | ADR-0005 (accepted); ADR-0008 (**proposed**, revision 6) | The M04 exit is decided (2026-11-25, `50dbc86b`). Still open: the A03 Mode B lock row (an owner's physical input); B3, B11, B12, B13; M04-F4 |
 | G05 | ADR-0011 (accepted) | None |
 | G06, G07 | ADR-0012 (accepted) | Both close at M06's exit |
 | G08 | ADR-0006 (**proposed**, baseline); ADR-0013 (**proposed**) | Ratification after M07's U9 |

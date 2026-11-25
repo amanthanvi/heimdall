@@ -1,0 +1,12 @@
+== stategen-unit
+== stategen-unit: exit 0
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+== stategen-faults
+== stategen-faults: exit 0
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.17s
+== store-generations
+== store-generations: exit 0
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 34.02s
+== e2e-store-generations
+== e2e-store-generations: exit 0
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.38s
