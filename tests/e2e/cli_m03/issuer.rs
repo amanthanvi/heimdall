@@ -42,6 +42,7 @@ use heimdall_credential::cert::SecretCaKey;
 use heimdall_issuer::store::{SecretStore, StoreItemRef};
 use heimdall_store::{IssuerRecord, Store};
 use heimdall_testkit::assert_no_canary;
+use heimdall_testkit::ca::ceremony::without_passphrase;
 use heimdall_testkit::scratch_store::ScratchSecretStore;
 use serde_json::Value;
 
@@ -116,7 +117,43 @@ impl Rig {
         Rig::with_store(true)
     }
 
+    /// ⟨M08-W3-F1⟩ A fresh installation on the product-file test store (macOS): a started
+    /// runtime with no CA, and no environment record. The runtime records only its
+    /// environment ID at start. No setup, policy approval or other owner operation has
+    /// written the record.
+    #[cfg(target_os = "macos")]
+    fn fresh_product() -> Rig {
+        Rig::bare(true)
+    }
+
     fn with_store(product: bool) -> Rig {
+        let rig = Rig::bare(product);
+        // The native environment's record (a `setup` would make it), its managed
+        // permissions off: the RegisterIssuer approval turns them on (D4 item 1 step 7).
+        let env = rig.self_environment();
+        rig.store()
+            .transaction(|tx| {
+                if tx.environment(&env)?.is_none() {
+                    tx.upsert_environment(&heimdall_domain::environment::EnvironmentRecord {
+                        id: env.clone(),
+                        device: heimdall_contract::ids::DeviceId::from_random_bytes([8; 16]),
+                        kind: heimdall_domain::environment::EnvironmentKind::NativeSession,
+                        label: None,
+                        permissions: heimdall_domain::environment::EnvironmentPermissions {
+                            automatic_activation: false,
+                            managed_signing: false,
+                            issuer_access: false,
+                        },
+                    })?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        rig
+    }
+
+    /// A started runtime with no CA and nothing seeded.
+    fn bare(product: bool) -> Rig {
         let tmp = tempfile::Builder::new().prefix("hm-i-").tempdir().unwrap();
         private_dir(tmp.path());
         let home = tmp.path().join("hh");
@@ -146,32 +183,53 @@ impl Rig {
             program,
         };
         rig.start();
-        // The native environment's record (a `setup` would make it), its managed
-        // permissions off: the RegisterIssuer approval turns them on (D4 item 1 step 7).
-        let env = rig
-            .store()
+        rig
+    }
+
+    /// This installation's environment ID (recorded by the runtime at its first start).
+    fn self_environment(&self) -> heimdall_contract::ids::EnvironmentId {
+        self.store()
             .transaction(|tx| tx.self_environment())
             .unwrap()
+            .unwrap()
+    }
+
+    /// This installation's own environment record (`None` before any owner operation
+    /// wrote it).
+    #[cfg(target_os = "macos")]
+    fn self_environment_record(&self) -> Option<heimdall_domain::environment::EnvironmentRecord> {
+        let env = self.self_environment();
+        self.store()
+            .transaction(move |tx| tx.environment(&env))
+            .unwrap()
+    }
+
+    /// ⟨M08-W3-F1⟩ Stop the runtime, replace the state database with a new one that holds
+    /// only this installation's environment ID, then start again. The CA key store keeps
+    /// its items, and they stay this installation's, because the store is scoped by that ID.
+    /// A CA item in the store is then the state the defect left: an item no registration
+    /// names, and no environment record.
+    #[cfg(target_os = "macos")]
+    fn reset_state_keeping_environment(&mut self) {
+        let env = self.self_environment();
+        self.stop();
+        let db = self
+            .state_dir()
+            .join(heimdall_runtime::service::STATE_DB_FILE);
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            let path = PathBuf::from(format!("{}{suffix}", db.display()));
+            match std::fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => panic!("{}: {e}", path.display()),
+            }
+        }
+        let fresh = Store::open(&db, Arc::new(heimdall_store::NoFaults)).unwrap();
+        fresh
+            .transaction(|tx| tx.init_self_environment(&env))
             .unwrap();
-        rig.store()
-            .transaction(|tx| {
-                if tx.environment(&env)?.is_none() {
-                    tx.upsert_environment(&heimdall_domain::environment::EnvironmentRecord {
-                        id: env.clone(),
-                        device: heimdall_contract::ids::DeviceId::from_random_bytes([8; 16]),
-                        kind: heimdall_domain::environment::EnvironmentKind::NativeSession,
-                        label: None,
-                        permissions: heimdall_domain::environment::EnvironmentPermissions {
-                            automatic_activation: false,
-                            managed_signing: false,
-                            issuer_access: false,
-                        },
-                    })?;
-                }
-                Ok(())
-            })
-            .unwrap();
-        rig
+        drop(fresh);
+        self.start();
     }
 
     /// `HEIMDALL_TEST_SECRET_STORE`'s value for this rig.
@@ -649,6 +707,33 @@ mod term {
 
     use super::*;
 
+    /// ⟨M08-W3-F1⟩ A pty transcript. Checks read the raw text (`Deref<Target = str>`). Any
+    /// formatting of it (`{t}`, `{t:?}`, a failure message) shows it through
+    /// `without_passphrase`, so no test prints a shown passphrase (the Windows cases'
+    /// `Case::shown` does the same). Text taken out of it (a slice, a `String`) is raw:
+    /// print that through `without_passphrase` too.
+    pub(super) struct Transcript(String);
+
+    impl std::ops::Deref for Transcript {
+        type Target = str;
+
+        fn deref(&self) -> &str {
+            &self.0
+        }
+    }
+
+    impl std::fmt::Display for Transcript {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&without_passphrase(&self.0))
+        }
+    }
+
+    impl std::fmt::Debug for Transcript {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            std::fmt::Debug::fmt(without_passphrase(&self.0).as_str(), f)
+        }
+    }
+
     /// A pseudo-terminal whose output is drained into an in-memory transcript.
     pub(super) struct Pty {
         master: OwnedFd,
@@ -703,8 +788,9 @@ mod term {
             }
         }
 
-        pub(super) fn transcript(&self) -> String {
-            String::from_utf8_lossy(&self.output.lock().unwrap()).into_owned()
+        /// What the terminal showed so far ([`Transcript`]).
+        pub(super) fn transcript(&self) -> Transcript {
+            Transcript(String::from_utf8_lossy(&self.output.lock().unwrap()).into_owned())
         }
 
         /// Wait until the transcript contains `needle`; `false` when `child` exited first.
@@ -1119,18 +1205,49 @@ fn passphrase_forms(joined: &str) -> Vec<String> {
 /// the passphrase (for scanning and the decryption; never printed) and the finished case.
 #[cfg(target_os = "macos")]
 fn init_on_pty(rig: &Rig, backup: &Path) -> (CaFingerprint, String, Started) {
+    init_on_pty_replacing(rig, backup, None)
+}
+
+/// [`init_on_pty`], given `orphan`: with `--replace-orphan <orphan> --no-bundle-available`.
+/// The CLI shows the irreversibility and no-bundle warnings, and the test types `delete`
+/// at the deletion prompt before the registration starts.
+#[cfg(target_os = "macos")]
+fn init_on_pty_replacing(
+    rig: &Rig,
+    backup: &Path,
+    orphan: Option<&CaFingerprint>,
+) -> (CaFingerprint, String, Started) {
     use heimdall_contract::enrollment::DisclosureKind;
     use heimdall_issuer::ceremony::{DisclosureContext, disclosure_text};
     let backup_arg = backup.to_string_lossy().into_owned();
-    let args = [
+    let orphan_arg = orphan.map(ToString::to_string);
+    let mut args = vec![
         "--json",
         "issuer",
         "init",
         "--backup-out",
         backup_arg.as_str(),
     ];
+    if let Some(fp) = orphan_arg.as_deref() {
+        args.extend(["--replace-orphan", fp, "--no-bundle-available"]);
+    }
     let pty = Pty::open();
     let mut started = start_cli(rig, "init", &args, Some(&pty), CEREMONY);
+    if orphan.is_some() {
+        assert!(
+            pty.wait_for("Type 'delete' to delete this CA key: ", &mut started.child),
+            "{}",
+            pty.transcript()
+        );
+        let shown = pty.transcript();
+        assert!(shown.contains("irreversible"), "{shown}");
+        assert!(
+            shown.contains("remote lines may still trust this CA"),
+            "{shown}"
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        pty.type_line("delete");
+    }
     assert!(
         pty.wait_for("Type 'yes' to register this CA: ", &mut started.child),
         "{}",
@@ -1177,12 +1294,15 @@ fn init_on_pty(rig: &Rig, backup: &Path) -> (CaFingerprint, String, Started) {
     pty.type_line("written");
     let out = finish(&mut started);
     let transcript = pty.transcript();
+    // ⟨M08-W3-F1⟩ A failure shows the transcript without the passphrase (`Transcript`).
     assert_eq!(out.code, 0, "{out:?}\n{transcript}");
     let env = out.json();
     assert_eq!(env["code"], "OK", "{out:?}");
     let ca = &env["data"]["cas"][0];
-    assert_eq!(ca["state"], "active", "{env}");
-    assert_eq!(ca["store"], "macos_login_keychain", "{env}");
+    // ⟨M08-W3-F1⟩ The ceremony's own envelope, printed without any passphrase.
+    let shown_env = || without_passphrase(&env.to_string());
+    assert_eq!(ca["state"], "active", "{}", shown_env());
+    assert_eq!(ca["store"], "macos_login_keychain", "{}", shown_env());
     let fp = CaFingerprint::parse(ca["fingerprint"].as_str().unwrap()).unwrap();
     // `written` cleared the passphrase's region (cursor up, column 1, clear to the end).
     let after = &transcript[before_written..];
@@ -1347,7 +1467,7 @@ fn issuer_rotate_begin_registers_the_successor_on_the_product_store() {
     assert_eq!(out.code, 0, "{out:?}\n{}", pty.transcript());
     let env = out.json();
     let cas = env["data"]["cas"].as_array().unwrap();
-    assert_eq!(cas.len(), 2, "{env}");
+    assert_eq!(cas.len(), 2, "{}", without_passphrase(&env.to_string()));
     let new = cas
         .iter()
         .find(|c| c["fingerprint"] != old.as_str())
@@ -1655,6 +1775,20 @@ fn replace_orphan_cli_warns_and_cross_checks_bundle() {
     let t = pty.transcript();
     assert!(t.contains("heimdall issuer restore"), "{t}");
     assert!(t.contains("--replace-orphan"), "{t}");
+    // ⟨M08-W3-F1⟩ `--json` carries the remedy too. The message names the orphan and both
+    // ways out, and the single orphan is the resource.
+    let message = out.message();
+    assert!(
+        message.contains("heimdall issuer restore --backup <file> --not-stolen"),
+        "{out:?}"
+    );
+    assert!(
+        message.contains(&format!("--replace-orphan {fp}")),
+        "{out:?}"
+    );
+    let error = &out.json()["data"]["error"];
+    assert_eq!(error["resource"]["kind"], "issuer", "{out:?}");
+    assert_eq!(error["resource"]["id"], fp.as_str(), "{out:?}");
 
     // A bundle listing a live enrollment under the orphan's CA.
     let bundle = |name: &str, live: bool, list_ca: bool| -> PathBuf {
@@ -1784,6 +1918,108 @@ fn replace_orphan_cli_warns_and_cross_checks_bundle() {
     assert!(!backup.exists());
     assert!(rig.pending().is_empty());
     assert_no_canary(&t);
+}
+
+/// ⟨M08-W3-F1⟩ `issuer init` as the first owner command of a fresh installation (macOS, on
+/// the product-file test store). No setup, policy approval or other owner operation has
+/// written the native environment's record. The ceremony registers the CA (exit 0) with
+/// its one keychain item. The approval creates the record with `managed_signing` and
+/// `issuer_access`, and nothing automatic. Before the fix, the approval answered exit 1
+/// `INTERNAL_ERROR` after the backup and the keychain item were written. That left an
+/// orphan, which the next `init` refused. Linux has no disposable Secret Service. There,
+/// and on every host, `integration_issuer_m03`'s
+/// `issuer_register_approved_as_the_first_owner_decision_of_a_fresh_installation` covers
+/// the runtime's half.
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_init_as_the_first_owner_command_of_a_fresh_installation_registers() {
+    let rig = Rig::fresh_product();
+    assert!(
+        rig.self_environment_record().is_none(),
+        "a fresh installation has no environment record"
+    );
+    let backup = rig.file("fresh.key");
+    let (fp, _passphrase, _started) = init_on_pty(&rig, &backup);
+    let items = rig.product_store().list().unwrap();
+    assert_eq!(items.len(), 1, "one keychain item");
+    assert_eq!(items[0].fingerprint, fp);
+    assert_eq!(rig.ca_state(&fp), Some(CaState::Active));
+    let record = rig
+        .self_environment_record()
+        .expect("the approval created the environment record");
+    assert!(record.permissions.managed_signing && record.permissions.issuer_access);
+    assert!(
+        !record.permissions.automatic_activation,
+        "the approval grants nothing automatic"
+    );
+    assert!(rig.pending().is_empty(), "the decision was consumed");
+}
+
+/// ⟨M08-W3-F1⟩ Recovery from the orphan the defect left (macOS, on the product-file test
+/// store). A CA's keychain item stays, and the state database is a fresh installation's,
+/// with only its environment ID: no registration and no environment record
+/// ([`Rig::reset_state_keeping_environment`]).
+/// * Plain `init` refuses before any prompt (exit 6 `CONFIG_CONFLICT`), naming restore and
+///   `--replace-orphan`. `issuer status` lists the orphan by fingerprint.
+/// * `init --replace-orphan <fingerprint> --no-bundle-available` deletes exactly that item
+///   after the typed `delete`, then registers a new CA (exit 0), and its approval creates
+///   the environment record. Before the fix this approval failed in the same way, leaving
+///   a second orphan.
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_init_replace_orphan_recovers_a_fresh_installation_from_its_orphan() {
+    let mut rig = Rig::product();
+    let first = rig.file("first.key");
+    let (orphan, _passphrase, _started) = init_on_pty(&rig, &first);
+    rig.reset_state_keeping_environment();
+    assert!(rig.self_environment_record().is_none());
+    assert_eq!(rig.ca_state(&orphan), None, "no registration names it");
+    let items = rig.product_store().list().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].fingerprint, orphan);
+
+    // Plain init: refused before any prompt, naming both ways out.
+    let second = rig.file("second.key");
+    let second_arg = second.to_string_lossy().into_owned();
+    let pty = Pty::open();
+    let args = [
+        "--json",
+        "issuer",
+        "init",
+        "--backup-out",
+        second_arg.as_str(),
+    ];
+    let mut s = start_cli(&rig, "plain", &args, Some(&pty), CEREMONY);
+    let out = finish(&mut s);
+    let t = pty.transcript();
+    assert_eq!(out.code, 6, "{out:?}\n{t}");
+    assert_eq!(out.json()["code"], "CONFIG_CONFLICT", "{out:?}");
+    assert!(t.contains("heimdall issuer restore --backup"), "{t}");
+    assert!(t.contains("--replace-orphan"), "{t}");
+    assert!(!t.contains("Type 'yes'"), "no prompt: {t}");
+    assert!(!second.exists());
+    let st = rig.cli(&["--json", "issuer", "status"]).json();
+    assert!(
+        st["data"]["orphan_store_items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|o| o["fingerprint"] == orphan.as_str()),
+        "the orphan is listed: {st}"
+    );
+
+    // Replace it: exactly that item is deleted, then a new CA is registered.
+    let (fp, _passphrase, _started) = init_on_pty_replacing(&rig, &second, Some(&orphan));
+    assert_ne!(fp, orphan);
+    let items = rig.product_store().list().unwrap();
+    assert_eq!(items.len(), 1, "only the new CA's item");
+    assert_eq!(items[0].fingerprint, fp);
+    assert_eq!(rig.ca_state(&fp), Some(CaState::Active));
+    let record = rig
+        .self_environment_record()
+        .expect("the approval created the environment record");
+    assert!(record.permissions.managed_signing && record.permissions.issuer_access);
+    assert!(!record.permissions.automatic_activation);
 }
 
 /// The `retire_issuer` typed confirmation and the R2B deletion end to end (m03-plan
@@ -2227,7 +2463,11 @@ fn init_shows_runtime_lock_text(rig: &Rig, case: &str, expect: &[&str]) {
     let shown = pty.transcript();
     let before = &shown[..shown.find("Type 'yes'").unwrap()];
     for needle in ["Register CA SHA256:", "backup SHA-256 ", "backup file "] {
-        assert!(before.contains(needle), "{needle:?}: {before}");
+        assert!(
+            before.contains(needle),
+            "{needle:?}: {}",
+            without_passphrase(before)
+        );
     }
     for kind in [
         DisclosureKind::SameUserIssuerBoundary,
@@ -2235,9 +2475,17 @@ fn init_shows_runtime_lock_text(rig: &Rig, case: &str, expect: &[&str]) {
         DisclosureKind::BackupInstructions,
     ] {
         let prose = disclosure_text(kind, &DisclosureContext::default());
-        assert!(before.contains(&prose), "{kind:?}: {before}");
+        assert!(
+            before.contains(&prose),
+            "{kind:?}: {}",
+            without_passphrase(before)
+        );
     }
-    assert!(before.contains(&text), "the runtime's lock text: {before}");
+    assert!(
+        before.contains(&text),
+        "the runtime's lock text: {}",
+        without_passphrase(before)
+    );
     assert!(!before.contains(&general), "not the general sentence");
     assert!(
         rig.store()
@@ -2391,7 +2639,8 @@ fn issuer_init_backup_path_controls_never_reach_the_terminal() {
     let rest = without_own_clearing(&t);
     assert!(
         !rest.contains('\x1b'),
-        "only the ceremony's own clearing: {rest:?}"
+        "only the ceremony's own clearing: {:?}",
+        without_passphrase(&rest)
     );
     assert_ne!(rest.len(), t.len(), "the passphrase's region was cleared");
 }
@@ -2737,20 +2986,23 @@ fn recheck_retire_after_new_item_restore_deletes_only_current_generation() {
     let out = finish(&mut s);
     let t = pty.transcript();
     assert_eq!(out.code, 0, "exit 0, the retirement applied: {out:?}\n{t}");
-    let text = format!("{}{}{t}", out.stdout, out.stderr);
-    assert!(text.contains("retired"), "{text}");
+    let text = format!("{}{}{}", out.stdout, out.stderr, &*t);
+    let shown = || without_passphrase(&text);
+    assert!(text.contains("retired"), "{}", shown());
     assert!(
         text.contains(&format!(
             "delete it yourself in Keychain Access (service {service}, account {})",
             env_id.as_str()
         )),
-        "the orphan's step: {text}"
+        "the orphan's step: {}",
+        shown()
     );
     assert!(
         !text.contains("issuer restore") && !text.contains("rerun the restore"),
-        "no restore advice after a completed retirement: {text}"
+        "no restore advice after a completed retirement: {}",
+        shown()
     );
-    assert!(!text.contains("effect_status"), "{text}");
+    assert!(!text.contains("effect_status"), "{}", shown());
     // The current item deleted and confirmed; the CA retired.
     assert_eq!(rig.ca_state(&fp), Some(CaState::Retired));
     // The old item is still in the keychain, and listed with its service and account.

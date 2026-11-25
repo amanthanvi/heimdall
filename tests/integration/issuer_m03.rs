@@ -354,6 +354,16 @@ impl World {
         Self::start(store, VirtualClock::at(t0())).await
     }
 
+    /// ⟨M08-W3-F1⟩ A fresh installation, with the fake issuer wired. Nothing is seeded, so
+    /// the runtime records only its environment ID at start (`Operations::start`). No owner
+    /// operation has run yet, so no environment record exists.
+    async fn fresh() -> Self {
+        let store = Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+        let w = Self::start(store, VirtualClock::at(t0())).await;
+        w.wire();
+        w
+    }
+
     /// ⟨§17.21 item 3⟩ A new `Operations` instance over this world's store and clock
     /// (a runtime restart: nothing of the old instance's memory survives), with a
     /// fresh fake issuer wired.
@@ -745,6 +755,60 @@ async fn issuer_register_denied_records_nothing() {
     assert_eq!(w.issuer.reloads.load(Ordering::SeqCst), 0);
     // The denied record is consumed: approving it now is refused.
     assert!(w.decide(&d, Verdict::Approve).await.is_err());
+}
+
+/// ⟨M08-W3-F1⟩ `RegisterIssuer` as the first owner decision of a fresh installation. The
+/// runtime has its environment ID but no environment record yet. This covers `issuer init`,
+/// and a key-only restore onto a new installation (`restored_without_log`). The ceremony's
+/// sequence is the registration, the store-item report, then the approval. By then the CLI
+/// has written the backup and the store item. The approval records the CA and creates the
+/// native environment's record with `managed_signing` and `issuer_access`, and nothing
+/// automatic. Before the fix it answered `INTERNAL_ERROR` ("this installation's environment
+/// is unknown") and recorded nothing, which left the store item an orphan.
+#[tokio::test]
+async fn issuer_register_approved_as_the_first_owner_decision_of_a_fresh_installation() {
+    for restored_without_log in [false, true] {
+        let w = World::fresh().await;
+        assert!(
+            w.tx(|tx| tx.environment(&env_id())).is_none(),
+            "a fresh installation has no environment record"
+        );
+        let gen0 = w.generation();
+        let d = decision_of(
+            &w.issuer(
+                &attended(),
+                register_report(1, None, None, None, restored_without_log),
+            )
+            .await
+            .unwrap_err(),
+        );
+        let report = w
+            .issuer(
+                &attended(),
+                register_report(1, Some("item-1"), None, None, restored_without_log),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(decision_of(&report), d, "the report joins the decision");
+        let done = w.decide(&d, Verdict::Approve).await;
+        assert_eq!(code(&done), Code::Ok, "{restored_without_log}: {done:?}");
+        let ca = w.tx(|tx| tx.issuer(&ca_fp(1))).unwrap();
+        assert_eq!(ca.state, CaState::Active);
+        assert_eq!(ca.restored_without_log, restored_without_log);
+        assert_eq!(
+            w.tx(|tx| tx.issuer_store_locator(&ca_fp(1))).as_deref(),
+            Some("item-1")
+        );
+        let env = w.tx(|tx| tx.environment(&env_id())).unwrap();
+        assert_eq!(env.kind, EnvironmentKind::NativeSession);
+        assert!(env.permissions.managed_signing && env.permissions.issuer_access);
+        assert!(
+            !env.permissions.automatic_activation,
+            "the approval grants nothing automatic"
+        );
+        assert!(w.generation() > gen0, "the record moved the generation");
+        assert_eq!(w.issuer.reloads.load(Ordering::SeqCst), 1);
+    }
 }
 
 /// The precheck refuses an approval with **nothing consumed** (the record stays

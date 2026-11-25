@@ -71,11 +71,23 @@ fn not_available_text() -> String {
 }
 
 /// One finished invocation.
-#[derive(Debug)]
 struct Out {
     code: i32,
     stdout: String,
     stderr: String,
+}
+
+/// ⟨M08-W3-F1⟩ As a derived `Debug`, with any passphrase in either stream replaced
+/// (`ca::ceremony::without_passphrase`): a failure message never shows one.
+impl std::fmt::Debug for Out {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use heimdall_testkit::ca::ceremony::without_passphrase;
+        f.debug_struct("Out")
+            .field("code", &self.code)
+            .field("stdout", &without_passphrase(&self.stdout))
+            .field("stderr", &without_passphrase(&self.stderr))
+            .finish()
+    }
 }
 
 impl Out {

@@ -23,6 +23,12 @@ Short, and meant to be read once.
 - **A sleeping or powered-off machine does no work.** Locking the screen does not stop
   approved background work; sleep, logout and reboot each behave as the status view says.
 - **Uninstalling does not remove lines on remote hosts.** Remove enrollments first.
+- **An `issuer init` still at its `written` prompt when its decision expires (15 minutes
+  after the registration is shown) leaves an orphan CA key.** The key is in the store, but no
+  registration names it. `heimdall issuer status` shows its fingerprint. Recover with
+  `heimdall issuer init --backup-out <path> --replace-orphan <fingerprint> --bundle <file>`
+  (or `--no-bundle-available` in place of `--bundle <file>` when you have no recovery bundle),
+  or with `heimdall issuer restore --backup <file> --not-stolen`.
 - **Only the combinations in the compatibility matrix were tested.** Others may work.
 - **The Iroh transport is not in this release.** It is a preview you can build from source
   (`cargo build --features iroh`), with no support claim. Direct and jump routes work without it.
