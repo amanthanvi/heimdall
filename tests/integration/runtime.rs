@@ -2130,14 +2130,18 @@ mod u8b {
         assert_eq!(caps.code, Code::Ok);
         assert!(caps.data["capabilities"].is_array());
         // Discovery (`inspect capabilities`, §2.4) lists exactly what the hello
-        // offers, including `service-control/1` (ADR-0006 §13.6 item 8).
+        // offers, including `service-control/1` (ADR-0006 §13.6 item 8). ⟨M08 U2b-2⟩ And
+        // `request-epoch/1`, which every serving runtime offers (its request fence; this
+        // test's dispatcher has none).
         let discovered: std::collections::BTreeSet<String> = caps.data["capabilities"]
             .as_array()
             .unwrap()
             .iter()
             .map(|c| c.as_str().unwrap().to_owned())
             .collect();
-        assert_eq!(discovered, heimdall_ipc::session::server_capabilities());
+        let mut offered = heimdall_ipc::session::server_capabilities();
+        offered.insert(heimdall_contract::ipc::capability::REQUEST_EPOCH_V1.to_owned());
+        assert_eq!(discovered, offered);
         let ready = d
             .handle(
                 &unattended,

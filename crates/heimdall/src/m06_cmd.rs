@@ -3161,16 +3161,18 @@ pub(crate) fn environment(ctx: &Ctx, command: EnvironmentCommand) -> ExitCode {
                         );
                         Ok((value, human))
                     }
+                    // ⟨M08 U2b-2 follow-up B⟩ The retry names the epoch beside the request ID.
                     InviteOutcome::Pending {
                         decision_ref,
                         request_id,
+                        request_epoch,
                     } => Err(OpError::new(
                         Code::ApprovalRequired,
                         format!(
                             "the runner holds the invitation for its local confirmation: confirm \
                              decision {decision_ref} at the runner, then run this command again \
-                             with --request-id {}",
-                            request_id.as_str()
+                             with {}",
+                            crate::cli::retry_args(&request_id, request_epoch)
                         ),
                     )
                     .with_effect(EffectStatus::None)

@@ -12,6 +12,12 @@
 //! (`ServiceOptions::request_fence_hook`), an in-process stop at that point, not a killed
 //! process.
 //!
+//! ⟨M08 U2b-2 follow-up A⟩ The paired tests run a runner in process ([`Runner`]): the real
+//! operations, the paired-session service and the request fence over the rig's store and
+//! state directory, through the real dispatcher and IPC session over in-memory streams, with
+//! the paired clients' rows seeded in the role table. A runner "started again" is a new
+//! request fence over the same state, which reads the epoch then, as a runtime's start does.
+//!
 //! Hosted by `heimdall-runtime` as `[[test]] integration_request_epoch`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -22,22 +28,26 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use heimdall_app::ensure::NoStageHook;
+use heimdall_app::operations::Limits;
 use heimdall_app::ports::{
     AdapterDescriptor, CredentialAdapter, InteractionRequirement, LockContinuity, PrepareOutcome,
 };
+use heimdall_app::{Operations, OperationsConfig};
 use heimdall_contract::envelope::{EffectStatus, Envelope, ErrorData, reason};
 use heimdall_contract::ids::{
-    AccountName, DecisionId, DestinationId, DeviceId, EnvironmentId, PolicyId, ProfileId,
-    RequestId, WorkId,
+    AccountName, ClientId, DecisionId, DestinationId, DeviceId, EnvironmentId, InvitationId,
+    KeyFingerprint, PolicyId, ProfileId, RequestId, WorkId,
 };
-use heimdall_contract::ipc::capability;
+use heimdall_contract::ipc::{ClientHello, PeerInfo, PrincipalInfo, capability};
 use heimdall_contract::lifecycle::RestoreEpoch;
+use heimdall_contract::remote::Role;
 use heimdall_contract::request::{
     DestinationScopeEnforcement, Enforcement, EnsureRequest, ExistingConnectionsPolicy,
     InteractionMode, NewAuthenticationExpiry, RefreshDependency, Request, RequiredCapabilities,
     RevocationStatus, WaitMode, WorkloadIsolation,
 };
-use heimdall_contract::{Code, Timestamp};
+use heimdall_contract::{Code, PROTOCOL_VERSION, SchemaVersion, Timestamp};
 use heimdall_domain::environment::{EnvironmentKind, EnvironmentPermissions, EnvironmentRecord};
 use heimdall_domain::evidence::EnforcementEvidence;
 use heimdall_domain::operation::AdapterIdentity;
@@ -45,10 +55,14 @@ use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, Standing
 use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
 use heimdall_domain::profile::ProfileDefinition;
 use heimdall_domain::scope::{AccessPair, Capability, Scope};
-use heimdall_domain::time::SyncStatus;
-use heimdall_ipc::session::ControlClient;
+use heimdall_domain::time::{SyncStatus, TimePolicy};
+use heimdall_ipc::session::{
+    ConnectionLimits, ControlClient, ControlConnection, client_capabilities,
+};
 use heimdall_runtime::Paths;
 use heimdall_runtime::config::Config;
+use heimdall_runtime::dispatch::{EventRelay, OperationsDispatcher};
+use heimdall_runtime::paired::{PairedRunner, RunnerOptions, init_runner};
 use heimdall_runtime::request_fence::{FenceHook, FencePoint, RequestFence};
 use heimdall_runtime::service::{Service, ServiceOptions};
 use heimdall_store::fence::{
@@ -993,4 +1007,459 @@ async fn a_damaged_ledger_refuses_every_request_with_a_request_id() {
             .unwrap();
     assert_eq!(c.request(read).await.unwrap().code, Code::Ok);
     running.stop().await;
+}
+
+// --- ⟨M08 U2b-2 follow-up A⟩ authorization and admission before the request ledger -----------
+
+fn req(v: serde_json::Value) -> Request {
+    serde_json::from_value(v).unwrap()
+}
+
+/// The peer of every in-memory paired session.
+fn paired_principal() -> PrincipalInfo {
+    PrincipalInfo::OsUserUnix { uid: 501 }
+}
+
+/// A paired client's caller as the runner serves it (ADR-0012 §3.7): the key its ledger
+/// entries are digested under.
+fn paired_caller(client: &ClientId, role: Role) -> CallerContext {
+    CallerContext {
+        principal: PrincipalRef::UnixUser { uid: 501 },
+        role: heimdall_remote::roles::client_role(role),
+        remote_client: Some(client.clone()),
+    }
+}
+
+/// A runner in process over a rig's store and state directory (module docs).
+struct Runner {
+    store: Arc<Store>,
+    ops: Operations,
+    clock: Arc<VirtualClock>,
+    state_dir: PathBuf,
+    stop: CancellationToken,
+    /// The runtime's dispatcher with its request fence ([`Self::restart`]).
+    dispatcher: OperationsDispatcher,
+}
+
+impl Runner {
+    /// The rig's installation, made a runner (`remote init`'s marker), and served.
+    async fn start(rig: &Rig) -> Runner {
+        let store = Arc::new(rig.store());
+        assert_eq!(init_runner(&store).unwrap(), env_id());
+        let ops = Operations::start(OperationsConfig {
+            store: store.clone(),
+            clock: rig.clock.clone(),
+            time_sync: ScriptedTimeSync::new(SyncStatus::Synchronized),
+            time_policy: TimePolicy::default(),
+            environment: env_id(),
+            adapters: Vec::new(),
+            stage_hook: Arc::new(NoStageHook),
+            limits: Limits::default(),
+            default_window: 12 * HOUR,
+            projection: None,
+        })
+        .await
+        .unwrap();
+        let stop = CancellationToken::new();
+        let dispatcher = Self::serve(&store, &ops, &rig.clock, &rig.state_dir(), &stop);
+        Runner {
+            store,
+            ops,
+            clock: rig.clock.clone(),
+            state_dir: rig.state_dir(),
+            stop,
+            dispatcher,
+        }
+    }
+
+    fn serve(
+        store: &Arc<Store>,
+        ops: &Operations,
+        clock: &Arc<VirtualClock>,
+        state_dir: &Path,
+        stop: &CancellationToken,
+    ) -> OperationsDispatcher {
+        let fence = Arc::new(RequestFence::open(Arc::clone(store), state_dir).unwrap());
+        let runner = PairedRunner::new(
+            Arc::clone(store),
+            ops.clone(),
+            clock.clone(),
+            RunnerOptions::default(),
+        );
+        OperationsDispatcher::new(
+            ops.clone(),
+            EventRelay::spawn(ops, stop.clone()),
+            clock.clone(),
+        )
+        .with_request_fence(fence)
+        .with_runner(Arc::new(runner))
+    }
+
+    /// The runtime started again on the same state: its request fence reads the epoch now.
+    fn restart(&mut self) {
+        self.dispatcher = Self::serve(
+            &self.store,
+            &self.ops,
+            &self.clock,
+            &self.state_dir,
+            &self.stop,
+        );
+    }
+
+    /// Client `n`'s row in the role table as the invitation service leaves it: pending, or
+    /// active after its join.
+    fn seed(&self, n: u8, role: Role, active: bool) -> ClientId {
+        use heimdall_store::ext_m06::{
+            AppliedLine, ClientState, InvitationState, JoinRecord, RemoteClientRecord,
+            RemoteInvitationRecord,
+        };
+        let client = ClientId::from_random_bytes([n; 16]);
+        let invitation = InvitationId::from_random_bytes([n; 16]);
+        let fp = KeyFingerprint::parse(&format!(
+            "SHA256:{}",
+            char::from(b'A' + n % 26).to_string().repeat(43)
+        ))
+        .unwrap();
+        let record = RemoteClientRecord {
+            client: client.clone(),
+            role,
+            key_fingerprint: fp.clone(),
+            public_key: "ssh-ed25519 AAAA".into(),
+            state: ClientState::Pending,
+            invitation: Some(invitation.clone()),
+            revoked_generation: None,
+            revocation: None,
+            created_at: t0(),
+            updated_at: t0(),
+            line: AppliedLine::Absent,
+        };
+        let generation = self
+            .store
+            .transaction(|tx| tx.authority_generation())
+            .unwrap()
+            .0;
+        let pending = RemoteInvitationRecord {
+            invitation: invitation.clone(),
+            client: client.clone(),
+            role,
+            key_fingerprint: fp,
+            generation,
+            created_wall: t0(),
+            created_boot_id: heimdall_domain::time::BootId("boot".into()),
+            created_elapsed: Duration::from_secs(1),
+            expires_wall: at(15 * 60),
+            elapsed_bound: Duration::from_secs(900),
+            probe_nonce: "00".into(),
+            state: InvitationState::Pending,
+            consumed_at: None,
+            join: None,
+            iroh_admission: false,
+        };
+        self.store
+            .transaction(|tx| {
+                tx.insert_remote_invitation(&record, &pending, t0())?;
+                if active {
+                    tx.activate_remote_client(&JoinRecord {
+                        environment: env_id(),
+                        invitation: invitation.clone(),
+                        client: client.clone(),
+                        role,
+                        generation,
+                        joined_at: t0(),
+                    })?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        client
+    }
+
+    /// A paired session of `client`, as the runner's bridge opens it (its hello names the
+    /// client), offering this build's capabilities and `remote-control/1`.
+    async fn connect(&self, client: &ClientId) -> ControlClient<tokio::io::DuplexStream> {
+        let (client_end, server_end) = tokio::io::duplex(1 << 20);
+        let conn = ControlConnection::new(server_end, ConnectionLimits::default())
+            .with_server_identity(
+                env_id(),
+                PeerInfo {
+                    name: "runner".into(),
+                    version: "0".into(),
+                },
+            );
+        let (dispatcher, stop) = (self.dispatcher.clone(), self.stop.clone());
+        tokio::spawn(async move {
+            let _ = conn.serve(paired_principal(), dispatcher, stop).await;
+        });
+        let mut capabilities = client_capabilities();
+        capabilities.insert(capability::REMOTE_CONTROL_V1.to_owned());
+        ControlClient::handshake_hello(
+            client_end,
+            ClientHello {
+                protocol: PROTOCOL_VERSION,
+                schema_version: SchemaVersion::current(),
+                client: PeerInfo {
+                    name: "epoch-test".into(),
+                    version: "0".into(),
+                },
+                capabilities,
+                required: BTreeSet::new(),
+                interaction: InteractionMode::NonInteractive,
+                remote_client: Some(client.clone()),
+            },
+        )
+        .await
+        .unwrap()
+    }
+}
+
+impl Drop for Runner {
+    fn drop(&mut self) {
+        self.stop.cancel();
+    }
+}
+
+/// ⟨M08 U2b-2 follow-up A⟩ A frame refused for its role is refused before the request fence:
+/// nothing is appended to the request ledger and nothing is written. Through a runner's paired
+/// sessions:
+/// - a viewer's `request` forms (`role_insufficient`);
+/// - a requester's owner-only forms (`role_insufficient`, `local_owner_required`);
+/// - a paired owner's local-owner-only forms (`local_owner_required`);
+/// - the frames the client's row refuses: a pending client's (`invitation_pending`) and a
+///   revoked one's (`client_revoked`).
+///
+/// Each answer still reports its request ID and epoch. A request within its role is then
+/// admitted, and its entry is the only one appended.
+#[tokio::test]
+async fn a_frame_refused_for_its_role_appends_nothing_to_the_ledger() {
+    use heimdall_store::ext_m06::RevocationCause;
+    let rig = Rig::new();
+    let runner = Runner::start(&rig).await;
+    let viewer = runner.seed(1, Role::Viewer, true);
+    let requester = runner.seed(2, Role::Requester, true);
+    let owner = runner.seed(3, Role::Owner, true);
+    let pending = runner.seed(4, Role::Requester, false);
+    let revoked = runner.seed(5, Role::Requester, true);
+    let mut v = runner.connect(&viewer).await;
+    let mut r = runner.connect(&requester).await;
+    let mut o = runner.connect(&owner).await;
+    let mut p = runner.connect(&pending).await;
+    let mut x = runner.connect(&revoked).await;
+    // Revoked in the role table after its hello: its next frame's row check refuses it.
+    runner
+        .store
+        .transaction(|tx| tx.revoke_remote_client(&revoked, RevocationCause::Revoked, t0()))
+        .unwrap();
+    let binding = "binding_00112233445566778899aabbccddeeff";
+    let role = || (Code::CapabilityUnavailable, reason::ROLE_INSUFFICIENT);
+    let local = || (Code::InteractionRequired, reason::LOCAL_OWNER_REQUIRED);
+    let cases = [
+        (
+            &mut v,
+            vec![
+                (ensure("r-v-ensure"), role()),
+                (
+                    req(serde_json::json!({"op": "bind", "binding_id": binding,
+                        "form": {"form": "launch", "executable": "/usr/bin/ssh",
+                            "holder": {"pid": 4242, "started_at": "1761912000.123456"}},
+                        "request_id": "r-v-bind"})),
+                    role(),
+                ),
+                (
+                    req(
+                        serde_json::json!({"op": "delegate", "parent_binding_id": binding,
+                        "scope": [], "work_id": "child-1", "request_id": "r-v-delegate"}),
+                    ),
+                    role(),
+                ),
+                (
+                    req(serde_json::json!({"op": "revoke",
+                        "grant_id": "grant_00112233445566778899aabbccddeeff",
+                        "request_id": "r-v-revoke"})),
+                    role(),
+                ),
+            ],
+        ),
+        (
+            &mut r,
+            vec![
+                (
+                    req(serde_json::json!({"op": "policy", "action": "pause", "policy_id": "pol"})),
+                    role(),
+                ),
+                (
+                    req(serde_json::json!({"op": "controller_record",
+                        "action": "remove_environment", "environment": env_id()})),
+                    local(),
+                ),
+            ],
+        ),
+        (
+            &mut o,
+            vec![
+                (
+                    req(
+                        serde_json::json!({"op": "runner_local", "action": "policy_recheck",
+                        "request_id": "r-o-recheck"}),
+                    ),
+                    local(),
+                ),
+                (
+                    req(serde_json::json!({"op": "runner_local",
+                        "action": "designate_time_source", "client": owner,
+                        "request_id": "r-o-time"})),
+                    local(),
+                ),
+            ],
+        ),
+        (
+            &mut p,
+            vec![(
+                ensure("r-p-ensure"),
+                (Code::CapabilityUnavailable, reason::INVITATION_PENDING),
+            )],
+        ),
+        // Last: the refusal ends the revoked client's session.
+        (
+            &mut x,
+            vec![(
+                ensure("r-x-ensure"),
+                (Code::CapabilityUnavailable, reason::CLIENT_REVOKED),
+            )],
+        ),
+    ];
+    let before = rig.footprint();
+    let mut with_id = 0;
+    for (session, requests) in cases {
+        for (request, (code, why)) in requests {
+            with_id += usize::from(request.request_id().is_some());
+            let env = session.request(request.clone()).await.unwrap();
+            assert_refused(&env, &code, why, &request, RestoreEpoch(0));
+        }
+    }
+    assert_eq!(
+        with_id, 8,
+        "the refusals that a ledger append could precede"
+    );
+    assert_eq!(rig.footprint(), before, "nothing appended or written");
+    assert!(rig.ledger().is_empty());
+    // Within the role: admitted, and only its entry is appended.
+    let within = r.request(ensure("r-q-ensure")).await.unwrap();
+    assert_eq!(within.request_epoch, Some(RestoreEpoch(0)), "{within:?}");
+    let digest = ledger_digest(
+        &paired_caller(&requester, Role::Requester),
+        "ensure",
+        &rid("r-q-ensure"),
+    )
+    .unwrap();
+    assert_eq!(rig.ledger(), [Entry { epoch: 0, digest }]);
+}
+
+/// ⟨M08 U2b-2 follow-up A⟩ A fenced request (ADR-0008 §17.27 item 2) from a connection that does
+/// not hold the uninstall fence, while another holds it, is refused `uninstall_in_progress`
+/// before the request fence: nothing is appended to the request ledger and nothing is written,
+/// and the answer still reports its request ID and epoch. The holder's own request runs under
+/// its lease, past the request fence: its entry is the only one appended.
+#[tokio::test]
+async fn a_request_the_uninstall_fence_refuses_appends_nothing_to_the_ledger() {
+    let rig = Rig::new();
+    let running = rig.start(None).await;
+    let mut holder = client(&running.control, InteractionMode::NonInteractive).await;
+    let mut other = client(&running.control, InteractionMode::NonInteractive).await;
+    let held = holder
+        .request(req(
+            serde_json::json!({"op": "uninstall_fence", "action": "acquire"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(held.code, Code::Ok, "{held:?}");
+    assert_eq!(held.data["fence"], "held");
+    let fenced: Vec<Request> = [
+        include_str!("../../schemas/examples/request.enrollment.apply.json"),
+        include_str!("../../schemas/examples/request.enrollment.verify.json"),
+        include_str!("../../schemas/examples/request.enrollment.remove.json"),
+    ]
+    .iter()
+    .map(|text| serde_json::from_str(text).unwrap())
+    .collect();
+    let before = rig.footprint();
+    for request in &fenced {
+        assert!(request.request_id().is_some(), "{}", request.kind());
+        let env = other.request(request.clone()).await.unwrap();
+        assert_refused(
+            &env,
+            &Code::ServiceUnavailable,
+            reason::UNINSTALL_IN_PROGRESS,
+            request,
+            RestoreEpoch(0),
+        );
+    }
+    assert_eq!(rig.footprint(), before, "nothing appended or written");
+    assert!(rig.ledger().is_empty());
+    // The holder's own request runs in its lease: admitted, so its entry is appended.
+    let apply = &fenced[0];
+    let mine = holder.request(apply.clone()).await.unwrap();
+    assert_ne!(mine.code, Code::ServiceUnavailable, "{mine:?}");
+    let caller = CallerContext::local(owner_principal(), ClientRole::Owner);
+    let digest = ledger_digest(&caller, apply.kind(), apply.request_id().unwrap()).unwrap();
+    assert_eq!(rig.ledger(), [Entry { epoch: 0, digest }]);
+    running.stop().await;
+}
+
+/// ⟨M08 U2b-2 follow-up A; ADR-0014 §3.6 step 3, H13⟩ A paired requester negotiates
+/// `request-epoch/1` and carries the epoch it kept with a request ID: once the runner's epoch has
+/// risen (a restore or a repair; here the store's test seam, then a new start), the same pair
+/// is refused `REQUEST_STALE` / `restore_epoch_stale`, effect `none`, with nothing written. A
+/// request it mints after the new hello carries the new epoch and is admitted.
+#[tokio::test]
+async fn a_requester_keeping_an_epoch_from_before_a_raise_is_refused_before_any_write() {
+    let rig = Rig::new();
+    let mut runner = Runner::start(&rig).await;
+    let requester = runner.seed(1, Role::Requester, true);
+    let mut first = runner.connect(&requester).await;
+    assert!(
+        first
+            .server()
+            .capabilities
+            .contains(capability::REQUEST_EPOCH_V1),
+        "{:?}",
+        first.server()
+    );
+    assert_eq!(first.server().restore_epoch, Some(RestoreEpoch(0)));
+    let request = ensure("r-kept");
+    let answered = first.request(request.clone()).await.unwrap();
+    assert_ne!(answered.code, Code::RequestStale, "{answered:?}");
+    assert_eq!(answered.request_id, Some(rid("r-kept")));
+    let kept = answered.request_epoch.expect("the answer names its epoch");
+    assert_eq!(kept, RestoreEpoch(0));
+    drop(first);
+    runner
+        .store
+        .transaction(|tx| tx.raise_restore_epoch_for_test(RestoreEpoch(1)))
+        .unwrap();
+    runner.restart();
+    let mut later = runner.connect(&requester).await;
+    assert_eq!(later.server().restore_epoch, Some(RestoreEpoch(1)));
+    later.keep_epoch(Some(kept));
+    let before = rig.footprint();
+    let refused = later.request(request.clone()).await.unwrap();
+    assert_refused(
+        &refused,
+        &Code::RequestStale,
+        reason::RESTORE_EPOCH_STALE,
+        &request,
+        kept,
+    );
+    assert_eq!(rig.footprint(), before, "nothing written, appended or done");
+    // A request minted after the fresh hello carries the new epoch and is admitted.
+    later.keep_epoch(None);
+    let fresh = later.request(ensure("r-fresh")).await.unwrap();
+    assert_ne!(fresh.code, Code::RequestStale, "{fresh:?}");
+    assert_eq!(fresh.request_epoch, Some(RestoreEpoch(1)));
+    let digest = ledger_digest(
+        &paired_caller(&requester, Role::Requester),
+        "ensure",
+        &rid("r-fresh"),
+    )
+    .unwrap();
+    assert_eq!(rig.ledger().last(), Some(&Entry { epoch: 1, digest }));
 }

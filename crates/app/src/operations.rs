@@ -9640,6 +9640,8 @@ impl Operations {
             // ⟨M02⟩ U0b row 19, phase 2: the same set as
             // `heimdall_ipc::session::server_capabilities()`, `setup/1` included.
             // ⟨M03⟩ U0b row 13, phase 2 (wave 4): and the four M03 capabilities.
+            // ⟨M08 U2b-2⟩ And `request-epoch/1` (below). The conditional offers (`routes/1`,
+            // `transport-iroh/1`, `remote-control/1`, `runner/1`) are not listed.
             InspectSubject::Capabilities => serde_json::json!({
                 "capabilities": [
                     heimdall_contract::ipc::capability::OPERATIONS_V1,
@@ -9658,6 +9660,10 @@ impl Operations {
                     heimdall_contract::ipc::capability::ENVIRONMENTS_V1,
                     // ⟨M05⟩ W3: offered once every trusted-work form is served.
                     heimdall_contract::ipc::capability::TRUSTED_WORK_V1,
+                    // ⟨M08 U2b-2; ADR-0014 H13⟩ Every serving runtime checks the restore epoch
+                    // of each mutating request (its dispatcher's request fence), so it offers
+                    // the frame epoch: beyond `server_capabilities()`, as the hello offers it.
+                    heimdall_contract::ipc::capability::REQUEST_EPOCH_V1,
                 ],
                 "schemas": heimdall_contract::schema::public_schemas()
                     .iter()

@@ -21,7 +21,14 @@
 //!    append: the request does not proceed.
 //!
 //! Every answer to a mutating request then reports the request ID it carried and the epoch it
-//! was bound to ([`Stamp::apply`], the envelope's `request_id` and `request_epoch`).
+//! was bound to ([`RequestFence::binding`], [`Stamp::apply`], the envelope's `request_id` and
+//! `request_epoch`).
+//!
+//! **Where the check runs** (⟨M08 U2b-2 follow-up A⟩, `crate::dispatch`): last before the
+//! request runs, after the caller's role checks (a paired client's row check, the owner-only
+//! forms) and the uninstall-fence admission, which is held across it and the request. A
+//! request refused for its role or by the uninstall fence therefore appends nothing to the
+//! ledger and writes nothing; its answer still reports the binding.
 //!
 //! **The epoch is read once, at start-up.** Only a restore or a repair raises it, and both hold
 //! the runtime's instance lock (ADR-0014 §3.6, the restore protocol's step 2), so it cannot
@@ -129,9 +136,23 @@ impl RequestFence {
         self.epoch
     }
 
-    /// The check of one request from `caller`, whose frame carried `frame_epoch` (module docs).
-    /// `Ok(None)`: a read, which carries no epoch and is not checked. `Ok(Some(stamp))`: a
-    /// mutating request admitted, its ledger entry durable; its answers carry `stamp`.
+    /// What every answer to `request`, from a frame that carried `frame_epoch`, reports: the
+    /// request ID it carries and the epoch it is bound to, the frame's when present, else the
+    /// current one (bound at receipt). `None` for a read, which carries no epoch and is not
+    /// stamped.
+    #[must_use]
+    pub fn binding(&self, request: &Request, frame_epoch: Option<RestoreEpoch>) -> Option<Stamp> {
+        request.is_effectful().then(|| Stamp {
+            request_id: request.request_id().cloned(),
+            epoch: frame_epoch.unwrap_or(self.epoch),
+        })
+    }
+
+    /// The check of one request from `caller`, whose frame carried `frame_epoch` (module docs),
+    /// made after the request's role checks and uninstall-fence admission. `Ok(None)`: a read,
+    /// which carries no epoch and is not checked. `Ok(Some(stamp))`: a mutating request
+    /// admitted, its ledger entry durable; its answers carry `stamp` (its
+    /// [`Self::binding`]).
     ///
     /// # Errors
     /// The answer that refuses the request, with nothing run: `REQUEST_STALE`,
@@ -144,15 +165,11 @@ impl RequestFence {
         frame_epoch: Option<RestoreEpoch>,
         now: heimdall_contract::Timestamp,
     ) -> Result<Option<Stamp>, Refusal> {
-        if !request.is_effectful() {
+        let Some(stamp) = self.binding(request, frame_epoch) else {
             return Ok(None);
-        }
-        let request_id = request.request_id().cloned();
+        };
         // Step 3: the epoch, before anything is read or written.
-        if let Some(epoch) = frame_epoch
-            && epoch != self.epoch
-        {
-            let stamp = Stamp { request_id, epoch };
+        if stamp.epoch != self.epoch {
             return Err(stamped(
                 OpError::new(
                     Code::RequestStale,
@@ -165,10 +182,7 @@ impl RequestFence {
                 &stamp,
             ));
         }
-        let stamp = Stamp {
-            request_id,
-            epoch: self.epoch,
-        };
+        // From here the stamp's epoch is the current one.
         let digest = match &stamp.request_id {
             Some(id) => match ledger_digest(caller, request.kind(), id) {
                 Ok(d) => Some(d),

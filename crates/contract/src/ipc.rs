@@ -112,11 +112,12 @@ pub mod capability {
     pub const PAGES_V1: &str = "pages/1";
     /// ⟨rev7⟩ ADR-0014 H13 (ruling on ASK-H13b): the request frame's `request_epoch`
     /// ([`crate::lifecycle::REQUEST_EPOCH_FIELD`]) and the hello's `restore_epoch`.
-    /// ⟨M08 U2b-2⟩ **Offered** by a runtime that checks the epoch (the owner role's set,
-    /// [`ALL`]). A frame carrying `request_epoch` on a session that did not negotiate it is
-    /// refused `SCHEMA_UNSUPPORTED` and never dispatched. A client holding a kept epoch
-    /// refuses (`SCHEMA_UNSUPPORTED`) instead of sending it to a runtime that does not offer
-    /// this; a fresh request with no kept epoch is sent without one.
+    /// ⟨M08 U2b-2⟩ **Offered** by a runtime that checks the epoch, to the roles that send
+    /// mutating requests: the owner ([`ALL`]) and ⟨follow-up A⟩ the requester
+    /// ([`REQUESTER`]), not the viewer. A frame carrying `request_epoch` on a session that did
+    /// not negotiate it is refused `SCHEMA_UNSUPPORTED` and never dispatched. A client holding
+    /// a kept epoch refuses (`SCHEMA_UNSUPPORTED`) instead of sending it to a runtime that
+    /// does not offer this; a fresh request with no kept epoch is sent without one.
     pub const REQUEST_EPOCH_V1: &str = "request-epoch/1";
     /// ⟨rev7⟩ The revision-7 capabilities declared and **not offered**. ⟨M08 U2b-2⟩
     /// `request-epoch/1` left this list when the runtime began to offer it.
@@ -124,8 +125,8 @@ pub mod capability {
 
     /// ⟨M06⟩ Every capability name this contract defines and a runtime may offer, in
     /// declaration order: the owner role's set ([`for_role`]). ⟨M08 U2b-2⟩ With
-    /// `request-epoch/1` (ADR-0014 H13), which no limited role holds: a paired requester's
-    /// or viewer's frames carry no epoch and are bound to the runner's epoch at receipt.
+    /// `request-epoch/1` (ADR-0014 H13), which the requester holds too ([`REQUESTER`]); a
+    /// viewer's frames carry no epoch and are bound to the runner's epoch at receipt.
     pub const ALL: [&str; 17] = [
         OPERATIONS_V1,
         EVENTS_V1,
@@ -147,12 +148,15 @@ pub mod capability {
     ];
 
     /// ⟨M06⟩ The `requester` role's capabilities (ADR-0012 §3.8: `view` and `request`):
-    /// the primitives, events, schema discovery and managed-credential results.
-    pub const REQUESTER: [&str; 4] = [
+    /// the primitives, events, schema discovery and managed-credential results. ⟨M08 U2b-2
+    /// follow-up A; ADR-0014 H13⟩ And `request-epoch/1`: a requester sends mutating requests,
+    /// so it carries the epoch it kept with a request ID ([`REQUEST_EPOCH_V1`]).
+    pub const REQUESTER: [&str; 5] = [
         OPERATIONS_V1,
         EVENTS_V1,
         SCHEMA_DISCOVERY_V1,
         MANAGED_CREDENTIALS_V1,
+        REQUEST_EPOCH_V1,
     ];
 
     /// ⟨M06⟩ The `viewer` role's capabilities (ADR-0012 §3.8: `view`): the primitives

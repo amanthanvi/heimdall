@@ -144,7 +144,9 @@ where
     use clap::{CommandFactory as _, FromArgMatches as _};
     let mut matches = Cli::command().try_get_matches_from(argv)?;
     let epoch = kept_request_epoch(&matches);
-    let mut cli = Cli::from_arg_matches_mut(&mut matches)?;
+    // As `Cli::try_parse_from` does: a matching error is formatted with the command.
+    let mut cli =
+        Cli::from_arg_matches_mut(&mut matches).map_err(|e| e.format(&mut Cli::command()))?;
     cli.request_epoch = epoch;
     Ok(cli)
 }
@@ -1990,6 +1992,24 @@ pub(crate) fn fresh_request_id() -> Result<RequestId, Done> {
     }
 }
 
+/// ⟨M08 U2b-2 follow-up B; ADR-0014 §3.6 step 3⟩ The arguments that retry a request, as a
+/// person or an agent passes them back: its request ID and, beside it, the restore epoch the
+/// ID was first sent with, when that is known (a runtime that does not check the epoch reports
+/// none, and a kept epoch could not be sent to it).
+pub(crate) fn retry_args(
+    request_id: &RequestId,
+    epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
+) -> String {
+    match epoch {
+        Some(epoch) => format!(
+            "--request-id {} --request-epoch {}",
+            request_id.as_str(),
+            epoch.0
+        ),
+        None => format!("--request-id {}", request_id.as_str()),
+    }
+}
+
 /// The pending decision a result asks for, if any. ⟨M05⟩ A `decision_cooldown` answer
 /// names the **denied** record (ADR-0011 §4.3), which is not pending: nothing is shown or
 /// decided for it.
@@ -3226,6 +3246,52 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    /// ⟨M08 U2b-2 follow-up B⟩ The retry arguments `run` and `environment invite` report are
+    /// the ones they take back: the request ID with the epoch beside it, or the ID alone when
+    /// the runtime reported no epoch.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn retry_args_are_taken_back_as_reported() {
+        use heimdall_contract::lifecycle::RestoreEpoch;
+        let id = RequestId::parse("req-0123456789abcdef").unwrap();
+        let reported = retry_args(&id, Some(RestoreEpoch(4)));
+        assert_eq!(
+            reported,
+            "--request-id req-0123456789abcdef --request-epoch 4"
+        );
+        assert_eq!(retry_args(&id, None), "--request-id req-0123456789abcdef");
+        for command in [
+            &["run", "--profile", "dev"][..],
+            &[
+                "environment",
+                "invite",
+                "env_x",
+                "--role",
+                "viewer",
+                "--public-key",
+                "k",
+            ][..],
+        ] {
+            let program: &[&str] = if command[0] == "run" {
+                &["--", "ssh"]
+            } else {
+                &[]
+            };
+            let argv = std::iter::once("heimdall")
+                .chain(command.iter().copied())
+                .chain(reported.split(' '))
+                .chain(program.iter().copied());
+            let cli = parse_args(argv).unwrap();
+            assert_eq!(cli.request_epoch, Some(RestoreEpoch(4)), "{command:?}");
+            let given = match cli.command {
+                Some(Command::Run(a)) => a.request_id,
+                Some(Command::Environment(m06_cmd::EnvironmentCommand::Invite(a))) => a.request_id,
+                _ => None,
+            };
+            assert_eq!(given.as_deref(), Some(id.as_str()), "{command:?}");
+        }
     }
 
     use clap::CommandFactory as _;

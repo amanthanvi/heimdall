@@ -14702,7 +14702,11 @@ mod u0b_phase2 {
             .map(|c| c.as_str().unwrap().to_owned())
             .collect();
         assert!(listed.contains(capability::SETUP_V1));
-        assert_eq!(listed, server_capabilities(), "the two lists agree");
+        // ⟨M08 U2b-2⟩ With `request-epoch/1`, which every serving runtime offers (its
+        // request fence).
+        let mut offered = server_capabilities();
+        offered.insert(capability::REQUEST_EPOCH_V1.to_owned());
+        assert_eq!(listed, offered, "the two lists agree");
         let preview = Request::Setup(SetupRequest::Preview {
             intent: apply_intent(),
         });

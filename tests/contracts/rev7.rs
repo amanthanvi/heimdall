@@ -175,7 +175,8 @@ fn reason_table_lists_every_answer_with_its_code_and_next_action() {
 }
 
 /// The revision-7 capabilities still declared are offered to no role. ⟨M08 U2b-2⟩
-/// `request-epoch/1` is offered now, to the owner role only (ADR-0014 H13).
+/// `request-epoch/1` is offered now (ADR-0014 H13), to the roles that send mutating requests:
+/// the owner and ⟨follow-up A⟩ the requester; never the viewer.
 #[test]
 fn revision_7_capabilities_are_declared_not_offered() {
     use heimdall_contract::remote::Role;
@@ -186,10 +187,13 @@ fn revision_7_capabilities_are_declared_not_offered() {
             assert!(!capability::for_role(role).contains(&c), "{c} {role:?}");
         }
     }
-    assert!(capability::for_role(Role::Owner).contains(&capability::REQUEST_EPOCH_V1));
-    for role in [Role::Requester, Role::Viewer] {
-        assert!(!capability::for_role(role).contains(&capability::REQUEST_EPOCH_V1));
+    for role in [Role::Owner, Role::Requester] {
+        assert!(
+            capability::for_role(role).contains(&capability::REQUEST_EPOCH_V1),
+            "{role:?}"
+        );
     }
+    assert!(!capability::for_role(Role::Viewer).contains(&capability::REQUEST_EPOCH_V1));
 }
 
 // --- D20: maximal records (the ruling of 2026-11-24) ---------------------------------------

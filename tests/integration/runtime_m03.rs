@@ -850,7 +850,11 @@ async fn capabilities_offered_after_activation() {
         .iter()
         .map(|c| c.as_str().unwrap().to_owned())
         .collect();
-    assert_eq!(listed, offered, "inspect capabilities lists the offer");
+    // ⟨M08 U2b-2⟩ With `request-epoch/1`, which every serving runtime offers through its
+    // request fence (this test's dispatchers have none).
+    let mut with_epoch = offered.clone();
+    with_epoch.insert(capability::REQUEST_EPOCH_V1.to_owned());
+    assert_eq!(listed, with_epoch, "inspect capabilities lists the offer");
     let open = |required: BTreeSet<String>, offer: BTreeSet<String>| {
         let ops = w.ops.clone();
         let clock = w.clock.clone();

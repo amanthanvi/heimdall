@@ -124,7 +124,7 @@ fn enroll_second_owner(j: &Journey) -> (ControllerRuntime, ClientId) {
     assert_eq!(shown["code"], "OK", "{shown}");
     let key = shown["data"]["public_key"].as_str().unwrap().to_owned();
     let fingerprint = shown["data"]["fingerprint"].as_str().unwrap().to_owned();
-    let invite = |request: Option<&str>| {
+    let invite = |retry: &[&str]| {
         let mut args = vec![
             "environment",
             "invite",
@@ -134,12 +134,10 @@ fn enroll_second_owner(j: &Journey) -> (ControllerRuntime, ClientId) {
             "--public-key",
             &key,
         ];
-        if let Some(request) = request {
-            args.extend(["--request-id", request]);
-        }
+        args.extend(retry);
         j.controller.attended_at(&args, CONFIRMATION, Some("yes")).1
     };
-    let pending = invite(None);
+    let pending = invite(&[]);
     assert_eq!(
         pending["code"],
         "APPROVAL_REQUIRED",
@@ -147,14 +145,23 @@ fn enroll_second_owner(j: &Journey) -> (ControllerRuntime, ClientId) {
         logs(j)
     );
     let decision = pending["next"]["decision_ref"].as_str().unwrap().to_owned();
-    let request = pending["data"]["error"]["message"]
-        .as_str()
-        .unwrap()
-        .rsplit("--request-id ")
+    // ⟨M08 U2b-2⟩ The retry the answer names, as it is passed back: the request ID with the
+    // restore epoch the runner bound it to beside it.
+    let message = pending["data"]["error"]["message"].as_str().unwrap();
+    let retry: Vec<String> = message
+        .rsplit(" again with ")
         .next()
         .unwrap()
-        .trim()
-        .to_owned();
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(retry.len(), 4, "{message}");
+    assert_eq!(
+        (retry[0].as_str(), retry[2].as_str()),
+        ("--request-id", "--request-epoch"),
+        "{message}"
+    );
+    assert!(retry[3].parse::<u64>().is_ok(), "{message}");
     // At the runner: its local owner, on a terminal.
     let path = |p: &std::path::Path| p.to_string_lossy().into_owned();
     let (code, approved) = super::world::on_terminal(
@@ -169,7 +176,8 @@ fn enroll_second_owner(j: &Journey) -> (ControllerRuntime, ClientId) {
         Some("yes"),
     );
     assert_eq!(code, 0, "{approved}");
-    let created = invite(Some(&request));
+    let retry: Vec<&str> = retry.iter().map(String::as_str).collect();
+    let created = invite(&retry);
     assert_eq!(created["code"], "OK", "{created}\n{}", logs(j));
     let bundle = j.scratch.subdir("inv").unwrap().join("invitation.json");
     std::fs::write(&bundle, created["data"].to_string()).unwrap();
