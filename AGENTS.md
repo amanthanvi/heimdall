@@ -76,6 +76,13 @@ Before planning, reviewing, testing or recording a wave, read
   redirect; on the devbox that is the owner's account. So in tests, every `ssh` inside
   runner work passes `-F <scratch config>` and the isolated option set above, and
   never relies on the default `~/.ssh`.
+- A fixture `sshd` that runs as the account must not forward an agent on hosts whose `sshd` is
+  OpenSSH 10.1 or later. Those versions put the forwarded agent's listening socket under the
+  account's real `~/.ssh/agent/`, which they take from the account database, so no `HOME` or
+  `SetEnv` redirect moves it. Tests guard such steps with the testkit's
+  `forwarded_agent_lands_in_account_ssh_dir()` check, which fails closed, and record them as
+  `blocked` there. They run on hosts with an older `sshd`, in a disposable account, or in a
+  container.
 - The owner's SSH config, keys and agent may be used to reach the owner's own
   machines (the Windows PC, devbox, vps1-edge) for authorized work, such as
   copying files or running tests in a scratch directory. Never print, copy or
