@@ -79,10 +79,10 @@ and no OpenSSH program ran.
 
 No reader an integration test can reach (neither a public reader of the store nor a revision 7
 typed reader). The test's `NOT_READ` and `META_NOT_READ` list the same, with the same reasons,
-and it counts these rows as stored, not read.
+and it counts these rows as stored, not read. ⟨M08 U2b-2⟩ `request_fences` and the `meta` key
+`restore_epoch` left this list: they are read through `Txn::request_fence` and
+`Txn::restore_epoch`.
 
-- `request_fences`: no reader: migration 0014 creates it; its writer and reader are U2b's.
-- `meta` key `restore_epoch`: no public reader: `Store::open` refuses a missing or non-canonical value, and no method returns it.
 - `meta` key `remote_revocation_claim_seq`: no reader: only `next_remote_claim_seq`, which reads it to advance it (a writer).
 - `meta` key `cleanup_intent_version`: no reader: only `record_cleanup_intent`, which reads it to advance it (a writer).
 

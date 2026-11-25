@@ -41,8 +41,41 @@ fn golden_rows() -> Vec<Row> {
         .collect()
 }
 
-/// Parse the table in ADR-0006 section 5 directly from the decision record.
+/// ⟨rev7; M08 U2b-2⟩ Revision 7's one new code, `REQUEST_STALE`, is ruled in ADR-0006
+/// section 19.3 (H13) in words, not as a section 5 row; it goes after `DECISION_STALE`.
+const REV7_REQUEST_STALE_RULING: &str =
+    "`REQUEST_STALE` is exit class 6, not retryable, effect `none`, next `new_request_id` (U0-Q6)";
+
+/// Parse the table in ADR-0006 section 5 directly from the decision record, with revision 7's
+/// `REQUEST_STALE` row (section 19.3) after `DECISION_STALE`.
 fn adr_rows() -> Vec<Row> {
+    let mut rows = adr_section_5_rows();
+    let path = repo_root().join("docs/decisions/0006-public-contract-baseline.md");
+    let text = std::fs::read_to_string(path).unwrap();
+    let words: Vec<&str> = text.split_whitespace().collect();
+    assert!(
+        words.join(" ").contains(REV7_REQUEST_STALE_RULING),
+        "ADR-0006 section 19.3 states REQUEST_STALE's row"
+    );
+    let at = rows
+        .iter()
+        .position(|r| r.code == "DECISION_STALE")
+        .unwrap();
+    rows.insert(
+        at + 1,
+        Row {
+            code: "REQUEST_STALE".to_owned(),
+            exit: 6,
+            retryable: false,
+            effect: "none".to_owned(),
+            next: "new_request_id".to_owned(),
+        },
+    );
+    rows
+}
+
+/// Parse the table in ADR-0006 section 5 directly from the decision record.
+fn adr_section_5_rows() -> Vec<Row> {
     let path = repo_root().join("docs/decisions/0006-public-contract-baseline.md");
     let text = std::fs::read_to_string(path).unwrap();
     let section = text
@@ -89,18 +122,23 @@ fn effect_name(e: EffectStatus) -> &'static str {
 }
 
 /// ADR-0006 revision 3 (m02-plan section 5 item 13) grows the table to 30 rows
-/// with `LAUNCH_FAILED`.
+/// with `LAUNCH_FAILED`; ⟨rev7; M08 U2b-2⟩ revision 7 adds `REQUEST_STALE` (section 19.3).
 #[test]
 fn golden_file_matches_the_adr_table() {
+    assert_eq!(adr_section_5_rows().len(), 30, "ADR section 5 row count");
     let adr = adr_rows();
-    assert_eq!(adr.len(), 30, "ADR section 5 row count");
+    assert_eq!(adr.len(), 31, "with revision 7's row");
     assert_eq!(golden_rows(), adr);
 }
 
 #[test]
 fn every_code_matches_its_golden_row() {
     let golden = golden_rows();
-    assert_eq!(golden.len(), 30, "golden row count (ADR-0006 revision 3)");
+    assert_eq!(
+        golden.len(),
+        31,
+        "golden row count (ADR-0006 revisions 3 and 7)"
+    );
     let codes = Code::all();
     assert_eq!(codes.len(), golden.len(), "Code::all() vs ADR rows");
     for (code, row) in codes.iter().zip(&golden) {
@@ -239,11 +277,13 @@ fn retryable_never_applies_to_uncertain_or_refused_outcomes() {
 
 #[test]
 fn decision_stale_row_is_in_table_order() {
-    // ADR-0006 section 5 revision 2: after RESYNC_REQUIRED, before OUTCOME_UNKNOWN.
+    // ADR-0006 section 5 revision 2: after RESYNC_REQUIRED, before OUTCOME_UNKNOWN;
+    // ⟨rev7⟩ revision 7's REQUEST_STALE (section 19.3) comes between them.
     let names: Vec<&str> = Code::all().iter().map(Code::as_str).collect();
     let at = names.iter().position(|n| *n == "DECISION_STALE").unwrap();
     assert_eq!(names[at - 1], "RESYNC_REQUIRED");
-    assert_eq!(names[at + 1], "OUTCOME_UNKNOWN");
+    assert_eq!(names[at + 1], "REQUEST_STALE");
+    assert_eq!(names[at + 2], "OUTCOME_UNKNOWN");
     assert_eq!(Code::DecisionStale.exit_code(), ExitCode::Conflict);
     assert_eq!(Code::DecisionStale.exit_code().as_i32(), 6);
     assert!(!Code::DecisionStale.retryable());
@@ -307,11 +347,11 @@ fn envelope_with_an_unknown_code_parses_and_is_not_success() {
 
 /// m02-plan section 5 item 13 (ADR-0007 section 8): `LAUNCH_FAILED` exits 127, or 126
 /// when the reason is `not_executable`; retryable no, effect `none`, next
-/// `fix_request`; it is the 30th row.
+/// `fix_request`; it is the last row (the 31st since revision 7's `REQUEST_STALE`).
 #[test]
 fn launch_failed_row_and_its_126_rule() {
     let names: Vec<&str> = Code::all().iter().map(Code::as_str).collect();
-    assert_eq!(names.len(), 30);
+    assert_eq!(names.len(), 31);
     assert_eq!(names.last(), Some(&"LAUNCH_FAILED"));
     let c = Code::LaunchFailed;
     assert_eq!(c.exit_code(), ExitCode::LaunchFailed);

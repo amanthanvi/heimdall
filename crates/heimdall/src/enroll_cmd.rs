@@ -1399,6 +1399,7 @@ mod tests {
             non_interactive: false,
             home: None,
             stdin_tty: true,
+            request_epoch: None,
         };
         let pending = output::error_value(
             heimdall_app::OpError::new(Code::ApprovalRequired, "owner approval required")
@@ -1516,6 +1517,7 @@ mod tests {
             non_interactive: false,
             home: None,
             stdin_tty: true,
+            request_epoch: None,
         }
     }
 

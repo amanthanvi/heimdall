@@ -140,6 +140,10 @@
         },
         {
           "type": "string",
+          "const": "REQUEST_STALE"
+        },
+        {
+          "type": "string",
           "const": "OUTCOME_UNKNOWN"
         },
         {
@@ -246,6 +250,28 @@
           "anyOf": [
             {
               "$ref": "#/$defs/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request_epoch": {
+          "description": "⟨rev7; M08 U2b-2; ADR-0014 H13; U0-Q5⟩ The restore epoch a mutating answer's request\nwas bound to: the one its frame carried, or the current one at receipt. Present on\nevery mutating answer of a runtime that checks the epoch, beside `request_id`; omitted\non reads.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RestoreEpoch"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request_id": {
+          "description": "⟨rev7; M08 U2b-2; U0-Q5⟩ The request ID a mutating answer's request carried. With\n`request_epoch` it is the pair a caller keeps to retry the request (`--request-id`\nwith `--request-epoch`). Omitted on reads, and on a mutating request that carries no\nrequest ID.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestId"
             },
             {
               "type": "null"
@@ -973,6 +999,10 @@
         }
       ]
     },
+    "RequestId": {
+      "description": "Caller-chosen request ID; part of the idempotency key (spec §11.4).",
+      "type": "string"
+    },
     "ResourceRef": {
       "description": "A reference to the resource an error concerns. Opaque IDs only; never a secret.",
       "type": "object",
@@ -992,6 +1022,12 @@
       "required": [
         "kind"
       ]
+    },
+    "RestoreEpoch": {
+      "description": "A restore epoch (ADR-0014 §3.6 \"The restore epoch and the replay fence\"). Every restore\nraises it, durably, before its pointer moves; a store with no restore is at epoch 0, and\nevery reference minted before revision 7's migration belongs to epoch 0.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
     },
     "SchemaVersion": {
       "description": "A `schema_version` value as received from a peer.",

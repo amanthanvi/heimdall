@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::code::Code;
-use crate::ids::{BindingId, OperationId};
+use crate::ids::{BindingId, OperationId, RequestId};
+use crate::lifecycle::RestoreEpoch;
 use crate::state::OperationState;
 use crate::version::SchemaVersion;
 
@@ -17,6 +18,18 @@ pub struct Envelope<T> {
     /// Present for effectful or long-running work; absent for pure reads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operation_id: Option<OperationId>,
+    /// ⟨rev7; M08 U2b-2; U0-Q5⟩ The request ID a mutating answer's request carried. With
+    /// `request_epoch` it is the pair a caller keeps to retry the request (`--request-id`
+    /// with `--request-epoch`). Omitted on reads, and on a mutating request that carries no
+    /// request ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<RequestId>,
+    /// ⟨rev7; M08 U2b-2; ADR-0014 H13; U0-Q5⟩ The restore epoch a mutating answer's request
+    /// was bound to: the one its frame carried, or the current one at receipt. Present on
+    /// every mutating answer of a runtime that checks the epoch, beside `request_id`; omitted
+    /// on reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_epoch: Option<RestoreEpoch>,
     /// Operation state; synchronous reads report `succeeded` or `failed`.
     pub state: OperationState,
     /// Stable semantic code.
@@ -61,6 +74,8 @@ impl<T> Envelope<T> {
         Self {
             schema_version: SchemaVersion::current(),
             operation_id: None,
+            request_id: None,
+            request_epoch: None,
             state: OperationState::Succeeded,
             code: Code::Ok,
             data,
@@ -74,6 +89,8 @@ impl<T> Envelope<T> {
         Envelope {
             schema_version: self.schema_version,
             operation_id: self.operation_id,
+            request_id: self.request_id,
+            request_epoch: self.request_epoch,
             state: self.state,
             code: self.code,
             data: f(self.data),
@@ -1037,12 +1054,12 @@ pub mod reason {
     /// `transport enable`, `transport adopt-roost`) asked for without an attended owner, which
     /// it needs (ADR-0006 §18.9 item 10, deferred there to revision 7; ruled 2026-11-24).
     pub const LOCAL_WIDENING_NEEDS_ATTENDED_OWNER: &str = "local_widening_needs_attended_owner";
-    /// ⟨rev7⟩ `REQUEST_STALE` (declared code): a mutating request whose epoch is not the
-    /// current one (ADR-0014 H13, §3.6 step 3; U0-Q5); and `DECISION_STALE` (`fix_request`): a
-    /// decision reference minted under an older epoch with no carried record (§3.6 step 2).
+    /// ⟨rev7⟩ `REQUEST_STALE`: a mutating request whose epoch is not the current one
+    /// (ADR-0014 H13, §3.6 step 3; U0-Q5); and `DECISION_STALE` (`fix_request`): a decision
+    /// reference minted under an older epoch (§3.6 step 2).
     pub const RESTORE_EPOCH_STALE: &str = "restore_epoch_stale";
-    /// ⟨rev7⟩ `REQUEST_STALE` (declared code): a request ID the ledger fenced at a restore or
-    /// a repair; it is never executed again (ADR-0014 §3.6 step 4; U0-Q5, Q8).
+    /// ⟨rev7⟩ `REQUEST_STALE`: a request ID the ledger fenced at a restore or a repair; it is
+    /// never executed again (ADR-0014 §3.6 step 4; U0-Q5, Q8).
     pub const RESTORED_BEFORE_COMPLETION: &str = "restored_before_completion";
 
     /// ⟨rev7⟩ Revision 7's reasons under the codes of the table, each `(reason, code)`.
@@ -1076,16 +1093,12 @@ pub mod reason {
         ),
         (INVITATION_VOID_AFTER_RESTORE, Code::CapabilityUnavailable),
         (EXPOSURE_DISABLED_AFTER_RESTORE, Code::CapabilityUnavailable),
-        // A decision reference minted under an older epoch (ADR-0014 §3.6 step 2); under
-        // `REQUEST_STALE` for a request (`REV7_DECLARED_CODE`).
+        // A decision reference minted under an older epoch (ADR-0014 §3.6 step 2).
         (RESTORE_EPOCH_STALE, Code::DecisionStale),
-    ];
-
-    /// ⟨rev7⟩ Revision 7's reasons under the declared code `REQUEST_STALE`
-    /// ([`crate::lifecycle::REQUEST_STALE`]; ruling on ASK-CODE), each `(reason, code)`.
-    pub const REV7_DECLARED_CODE: &[(&str, &str)] = &[
-        (RESTORE_EPOCH_STALE, crate::lifecycle::REQUEST_STALE),
-        (RESTORED_BEFORE_COMPLETION, crate::lifecycle::REQUEST_STALE),
+        // ⟨M08 U2b-2; ADR-0014 H13⟩ A request (ADR-0014 §3.6 steps 3 and 4). `REQUEST_STALE`
+        // joined the code table with its emitter (the ruling on ASK-CODE).
+        (RESTORE_EPOCH_STALE, Code::RequestStale),
+        (RESTORED_BEFORE_COMPLETION, Code::RequestStale),
     ];
 
     /// ⟨rev7⟩ The two resync reasons that are not error reasons: `subscriber_lagged` (a live
@@ -1143,6 +1156,8 @@ impl Envelope<ErrorData> {
         Self {
             schema_version: SchemaVersion::current(),
             operation_id,
+            request_id: None,
+            request_epoch: None,
             state: OperationState::Failed,
             code: error.code.clone(),
             data: ErrorData { error, setup: None },

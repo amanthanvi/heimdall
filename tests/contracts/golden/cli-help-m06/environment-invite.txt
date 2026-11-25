@@ -32,6 +32,9 @@ Options:
       --request-id <ID>
           Reuse the request ID the pending answer named, after confirming at the runner
 
+      --request-epoch <N>
+          The restore epoch the request ID was first sent with (the answer's `request_epoch`): give it with the same `--request-id` to retry. Without it, the runner's current epoch is used
+
       --iroh
           Let the invited device reach the runner over Iroh: it sends its own endpoint ID when it joins (confirmed at the runner with the invitation)
 

@@ -1717,6 +1717,7 @@ mod tests {
             non_interactive: false,
             home: None,
             stdin_tty: true,
+            request_epoch: None,
         };
         let create = Request::Policy(PolicyAction::Create {
             profile: ProfileId::parse("dev").unwrap(),

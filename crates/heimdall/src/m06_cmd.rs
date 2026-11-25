@@ -165,6 +165,11 @@ pub struct EnvInviteArgs {
     /// Reuse the request ID the pending answer named, after confirming at the runner.
     #[arg(long, value_name = "ID")]
     pub request_id: Option<String>,
+    /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+    /// give it with the same `--request-id` to retry. Without it, the runner's current epoch
+    /// is used.
+    #[arg(long, value_name = "N", requires = "request_id")]
+    pub request_epoch: Option<u64>,
     /// Let the invited device reach the runner over Iroh: it sends its own endpoint ID when
     /// it joins (confirmed at the runner with the invitation).
     #[arg(long)]
@@ -1508,6 +1513,7 @@ impl heimdall_app::transport::EndpointAnnouncer for ManagementAnnouncer {
             root,
             key: key.clone(),
             fill: OPENSSH_FILL,
+            kept_epoch: None,
         };
         let confirm = TerminalConfirm { interactive: false };
         RemoteEnvController::new(ControllerPorts {
@@ -1565,6 +1571,7 @@ impl ManagementSessions for DriverSessions {
                 store: Some(Arc::<dyn MgmtKeyStore>::from(mgmt_store(&self.ctx, &own)?)),
             }),
             fill: OPENSSH_FILL,
+            kept_epoch: None,
         };
         sessions.open(target).await
     }
@@ -2269,6 +2276,12 @@ struct SshSessions {
     key: Arc<StoreKey>,
     /// ⟨M06 exit⟩ The management `ssh`'s and the probes' environment fill ([`OPENSSH_FILL`]).
     fill: env_ssh::OpensshEnvFill,
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 3⟩ `environment invite --request-epoch`: the runner's
+    /// epoch the retried request ID was first sent with. The session then offers
+    /// `request-epoch/1` and every mutating request carries this epoch; a runner that does not
+    /// offer it gets nothing (`SCHEMA_UNSUPPORTED`). `None`: no epoch is sent, and the runner
+    /// binds each request to its current epoch at receipt, as before.
+    kept_epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
 }
 
 /// ⟨M06 exit; ADR-0006 §18.9 item 13⟩ The fill every M06 launch of `ssh` applies (the
@@ -2706,6 +2719,12 @@ impl ManagementSessions for SshSessions {
             target.standing,
             heimdall_ipc::session::server_capabilities(),
         );
+        // ⟨M08 U2b-2⟩ With a kept epoch the session offers `request-epoch/1` (never requires
+        // it), so the runner can check the epoch; without one the hello is unchanged.
+        let mut offered = wanted.offered.clone();
+        if self.kept_epoch.is_some() {
+            offered.insert(heimdall_contract::ipc::capability::REQUEST_EPOCH_V1.to_owned());
+        }
         let handshake = tokio::time::timeout(
             SESSION_HELLO_BOUND,
             heimdall_ipc::session::ControlClient::handshake_hello(
@@ -2717,7 +2736,7 @@ impl ManagementSessions for SshSessions {
                         name: CLIENT_NAME.to_owned(),
                         version: env!("CARGO_PKG_VERSION").to_owned(),
                     },
-                    capabilities: wanted.offered.clone(),
+                    capabilities: offered,
                     required: wanted.required.clone(),
                     interaction: InteractionMode::NonInteractive,
                     remote_client: None,
@@ -2725,7 +2744,7 @@ impl ManagementSessions for SshSessions {
             ),
         )
         .await;
-        let client = match handshake {
+        let mut client = match handshake {
             Ok(Ok(client)) => client,
             Ok(Err(e)) => {
                 if let Some(heimdall_ipc::session::ServerRefusal::Rejected(env)) =
@@ -2766,6 +2785,8 @@ impl ManagementSessions for SshSessions {
                 .with_effect(EffectStatus::None),
             ));
         }
+        // ⟨M08 U2b-2⟩ The kept epoch travels with every mutating request of the session.
+        client.keep_epoch(self.kept_epoch);
         let hello = SessionHello {
             environment: client.server().environment_id.clone(),
             role: client.server().role,
@@ -2887,6 +2908,7 @@ async fn wiring(ctx: &Ctx, write: bool) -> Result<Wiring, OpError> {
             root,
             key,
             fill: OPENSSH_FILL,
+            kept_epoch: ctx.request_epoch,
         },
         confirm: TerminalConfirm {
             interactive: ctx.interactive(),
@@ -5379,6 +5401,7 @@ mod tests {
             root: root.clone(),
             key: Arc::new(StoreKey { store: None }),
             fill: OPENSSH_FILL,
+            kept_epoch: None,
         };
         let got = sessions.session_dir().unwrap_err();
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -5435,6 +5458,7 @@ mod tests {
                 non_interactive: true,
                 home: Some(home.clone()),
                 stdin_tty: false,
+                request_epoch: None,
             };
             let environment = EnvironmentId::from_random_bytes([3; 16]);
             let Err(e) = mgmt_store(&ctx, &environment) else {
@@ -5553,6 +5577,7 @@ mod tests {
             non_interactive: false,
             home: Some(home.clone()),
             stdin_tty: false,
+            request_epoch: None,
         };
         let paths = heimdall_runtime::Paths::under(&home);
         let asked = std::cell::RefCell::new(Vec::new());
@@ -5737,6 +5762,7 @@ mod tests {
             non_interactive: false,
             home: Some(home.clone()),
             stdin_tty: true,
+            request_epoch: None,
         };
         assert_eq!(policy_recheck_precheck(&ctx).unwrap(), None);
 

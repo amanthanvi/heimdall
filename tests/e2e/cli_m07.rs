@@ -908,6 +908,7 @@ async fn enrollment_wait_explains_an_interrupted_step() {
         let Some(ClientMessage::Request {
             seq,
             request: Request::Enrollment(request),
+            ..
         }) = message
         else {
             panic!("expected an enrollment request");

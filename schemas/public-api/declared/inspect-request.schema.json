@@ -141,6 +141,10 @@
         },
         {
           "type": "string",
+          "const": "REQUEST_STALE"
+        },
+        {
+          "type": "string",
           "const": "OUTCOME_UNKNOWN"
         },
         {

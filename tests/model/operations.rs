@@ -15459,8 +15459,15 @@ mod wave0_fail_closed {
             use tokio::io::AsyncWriteExt;
             self.seq += 1;
             let seq = self.seq;
-            let frame =
-                encode_frame(&ClientMessage::Request { seq, request }, CONTROL_LIMIT).unwrap();
+            let frame = encode_frame(
+                &ClientMessage::Request {
+                    seq,
+                    request,
+                    request_epoch: None,
+                },
+                CONTROL_LIMIT,
+            )
+            .unwrap();
             self.stream.write_all(&frame).await.unwrap();
             loop {
                 if let ServerMessage::Response {

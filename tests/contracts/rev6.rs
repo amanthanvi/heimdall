@@ -177,7 +177,8 @@ fn rev6_reason_golden() {
     assert_eq!(in_code, pending);
     assert_eq!(reason::IROH_ADMISSION_CLOSING, "iroh_admission_closing");
     assert!(pending.is_disjoint(&m06) && pending.is_disjoint(&earlier));
-    assert_eq!(Code::all().len(), 30, "the code table is unchanged");
+    // ⟨rev7; M08 U2b-2⟩ Unchanged by this revision: 31 since revision 7's `REQUEST_STALE`.
+    assert_eq!(Code::all().len(), 31, "the code table is unchanged");
 }
 
 /// The revision-6 ops whose every form needs a revision-6 capability (the golden's

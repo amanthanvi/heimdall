@@ -114,6 +114,14 @@ path = "../../tests/model/timegate.rs"
 name = "integration_runtime"
 path = "../../tests/integration/runtime.rs"
 
+# ⟨M08 U2b-2⟩ The restore epoch and the replay fence through a real runtime (ADR-0014 §3.6
+# steps 2 to 4; H9, H13): the server's check of every mutating form, the request ledger
+# before the first store write, the fence by the full idempotency key, its retention, and the
+# kept request-ID and epoch pair.
+[[test]]
+name = "integration_request_epoch"
+path = "../../tests/integration/request_epoch.rs"
+
 # M01-U5 application operations: A06/A19/A29 model cases and pipeline fault points.
 [[test]]
 name = "model_operations"

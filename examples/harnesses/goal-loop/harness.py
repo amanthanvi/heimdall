@@ -572,6 +572,10 @@ TRANSITIONS = (
     Row(REQUESTING, "POLICY_PAUSED", "owner_decision", "failed", CODE),
     Row(REQUESTING, "POLICY_CUTOFF", "owner_decision", "failed", CODE),
     Row(REQUESTING, "REQUEST_CONFLICT", "new_request_id", "failed", CODE),
+    # a request from before a restore (its restore epoch is not the runtime's, or a fence
+    # holds its key): never run, effect `none`. H2 sends every request once, with a request
+    # ID of its own, and never re-stamps one; so this is reported, never retried
+    Row(REQUESTING, "REQUEST_STALE", "new_request_id", "failed", CODE),
     # an uncertain outcome: the request is never sent again. The operation the answer's
     # `next` names is observed until it ends; an answer whose `next` names none is
     # reported as it is, with the envelope's own operation when it carries one
@@ -646,7 +650,7 @@ EXIT_CLASSES = {
     "DESTINATION_UNREACHABLE": 5, "TIME_UNCERTAIN": 5, "UNSUPPORTED_CLIENT": 5,
     "SERVICE_UNAVAILABLE": 5, "STATE_UNAVAILABLE": 5, "BACKPRESSURE": 5,
     "REQUEST_CONFLICT": 6, "CONFIG_CONFLICT": 6, "REQUEST_EXPIRED": 6, "RESYNC_REQUIRED": 6,
-    "DECISION_STALE": 6,
+    "DECISION_STALE": 6, "REQUEST_STALE": 6,
     "OUTCOME_UNKNOWN": 7,
     "USAGE_ERROR": 2, "SCHEMA_UNSUPPORTED": 2, "NOT_FOUND": 2,
     "INTERNAL_ERROR": 1,

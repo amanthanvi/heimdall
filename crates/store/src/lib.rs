@@ -55,6 +55,8 @@ pub mod ext_transport;
 pub mod ext_runner;
 // ⟨M06 U4⟩ Typed narrowing effects: the outbox, acknowledgements and policy revisions (ADR-0012 §7).
 pub mod ext_effects;
+// ⟨M08 U2b-2⟩ The restore epoch and the replay fence (ADR-0014 H9, §3.6).
+pub mod fence;
 // ⟨M08 U2b-1⟩ The generation layout (ADR-0014 §3.6, H12): the pointer, the generations and
 // the adoption of a flat store, over `heimdall-stategen`.
 pub mod layout;
@@ -1056,6 +1058,25 @@ impl Txn<'_> {
                 idem.expires_at.map(codec::ts),
             ],
         )?;
+        // ⟨M08 U2b-2; ADR-0014 §3.6 steps 2 and 3⟩ The operation ID is minted under the
+        // current epoch, and the request was bound to it (a request bound to another epoch is
+        // refused before the store is written). Both columns default to 0.
+        if let Some(epoch) = self.minted_epoch()? {
+            self.tx.execute(
+                "UPDATE operations SET restore_epoch = ?2 WHERE id = ?1",
+                rusqlite::params![op.id.as_str(), epoch],
+            )?;
+            self.tx.execute(
+                "UPDATE idempotency SET request_epoch = ?4
+                 WHERE caller_json = ?1 AND kind = ?2 AND request_id = ?3",
+                rusqlite::params![
+                    caller_doc(&idem.key)?,
+                    idem.key.kind.as_str(),
+                    idem.key.request_id.as_str(),
+                    epoch
+                ],
+            )?;
+        }
         Ok(())
     }
 

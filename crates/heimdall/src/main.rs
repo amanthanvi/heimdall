@@ -56,11 +56,9 @@ mod uninstall_cmd;
 // ⟨M04⟩ joint wave 0 (ADR-0010 §9 item 9): refusals until the M04 handlers land.
 mod wsl_cmd;
 
-use clap::Parser;
-
 fn main() -> std::process::ExitCode {
     let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
-    let args = match cli::Cli::try_parse_from(&argv) {
+    let args = match cli::parse_args(&argv) {
         Ok(a) => a,
         Err(e) => {
             // Help and version are successes; every other parse failure is a

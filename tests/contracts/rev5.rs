@@ -161,7 +161,8 @@ fn rev5_reason_golden() {
         .collect();
     assert_eq!(in_code, reasons, "M04 finding sub-reasons");
     assert!(in_code.iter().all(|(_, f)| m04_findings.contains(f)));
-    assert_eq!(Code::all().len(), 30, "the code table is unchanged");
+    // ⟨rev7; M08 U2b-2⟩ Unchanged by this revision: 31 since revision 7's `REQUEST_STALE`.
+    assert_eq!(Code::all().len(), 31, "the code table is unchanged");
 }
 
 /// `T` round-trips `path` exactly and the document validates against `schema`'s

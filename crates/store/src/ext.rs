@@ -405,12 +405,21 @@ impl Txn<'_> {
     }
 
     /// Purge markers whose `marker_until` is at or before `now`.
+    ///
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 4⟩ A settled key's fence record is a marker too: it goes
+    /// once its `marker_until` has passed. An unresolved key's fence (`settled_at` NULL) is
+    /// never purged. The count includes the fences removed.
     pub fn purge_markers_before(&mut self, now: Timestamp) -> Result<u64> {
         let n = self.tx.execute(
             "DELETE FROM idempotency_markers WHERE marker_until <= ?1",
             [codec::ts(now)],
         )?;
-        Ok(n as u64)
+        let fences = self.tx.execute(
+            "DELETE FROM request_fences
+             WHERE settled_at IS NOT NULL AND marker_until IS NOT NULL AND marker_until <= ?1",
+            [codec::ts(now)],
+        )?;
+        Ok((n + fences) as u64)
     }
 
     // --- R3: decision records ----------------------------------------------------------
@@ -439,6 +448,14 @@ impl Txn<'_> {
         )?;
         if n == 0 {
             return Err(conflict(format!("decision {} exists", decision.id)));
+        }
+        // ⟨M08 U2b-2; ADR-0014 §3.6 step 2⟩ The reference is minted under the current epoch
+        // (the column defaults to 0).
+        if let Some(epoch) = self.minted_epoch()? {
+            self.tx.execute(
+                "UPDATE decisions SET restore_epoch = ?2 WHERE id = ?1",
+                rusqlite::params![decision.id.as_str(), epoch],
+            )?;
         }
         Ok(())
     }
