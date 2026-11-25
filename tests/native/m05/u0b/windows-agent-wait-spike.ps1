@@ -17,7 +17,7 @@
   * Results: one JSON + one summary file in -OutDir. The scratch directory is removed.
 
 .EXAMPLE
-  powershell -NoProfile -ExecutionPolicy Bypass -File .\windows-agent-wait-spike.ps1 -Target 192.168.1.20 -Port 22 -User me
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\windows-agent-wait-spike.ps1 -Target 192.0.2.20 -Port 22 -User me
 #>
 param(
   [Parameter(Mandatory = $true)][string]$Target,
