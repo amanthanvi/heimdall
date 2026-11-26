@@ -86,6 +86,20 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
   - SEC-3b: S2-05's design (Gemini) and its code items.
   - SEC-4 (GPT): cutoff latching (S3-01, S3-03, S3-06, S3-07).
   - S3-04 goes to U2b-3b.
+  - **SEC-3b's rulings (2026-11-26, on the S2-05 design):**
+    - **The override:** a narrowing that has an authority effect is never refused. The caps
+      with `BACKPRESSURE` apply only to entries with no effect.
+    - **R1 to R4:** pruning under safe time, with the conditions the ruling states.
+    - **R4's sweep of expired paired `Pending` decisions** is a fix: they had already expired.
+    - **R5:** no paging in 1.0. A proved worst-case report size for a stated envelope, written
+      into `limitations.md`, and a fail-closed refusal beyond it that recovers once retention
+      runs.
+    - **The post-1.0 path:** report paging behind `runner-sync-pages/1`, with an HMAC page
+      token over `(client, connection, authority_generation, section, key)`, pages of 768 KiB
+      or 512 items, at most 16 pages and 3 drift restarts. The controller reconciles only on
+      the final page. It is recorded here unchanged from the design.
+    - **When SEC-3b runs:** after GRANT-LIVE integrates (both touch the store), and not beside
+      SEC-3a or SEC-4 (both touch the runtime).
   - The blocking and must-fix units land before U2b-4, U6b and U7b.
 
 **H13's reader side and M07.** H13 is one change, owned by U2b-2. Its readers today are M07's:
