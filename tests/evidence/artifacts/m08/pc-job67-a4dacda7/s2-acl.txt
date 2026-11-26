@@ -1,0 +1,3 @@
+owner_is_user=True protected=True entries=1
+ace: who=<user-sid> type=Allow rights=FullControl inherited=False flags=ContainerInherit, ObjectInherit
+sddl: O:<user-sid>G:<user-sid>D:PAI(A;OICI;FA;;;<user-sid>)

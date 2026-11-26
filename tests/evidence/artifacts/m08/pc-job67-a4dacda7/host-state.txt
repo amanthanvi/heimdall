@@ -1,0 +1,2 @@
+before: dwm_ws_mb=373.3 cm=173 heimdall_like=0 cfree_gb=237.6
+after: dwm_ws_mb=372.6 cm=173 heimdall_like=0 cfree_gb=220.5

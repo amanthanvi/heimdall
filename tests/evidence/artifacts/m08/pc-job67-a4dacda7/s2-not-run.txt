@@ -1,0 +1,6 @@
+enroll-m03 (cargo test --locked -p heimdall --test e2e_enroll_m03): not run (harness prerequisite)
+deadline-windows (cargo test --locked -p heimdall --test e2e_deadline_m03 windows::): not run (harness prerequisite)
+HM_FIXTURE_SSHD_HOST set=False
+HM_FIXTURE_SSHD_PORT set=False
+HM_FIXTURE_SSHD_HOST_KEY set=False
+crates/testkit/src/sshd.rs LoopbackSshd::start on Windows without HM_FIXTURE_SSHD_PORT: "no harness sshd (HM_FIXTURE_SSHD_HOST, _PORT, _HOST_KEY) on this platform"

@@ -1,0 +1,45 @@
+ Downloading crates ...
+  Downloaded etcetera v0.11.0
+  Downloaded thread_local v1.1.10
+  Downloaded sharded-slab v0.1.7
+  Downloaded tracing-subscriber v0.3.23
+   Compiling windows-sys v0.61.2
+   Compiling sharded-slab v0.1.7
+   Compiling thread_local v1.1.10
+   Compiling tracing-subscriber v0.3.23
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling tempfile v3.27.0
+   Compiling tokio v1.54.1
+   Compiling rusty-fork v0.3.1
+   Compiling proptest v1.12.0
+   Compiling etcetera v0.11.0
+   Compiling tokio-util v0.7.20
+   Compiling heimdall-app v0.1.0-m01 (<R>\c1\crates\app)
+   Compiling heimdall-ipc v0.1.0-m01 (<R>\c1\crates\ipc)
+   Compiling heimdall-transport-iroh v0.1.0-m01 (<R>\c1\crates\transport-iroh)
+   Compiling heimdall-credential v0.1.0-m01 (<R>\c1\crates\credential)
+   Compiling heimdall-localenv v0.1.0-m01 (<R>\c1\crates\localenv)
+   Compiling heimdall-remote v0.1.0-m01 (<R>\c1\crates\remote)
+   Compiling heimdall-issuer v0.1.0-m01 (<R>\c1\crates\issuer)
+   Compiling heimdall-wsl v0.1.0-m01 (<R>\c1\crates\wsl)
+   Compiling heimdall-enroll v0.1.0-m01 (<R>\c1\crates\enroll)
+   Compiling heimdall-adapters v0.1.0-m01 (<R>\c1\crates\adapters)
+   Compiling heimdall-runtime v0.1.0-m01 (<R>\c1\crates\runtime)
+   Compiling heimdall-testkit v0.1.0-m01 (<R>\c1\crates\testkit)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 56.84s
+     Running ..\..\tests\e2e\setup_dispatch.rs (target\debug\deps\e2e_setup_dispatch-15798440b5260b90.exe)
+
+running 9 tests
+test e2e_setup_without_capability_is_schema_unsupported ... ok
+test e2e_inspect_destinations_lists_the_catalog_through_the_dispatcher ... ok
+test e2e_catalog_then_ensure_bind_carry_pairs_and_selection ... ok
+test e2e_setup_preview_apply_decide_restart_through_dispatcher ... ok
+test e2e_setup_attended_apply_inspect_rollback_through_dispatcher ... ok
+test e2e_supervisor_cleaner_deletes_after_rollback_through_the_service ... ok
+test e2e_declaration_validity_days_come_from_the_configuration ... ok
+test declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher ... ok
+test simultaneous_setup_admissions_admit_exactly_one ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.59s
+

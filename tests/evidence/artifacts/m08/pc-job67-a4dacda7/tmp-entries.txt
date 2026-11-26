@@ -1,0 +1,7 @@
+s1-managed-adapter exit=0 temp=default before=3575 after=3574
+  gone: c2c4b31d-d6a7-4df1-86bd-0aca4b217aa0.tmp
+s1-setup-dispatch exit=0 temp=default before=3574 after=3574
+s1-model-setup exit=0 temp=default before=3574 after=3576
+  new: 19f2a8b5-eaa2-41d7-9d33-90116d95cdbd.tmp kind=file created=17:10:09.142 class=file
+  new: 8da0183b-18cc-4c90-8133-8c8bddce5c1e.tmp kind=file created=17:09:59.128 class=file
+s2-tui-console exit=0 temp=<R>\tmp-owner before=0 after=0
