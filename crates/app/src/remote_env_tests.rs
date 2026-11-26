@@ -777,19 +777,19 @@ async fn controller_never_sends_decide_and_returns_the_runners_decision_ref() {
                     "invitation": "inv_0001",
                     "client": format!("cl_{}", "0a".repeat(16)),
                     "generation": 3,
-                    "nonce": "n0nce",
+                    "nonce": "0123456789abcdef0123456789abcdef",
                     "expires_wall": "2026-11-21T12:15:00Z",
                 }))
             } else {
                 // ⟨M08 U2b-2⟩ Stamped as a runner that checks the epoch stamps its answers.
-                let mut pending = approval_required("dec_runner_0001");
+                let mut pending = approval_required("dec_01010101010101010101010101010101");
                 pending.request_id = Some(RequestId::parse("req_invite_1").unwrap());
                 pending.request_epoch = Some(heimdall_contract::lifecycle::RestoreEpoch(2));
                 pending
             }
         }
         Request::RemoteEnvironment(RemoteEnvironmentRequest::Update { .. }) => {
-            approval_required("dec_runner_0002")
+            approval_required("dec_02020202020202020202020202020202")
         }
         _ => ok(serde_json::json!({})),
     });
@@ -816,7 +816,7 @@ async fn controller_never_sends_decide_and_returns_the_runners_decision_ref() {
             request_id,
             request_epoch,
         } => {
-            assert_eq!(decision_ref, "dec_runner_0001");
+            assert_eq!(decision_ref, "dec_01010101010101010101010101010101");
             assert_eq!(request_id, input.request_id);
             // ⟨M08 U2b-2⟩ The epoch the runner bound the request to, kept with its ID.
             assert_eq!(
@@ -840,12 +840,18 @@ async fn controller_never_sends_decide_and_returns_the_runners_decision_ref() {
     assert_eq!(bundle.environment, env_id(1));
     assert_eq!(bundle.generation, 3);
     assert_eq!(bundle.key_fingerprint, fp('N'));
-    assert_eq!(bundle.nonce.as_deref(), Some("n0nce"));
+    assert_eq!(
+        bundle.nonce.as_deref(),
+        Some("0123456789abcdef0123456789abcdef")
+    );
     assert_eq!(bundle.route.runner.host_keys, vec![HOST.to_owned()]);
     // A decision on a non-widening call is surfaced, not answered.
     let err = c.update(&env_id(1)).await.unwrap_err();
     assert_eq!(err.code, Code::ApprovalRequired);
-    assert_eq!(err.next.decision_ref.as_deref(), Some("dec_runner_0002"));
+    assert_eq!(
+        err.next.decision_ref.as_deref(),
+        Some("dec_02020202020202020202020202020202")
+    );
     let sent = w.sessions.sent();
     assert_eq!(sent.len(), 3);
     for (_, request) in &sent {
@@ -1586,6 +1592,7 @@ fn removing_a_runner_record_forgets_its_holds_and_a_re_add_starts_clean() {
                 pending_grants: Vec::new(),
             },
             revoked: Vec::new(),
+            ignored_tombstones: 0,
         });
     }
     let permit = |n: u8| {

@@ -29,7 +29,11 @@
 //! issuer ([`RemoteIssuer`]), install at the runner. Nothing is prepared while the barrier is
 //! closed; a grant pinned to another controller or CA is refused (`issuer_untrusted`) before
 //! anything is reserved; only a published certificate is sent for installation; a refused
-//! install leaves the entry counted (ADR-0005 §3.5).
+//! install leaves the entry counted (ADR-0005 §3.5). ⟨M08 W4 SEC-1, S1-01; §3.5 step 3⟩ The
+//! publication's transaction applies this controller's own checks of the reservation again
+//! before the barrier's (`republish_checks`): the delivered record, its pairs, extensions and
+//! expiry, and the standing policy it came from. A pause of that policy, or the runner's
+//! removal, committed while the issuer signed voids the reservation, and nothing is sent.
 //!
 //! ⟨M06 W3 host; ADR-0005 §3.5 "Remote reservations"⟩ **The certificate's content is this
 //! controller's.** A remote certificate's pairs, extensions and validity come from this
@@ -93,7 +97,9 @@ use heimdall_contract::ids::{
 use heimdall_contract::remote::{EffectTarget, Permission, Role, RunnerRequest};
 use heimdall_contract::request::{AccessPairRef, PolicyAction};
 use heimdall_contract::trust::PolicyTarget;
-use heimdall_domain::issuance::{CertificateBounds, IssuanceEntry, IssuanceState, principal_for};
+use heimdall_domain::issuance::{
+    CertificateBounds, IssuanceEntry, IssuanceRefusal, IssuanceState, principal_for,
+};
 use heimdall_domain::policy::AuthorityGeneration;
 use heimdall_domain::time::Clock;
 use heimdall_store::ext_effects::{
@@ -927,13 +933,18 @@ impl ControllerSync {
             // and the certificate is never released).
             let certificate = issuer.sign(&entry, &subject.subject_public_key).await?;
             let now = self.clock.wall();
-            let published = self
-                .store
-                .transaction(|tx| {
-                    self.barrier
-                        .publish(tx, environment, policy, &entry.id, now)
-                })?
-                .map_err(|r| r.to_error())?;
+            let published = self.store.transaction(|tx| {
+                // ⟨M08 W4 SEC-1, S1-01⟩ This controller's own checks of the reservation
+                // again, in the publication's transaction: the signature took time, and
+                // the owner may have paused the record's policy or removed the runner.
+                if let Some(refused) = republish_checks(tx, environment, &entry, now)? {
+                    return Ok(Err(refused));
+                }
+                Ok(self
+                    .barrier
+                    .publish(tx, environment, policy, &entry.id, now)?
+                    .map_err(|r| r.to_error()))
+            })??;
             // 4. install at the runner: only a published certificate.
             if certificate.is_empty()
                 || certificate.len() > heimdall_contract::remote::MAX_CERTIFICATE_BYTES
@@ -1466,6 +1477,21 @@ fn source_policy_bound(
     record: &DeliveredGrant,
     now: Timestamp,
 ) -> heimdall_store::Result<Result<Option<Timestamp>, OpError>> {
+    Ok(source_policy_state(tx, record, now)?.map_err(|_| policy_withdrawn()))
+}
+
+/// [`source_policy_bound`] with the ledger's reason when the policy no longer authorizes
+/// the record ⟨M08 W4 SEC-1, S1-01⟩: `CutoffPassed` when its cutoff has passed, else
+/// `PausedActivation` (paused, removed, or no longer naming the runner or every pair).
+///
+/// # Errors
+///
+/// The store's (outer); the reason (inner).
+fn source_policy_state(
+    tx: &mut Txn<'_>,
+    record: &DeliveredGrant,
+    now: Timestamp,
+) -> heimdall_store::Result<Result<Option<Timestamp>, IssuanceRefusal>> {
     let Some(id) = &record.policy else {
         return Ok(Ok(None));
     };
@@ -1473,8 +1499,77 @@ fn source_policy_bound(
         Some(p) if policy_authorizes(&p, &record.environment, &record.pairs, now) => {
             Ok(p.cutoff_at)
         }
-        _ => Err(policy_withdrawn()),
+        Some(p) if p.cutoff_at.is_some_and(|c| c <= now) => Err(IssuanceRefusal::CutoffPassed),
+        _ => Err(IssuanceRefusal::PausedActivation),
     })
+}
+
+fn record_narrowed() -> OpError {
+    OpError::new(
+        Code::CapabilityUnavailable,
+        "this controller's record of the grant it delivered to the runner no longer covers \
+         the signed certificate: nothing was released",
+    )
+    .with_effect(EffectStatus::None)
+}
+
+/// ⟨M08 W4 SEC-1, S1-01; ADR-0005 §3.5 step 3 and "Remote reservations" conditions 6–8⟩
+/// This controller's own checks of a remote reservation, applied again in the
+/// publication's transaction against the store as it is now (the reservation applied them
+/// before the signature, which takes time):
+///
+/// * the record of the grant this controller delivered to the runner still exists and
+///   still holds the reserved pair (the owner may have removed the runner, which forgets
+///   it): `PairOutsideSnapshot`;
+/// * it still holds the reserved extensions (`UnpermittedExtension`) and an expiry no
+///   earlier than the certificate's `valid_before` (`BoundTooLate`);
+/// * a record written from a standing policy is still authorized by it, a local `policy
+///   pause` producing no outbox row for the runner: paused or withdrawn is
+///   `PausedActivation`, a cutoff that passed is `CutoffPassed`, and a cutoff moved
+///   before the certificate's `valid_before` is `BoundTooLate`.
+///
+/// A check that fails voids the reservation in this transaction (it then no longer counts,
+/// and the certificate is never released) and returns the refusal. `None`: every check
+/// holds, and the barrier judges next.
+///
+/// # Errors
+///
+/// The store's.
+fn republish_checks(
+    tx: &mut Txn<'_>,
+    environment: &EnvironmentId,
+    entry: &IssuanceEntry,
+    now: Timestamp,
+) -> heimdall_store::Result<Option<OpError>> {
+    let refused = match tx.delivered_grant(environment, &entry.grant)? {
+        None => Some((IssuanceRefusal::PairOutsideSnapshot, not_delivered())),
+        Some(record) if !record.pairs.contains(&entry.pair) => {
+            Some((IssuanceRefusal::PairOutsideSnapshot, not_delivered()))
+        }
+        Some(record) if !entry.bounds.extensions.is_subset(&record.extensions) => {
+            Some((IssuanceRefusal::UnpermittedExtension, record_narrowed()))
+        }
+        Some(record) if entry.bounds.valid_before > record.expires_at => {
+            Some((IssuanceRefusal::BoundTooLate, record_narrowed()))
+        }
+        Some(record) => match source_policy_state(tx, &record, now)? {
+            Err(why) => Some((why, policy_withdrawn())),
+            Ok(Some(cutoff)) if entry.bounds.valid_before > cutoff => {
+                Some((IssuanceRefusal::BoundTooLate, policy_withdrawn()))
+            }
+            Ok(_) => None,
+        },
+    };
+    let Some((why, error)) = refused else {
+        return Ok(None);
+    };
+    if tx
+        .issuance_entry(&entry.id)?
+        .is_some_and(|e| e.state == IssuanceState::Reserved)
+    {
+        tx.void_issuance(&entry.id, &why, now)?;
+    }
+    Ok(Some(error))
 }
 
 /// ⟨M06 W4, W5; ADR-0005 §3.5 condition 8 (b); ADR-0012 §4 item 2 ⟨2026-11-21⟩⟩ Record
@@ -1772,7 +1867,7 @@ pub fn pins(tx: &mut Txn<'_>) -> heimdall_store::Result<Vec<RemoteEnvironmentPin
 
 /// The environment a certificate key ID names for `grant`
 /// (`heimdall:<environment>:<grant>:<serial>`).
-fn key_id_environment(key_id: &str, grant: &GrantId) -> Option<EnvironmentId> {
+pub(crate) fn key_id_environment(key_id: &str, grant: &GrantId) -> Option<EnvironmentId> {
     let mut parts = key_id.split(':');
     match (
         parts.next(),
@@ -2350,6 +2445,7 @@ mod tests {
                     pending_grants: Vec::new(),
                 },
                 revoked: Vec::new(),
+                ignored_tombstones: 0,
             });
         }
 
@@ -2529,6 +2625,7 @@ mod tests {
                     pending_grants: Vec::new(),
                 },
                 revoked: Vec::new(),
+                ignored_tombstones: 0,
             });
         };
         // The barrier's answer for a grant whose prepare answer names `policy`.

@@ -10,7 +10,9 @@
 //! * a grant another controller tombstoned on the runner is **marked revoked in this ledger**
 //!   (its tombstone is written here, so a reservation made before is voided at publish and no
 //!   new one is admitted), and its counted certificates enter the residual
-//!   ([`reconcile_in`]);
+//!   ([`reconcile_in`]). ⟨M08 W4 SEC-1, S2-04⟩ Only a grant this controller delivered to
+//!   that runner: an entry naming anything else is dropped and counted, and changes nothing
+//!   here;
 //! * a paused or cut-off policy blocks issuance for that scope ([`IssuerBarrier::permit`]).
 //!
 //! [`IssuerBarrier`] is the gate. It is process state, one entry per runner environment, and
@@ -68,7 +70,10 @@
 //! delivered revisions are not this controller's to acknowledge. They count exactly as the
 //! report states them: **in force** blocks this controller too; one the runner reports as
 //! lifted does not, with no acknowledgement here (the delivering controller stays blocked
-//! by it until its own two keys clear).
+//! by it until its own two keys clear). ⟨M08 W4 SEC-1, S3-02⟩ An in-force row is judged as
+//! this controller's own rows are: a cutoff that fired early under uncertain time refuses
+//! whatever its instant, and a `profile:` or `workspace:` scope covers the grant's policy
+//! unless the report shows it did not apply to that policy.
 //!
 //! Which standing policy a grant really belongs to is still the runner's statement until the
 //! controller holds its own policy record (m06-plan W4, record source (b)).
@@ -137,14 +142,18 @@ pub fn counted_residual(
     tx: &mut Txn<'_>,
     grant: &GrantId,
 ) -> heimdall_store::Result<CountedResidual> {
-    let entries = tx.issuance_entries(grant)?;
+    Ok(counted_residual_of(&tx.issuance_entries(grant)?))
+}
+
+/// [`counted_residual`] of a grant's entries, already read.
+fn counted_residual_of(entries: &[IssuanceEntry]) -> CountedResidual {
     if entries.is_empty() {
-        return Ok(CountedResidual::Unknown);
+        return CountedResidual::Unknown;
     }
-    Ok(match heimdall_domain::issuance::residual(&entries) {
+    match heimdall_domain::issuance::residual(entries) {
         Some(t) => CountedResidual::Until(t),
         None => CountedResidual::NoneOutstanding,
-    })
+    }
 }
 
 /// The new-authentication residual of a counted history with the destination clock's error
@@ -200,6 +209,38 @@ pub struct Reconciliation {
     pub report: AuthorityReport,
     /// The grants of this ledger the report shows tombstoned.
     pub revoked: Vec<RevokedByReport>,
+    /// ⟨M08 W4 SEC-1, S2-04⟩ The report's tombstone entries (tombstoned grants and cascade
+    /// entries) this reconciliation did not take: each grant this controller did not deliver
+    /// to that runner (a grant of this installation, another runner's, an ID it never
+    /// issued for), and each entry past [`MAX_RECONCILED_TOMBSTONES`]. Nothing is written
+    /// for them. The report itself still refuses issuance for every grant it names, in this
+    /// session (rule 4).
+    pub ignored_tombstones: usize,
+}
+
+/// ⟨M08 W4 SEC-1, S2-04⟩ The most distinct tombstone entries (tombstoned grants and cascade
+/// entries) one reconciliation takes from a report, newest first; the rest are counted in
+/// [`Reconciliation::ignored_tombstones`].
+pub const MAX_RECONCILED_TOMBSTONES: usize = 4096;
+
+/// ⟨M08 W4 SEC-1, S2-04; spec §8.1⟩ Whether `grant` is one this controller delivered to the
+/// runner `environment`: its delivered-grant record for that runner, or an issuance entry
+/// of this ledger whose key ID names that runner. Never a grant of this installation: a
+/// runner's report does not alter authority in another environment.
+fn delivered_to(
+    tx: &mut Txn<'_>,
+    environment: &EnvironmentId,
+    grant: &GrantId,
+    entries: &[IssuanceEntry],
+) -> heimdall_store::Result<bool> {
+    if tx.grant(grant)?.is_some() {
+        return Ok(false);
+    }
+    Ok(tx.delivered_grant(environment, grant)?.is_some()
+        || entries.iter().any(|e| {
+            crate::remote_status_driver::key_id_environment(&e.bounds.key_id, grant).as_ref()
+                == Some(environment)
+        }))
 }
 
 /// Read `report` against this controller's ledger, in the caller's transaction (module
@@ -208,8 +249,20 @@ pub struct Reconciliation {
 /// issuance entry for it (the issuer child's own check reads this ledger, so a grant another
 /// controller revoked is refused there too, and stays refused after this session). The
 /// counted residual of each grant this ledger has entries for is returned. Reserved entries
-/// are left to the publish, which voids them on the tombstone. A report for another environment than `environment` is not read: `None`,
-/// nothing written (the caller holds the environment, `environment_identity_mismatch`).
+/// are left to the publish, which voids them on the tombstone. A report for another
+/// environment than `environment` is not read: `None`, nothing written (the caller holds
+/// the environment, `environment_identity_mismatch`).
+///
+/// ⟨M08 W4 SEC-1, S2-04; spec §8.1; ADR-0012 §3.10 T-RA6⟩ Only for a grant this controller
+/// delivered to **that** runner ([`delivered_to`]). The report is the runner's word, and a
+/// runner's word does not alter authority elsewhere: an entry naming a grant of this
+/// installation, a grant delivered to another runner, or an ID this controller never issued
+/// for is dropped and counted ([`Reconciliation::ignored_tombstones`]), and nothing is
+/// written for it. At most [`MAX_RECONCILED_TOMBSTONES`] distinct entries are taken, newest
+/// first (the report lists tombstones in the runner's apply order). So the store's
+/// tombstone write, which also moves this controller's authority generation, happens only
+/// for a grant of that runner that this controller delivered and that has no tombstone here
+/// yet.
 ///
 /// # Errors
 ///
@@ -225,12 +278,23 @@ pub fn reconcile_in(
     }
     let mut seen = BTreeSet::new();
     let mut revoked = Vec::new();
-    for t in &report.tombstones {
+    let mut ignored = 0usize;
+    for t in report.tombstones.iter().rev() {
         for grant in std::iter::once(&t.grant).chain(t.cascade.iter()) {
-            if !seen.insert(grant.clone()) {
+            if seen.contains(grant) {
                 continue;
             }
-            let residual = counted_residual(tx, grant)?;
+            if seen.len() >= MAX_RECONCILED_TOMBSTONES {
+                ignored += 1;
+                continue;
+            }
+            seen.insert(grant.clone());
+            let entries = tx.issuance_entries(grant)?;
+            if !delivered_to(tx, environment, grant, &entries)? {
+                ignored += 1;
+                continue;
+            }
+            let residual = counted_residual_of(&entries);
             let marked_now = tx.tombstone(grant)?.is_none();
             if marked_now {
                 tx.insert_tombstone(&Tombstone {
@@ -259,6 +323,7 @@ pub fn reconcile_in(
         at: now,
         report,
         revoked,
+        ignored_tombstones: ignored,
     }))
 }
 
@@ -377,6 +442,49 @@ fn revision_of(row: &PolicyRevisionRecord, effect: &OutboxEffect) -> bool {
         && row.revision == effect.key.target.generation()
         && heimdall_store::ext_effects::target_ref(&effect.key.target).as_deref()
             == Some(row.scope_key.as_str())
+}
+
+/// ⟨M08 W4 SEC-1, S3-02⟩ What one delivered revision that covers the grant's policy refuses,
+/// judged as this controller's own outbox rows are: a pause refuses; a cutoff that **fired**
+/// (it took effect at the runner's apply because the runner's time was uncertain,
+/// [`PolicyRevisionRecord::fired_uncertain_at`]) refuses whatever its instant; a cutoff
+/// whose instant has passed refuses; a future one bounds the certificate (`cut`).
+fn revision_refusal(
+    row: &PolicyRevisionRecord,
+    cut: &mut impl FnMut(Timestamp) -> bool,
+) -> Option<BarrierRefusal> {
+    match row.kind {
+        PolicyRevisionKind::Pause => Some(BarrierRefusal::PolicyPaused),
+        PolicyRevisionKind::Cutoff => (row.fired_uncertain_at.is_some()
+            || row.cutoff_at.is_some_and(cut))
+        .then_some(BarrierRefusal::PolicyCutoff),
+    }
+}
+
+/// ⟨M08 W4 SEC-1, S3-02⟩ Whether `report` shows that `row`, a delivered revision whose scope
+/// names no single policy (`profile:`, `workspace:`), did not apply to `policy`. Which
+/// policies such a scope covers is the runner's to say, and its report says it only through
+/// the policy's own state: the runner applies a delivered pause or cutoff to every policy
+/// the scope covers when it applies it. So the report shows the row did not apply when it
+/// lists `policy` and, for a pause, the policy is not paused or, for a cutoff, the policy
+/// has no cutoff at or before the instant the row applied at (the instant it fired at, when
+/// it fired early; else the owner's). Anything else covers the policy: an unlisted policy
+/// (the naming rule refuses it first) or a cutoff row with no instant.
+fn shown_not_to_apply(
+    report: &AuthorityReport,
+    policy: &PolicyId,
+    row: &PolicyRevisionRecord,
+) -> bool {
+    let Some(listed) = report.policies.iter().find(|p| p.policy == *policy) else {
+        return false;
+    };
+    match row.kind {
+        PolicyRevisionKind::Pause => !listed.paused,
+        PolicyRevisionKind::Cutoff => row
+            .fired_uncertain_at
+            .or(row.cutoff_at)
+            .is_some_and(|applied| listed.cutoff_at.is_none_or(|c| c > applied)),
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -577,14 +685,13 @@ impl IssuerBarrier {
             .filter(|r| !lifted.iter().any(|e| revision_of(r, e)))
             .filter(|r| r.in_force || own.iter().any(|e| revision_of(r, e)))
             .collect();
-        // A delivered cutoff of every policy applies whatever the grant's policy.
-        for row in &revisions {
-            if row.kind == PolicyRevisionKind::Cutoff
-                && row.scope_key == "all"
-                && let Some(at) = row.cutoff_at
-                && cut(at)
-            {
-                return Ok(Err(BarrierRefusal::PolicyCutoff));
+        // A delivered revision of every policy applies whatever the grant's policy.
+        // ⟨M08 W4 SEC-1, S3-02⟩ Judged as this controller's own rows are: a cutoff that
+        // fired refuses outright, whatever its instant (a future one only bounds a cutoff
+        // that has not fired), also when another controller delivered it.
+        for row in revisions.iter().filter(|r| r.scope_key == "all") {
+            if let Some(refusal) = revision_refusal(row, &mut cut) {
+                return Ok(Err(refusal));
             }
         }
         if answered {
@@ -616,16 +723,22 @@ impl IssuerBarrier {
                 }
             }
             // And the delivered revisions naming it, should the runner hold no such policy.
+            // ⟨M08 W4 SEC-1, S3-02⟩ Also every revision of a scope that could cover it: a
+            // `profile:` or `workspace:` scope (or one this build does not know) covers
+            // the policy unless the report shows it does not apply to it
+            // ([`shown_not_to_apply`]).
             let key = heimdall_store::ext_effects::policy_scope_key(policy);
-            for row in revisions.iter().filter(|r| r.scope_key == key) {
-                match (row.kind, row.cutoff_at) {
-                    (PolicyRevisionKind::Pause, _) => {
-                        return Ok(Err(BarrierRefusal::PolicyPaused));
-                    }
-                    (PolicyRevisionKind::Cutoff, Some(at)) if cut(at) => {
-                        return Ok(Err(BarrierRefusal::PolicyCutoff));
-                    }
-                    _ => {}
+            for row in &revisions {
+                let covers = match row.scope_key.as_str() {
+                    // Judged above.
+                    "all" => false,
+                    k if k == key => true,
+                    // Another policy's.
+                    k if k.starts_with("policy:") => false,
+                    _ => !shown_not_to_apply(report, policy, row),
+                };
+                if covers && let Some(refusal) = revision_refusal(row, &mut cut) {
+                    return Ok(Err(refusal));
                 }
             }
         }
