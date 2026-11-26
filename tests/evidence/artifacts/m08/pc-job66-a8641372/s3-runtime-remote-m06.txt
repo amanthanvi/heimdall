@@ -1,0 +1,22 @@
+   Compiling heimdall-runtime v0.1.0-m01 (<R>\c1\crates\runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.83s
+     Running ..\..\tests\integration\remote_runtime_m06.rs (target\debug\deps\integration_remote_runtime_m06-a09bc1f3bab3f629.exe)
+
+running 14 tests
+test enroll_owner_is_attended_idempotent_and_never_replaces_an_endpoint ... ok
+test a_joins_probe_observation_is_checked_before_the_commit ... ok
+test paired_frames_are_checked_and_revocation_ends_the_clients_sessions ... ok
+test only_a_runner_accepts_a_paired_client_and_only_a_resolved_one ... ok
+test paired_runner_forms_reach_the_runner_runtime_and_other_runtimes_refuse_them ... ok
+test decision_backed_replay_after_a_store_restart_answers_each_record_state ... ok
+test paired_widening_is_confirmed_runner_locally_and_replays_its_result ... ok
+test a_refused_joins_downgrade_commits_with_the_refusal_or_not_at_all ... ok
+test runner_local_decisions_are_the_attended_local_owners_only ... ok
+test sshd_t_alone_does_not_lift_the_downgrade ... ok
+test the_dispatcher_names_local_owner_required_for_a_paired_callers_attended_only_form ... ok
+test the_owner_only_downgrade_lifts_only_on_fresh_agreeing_evidence_attended ... ok
+test transport_widening_runs_only_its_exact_delta_and_revocation_narrows_admission ... ok
+test pending_sessions_reach_only_the_probe_and_join ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+

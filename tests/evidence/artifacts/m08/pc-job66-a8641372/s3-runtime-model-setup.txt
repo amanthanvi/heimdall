@@ -1,0 +1,60 @@
+   Compiling heimdall-runtime v0.1.0-m01 (<R>\c1\crates\runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.91s
+     Running ..\..\tests\model\setup.rs (target\debug\deps\model_setup-8954a111d6aec2d4.exe)
+
+running 52 tests
+test a_plan_whose_full_diff_exceeds_the_bound_is_refused_before_anything_is_journaled ... ok
+test apply_after_base_change_is_config_conflict_and_nothing_written ... ok
+test apply_requires_decision_attended_and_unattended ... ok
+test apply_executes_exactly_the_decided_plan_digest ... ok
+test catalog_alias_case_variant_is_refused_at_write ... ok
+test catalog_alias_rename_keeps_destination_id ... ok
+test a_rollback_is_refused_for_its_owner_file_change_alone ... ok
+test apply_through_operations_snapshots_the_original_user_file ... ok
+test changed_plan_same_request_is_request_conflict ... ok
+test crash_during_setup_admission_leaves_no_blocker ... ok
+test declaration_validity_follows_the_configured_days ... ok
+test declaration_written_from_decision_fields_only_and_stale_on_endpoint_change ... ok
+test declare_interaction_needs_attended_decision_and_lapses_on_endpoint_change_and_expiry ... ok
+test git_item_reasons_are_contract_reasons ... ok
+test expired_projection_decision_expires_the_operation ... ok
+test expired_declaration_decision_expires_the_catalog_operation ... ok
+test held_first_adoption_reports_restored_files ... ok
+test expired_projection_decision_expires_at_decide_tick_and_restart ... ok
+test held_item_is_outcome_unknown_with_the_held_repair_options ... ok
+test a_plan_that_reports_a_conflict_but_changes_nothing_is_refused_by_the_driver ... ok
+test held_repair_paused_before_the_writer_refuses_cancel_and_a_second_repair ... ok
+test include_target_glob_is_its_own_manual_reason ... ok
+test inspect_profiles_lists_the_catalog_definitions ... ok
+test inspect_destinations_lists_the_catalog_with_alias_and_definition ... ok
+test held_operation_blocks_setup_except_its_repair ... ok
+test limited_consumer_refused ... ok
+test profile_upsert_bumps_revision_and_does_not_widen_existing_grant ... ok
+test item_record_aliases_merged_when_p_unchanged ... ok
+test managed_file_edited_is_resolved_by_rollback_and_never_by_rerender ... ok
+test multi_operation_repair_is_offered_again_until_none_left ... ok
+test restart_child_aborts_inside_apply ... ok
+test projection_events_carry_generation_and_change ... ok
+test remove_profile_refuses_new_work_and_keeps_pinned_snapshots ... ok
+test remove_destination_marks_projection_stale_and_changes_no_file ... ok
+test rerender_repair_to_consented_state_needs_no_decision ... ok
+test rollback_exposing_inherited_hostname_and_agent_added_after_apply_needs_decision ... ok
+test rollback_after_match_exec_command_edit_needs_decision ... ok
+test held_repair_retry_continues_and_keep_closes_without_moving ... ok
+test second_setup_while_one_is_open_is_setup_in_progress ... ok
+test held_repair_preview_binds_content_fingerprints ... ok
+test rollback_to_consented_restore_needs_no_decision ... ok
+test restart_reconciles_attempted_apply_never_reapplies ... ok
+test setup_in_progress_persists_across_restart ... ok
+test same_request_id_replays_apply ... ok
+test stale_declaration_decision_is_reissued_bound_to_the_current_identity ... ok
+test supervisor_wakes_at_the_earliest_pending_decision_deadline ... ok
+test withdraw_declaration_needs_no_decision ... ok
+test sink_refuses_consent_under_another_decision ... ok
+test unreadable_receipt_leaves_setup_unresolved_and_reported ... ok
+test restart_reconciles_attempted_apply_never_reapplies_after_a_process_abort ... ok
+test verified_client_unavailable_at_apply_is_capability_unavailable ... ok
+test a_rollback_of_a_p_well_over_the_bound_is_previewed_and_applied ... ok
+
+test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.71s
+

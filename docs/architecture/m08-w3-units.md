@@ -32,6 +32,16 @@ Workers never commit or push (AGENTS.md).
     commits. It gets one gate, and Windows and devbox runs for the fix diff only. U2b-2's PC
     job 65 and its devbox run (`devbox-u2b2/`) stand.
   - Then `m08/w3` merges to main. That unblocks M07's W10 readers, and its rebuild on U2b-1.
+- **W3's rig audit is partly resolved** (PC job 66). `integration_managed_adapter` still leaves
+  `.tmp*` directories on Windows. It is test-only and does not block (ADR-0009 §2.1).
+  - **W4's first item:** find what holds the store or the files past the scratch directory's
+    drop (another rig in that file, or a thread, task or child process that outlives `World`)
+    and fix it. Look for the same pattern in other rigs. Prove it on Windows with a `.tmp*`
+    count.
+  - **Not run in job 66 (a harness prerequisite):**
+    - `e2e_deadline_m03`'s `windows::*` tests: the next full m02 Windows harness run, at the W4
+      candidate at the latest.
+    - `e2e_tui_m02`'s `console::*` tests: job 66b.
 - **W4** is everything after: U2b-3 (in two slices, U2b-3a and U2b-3b), U2b-4, GRANT-LIVE, U6b,
   U7b and rows 5 and 6 above. It has its own independent review and re-check at the W4
   candidate. Units 4 to 6 in the table above move to W4.

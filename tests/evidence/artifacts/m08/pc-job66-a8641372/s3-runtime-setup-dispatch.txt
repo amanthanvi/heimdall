@@ -1,0 +1,17 @@
+   Compiling heimdall-runtime v0.1.0-m01 (<R>\c1\crates\runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.53s
+     Running ..\..\tests\e2e\setup_dispatch.rs (target\debug\deps\e2e_setup_dispatch-15798440b5260b90.exe)
+
+running 9 tests
+test e2e_setup_without_capability_is_schema_unsupported ... ok
+test e2e_inspect_destinations_lists_the_catalog_through_the_dispatcher ... ok
+test e2e_setup_attended_apply_inspect_rollback_through_dispatcher ... ok
+test e2e_declaration_validity_days_come_from_the_configuration ... ok
+test e2e_catalog_then_ensure_bind_carry_pairs_and_selection ... ok
+test e2e_supervisor_cleaner_deletes_after_rollback_through_the_service ... ok
+test e2e_setup_preview_apply_decide_restart_through_dispatcher ... ok
+test declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher ... ok
+test simultaneous_setup_admissions_admit_exactly_one ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.76s
+
