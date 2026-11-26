@@ -1844,3 +1844,190 @@ async fn the_runner_owners_own_policy_remove_does_not_lift_a_delivered_cutoff() 
         Err(BarrierRefusal::PolicyCutoff)
     );
 }
+
+/// ⟨M08 W4 SEC-3a, S2-02; ADR-0012 §3.11, §4.4, §7.4⟩ Once the designated time-source
+/// controller is revoked, cleared, or replaced by another controller, the runner forgets its
+/// sample: `bounded()` is false, `sample()` and `now_upper_bound()` are `None`, certificate
+/// installation treats time as uncertain (`TIME_UNCERTAIN`), and a delivered cutoff at "now"
+/// fires even if the old source had supplied a backdated `controller_time`.
+#[tokio::test]
+async fn s2_02_time_sample_is_forgotten_on_revocation_clear_and_switch() {
+    use heimdall_contract::ids::RequestId;
+    use heimdall_contract::remote::RunnerLocalRequest;
+    use heimdall_remote::sync::RunnerSide as _;
+
+    #[derive(Clone, Copy)]
+    enum Transition {
+        RevokeViaPairedRunner,
+        ClearViaPairedRunner,
+        SwitchViaPairedRunner,
+        RevokeInStore,
+        ClearInStore,
+        SwitchInStore,
+    }
+
+    let cases = [
+        ("revoke_via_paired_runner", Transition::RevokeViaPairedRunner),
+        ("clear_via_paired_runner", Transition::ClearViaPairedRunner),
+        ("switch_via_paired_runner", Transition::SwitchViaPairedRunner),
+        ("revoke_in_store", Transition::RevokeInStore),
+        ("clear_in_store", Transition::ClearInStore),
+        ("switch_in_store", Transition::SwitchInStore),
+    ];
+
+    for (label, transition) in cases {
+        let r = rig().await;
+        let paired = PairedRunner::new(
+            Arc::clone(&r.w.store),
+            r.ops.clone(),
+            r.w.clock.clone(),
+            RunnerOptions::default(),
+        )
+        .with_runtime(Arc::clone(&r.w.runner));
+
+        r.w.trust(&r.w.ca_a, &controller_a());
+        r.w.trust(&r.w.ca_b, &controller_b());
+        r.w.designate(&controller_a());
+
+        // Make runner local time uncertain, then let controller A answer with a backdated
+        // `controller_time` (2 hours in the past). While A's sample stands, `now_upper_bound()`
+        // is 2 hours before `now`, so a cutoff at `now` would NOT fire.
+        r.make_time_uncertain().await;
+        let now = r.w.clock.wall();
+        let backdated = now
+            .checked_sub(jiff::SignedDuration::from_hours(2))
+            .unwrap();
+        r.w.exchange(&controller_a(), 1, Duration::from_millis(20), backdated)
+            .unwrap();
+        assert!(r.w.runner.time().bounded(), "{label}: baseline sample");
+        assert!(
+            r.w.runner.now_upper_bound().is_some_and(|u| u < now),
+            "{label}: backdated sample must bound upper below now before transition"
+        );
+
+        let local_unattended = Caller::unattended(CallerContext::local(
+            PrincipalRef::UnixUser { uid: 1000 },
+            ClientRole::Owner,
+        ));
+        let local_attended = Caller {
+            context: CallerContext::local(PrincipalRef::UnixUser { uid: 1000 }, ClientRole::Owner),
+            attendance: heimdall_app::Attendance::Attended { since: now },
+            interaction: heimdall_contract::request::InteractionMode::Interactive,
+        };
+
+        match transition {
+            Transition::RevokeViaPairedRunner => {
+                let ans = paired.revoke_client(&r.w.env, &controller_a()).await;
+                assert_eq!(ans.code, Code::Ok, "{label}: {ans:?}");
+            }
+            Transition::ClearViaPairedRunner => {
+                let ans = paired
+                    .runner_local(&local_unattended, RunnerLocalRequest::ClearTimeSource)
+                    .await;
+                assert_eq!(ans.code, Code::Ok, "{label}: {ans:?}");
+                assert_eq!(ans.data["cleared"], true, "{label}: {ans:?}");
+            }
+            Transition::SwitchViaPairedRunner => {
+                let ans = paired
+                    .runner_local(
+                        &local_attended,
+                        RunnerLocalRequest::DesignateTimeSource {
+                            client: controller_b(),
+                            request_id: RequestId::parse("s2-02-switch").unwrap(),
+                        },
+                    )
+                    .await;
+                assert_eq!(ans.code, Code::Ok, "{label}: {ans:?}");
+            }
+            Transition::RevokeInStore => {
+                r.w.store
+                    .transaction(|tx| {
+                        tx.revoke_remote_client(
+                            &controller_a(),
+                            heimdall_store::ext_m06::RevocationCause::Revoked,
+                            now,
+                        )
+                        .map(drop)
+                    })
+                    .unwrap();
+            }
+            Transition::ClearInStore => {
+                r.w.store
+                    .transaction(|tx| tx.clear_time_source().map(drop))
+                    .unwrap();
+            }
+            Transition::SwitchInStore => {
+                r.w.designate(&controller_b());
+            }
+        }
+
+        // 1. bounded() is false and every reader sees no sample.
+        assert!(
+            !r.w.runner.time().bounded(),
+            "{label}: bounded() remained true after time source change"
+        );
+        assert!(
+            r.w.runner.time().sample().is_none(),
+            "{label}: sample() still returned old source's sample"
+        );
+        assert!(
+            r.w.runner.now_upper_bound().is_none(),
+            "{label}: now_upper_bound() still used old source's sample"
+        );
+
+        // 2. Issuance treats time as uncertain (`TIME_UNCERTAIN`).
+        let generation = r.w.generation();
+        let prepared = r
+            .w
+            .runner
+            .issuance()
+            .prepare(&controller_b(), &r.w.grant, generation)
+            .unwrap();
+        let valid_before =
+            Timestamp::from_second(plus(r.w.clock.wall(), HOUR).as_second()).unwrap();
+        let cert = r.w.sign(&r.w.ca_b, &prepared, &pair("h1"), valid_before);
+        let install = r
+            .w
+            .runner
+            .issuance()
+            .install(&controller_b(), &r.w.grant, generation, &cert);
+        assert_eq!(
+            install,
+            Err(IssuanceFailure::TimeUncertain),
+            "{label}: install did not treat time as uncertain"
+        );
+
+        // 3. A cutoff at "now" fires immediately under uncertain time (not delayed by A's
+        // backdated sample).
+        let ack = r
+            .deliver(
+                &controller_b(),
+                &effect(0x52),
+                &EffectTarget::PolicyCutoff {
+                    scope: PolicyTarget::All,
+                    at: now,
+                    revision: 1,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(
+            matches!(ack.record, AppliedRecord::PolicyRevision { fired: true, .. }),
+            "{label}: cutoff at now did not fire: {ack:?}"
+        );
+
+        // Positive control for Switch: a fresh sample from controller B bounds time again.
+        if matches!(
+            transition,
+            Transition::SwitchViaPairedRunner | Transition::SwitchInStore
+        ) {
+            let fresh_now = r.w.clock.wall();
+            r.w.exchange(&controller_b(), 2, Duration::from_millis(20), fresh_now)
+                .unwrap();
+            assert!(
+                r.w.runner.time().bounded(),
+                "{label}: fresh sample from new designated source B must bound time"
+            );
+        }
+    }
+}

@@ -313,9 +313,7 @@ impl World {
             .unwrap()?
             .nonce;
         self.clock.advance(rtt);
-        self.store
-            .transaction(|tx| Ok(time.respond(tx, &session, &nonce, controller_time)))
-            .unwrap()
+        time.respond(&session, &nonce, controller_time)
     }
 
     /// A good sample from controller A (designated first): RTT 100 ms, the controller's clock

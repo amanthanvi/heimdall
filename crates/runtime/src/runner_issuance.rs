@@ -662,9 +662,9 @@ impl RunnerIssuance {
         if !key_id_names(&facts.key_id, grant) {
             return Err(IssuanceFailure::Certificate);
         }
-        let sample = self.time.sample();
         let bounds = bounds_of(&facts, principal);
         let clock = Arc::clone(&self.clock);
+        let time_state = Arc::clone(&self.time);
         self.store
             .transaction(|tx| {
                 Ok((|| {
@@ -688,7 +688,10 @@ impl RunnerIssuance {
                     {
                         return Err(IssuanceFailure::IssuerUntrusted);
                     }
-                    // The safe deadline: the runner anchor from the latest qualifying sample.
+                    // The safe deadline: the runner anchor from the latest qualifying sample,
+                    // verified inside this transaction to still belong to the currently
+                    // designated active owner time source (S2-02).
+                    let sample = time_state.sample_in(tx);
                     let now = clock.observe();
                     let time = match &sample {
                         Some(s) if s.exchange.boot_id == now.boot_id => {

@@ -68,9 +68,7 @@ fn a_sample_from_a_non_designated_client_is_refused() {
         .nonce;
     assert_eq!(nonce.len(), 32);
     assert_eq!(
-        w.store
-            .transaction(|tx| Ok(time.respond(tx, &b, &nonce, tc)))
-            .unwrap(),
+        time.respond(&b, &nonce, tc),
         Err(TimeRefusal::UnknownNonce)
     );
     assert_eq!(
@@ -86,9 +84,7 @@ fn a_sample_from_a_non_designated_client_is_refused() {
         .nonce;
     w.designate(&controller_b());
     assert_eq!(
-        w.store
-            .transaction(|tx| Ok(time.respond(tx, &a, &nonce, tc)))
-            .unwrap(),
+        time.respond(&a, &nonce, tc),
         Err(TimeRefusal::NotDesignated)
     );
     // A designated client that is revoked counts for nothing.
@@ -131,11 +127,7 @@ fn a_sample_is_fresh_nonce_bound_and_rtt_bounded() {
             .unwrap()
             .nonce
     };
-    let respond = |s, n: &str| {
-        w.store
-            .transaction(|tx| Ok(time.respond(tx, s, n, tc)))
-            .unwrap()
-    };
+    let respond = |s, n: &str| time.respond(s, n, tc);
     // The same client on another connection: not this session's challenge.
     let n = challenge(&s);
     assert_eq!(
@@ -934,5 +926,289 @@ fn a24_a_controller_dependent_signer_behind_an_ordinary_local_path_is_unknown() 
         !String::from_utf8(none.stdout)
             .unwrap()
             .contains("SSH_AUTH_SOCK")
+    );
+}
+
+/// ⟨M08 W4 SEC-3a, S3-05⟩ `RunnerTime::respond` keeps its sample in memory only after the
+/// SQLite `COMMIT` succeeds. When `FaultPoint::BeforeCommit` fails the transaction:
+/// - with no prior sample, `bounded()` stays `false` and `sample()` stays `None`;
+/// - with a prior sample and a pinned grant anchor, the anchor rolls back AND `sample()`
+///   keeps the prior committed sample rather than the uncommitted one.
+#[test]
+fn s3_05_time_sample_is_not_kept_when_commit_fails() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use heimdall_contract::GrantState;
+    use heimdall_contract::ids::{DestinationId, GrantId, KeyFingerprint};
+    use heimdall_contract::remote::{Role, RunnerLifetime};
+    use heimdall_contract::request::{
+        DeadlineIntent, DestinationScopeEnforcement, Enforcement, ExistingConnectionsPolicy,
+        NewAuthenticationExpiry, RevocationStatus, WorkloadIsolation,
+    };
+    use heimdall_credential::cert::SecretCaKey;
+    use heimdall_credential::vault::KeyVault;
+    use heimdall_domain::catalog::{DestinationDefinition, DestinationRecord};
+    use heimdall_domain::evidence::EnforcementEvidence;
+    use heimdall_domain::grant::{AuthorizationSource, GrantOrigin, GrantSnapshot};
+    use heimdall_domain::policy::PolicyRevision;
+    use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+    use heimdall_domain::profile::ProfileDefinition;
+    use heimdall_domain::scope::{Capability, Scope};
+    use heimdall_domain::time::Deadline;
+    use heimdall_runtime::runner::RunnerRuntime;
+    use heimdall_runtime::runner::time::{RunnerTimePolicy, designate_time_source};
+    use heimdall_store::ext_m06::{AppliedLine, ClientState, RemoteClientRecord};
+    use heimdall_store::ext_runner::TrustedIssuer;
+    use heimdall_store::{FaultAction, FaultHook, FaultPoint, Store};
+    use heimdall_testkit::VirtualClock;
+
+    struct ArmedCommitFault(AtomicBool);
+    impl FaultHook for ArmedCommitFault {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            if point == FaultPoint::BeforeCommit && self.0.swap(false, Ordering::SeqCst) {
+                FaultAction::Fail
+            } else {
+                FaultAction::Continue
+            }
+        }
+    }
+
+    let fault = Arc::new(ArmedCommitFault(AtomicBool::new(false)));
+    let store = Arc::new(Store::open_in_memory(Arc::clone(&fault) as Arc<dyn FaultHook>).unwrap());
+    let clock = VirtualClock::at(t0());
+    clock.advance_continuous_only(Duration::from_secs(1000));
+    let env = heimdall_runtime::paired::init_runner(&store).unwrap();
+    let grant = GrantId::from_random_bytes([0x71; 16]);
+    let scope = Scope {
+        pairs: [pair("h1"), pair("h2")].into_iter().collect(),
+        capabilities: [Capability::SshAuthentication].into_iter().collect(),
+    };
+    let ca_a = SecretCaKey::generate().unwrap();
+    store
+        .transaction(|tx| {
+            tx.enroll_bootstrap_owner(
+                &RemoteClientRecord {
+                    client: controller_a(),
+                    role: Role::Owner,
+                    key_fingerprint: KeyFingerprint::parse(&format!("SHA256:{}", "A".repeat(43)))
+                        .unwrap(),
+                    public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA".into(),
+                    state: ClientState::Active,
+                    invitation: None,
+                    revoked_generation: None,
+                    revocation: None,
+                    created_at: t0(),
+                    updated_at: t0(),
+                    line: AppliedLine::Absent,
+                },
+                t0(),
+            )?;
+            tx.upsert_profile(&ProfileDefinition {
+                id: profile(),
+                revision: 1,
+                scope: scope.clone(),
+                label: None,
+            })?;
+            tx.upsert_policy(&policy(&env, None, 1), false)?;
+            for d in ["h1", "h2"] {
+                tx.upsert_destination(&DestinationRecord {
+                    id: DestinationId::parse(d).unwrap(),
+                    alias: d.into(),
+                    revision: 1,
+                    definition: DestinationDefinition::Observed,
+                    label: None,
+                    updated_at: t0(),
+                })?;
+            }
+            let generation = tx.authority_generation()?;
+            tx.insert_grant(&GrantSnapshot {
+                id: grant.clone(),
+                environment: env.clone(),
+                scope: scope.clone(),
+                starts_at: t0(),
+                deadline: Deadline {
+                    intent: DeadlineIntent::Absolute("2026-11-21T11:00:00Z".into()),
+                    resolved_at: t0(),
+                    effective: deadline(),
+                },
+                parent: None,
+                source: AuthorizationSource::StandingPolicy {
+                    revision: PolicyRevision(1),
+                },
+                generation,
+                state: GrantState::Active,
+                enforcement: EnforcementEvidence {
+                    report: Enforcement {
+                        destination_scope: DestinationScopeEnforcement::ClientRouting,
+                        new_authentication_expiry: NewAuthenticationExpiry::SignerOnly,
+                        workload_isolation: WorkloadIsolation::SharedOsUser,
+                        existing_connections:
+                            ExistingConnectionsPolicy::GracefulDedicatedConnections,
+                        revocation: RevocationStatus::LocalApplied,
+                        identity_selection: None,
+                        new_signing_expiry: None,
+                        owned_multiplexing: None,
+                        remote_processes: None,
+                        unmanaged_connections: None,
+                        issuer_isolation: None,
+                        ordinary_aliases: None,
+                        owner_functions: None,
+                    },
+                    evidence: Vec::new(),
+                },
+            })?;
+            tx.set_grant_origin(
+                &grant,
+                &GrantOrigin {
+                    profile: profile(),
+                    profile_revision: 1,
+                    policy_revision: Some(PolicyRevision(1)),
+                    caller: CallerContext {
+                        principal: PrincipalRef::UnixUser { uid: 1000 },
+                        role: ClientRole::Owner,
+                        remote_client: None,
+                    },
+                    mechanism: "managed_certificate".into(),
+                    covered: None,
+                    adapter: None,
+                    lock_behavior: None,
+                    connection: None,
+                    workspace: None,
+                    policy_id: None,
+                },
+            )?;
+            tx.trust_remote_issuer(&TrustedIssuer {
+                ca_fingerprint: ca_a.fingerprint().unwrap(),
+                ca_public_key: ca_a.public_openssh().unwrap(),
+                controller: controller_a(),
+                trusted_at: t0(),
+            })?;
+            designate_time_source(tx, &controller_a(), t0()).unwrap();
+            Ok(())
+        })
+        .unwrap();
+
+    let runner = RunnerRuntime::new(
+        Arc::clone(&store),
+        clock.clone(),
+        Arc::new(KeyVault::new()),
+        RunnerTimePolicy::default(),
+        RunnerLifetime::SessionScope,
+    );
+    let caller = World::caller(&controller_a());
+
+    // Case 1: first exchange fails at BeforeCommit — bounded() must remain false.
+    let challenge = runner
+        .handle(&caller, 1, &RunnerRequest::TimeChallenge)
+        .unwrap();
+    let nonce = challenge.data["nonce"].as_str().unwrap().to_owned();
+    clock.advance(Duration::from_millis(25));
+    fault.0.store(true, Ordering::SeqCst);
+    let failed = runner
+        .handle(
+            &caller,
+            1,
+            &RunnerRequest::TimeResponse {
+                nonce,
+                controller_time: clock.wall(),
+            },
+        )
+        .unwrap_err();
+    assert_eq!(failed.code, Code::StateUnavailable, "{failed:?}");
+    assert!(
+        !runner.time().bounded(),
+        "failed commit left RunnerTime::bounded() true"
+    );
+    assert!(
+        runner.time().sample().is_none(),
+        "failed commit left a QualifyingSample in memory"
+    );
+
+    // Case 2: a committed exchange + installed cert anchor, then a shortening exchange fails
+    // at BeforeCommit — both the grant anchor and `sample()` remain at the committed state.
+    let challenge = runner
+        .handle(&caller, 1, &RunnerRequest::TimeChallenge)
+        .unwrap();
+    let nonce = challenge.data["nonce"].as_str().unwrap().to_owned();
+    clock.advance(Duration::from_millis(25));
+    runner
+        .handle(
+            &caller,
+            1,
+            &RunnerRequest::TimeResponse {
+                nonce,
+                controller_time: clock.wall(),
+            },
+        )
+        .unwrap();
+    let committed_sample = runner.time().sample().expect("committed sample");
+    let generation = store
+        .transaction(|tx| tx.authority_generation())
+        .unwrap()
+        .0;
+    let _prepared = runner
+        .issuance()
+        .prepare(&controller_a(), &grant, generation)
+        .unwrap();
+    let k_env = runner.issuance().keys().public_key(&grant).unwrap().1;
+    let cert_profile = heimdall_credential::cert::CertificateProfile {
+        serial: 1,
+        key_id: heimdall_credential::cert::key_id(&env, &grant, 1),
+        principal: heimdall_domain::issuance::principal_for(&pair("h1")),
+        valid_after: clock.wall().as_second() - 60,
+        valid_before: deadline().min(plus(clock.wall(), HOUR)).as_second(),
+        extensions: ["permit-pty".to_owned()].into_iter().collect(),
+        subject_fingerprint: k_env.fingerprint.clone(),
+        ca_fingerprint: Some(ca_a.fingerprint().unwrap()),
+    };
+    let cert = heimdall_credential::cert::build_and_sign(
+        &cert_profile,
+        &k_env.public_key().unwrap(),
+        &ca_a,
+    )
+    .unwrap()
+    .to_openssh()
+    .unwrap();
+    runner
+        .issuance()
+        .install(&controller_a(), &grant, generation, &cert)
+        .unwrap();
+    let anchor_before = store
+        .transaction(|tx| tx.grant_anchor(&grant))
+        .unwrap()
+        .expect("installed grant anchor");
+
+    // Second exchange 30 minutes ahead would shorten `grant_anchor`, but COMMIT fails.
+    let challenge = runner
+        .handle(&caller, 1, &RunnerRequest::TimeChallenge)
+        .unwrap();
+    let nonce = challenge.data["nonce"].as_str().unwrap().to_owned();
+    clock.advance(Duration::from_millis(25));
+    let ahead = plus(clock.wall(), Duration::from_secs(30 * 60));
+    fault.0.store(true, Ordering::SeqCst);
+    let failed = runner
+        .handle(
+            &caller,
+            1,
+            &RunnerRequest::TimeResponse {
+                nonce,
+                controller_time: ahead,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(failed.code, Code::StateUnavailable, "{failed:?}");
+    let anchor_after = store
+        .transaction(|tx| tx.grant_anchor(&grant))
+        .unwrap()
+        .expect("grant anchor after rollback");
+    assert_eq!(
+        anchor_after, anchor_before,
+        "failed commit did not roll back grant anchor"
+    );
+    assert_eq!(
+        runner.time().sample(),
+        Some(committed_sample),
+        "failed commit overwrote latest sample with uncommitted exchange"
     );
 }

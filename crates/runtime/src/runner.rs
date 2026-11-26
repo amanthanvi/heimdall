@@ -141,7 +141,11 @@ impl RunnerRuntime {
         policy: RunnerTimePolicy,
         lifetime: RunnerLifetime,
     ) -> Self {
-        let time = Arc::new(RunnerTime::new(Arc::clone(&clock), policy));
+        let time = Arc::new(RunnerTime::new(
+            Arc::clone(&store),
+            Arc::clone(&clock),
+            policy,
+        ));
         Self {
             issuance: RunnerIssuance::new(Arc::clone(&store), Arc::clone(&clock), time, vault),
             store,
@@ -320,10 +324,9 @@ impl RunnerRuntime {
                 nonce,
                 controller_time,
             } => {
-                let time = self.time();
                 let data = self
-                    .store
-                    .transaction(|tx| Ok(time.respond(tx, &session, nonce, *controller_time)))?
+                    .time()
+                    .respond(&session, nonce, *controller_time)
                     .map_err(time::TimeRefusal::to_error)?;
                 ok(data)
             }
@@ -382,11 +385,12 @@ impl RunnerRuntime {
     }
 }
 
-/// ⟨M06 W3; ADR-0006 §18.7 item 7⟩ Apply one runner-local decision (module docs,
-/// "Runner-local decisions") to this runner's store, at `now`. `attended`: the asking session
-/// is an attended local owner (the CLI's direct path passes `true` only after its typed
-/// confirmation on a terminal). Who asks is the caller's check; this function refuses only a
-/// widening form without attendance, a store that is not a runner's, and invalid input.
+/// ⟨M06 W3; ADR-0006 §18.7 item 7; M08 W4 SEC-3a / U2b-3a item 2⟩ Apply one runner-local
+/// decision (module docs, "Runner-local decisions") to this runner's store, at `now`.
+/// Caller identity and attendance for widening forms are enforced once before the request
+/// fence in `dispatch::pre_fence_refusal` (and by the CLI's offline confirmation before
+/// calling directly); this function keeps no second copy of the attendance check and refuses
+/// only a store that is not a runner's, a non-owner target, and invalid input.
 ///
 /// * `trust_issuer`: `controller` must be an **active owner** client; the CA key must be one
 ///   OpenSSH public key line, whose fingerprint the runner computes. Adds (or replaces) the
@@ -397,23 +401,15 @@ impl RunnerRuntime {
 ///
 /// # Errors
 ///
-/// `INTERACTION_REQUIRED` for an unattended widening form; `CAPABILITY_UNAVAILABLE` with
-/// `driver_unavailable` on a store that is not a runner's, or `role_insufficient` for a
-/// controller or client that is not an active owner; `USAGE_ERROR` for a CA key that is not
-/// one public key line; `STATE_UNAVAILABLE`.
+/// `CAPABILITY_UNAVAILABLE` with `driver_unavailable` on a store that is not a runner's, or
+/// `role_insufficient` for a controller or client that is not an active owner; `USAGE_ERROR`
+/// for a CA key that is not one public key line; `STATE_UNAVAILABLE`.
 pub fn runner_local(
     store: &Store,
     now: Timestamp,
-    attended: bool,
+    _attended: bool,
     request: &RunnerLocalRequest,
 ) -> OpResult<serde_json::Value> {
-    if request.is_widening() && !attended {
-        return Err(OpError::new(
-            Code::InteractionRequired,
-            "this runner-local decision needs the owner attending at this runner's terminal",
-        )
-        .with_effect(EffectStatus::None));
-    }
     let not_owner = |what: &str| {
         OpError::new(
             Code::CapabilityUnavailable,

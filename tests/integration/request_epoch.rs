@@ -1514,3 +1514,442 @@ async fn a_requester_keeping_an_epoch_from_before_a_raise_is_refused_before_any_
     assert_eq!(rig.ledger().last(), Some(&Entry { epoch: 1, digest }));
     runner.stop().await;
 }
+
+/// Exact raw bytes of the SQLite database family (main file plus any `-wal`/`-journal`),
+/// without opening a new connection that could alter WAL state.
+fn db_files_bytes(state_dir: &Path) -> Vec<(String, Vec<u8>)> {
+    let db = heimdall_store::layout::db_path(state_dir).unwrap();
+    let dir = db.parent().unwrap();
+    let base = db.file_name().unwrap().to_string_lossy();
+    let mut files = Vec::new();
+    for suffix in ["", "-wal", "-journal"] {
+        let name = format!("{base}{suffix}");
+        let path = dir.join(&name);
+        if let Ok(bytes) = std::fs::read(&path) {
+            files.push((name, bytes));
+        }
+    }
+    files
+}
+
+fn ledger_bytes(state_dir: &Path) -> Vec<u8> {
+    std::fs::read(state_dir.join(LEDGER)).unwrap_or_default()
+}
+
+fn example_request(name: &str) -> Request {
+    let path = heimdall_testkit::repo::repo_path(format!("schemas/examples/request.{name}.json"));
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+async fn connect_runner(
+    dispatcher: &OperationsDispatcher,
+    stop: &CancellationToken,
+    sessions: &std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    client: Option<&ClientId>,
+    capabilities: BTreeSet<String>,
+) -> ControlClient<tokio::io::DuplexStream> {
+    let (client_end, server_end) = tokio::io::duplex(1 << 20);
+    let conn = ControlConnection::new(server_end, ConnectionLimits::default())
+        .with_server_identity(
+            env_id(),
+            PeerInfo {
+                name: "runner".into(),
+                version: "0".into(),
+            },
+        );
+    let (dispatcher, stop) = (dispatcher.clone(), stop.clone());
+    let session = tokio::spawn(async move {
+        let _ = conn.serve(paired_principal(), dispatcher, stop).await;
+    });
+    sessions.lock().unwrap().push(session);
+    ControlClient::handshake_hello(
+        client_end,
+        ClientHello {
+            protocol: PROTOCOL_VERSION,
+            schema_version: SchemaVersion::current(),
+            client: PeerInfo {
+                name: "sec3a-test".into(),
+                version: "0".into(),
+            },
+            capabilities,
+            required: BTreeSet::new(),
+            interaction: InteractionMode::NonInteractive,
+            remote_client: client.cloned(),
+        },
+    )
+    .await
+    .unwrap()
+}
+
+/// ⟨M08 W4 SEC-3a, S2-01; ADR-0012 §3.10 amendment 2026-11-26⟩ A paired owner session may
+/// send only the allow-listed forms (views, honest controller management calls, narrowing
+/// effects, widening submissions, and time/session lifecycle). Every runner-local
+/// configuration form is refused before the request fence with `INTERACTION_REQUIRED` /
+/// `local_owner_required`, effect `none`, leaving both `REQUEST-LEDGER` and the SQLite store
+/// byte-identical, stopping no service and minting no K_iroh.
+#[tokio::test]
+async fn s2_01_paired_owner_cannot_run_runner_local_configuration_and_writes_nothing() {
+    use heimdall_runtime::supervise_transport::{
+        CredentialKeys, NoPeerEndpoints, RouteTransport, ServeSpawn, SupervisorConfig,
+        TransportSupervisor,
+    };
+
+    let rig = Rig::new();
+    let mut runner = Runner::start(&rig).await;
+    let owner = runner.seed(1, Role::Owner, true);
+
+    // Wire service control and RouteTransport (with an in-memory K_iroh fixture store) so
+    // Shutdown and non-serving Transport::Enable would take real effect if admitted.
+    let service_stop = CancellationToken::new();
+    let iroh_store = Arc::new(heimdall_credential::iroh::FixtureIrohStore::new());
+    let supervisor = Arc::new(TransportSupervisor::new(
+        Arc::clone(&runner.store),
+        Arc::new(NoPeerEndpoints),
+        SupervisorConfig::new(ServeSpawn {
+            program: PathBuf::from("/nonexistent/heimdall"),
+            args: Vec::new(),
+            env: Vec::new(),
+        }),
+    ));
+    let keys: Arc<dyn heimdall_app::transport::TransportKeys> =
+        Arc::new(CredentialKeys(iroh_store));
+    let route_transport = Arc::new(RouteTransport::new(
+        Arc::clone(&runner.store),
+        supervisor,
+        keys,
+        Arc::new(heimdall_app::transport::StorePeerEnrollments),
+    ));
+    runner.dispatcher = runner
+        .dispatcher
+        .clone()
+        .with_service_control(service_stop.clone())
+        .with_route_transport(route_transport);
+
+    // Negotiate every capability the runner offers so every excluded form reaches the
+    // dispatcher's pre-fence check rather than stopping at capability negotiation.
+    let all_caps = heimdall_ipc::session::Dispatcher::offered_capabilities(&runner.dispatcher);
+    let mut session = connect_runner(
+        &runner.dispatcher,
+        &runner.stop,
+        &runner.sessions,
+        Some(&owner),
+        all_caps,
+    )
+    .await;
+
+    let mut excluded: Vec<(&str, Request)> = vec![
+        (
+            "catalog.upsert_destination",
+            example_request("catalog.upsert-destination"),
+        ),
+        (
+            "catalog.set_default_profile",
+            example_request("catalog.set-default-profile"),
+        ),
+        (
+            "catalog.apply_import",
+            example_request("catalog.apply-import"),
+        ),
+        ("setup.rollback", example_request("setup.rollback")),
+        ("setup.repair", example_request("setup.repair")),
+        ("setup.apply", example_request("setup.apply")),
+        ("setup.preview", example_request("setup.preview-apply")),
+        ("shutdown", example_request("shutdown")),
+        (
+            "uninstall_fence.acquire",
+            req(serde_json::json!({"op": "uninstall_fence", "action": "acquire"})),
+        ),
+        (
+            "uninstall_fence.release",
+            req(serde_json::json!({"op": "uninstall_fence", "action": "release"})),
+        ),
+        (
+            "uninstall_fence.retry_remote_revocations",
+            req(serde_json::json!({"op": "uninstall_fence", "action": "retry_remote_revocations"})),
+        ),
+        (
+            "connections.close",
+            req(serde_json::json!({"op": "connections", "action": "close", "connection_id": "conn_01010101010101010101010101010101"})),
+        ),
+        (
+            "connections.register",
+            req(serde_json::json!({
+                "op": "connections", "action": "register",
+                "binding_id": "binding_00112233445566778899aabbccddeeff",
+                "pid": 4242, "created_at": "2026-10-02T09:00:00Z", "image": "/usr/bin/ssh"
+            })),
+        ),
+        (
+            "transport.enable_non_widening",
+            req(serde_json::json!({
+                "op": "transport", "action": "enable", "serve": false, "request_id": "s2-t-en"
+            })),
+        ),
+        (
+            "transport.disable",
+            req(serde_json::json!({"op": "transport", "action": "disable"})),
+        ),
+        (
+            "transport.rotate",
+            req(serde_json::json!({"op": "transport", "action": "rotate"})),
+        ),
+        (
+            "issuer.bundle_written",
+            example_request("issuer.bundle-written"),
+        ),
+        ("issuer.unlock", example_request("issuer.unlock")),
+        ("issuer.register", example_request("issuer.register")),
+        ("issuer.retire", example_request("issuer.retire")),
+        ("issuer.status", example_request("issuer.status")),
+        ("issuer.bundle", example_request("issuer.bundle")),
+        ("enrollment.step", example_request("enrollment.step")),
+        (
+            "enrollment.step_result",
+            example_request("enrollment.step-result"),
+        ),
+        (
+            "enrollment.reconcile",
+            example_request("enrollment.reconcile"),
+        ),
+        ("enrollment.abandon", example_request("enrollment.abandon")),
+        ("enrollment.apply", example_request("enrollment.apply")),
+        ("enrollment.verify", example_request("enrollment.verify")),
+        ("enrollment.remove", example_request("enrollment.remove")),
+        ("enrollment.preview", example_request("enrollment.preview")),
+        (
+            "environment.wsl_enable",
+            example_request("environment.wsl-enable"),
+        ),
+        (
+            "environment.wsl_disable",
+            example_request("environment.wsl-disable"),
+        ),
+        (
+            "environment.container_add",
+            example_request("environment.container-add"),
+        ),
+        (
+            "environment.container_remove",
+            example_request("environment.container-remove"),
+        ),
+        (
+            "controller_record.remove_environment",
+            req(serde_json::json!({
+                "op": "controller_record", "action": "remove_environment", "environment": env_id()
+            })),
+        ),
+        (
+            "runner_local.designate_time_source",
+            req(serde_json::json!({
+                "op": "runner_local", "action": "designate_time_source",
+                "client": owner, "request_id": "s2-rl-ts"
+            })),
+        ),
+        (
+            "device.retire",
+            req(serde_json::json!({"op": "device", "action": "retire"})),
+        ),
+        ("decide", example_request("decide")),
+        ("confirm_time", example_request("confirm-time")),
+        (
+            "route.remove",
+            req(serde_json::json!({
+                "op": "route", "action": "remove", "destination": "h1",
+                "route": "route_01010101010101010101010101010101"
+            })),
+        ),
+        (
+            "route.prefer",
+            req(serde_json::json!({
+                "op": "route", "action": "prefer", "destination": "h1",
+                "route": "route_01010101010101010101010101010101", "request_id": "s2-route-pref"
+            })),
+        ),
+        (
+            "route.resolve_binding",
+            req(serde_json::json!({
+                "op": "route", "action": "resolve_binding",
+                "destination": "h1", "account": "deploy", "endpoint": "/run/agent.sock"
+            })),
+        ),
+        (
+            "route.record_health",
+            req(serde_json::json!({
+                "op": "route", "action": "record_health", "endpoint": "/run/agent.sock",
+                "result": {"kind": "failed_over", "destination": "h1", "account": "deploy", "attempts": []}
+            })),
+        ),
+        (
+            "remote_environment.add",
+            req(serde_json::json!({
+                "op": "remote_environment", "action": "add",
+                "destination": "h1", "account": "deploy"
+            })),
+        ),
+        (
+            "remote_environment.remove",
+            req(serde_json::json!({
+                "op": "remote_environment", "action": "remove", "environment": env_id()
+            })),
+        ),
+    ];
+
+    let before_footprint = rig.footprint();
+    let before_ledger = ledger_bytes(&rig.state_dir());
+    let before_db = db_files_bytes(&rig.state_dir());
+
+    for (label, request) in excluded.drain(..) {
+        let env = session.request(request.clone()).await.unwrap();
+        assert_eq!(
+            env.code,
+            Code::InteractionRequired,
+            "{label}: expected INTERACTION_REQUIRED, got {env:?}"
+        );
+        assert_eq!(
+            env.data["error"]["reason"],
+            reason::LOCAL_OWNER_REQUIRED,
+            "{label}: expected local_owner_required, got {env:?}"
+        );
+        assert_eq!(
+            env.data["error"]["effect_status"], "none",
+            "{label}: expected effect_status none, got {env:?}"
+        );
+        assert_eq!(env.request_id, request.request_id().cloned(), "{label}");
+        assert_eq!(
+            env.request_epoch,
+            request.request_id().map(|_| RestoreEpoch(0)),
+            "{label}"
+        );
+    }
+
+    assert!(
+        !service_stop.is_cancelled(),
+        "paired Shutdown cancelled the runtime's service stop token"
+    );
+    assert!(
+        runner
+            .store
+            .transaction(|tx| tx.transport_keys())
+            .unwrap()
+            .is_empty(),
+        "paired Transport::Enable minted K_iroh"
+    );
+    assert_eq!(
+        ledger_bytes(&rig.state_dir()),
+        before_ledger,
+        "REQUEST-LEDGER changed after refused paired requests"
+    );
+    assert!(rig.ledger().is_empty());
+    assert_eq!(
+        db_files_bytes(&rig.state_dir()),
+        before_db,
+        "SQLite store bytes changed after refused paired requests"
+    );
+    assert_eq!(rig.footprint(), before_footprint);
+
+    // Positive controls: allow-listed view and widening submission still work.
+    let view = session
+        .request(req(serde_json::json!({"op": "inspect", "subject": "environments"})))
+        .await
+        .unwrap();
+    assert_eq!(view.code, Code::Ok, "{view:?}");
+    let serve_widening = session
+        .request(req(serde_json::json!({
+            "op": "transport", "action": "enable", "serve": true,
+            "request_id": "s2-t-serve-widen"
+        })))
+        .await
+        .unwrap();
+    assert_eq!(
+        serve_widening.code,
+        Code::ApprovalRequired,
+        "widening submission must still create a pending runner-local decision: {serve_widening:?}"
+    );
+    runner.stop().await;
+}
+
+/// ⟨M08 W4 SEC-3a / U2b-3a item 2⟩ An unattended local owner's widening `runner_local` forms
+/// (`trust_issuer`, `designate_time_source`, `policy_recheck`, `enroll_owner`) are refused
+/// `INTERACTION_REQUIRED` before the request fence, leaving `REQUEST-LEDGER` and the store
+/// byte-identical.
+#[tokio::test]
+async fn u2b_3a_unattended_local_owner_widening_runner_local_appends_nothing_to_ledger() {
+    let rig = Rig::new();
+    let runner = Runner::start(&rig).await;
+    let owner = runner.seed(1, Role::Owner, true);
+    let new_owner = ClientId::from_random_bytes([9; 16]);
+    let ca_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl ca";
+
+    let mut caps = client_capabilities();
+    caps.insert(capability::REMOTE_CONTROL_V1.to_owned());
+    caps.insert(capability::REQUEST_EPOCH_V1.to_owned());
+    // Local (remote_client = None), unattended (NonInteractive, no Attend frame).
+    let mut local = connect_runner(&runner.dispatcher, &runner.stop, &runner.sessions, None, caps)
+        .await;
+
+    let forms = [
+        (
+            "runner_local.trust_issuer",
+            req(serde_json::json!({
+                "op": "runner_local", "action": "trust_issuer",
+                "controller": owner, "ca_public_key": ca_key, "request_id": "u2b-rl-trust"
+            })),
+        ),
+        (
+            "runner_local.designate_time_source",
+            req(serde_json::json!({
+                "op": "runner_local", "action": "designate_time_source",
+                "client": owner, "request_id": "u2b-rl-time"
+            })),
+        ),
+        (
+            "runner_local.policy_recheck",
+            req(serde_json::json!({
+                "op": "runner_local", "action": "policy_recheck",
+                "request_id": "u2b-rl-recheck"
+            })),
+        ),
+        (
+            "runner_local.enroll_owner",
+            req(serde_json::json!({
+                "op": "runner_local", "action": "enroll_owner",
+                "client": new_owner, "public_key": ca_key, "request_id": "u2b-rl-enroll"
+            })),
+        ),
+    ];
+
+    let before_footprint = rig.footprint();
+    let before_ledger = ledger_bytes(&rig.state_dir());
+    let before_db = db_files_bytes(&rig.state_dir());
+
+    for (label, request) in &forms {
+        assert!(request.request_id().is_some(), "{label}");
+        let env = local.request(request.clone()).await.unwrap();
+        assert_eq!(
+            env.code,
+            Code::InteractionRequired,
+            "{label}: expected INTERACTION_REQUIRED, got {env:?}"
+        );
+        assert!(
+            env.data["error"]["reason"].is_null(),
+            "{label}: local unattended refusal must not carry local_owner_required: {env:?}"
+        );
+        assert_eq!(env.data["error"]["effect_status"], "none", "{label}");
+        assert_eq!(env.request_id, request.request_id().cloned(), "{label}");
+        assert_eq!(env.request_epoch, Some(RestoreEpoch(0)), "{label}");
+    }
+
+    assert_eq!(
+        ledger_bytes(&rig.state_dir()),
+        before_ledger,
+        "unattended local runner_local widening appended to REQUEST-LEDGER"
+    );
+    assert!(rig.ledger().is_empty());
+    assert_eq!(
+        db_files_bytes(&rig.state_dir()),
+        before_db,
+        "unattended local runner_local widening wrote to the SQLite store"
+    );
+    assert_eq!(rig.footprint(), before_footprint);
+    runner.stop().await;
+}

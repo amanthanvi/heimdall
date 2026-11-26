@@ -37,9 +37,9 @@ use heimdall_contract::envelope::reason;
 use heimdall_contract::ids::ClientId;
 use heimdall_contract::remote::Role;
 use heimdall_domain::time::{BootId, Clock};
-use heimdall_store::Txn;
 use heimdall_store::ext_m06::ClientState;
 use heimdall_store::ext_runner::TimeSourceDesignation;
+use heimdall_store::{Store, Txn};
 use serde::{Deserialize, Serialize};
 
 /// The RTT bound used until G09 sets one (ADR-0012 §4.4 "only within the RTT bound G09 sets").
@@ -168,6 +168,7 @@ struct State {
 
 /// The runner's time-sample state (module docs). One per runner runtime.
 pub struct RunnerTime {
+    store: Arc<Store>,
     clock: Arc<dyn Clock>,
     policy: RunnerTimePolicy,
     state: Mutex<State>,
@@ -233,10 +234,11 @@ fn millis(d: Duration) -> u64 {
 }
 
 impl RunnerTime {
-    /// New state over the runner's clock.
+    /// New state over the runner's store and clock.
     #[must_use]
-    pub fn new(clock: Arc<dyn Clock>, policy: RunnerTimePolicy) -> Self {
+    pub fn new(store: Arc<Store>, clock: Arc<dyn Clock>, policy: RunnerTimePolicy) -> Self {
         Self {
+            store,
             clock,
             policy,
             state: Mutex::new(State::default()),
@@ -251,6 +253,21 @@ impl RunnerTime {
     #[must_use]
     pub fn policy(&self) -> RunnerTimePolicy {
         self.policy
+    }
+
+    /// ⟨M08 W4 SEC-3a, S2-02⟩ Forget the cached sample (called on `DesignateTimeSource` and
+    /// `ClearTimeSource`).
+    pub fn clear(&self) {
+        self.lock().latest = None;
+    }
+
+    /// ⟨M08 W4 SEC-3a, S2-02⟩ Forget the cached sample when it came from `client` (called on
+    /// revocation of `client`).
+    pub fn invalidate_client(&self, client: &ClientId) {
+        let mut s = self.lock();
+        if s.latest.as_ref().is_some_and(|l| &l.client == client) {
+            s.latest = None;
+        }
     }
 
     /// `runner.time_challenge` (module docs): a fresh nonce bound to `session` and to `t₁` now.
@@ -303,15 +320,18 @@ impl RunnerTime {
     }
 
     /// `runner.time_response` (module docs): count `controller_time` for `nonce` on `session`
-    /// and move every pinned runner grant's anchor earlier, in `tx`. The nonce is consumed
-    /// whatever the verdict (a second answer finds nothing).
+    /// and move every pinned runner grant's anchor earlier, in one store transaction. The nonce
+    /// is consumed whatever the verdict (a second answer finds nothing).
+    ///
+    /// ⟨M08 W4 SEC-3a, S3-05⟩ The in-memory `latest` sample is updated only **after** the
+    /// SQLite transaction commits: a failed commit rolls back anchor changes and leaves
+    /// `latest` untouched.
     ///
     /// # Errors
     ///
-    /// The [`TimeRefusal`] that applies; nothing is written then.
+    /// The [`TimeRefusal`] that applies; nothing is written or kept then.
     pub fn respond(
         &self,
-        tx: &mut Txn<'_>,
         session: &TimeSession,
         nonce: &str,
         controller_time: Timestamp,
@@ -329,21 +349,31 @@ impl RunnerTime {
         let Some(challenge) = challenge else {
             return Err(TimeRefusal::UnknownNonce);
         };
-        check_designated(tx, &session.client)?;
-        if challenge.boot_id != arrival.boot_id {
-            return Err(TimeRefusal::OtherBoot);
-        }
-        let rtt = arrival.continuous.saturating_sub(challenge.t1);
-        if arrival.continuous < challenge.t1 || rtt > self.policy.rtt_bound {
-            return Err(TimeRefusal::RttExceeded);
-        }
-        let exchange = TimeExchange {
-            boot_id: arrival.boot_id.clone(),
-            t1: challenge.t1,
-            t2: arrival.continuous,
-            controller_time,
-        };
-        let shortened = self.apply(tx, &exchange).map_err(|_| TimeRefusal::State)?;
+        let (exchange, rtt, shortened) = self
+            .store
+            .transaction(|tx| {
+                if let Err(refusal) = check_designated(tx, &session.client) {
+                    return Ok(Err(refusal));
+                }
+                if challenge.boot_id != arrival.boot_id {
+                    return Ok(Err(TimeRefusal::OtherBoot));
+                }
+                let rtt = arrival.continuous.saturating_sub(challenge.t1);
+                if arrival.continuous < challenge.t1 || rtt > self.policy.rtt_bound {
+                    return Ok(Err(TimeRefusal::RttExceeded));
+                }
+                let exchange = TimeExchange {
+                    boot_id: arrival.boot_id.clone(),
+                    t1: challenge.t1,
+                    t2: arrival.continuous,
+                    controller_time,
+                };
+                // Propagate store errors out of the transaction closure so SQLite rolls back.
+                let shortened = self.apply(tx, &exchange)?;
+                Ok(Ok((exchange, rtt, shortened)))
+            })
+            .map_err(|_| TimeRefusal::State)??;
+        // Commit succeeded: keep the sample in memory only now.
         self.lock().latest = Some(QualifyingSample {
             client: session.client.clone(),
             exchange,
@@ -375,14 +405,37 @@ impl RunnerTime {
         Ok(shortened)
     }
 
-    /// The latest qualifying sample of **this** boot, if any.
+    /// ⟨M08 W4 SEC-3a, S2-02⟩ The latest qualifying sample of **this** boot, verified inside
+    /// `tx` to still belong to the currently designated active owner time source. Fails closed
+    /// (`None`) on any designation change, revocation, boot mismatch, or store error.
+    #[must_use]
+    pub fn sample_in(&self, tx: &mut Txn<'_>) -> Option<QualifyingSample> {
+        let boot = self.clock.boot_id();
+        let sample = self
+            .lock()
+            .latest
+            .clone()
+            .filter(|s| s.exchange.boot_id == boot)?;
+        check_designated(tx, &sample.client).ok()?;
+        Some(sample)
+    }
+
+    /// ⟨M08 W4 SEC-3a, S2-02⟩ The latest qualifying sample of **this** boot whose client is
+    /// still the currently designated active owner time source, failing closed on any mismatch
+    /// or store error.
     #[must_use]
     pub fn sample(&self) -> Option<QualifyingSample> {
         let boot = self.clock.boot_id();
-        self.lock()
+        let sample = self
+            .lock()
             .latest
             .clone()
-            .filter(|s| s.exchange.boot_id == boot)
+            .filter(|s| s.exchange.boot_id == boot)?;
+        let valid = self
+            .store
+            .transaction(|tx| Ok(check_designated(tx, &sample.client).is_ok()))
+            .ok()?;
+        valid.then_some(sample)
     }
 
     /// Whether a qualifying sample bounds the runner's offset in this boot.
