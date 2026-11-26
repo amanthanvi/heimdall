@@ -717,6 +717,47 @@ mod tests {
         assert!(op("setup.apply", "outcome_unknown", "other").is_unresolved());
     }
 
+    /// ⟨rev7; D9, PC3⟩ `inspect destinations` and `inspect profiles` omit an unset `label`
+    /// (and a managed destination's unset `port`) where they sent `null`: the TUI reads the
+    /// omitted key exactly as it read `null` (no label, no port: ssh's default), and a set
+    /// one as before.
+    #[test]
+    fn an_omitted_label_or_port_reads_as_null_did() {
+        let managed = serde_json::json!({
+            "destination_id": "dst-a", "alias": "alpha", "revision": 1,
+            "updated_at": "2026-11-03T09:00:00Z", "definition": "managed",
+            "hostname": "a.example.invalid", "account": "u", "identity_id": "idn_1",
+        });
+        let mut nulls = managed.clone();
+        nulls["label"] = Value::Null;
+        nulls["port"] = Value::Null;
+        let omitted = Destination::of(&managed).unwrap();
+        assert_eq!(omitted, Destination::of(&nulls).unwrap());
+        assert_eq!((omitted.label, omitted.port), (None, None));
+        let mut set = managed.clone();
+        set["label"] = "web tier".into();
+        set["port"] = 2222.into();
+        let set = Destination::of(&set).unwrap();
+        assert_eq!(set.label.as_deref(), Some("web tier"));
+        assert_eq!(set.port.as_deref(), Some("2222"));
+        let observed = serde_json::json!({"destination_id": "seen", "alias": "seen",
+            "definition": "observed"});
+        let mut observed_null = observed.clone();
+        observed_null["label"] = Value::Null;
+        assert_eq!(
+            Destination::of(&observed).unwrap(),
+            Destination::of(&observed_null).unwrap()
+        );
+        let profile = serde_json::json!({"profile_id": "dev", "revision": 1,
+            "pairs": [{"destination": "dst-a", "account": "u"}],
+            "capabilities": ["ssh-authentication"]});
+        let mut profile_null = profile.clone();
+        profile_null["label"] = Value::Null;
+        let omitted = Profile::of(&profile).unwrap();
+        assert_eq!(omitted, Profile::of(&profile_null).unwrap());
+        assert_eq!(omitted.label, None);
+    }
+
     #[test]
     fn catalog_listings_parse_tolerantly() {
         let c = Catalog::from_answers(

@@ -5730,64 +5730,93 @@ fn identity_view(
 /// `{"state": "applied", "generation": N}`), so `connect` takes ADR-0008 D8 item 2's
 /// flow only for `managed_certificate` with `applied`. No row, or an observed
 /// destination: no `preference` key (M02's listing, unchanged).
+///
+/// ⟨rev7; D1, D9, PC2, PC3⟩ Typed (`inspect-destinations`' `DestinationView`). An unset
+/// `label`, and a managed destination's unset `port`, are omitted keys (they were `null`).
+/// `preference.connection_policy` is added by [`Operations::add_connection_policies`], and
+/// `route_health` and `host_pin_defeated` (D11) by the runtime's dispatcher, as before.
 fn destination_view(
     d: &heimdall_domain::catalog::DestinationRecord,
     preference: Option<&heimdall_domain::enrollment::PairPreference>,
-) -> serde_json::Value {
+) -> heimdall_store::Result<heimdall_contract::views::catalog::DestinationView> {
     use heimdall_contract::doctor::AliasDefinition;
-    let mut view = serde_json::json!({
-        "destination_id": d.id,
-        "alias": d.alias,
-        "revision": d.revision,
-        "label": d.label,
-        "updated_at": d.updated_at,
-    });
-    let (definition, rendered) = match &d.definition {
+    use heimdall_contract::views::catalog::{DestinationPreferenceView, DestinationView};
+    let mut view = DestinationView {
+        destination_id: d.id.clone(),
+        alias: d.alias.clone(),
+        revision: d.revision,
+        label: d.label.clone(),
+        updated_at: d.updated_at,
+        definition: AliasDefinition::Observed,
+        hostname: None,
+        port: None,
+        account: None,
+        identity_id: None,
+        jump: None,
+        preference: None,
+        route_health: None,
+        host_pin_defeated: None,
+    };
+    match &d.definition {
         DestinationDefinition::Managed {
             hostname,
             port,
             account,
             identity,
             jump,
-        } => (
-            AliasDefinition::Managed,
-            Some(match jump {
-                // ⟨M04 U6⟩ The route's jump destination (omitted without one).
-                Some(jump) => serde_json::json!({
-                    "hostname": hostname,
-                    "port": port,
-                    "account": account,
-                    "identity_id": identity,
-                    "jump": jump,
-                }),
-                None => serde_json::json!({
-                    "hostname": hostname,
-                    "port": port,
-                    "account": account,
-                    "identity_id": identity,
-                }),
-            }),
-        ),
-        DestinationDefinition::Observed => (AliasDefinition::Observed, None),
-    };
-    if let serde_json::Value::Object(map) = &mut view {
-        map.insert("definition".to_owned(), serde_json::json!(definition));
-        if let Some(serde_json::Value::Object(fields)) = rendered {
-            map.extend(fields);
+        } => {
+            view.definition = AliasDefinition::Managed;
+            view.hostname = Some(hostname.clone());
+            view.port = *port;
+            view.account = Some(account.clone());
+            view.identity_id = Some(identity.clone());
+            // ⟨M04 U6⟩ The route's jump destination (omitted without one).
+            view.jump.clone_from(jump);
+            if let Some(p) = preference {
+                view.preference = Some(DestinationPreferenceView {
+                    mechanism: p.mechanism,
+                    projection: pair_projection_view(p.projection)?,
+                    connection_policy: None,
+                });
+            }
         }
-        if definition == AliasDefinition::Managed
-            && let Some(p) = preference
-        {
-            map.insert(
-                "preference".to_owned(),
-                serde_json::json!({
-                    "mechanism": p.mechanism,
-                    "projection": p.projection,
-                }),
-            );
-        }
+        DestinationDefinition::Observed => {}
     }
-    view
+    Ok(view)
+}
+
+/// ⟨rev7; D1, PC2⟩ A stored pair preference's projection status as the destination view
+/// names it (the same `state`-tagged form). A status this build does not know is refused
+/// rather than guessed.
+fn pair_projection_view(
+    status: heimdall_domain::enrollment::ProjectionStatus,
+) -> heimdall_store::Result<heimdall_contract::views::catalog::PairProjectionStatus> {
+    use heimdall_contract::views::catalog::PairProjectionStatus;
+    use heimdall_domain::enrollment::ProjectionStatus;
+    match status {
+        ProjectionStatus::Pending => Ok(PairProjectionStatus::Pending),
+        ProjectionStatus::Applied { generation } => {
+            Ok(PairProjectionStatus::Applied { generation })
+        }
+        _ => Err(StoreError::Corrupt(
+            "a pair preference's projection status is not one this build names".into(),
+        )),
+    }
+}
+
+/// ⟨M02⟩ ADR-0007 §12.24 item 1 (profiles): one current profile definition as `inspect
+/// profiles` lists it. ⟨rev7; D1, D9, PC2, PC3⟩ Typed (`ProfileView`): an unset `label` is an
+/// omitted key (it was `null`); `pairs` and `capabilities` keep the scope's sorted order.
+fn profile_view(
+    p: &heimdall_domain::profile::ProfileDefinition,
+) -> heimdall_contract::views::catalog::ProfileView {
+    heimdall_contract::views::catalog::ProfileView {
+        profile_id: p.id.clone(),
+        revision: p.revision,
+        label: p.label.clone(),
+        pairs: p.scope.pairs.iter().cloned().collect(),
+        capabilities: p.scope.capabilities.iter().copied().collect(),
+    }
 }
 
 fn operation_view(op: &OperationRecord) -> serde_json::Value {
@@ -9806,38 +9835,40 @@ impl Operations {
             // `observed`), read in one transaction, under the `items` key this subject
             // always answered with. Owner role only, like the other catalog subjects
             // (identities, projections, decisions).
+            //
+            // ⟨rev7; D1, D9, PC2, PC3⟩ The typed `inspect-destinations` view: an unset
+            // `label` or `port` is an omitted key. Another role reads `{"items": []}`.
             InspectSubject::Destinations => {
-                if !ctx.is_owner() {
-                    serde_json::json!({ "items": [] })
+                let view = if !ctx.is_owner() {
+                    heimdall_contract::views::catalog::DestinationListView::default()
                 } else {
                     self.destinations_view(environment.clone(), rows).await?
-                }
+                };
+                serde_json::to_value(view)
+                    .map_err(|_| internal("the destinations could not be rendered"))?
             }
             // ⟨M02⟩ ADR-0007 §12.24 item 1 (profiles): the catalog's current profile
             // definitions, read in one transaction, under `items`. Owner role only, as
             // for destinations.
+            //
+            // ⟨rev7; D1, D9, PC2, PC3⟩ The typed `inspect-profiles` view: an unset `label` is
+            // an omitted key. Another role reads `{"items": []}`.
             InspectSubject::Profiles => {
-                if !ctx.is_owner() {
-                    serde_json::json!({ "items": [] })
+                use heimdall_contract::views::catalog::ProfileListView;
+                let view = if !ctx.is_owner() {
+                    ProfileListView::default()
                 } else {
                     self.write(move |tx, _| {
-                        let items: Vec<serde_json::Value> = rows
-                            .profiles(tx)?
-                            .iter()
-                            .map(|p| {
-                                serde_json::json!({
-                                    "profile_id": p.id,
-                                    "revision": p.revision,
-                                    "label": p.label,
-                                    "pairs": p.scope.pairs,
-                                    "capabilities": p.scope.capabilities,
-                                })
-                            })
-                            .collect();
-                        Ok(serde_json::json!({ "items": items }))
+                        let items = rows.profiles(tx)?.iter().map(profile_view).collect();
+                        Ok(ProfileListView {
+                            items,
+                            preview: None,
+                        })
                     })
                     .await?
-                }
+                };
+                serde_json::to_value(view)
+                    .map_err(|_| internal("the profiles could not be rendered"))?
             }
             InspectSubject::Grants | InspectSubject::Bindings => {
                 let subject = req.subject;
@@ -10288,16 +10319,17 @@ impl Operations {
     /// `preference.connection_policy` from the runtime's wording source, computed after
     /// the transaction (it reads the alias's static observation).
     ///
-    /// ⟨rev7⟩ Only `rows` (every destination for a whole read).
+    /// ⟨rev7⟩ Only `rows` (every destination for a whole read). ⟨rev7; D1, PC2⟩ The typed
+    /// `DestinationListView`, without a preview (`inspect` adds it after the arm).
     async fn destinations_view(
         &self,
         env: EnvironmentId,
         rows: pages_m07::Rows,
-    ) -> Result<serde_json::Value, OpError> {
+    ) -> Result<heimdall_contract::views::catalog::DestinationListView, OpError> {
         type Pending = Vec<(usize, String, heimdall_contract::managed::ConnectionPolicy)>;
         let (mut items, pending) = self
             .write(move |tx, _| {
-                let mut items: Vec<serde_json::Value> = Vec::new();
+                let mut items: Vec<heimdall_contract::views::catalog::DestinationView> = Vec::new();
                 let mut pending: Pending = Vec::new();
                 for d in rows.destinations(tx)? {
                     // ⟨M03⟩ U8-Q6: the managed definition's pair preference.
@@ -10324,13 +10356,16 @@ impl Operations {
                     {
                         pending.push((items.len(), d.alias.clone(), policy));
                     }
-                    items.push(destination_view(&d, preference.as_ref()));
+                    items.push(destination_view(&d, preference.as_ref())?);
                 }
                 Ok((items, pending))
             })
             .await?;
         self.add_connection_policies(&mut items, pending).await;
-        Ok(serde_json::json!({ "items": items }))
+        Ok(heimdall_contract::views::catalog::DestinationListView {
+            items,
+            preview: None,
+        })
     }
 
     /// `inspect --preview`: resolution without effects.

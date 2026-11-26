@@ -1756,24 +1756,24 @@ mod tests {
     /// managed pair in a saved policy, its policy computed) and of `access::
     /// destination_prefer_resolves_alias_and_journals_the_preference` (lab1: a managed
     /// preference in no saved policy, whose policy cannot be computed, so "unknown";
-    /// seen: observed); those tests assert the same lines from the live answer.
+    /// seen: observed); those tests assert the same lines from the live answer. ⟨rev7; D9,
+    /// PC3⟩ An unset `label` and `port` are now omitted keys (they were `null`), and the
+    /// lines are the same with the old `null` form (checked below).
     #[test]
     fn destination_list_renders_the_runtimes_items_shape() {
         let data: serde_json::Value = serde_json::from_str(
             r#"{"items": [
             {"account":"deploy","alias":"lab2","definition":"managed","destination_id":"h2",
              "hostname":"127.0.0.1","identity_id":"idn_99524804984d960a168fe75318215824",
-             "label":null,"port":null,
              "preference":{"connection_policy":{"existing":"graceful","multiplexing":"disabled",
                  "wording":"New connections stop at the deadline; existing sessions may stay connected."},
                  "mechanism":"managed_certificate","projection":{"generation":1,"state":"applied"}},
              "revision":1,"updated_at":"2026-11-13T09:26:30.495429Z"},
             {"account":"deploy","alias":"lab1","definition":"managed","destination_id":"dst-lab1",
              "hostname":"lab1.example.invalid","identity_id":"idn_81549ea3ed849236f3ca5f6b607d3572",
-             "label":null,"port":null,
              "preference":{"mechanism":"managed_certificate","projection":{"state":"pending"}},
              "revision":1,"updated_at":"2026-11-13T09:26:30.495416Z"},
-            {"alias":"seen","definition":"observed","destination_id":"seen","label":null,
+            {"alias":"seen","definition":"observed","destination_id":"seen",
              "revision":1,"updated_at":"2026-11-13T09:26:30.503668Z"}
             ]}"#,
         )
@@ -1791,5 +1791,15 @@ mod tests {
         let older = serde_json::json!({ "destinations": data["items"].clone() });
         assert_eq!(destination_lines(&older), expected);
         assert!(destination_lines(&serde_json::json!({"items": []})).is_empty());
+        // The pre-revision-7 `null` form reads the same.
+        let mut nulls = data.clone();
+        for item in nulls["items"].as_array_mut().unwrap() {
+            item["label"] = serde_json::Value::Null;
+            if item["definition"] == "managed" {
+                item["port"] = serde_json::Value::Null;
+            }
+        }
+        assert_eq!(destination_lines(&nulls), expected);
+        assert_eq!(m03_lines(&nulls), expected);
     }
 }

@@ -207,10 +207,11 @@ impl Operations {
 
     /// ⟨§17.25 item 19⟩ Insert `preference.connection_policy` into each `items[index]`
     /// of `pending` (index, alias, the pair's policy) whose report the wired source
-    /// computes; any other item is left as it is (the key absent).
+    /// computes; any other item is left as it is (the key absent). ⟨rev7; D1, PC2⟩ On the
+    /// typed items (`DestinationView`): an item without a `preference` takes none.
     pub(super) async fn add_connection_policies(
         &self,
-        items: &mut [serde_json::Value],
+        items: &mut [heimdall_contract::views::catalog::DestinationView],
         pending: Vec<(usize, String, ConnectionPolicy)>,
     ) {
         if pending.is_empty() {
@@ -235,10 +236,8 @@ impl Operations {
         .await
         .unwrap_or_default();
         for (i, report) in reports {
-            if let Some(serde_json::Value::Object(pref)) =
-                items.get_mut(i).and_then(|item| item.get_mut("preference"))
-            {
-                pref.insert("connection_policy".to_owned(), serde_json::json!(report));
+            if let Some(pref) = items.get_mut(i).and_then(|item| item.preference.as_mut()) {
+                pref.connection_policy = Some(report);
             }
         }
     }

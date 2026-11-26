@@ -2039,7 +2039,7 @@ mod tests {
 
     fn one_profile() -> Envelope<serde_json::Value> {
         Envelope::ok(serde_json::json!({"items": [{
-            "profile_id": "dev", "revision": 1, "label": null,
+            "profile_id": "dev", "revision": 1,
             "pairs": [{"destination": "lab", "account": "deploy"}],
             "capabilities": ["ssh-authentication"],
         }]}))

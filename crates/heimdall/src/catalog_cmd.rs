@@ -680,6 +680,12 @@ async fn stored_profile(
         "profile",
     )
     .await?;
+    Ok(profile_pairs_and_label(&item))
+}
+
+/// A listed profile's pairs and label. ⟨rev7; D9, PC3⟩ An unset label is an omitted key
+/// (it was `null`): both read as no label.
+fn profile_pairs_and_label(item: &serde_json::Value) -> (BTreeSet<AccessPairRef>, Option<String>) {
     let scope = item.get("scope").cloned().unwrap_or_default();
     let raw = scope
         .get("pairs")
@@ -691,7 +697,7 @@ async fn stored_profile(
         .get("label")
         .and_then(|l| l.as_str())
         .map(str::to_owned);
-    Ok((pairs, label))
+    (pairs, label)
 }
 
 async fn profile_flow(ctx: &Ctx, command: ProfileCommand) -> Outcome {
@@ -817,6 +823,24 @@ mod tests {
             fingerprint: format!("SHA256:fixture-{n}"),
             public_blob: vec![n; 4],
         }
+    }
+
+    /// ⟨rev7; D9, PC3⟩ `profile update` keeps the stored label: a listed profile without a
+    /// `label` key reads as one with `"label": null` did (no label), and a set one as before.
+    #[test]
+    fn a_listed_profiles_omitted_label_reads_as_null_did() {
+        let item = serde_json::json!({"profile_id": "dev", "revision": 1,
+            "pairs": [{"destination": "lab", "account": "deploy"}],
+            "capabilities": ["ssh-authentication"]});
+        let mut null = item.clone();
+        null["label"] = serde_json::Value::Null;
+        let omitted = profile_pairs_and_label(&item);
+        assert_eq!(omitted, profile_pairs_and_label(&null));
+        assert_eq!(omitted.0.len(), 1);
+        assert_eq!(omitted.1, None);
+        let mut set = item.clone();
+        set["label"] = "signing".into();
+        assert_eq!(profile_pairs_and_label(&set).1.as_deref(), Some("signing"));
     }
 
     /// ADR-0007 §12.30 item 12: `identity adopt --from-agent --fingerprint <fp>` adopts

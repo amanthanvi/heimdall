@@ -382,3 +382,381 @@ async fn with_preview_subjects_for_another_role_are_the_hand_built_literals() {
         assert_eq!(whole(&ops, &viewer(), subject).await, legacy, "{subject:?}");
     }
 }
+
+// --- U3-3b: `inspect profiles` and `inspect destinations` (D9, PC3) -----------------------
+
+/// A fake D8 wording source: one fixed report for every alias and policy.
+struct FixedWording;
+
+impl crate::operations::ConnectionWording for FixedWording {
+    fn report(
+        &self,
+        _alias: &str,
+        policy: &heimdall_contract::managed::ConnectionPolicy,
+    ) -> Option<heimdall_contract::managed::ConnectionPolicyReport> {
+        Some(heimdall_contract::managed::ConnectionPolicyReport {
+            existing: policy.existing,
+            multiplexing: policy.multiplexing,
+            wording: "fixture wording".to_owned(),
+        })
+    }
+}
+
+/// The replaced `destination_view` (M02's catalog fields, M03's `preference`, M04's `jump`),
+/// with `null` for an unset `label` and a managed destination's unset `port`.
+fn legacy_destination(
+    d: &heimdall_domain::catalog::DestinationRecord,
+    preference: Option<&heimdall_domain::enrollment::PairPreference>,
+) -> Value {
+    use heimdall_domain::catalog::DestinationDefinition;
+    let mut view = json!({
+        "destination_id": d.id,
+        "alias": d.alias,
+        "revision": d.revision,
+        "label": d.label,
+        "updated_at": d.updated_at,
+    });
+    let map = view.as_object_mut().unwrap();
+    match &d.definition {
+        DestinationDefinition::Managed {
+            hostname,
+            port,
+            account,
+            identity,
+            jump,
+        } => {
+            map.insert("definition".to_owned(), json!("managed"));
+            map.insert("hostname".to_owned(), json!(hostname));
+            map.insert("port".to_owned(), json!(port));
+            map.insert("account".to_owned(), json!(account));
+            map.insert("identity_id".to_owned(), json!(identity));
+            if let Some(jump) = jump {
+                map.insert("jump".to_owned(), json!(jump));
+            }
+            if let Some(p) = preference {
+                map.insert(
+                    "preference".to_owned(),
+                    json!({"mechanism": p.mechanism, "projection": p.projection}),
+                );
+            }
+        }
+        DestinationDefinition::Observed => {
+            map.insert("definition".to_owned(), json!("observed"));
+        }
+    }
+    view
+}
+
+/// `doc` less its top-level keys `keys` that are `null` (the PC3 rows), checking each is.
+fn without_nulls(mut doc: Value, keys: &[&str]) -> Value {
+    let map = doc.as_object_mut().unwrap();
+    for k in keys {
+        if map.get(*k).is_some_and(Value::is_null) {
+            map.remove(*k);
+        }
+    }
+    doc
+}
+
+fn select_page_items(
+    subject: InspectSubject,
+    select: Option<heimdall_contract::page::Select>,
+    page: Option<heimdall_contract::page::PageRequest>,
+) -> InspectRequest {
+    InspectRequest {
+        subject,
+        preview: None,
+        cwd: None,
+        redact: false,
+        select,
+        page,
+    }
+}
+
+/// The whole read, a one-page read and a selection of every ID answer the same items.
+async fn same_items_in_select_and_page(
+    ops: &Operations,
+    subject: InspectSubject,
+    whole_items: &[Value],
+    id: &str,
+) {
+    let page = ops
+        .inspect(
+            &owner(),
+            select_page_items(
+                subject,
+                None,
+                Some(heimdall_contract::page::PageRequest {
+                    limit: None,
+                    token: None,
+                }),
+            ),
+        )
+        .await
+        .unwrap()
+        .data;
+    assert_eq!(
+        page["items"].as_array().unwrap(),
+        whole_items,
+        "{subject:?}"
+    );
+    let ids: Vec<String> = whole_items
+        .iter()
+        .map(|i| i[id].as_str().unwrap().to_owned())
+        .collect();
+    let selected = ops
+        .inspect(
+            &owner(),
+            select_page_items(
+                subject,
+                Some(heimdall_contract::page::Select {
+                    ids,
+                    aliases: Vec::new(),
+                }),
+                None,
+            ),
+        )
+        .await
+        .unwrap()
+        .data;
+    let mut got = selected["items"].as_array().unwrap().clone();
+    got.sort_by(|a, b| a[id].as_str().cmp(&b[id].as_str()));
+    assert_eq!(got, whole_items, "{subject:?}");
+}
+
+/// `inspect profiles`: a profile without a label has no `label` key (it was `null`); one
+/// with a label, and every other key, are the replaced document's. The same items in a page
+/// and a selection; another role reads `{"items": []}`.
+#[tokio::test]
+async fn profiles_view_omits_only_an_unset_label() {
+    use heimdall_contract::ids::{AccountName, DestinationId, ProfileId};
+    use heimdall_domain::profile::ProfileDefinition;
+    use heimdall_domain::scope::{AccessPair, Capability, Scope};
+    let store = store();
+    let pair = |d: &str| AccessPair {
+        destination: DestinationId::parse(d).unwrap(),
+        account: AccountName::parse("deploy").unwrap(),
+    };
+    let profiles = vec![
+        ProfileDefinition {
+            id: ProfileId::parse("dev").unwrap(),
+            revision: 2,
+            scope: Scope {
+                pairs: [pair("web"), pair("git")].into_iter().collect(),
+                capabilities: [Capability::GitSigning, Capability::SshAuthentication]
+                    .into_iter()
+                    .collect(),
+            },
+            label: None,
+        },
+        ProfileDefinition {
+            id: ProfileId::parse("ops").unwrap(),
+            revision: 1,
+            scope: Scope::default(),
+            label: Some("signing".to_owned()),
+        },
+    ];
+    {
+        let p = profiles.clone();
+        store
+            .transaction(move |tx| p.iter().try_for_each(|p| tx.upsert_profile(p)))
+            .unwrap();
+    }
+    let ops = ops_on(store).await;
+    let got = whole(&ops, &owner(), InspectSubject::Profiles).await;
+    // The replaced arm's `json!`, less the PC3 row.
+    let legacy: Vec<Value> = profiles
+        .iter()
+        .map(|p| {
+            json!({
+                "profile_id": p.id,
+                "revision": p.revision,
+                "label": p.label,
+                "pairs": p.scope.pairs,
+                "capabilities": p.scope.capabilities,
+            })
+        })
+        .collect();
+    let want: Vec<Value> = legacy
+        .iter()
+        .cloned()
+        .map(|d| without_nulls(d, &["label"]))
+        .collect();
+    assert_eq!(got, json!({ "items": want }));
+    let items = got["items"].as_array().unwrap();
+    assert!(items[0].get("label").is_none(), "{got}");
+    assert_eq!(items[1], legacy[1], "a set label is unchanged");
+    same_items_in_select_and_page(&ops, InspectSubject::Profiles, items, "profile_id").await;
+    assert_eq!(
+        whole(&ops, &viewer(), InspectSubject::Profiles).await,
+        json!({ "items": [] })
+    );
+}
+
+/// `inspect destinations`: an unset `label`, and a managed destination's unset `port`, are
+/// omitted keys (they were `null`); a set label and port, `jump`, `preference` (with the
+/// wired wording's `connection_policy`) and an observed destination's keys are the replaced
+/// document's. No `route_health`/`host_pin_defeated` here: the dispatcher adds them (D11).
+/// The same items in a page and a selection; another role reads `{"items": []}`.
+#[tokio::test]
+async fn destinations_view_omits_only_an_unset_label_and_port() {
+    use heimdall_contract::ids::{AccountName, DestinationId, IdentityId, ProfileId};
+    use heimdall_contract::managed::{
+        ConnectionPolicy, ExistingConnectionsMode, MultiplexingMode, PreferredMechanism,
+    };
+    use heimdall_domain::catalog::{DestinationDefinition, DestinationRecord};
+    use heimdall_domain::enrollment::{PairPreference, ProjectionStatus};
+    use heimdall_domain::policy::{PauseState, PolicySource, StandingPolicy};
+    use heimdall_domain::profile::ProfileDefinition;
+    use heimdall_domain::scope::{AccessPair, Capability, Scope};
+    let store = store();
+    let deploy = AccountName::parse("deploy").unwrap();
+    let identity = IdentityId::from_random_bytes([4; 16]);
+    let managed =
+        |id: &str, port: Option<u16>, label: Option<&str>, jump: Option<&str>| DestinationRecord {
+            id: DestinationId::parse(id).unwrap(),
+            alias: format!("alias-{id}"),
+            revision: 3,
+            definition: DestinationDefinition::Managed {
+                hostname: format!("{id}.example.invalid"),
+                port,
+                account: deploy.clone(),
+                identity: identity.clone(),
+                jump: jump.map(|j| DestinationId::parse(j).unwrap()),
+            },
+            label: label.map(str::to_owned),
+            updated_at: t0(),
+        };
+    let destinations = vec![
+        // Managed, no label, no port, a pending preference.
+        managed("dst-a", None, None, None),
+        // Managed, a label, a port and a jump, an applied managed preference in a policy.
+        managed("dst-b", Some(2222), Some("web tier"), Some("dst-a")),
+        // Observed, no label.
+        DestinationRecord {
+            id: DestinationId::parse("dst-c").unwrap(),
+            alias: "alias-dst-c".to_owned(),
+            revision: 1,
+            definition: DestinationDefinition::Observed,
+            label: None,
+            updated_at: t0(),
+        },
+        // Observed, a label.
+        DestinationRecord {
+            id: DestinationId::parse("dst-d").unwrap(),
+            alias: "alias-dst-d".to_owned(),
+            revision: 1,
+            definition: DestinationDefinition::Observed,
+            label: Some("seen".to_owned()),
+            updated_at: t0(),
+        },
+    ];
+    let pair = |d: &str| AccessPair {
+        destination: DestinationId::parse(d).unwrap(),
+        account: deploy.clone(),
+    };
+    let preferences = [
+        PairPreference {
+            destination: pair("dst-a").destination,
+            account: deploy.clone(),
+            mechanism: PreferredMechanism::Existing,
+            projection: ProjectionStatus::Pending,
+            issuing_cas: std::collections::BTreeSet::new(),
+        },
+        PairPreference {
+            destination: pair("dst-b").destination,
+            account: deploy.clone(),
+            mechanism: PreferredMechanism::ManagedCertificate,
+            projection: ProjectionStatus::Applied { generation: 4 },
+            issuing_cas: std::collections::BTreeSet::new(),
+        },
+    ];
+    let scope = Scope {
+        pairs: [pair("dst-b")].into_iter().collect(),
+        capabilities: [Capability::SshAuthentication].into_iter().collect(),
+    };
+    let policy = ConnectionPolicy {
+        existing: ExistingConnectionsMode::Strict,
+        multiplexing: MultiplexingMode::Disabled,
+    };
+    {
+        let (d, prefs, scope) = (destinations.clone(), preferences.clone(), scope.clone());
+        store
+            .transaction(move |tx| {
+                for d in &d {
+                    tx.upsert_destination(d)?;
+                }
+                for p in &prefs {
+                    tx.set_pair_preference(p, t0())?;
+                }
+                tx.upsert_profile(&ProfileDefinition {
+                    id: ProfileId::parse("dev").unwrap(),
+                    revision: 1,
+                    scope: scope.clone(),
+                    label: None,
+                })?;
+                tx.upsert_policy(
+                    &StandingPolicy {
+                        id: PolicyId::parse("pol").unwrap(),
+                        revision: PolicyRevision(1),
+                        profile: ProfileId::parse("dev").unwrap(),
+                        workspace: None,
+                        scope,
+                        environments: [env_id()].into_iter().collect(),
+                        max_window: Duration::from_secs(3600),
+                        pause: PauseState::Active,
+                        cutoff_at: None,
+                        source: PolicySource::SetupDefault,
+                        lock_behavior: Default::default(),
+                        connection: policy,
+                        default: false,
+                    },
+                    false,
+                )
+            })
+            .unwrap();
+    }
+    let ops = ops_on(store).await;
+    ops.set_connection_wording(Arc::new(FixedWording));
+    let got = whole(&ops, &owner(), InspectSubject::Destinations).await;
+    // The replaced builder, then `add_connection_policies` (dst-b: covered, managed).
+    let mut legacy: Vec<Value> = destinations
+        .iter()
+        .map(|d| {
+            let p = preferences.iter().find(|p| p.destination == d.id);
+            legacy_destination(d, p)
+        })
+        .collect();
+    legacy[1]["preference"]["connection_policy"] = json!({
+        "existing": "strict",
+        "multiplexing": "disabled",
+        "wording": "fixture wording",
+    });
+    assert!(legacy[0]["label"].is_null() && legacy[0]["port"].is_null());
+    let want: Vec<Value> = legacy
+        .iter()
+        .cloned()
+        .map(|d| without_nulls(d, &["label", "port"]))
+        .collect();
+    assert_eq!(got, json!({ "items": want }));
+    let items = got["items"].as_array().unwrap();
+    assert!(items[0].get("label").is_none() && items[0].get("port").is_none());
+    assert!(items[2].get("label").is_none() && items[2].get("port").is_none());
+    assert_eq!(
+        items[1], legacy[1],
+        "set label, port, jump and preference: unchanged"
+    );
+    assert_eq!(
+        items[3], legacy[3],
+        "an observed destination's label: unchanged"
+    );
+    for i in items {
+        assert!(i.get("route_health").is_none() && i.get("host_pin_defeated").is_none());
+    }
+    same_items_in_select_and_page(&ops, InspectSubject::Destinations, items, "destination_id")
+        .await;
+    assert_eq!(
+        whole(&ops, &viewer(), InspectSubject::Destinations).await,
+        json!({ "items": [] })
+    );
+}
