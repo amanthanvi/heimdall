@@ -862,6 +862,65 @@ async fn a_cutoff_fired_under_uncertain_time_stays_fired_and_says_why() {
     );
 }
 
+/// SEC-4 S3-01: a correction to safe time before the untrusted cutoff reading
+/// must not undo the narrowing. The runner-local owner can still lift it.
+async fn cutoff_survives_clock_correction(skew: Duration) {
+    use heimdall_contract::managed::DestinationClock;
+
+    let r = rig().await;
+    let initial = r.ops.timegate().check().await.unwrap().wall();
+    let owner_at = plus(initial, HOUR);
+    r.w.clock.set_wall(plus(initial, skew));
+    assert_eq!(
+        r.ops.timegate().check().await.unwrap_err().code,
+        Code::TimeUncertain
+    );
+    let target = EffectTarget::PolicyCutoff {
+        scope: PolicyTarget::All,
+        at: owner_at,
+        revision: 1,
+    };
+    let ack = r.deliver(&controller_b(), &effect(32), &target).await.unwrap();
+    assert!(matches!(ack.record, AppliedRecord::PolicyRevision { fired: true, .. }));
+    assert_eq!(r.grant_state(), GrantState::Active, "uncertain time ends nothing at apply");
+
+    r.w.clock.set_wall(initial);
+    r.w.clock.advance(MINUTE);
+    let corrected = r.ops.timegate().check().await.unwrap().wall();
+    let readiness = r
+        .w
+        .runner
+        .readiness(&r.w.grant, DestinationClock::Unmeasured, None)
+        .unwrap();
+    assert!(
+        readiness.usable_until <= corrected,
+        "corrected time {corrected} reopened a fired cutoff until {}",
+        readiness.usable_until
+    );
+    let reported = r.w.store.transaction(early_cutoffs).unwrap();
+    assert_eq!(reported.len(), 1, "the uncertain fire is reported even if wall passed owner_at");
+    assert_eq!(reported[0].1.at, owner_at);
+
+    r.ops.tick().await.unwrap();
+    assert_eq!(r.grant_state(), GrantState::Expired);
+    lift_at_the_runner(&r, PolicyAction::ClearCutoff {
+        policy_id: None,
+        target: Some(PolicyTarget::All),
+    }).await;
+    assert_eq!(r.policy().cutoff_at, None);
+    assert!(!r.w.store.transaction(|tx| tx.remote_policy_revisions()).unwrap()[0].in_force);
+}
+
+#[tokio::test]
+async fn cutoff_survives_clock_correction_after_forward_jump() {
+    cutoff_survives_clock_correction(2 * HOUR).await;
+}
+
+#[tokio::test]
+async fn cutoff_survives_clock_correction_after_positive_skew() {
+    cutoff_survives_clock_correction(10 * MINUTE).await;
+}
+
 /// ⟨W3.1 re-check, low finding 1⟩ A cutoff this controller delivered that **fired early**
 /// (the runner's time was uncertain) blocks issuance outright from the controller's own
 /// record of the acknowledgement, although the owner's instant is still hours ahead: a
