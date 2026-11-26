@@ -86,6 +86,41 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
   - SEC-3b: S2-05's design (Gemini) and its code items.
   - SEC-4 (GPT): cutoff latching (S3-01, S3-03, S3-06, S3-07).
   - S3-04 goes to U2b-3b.
+- **The U7b defaults inventory** (GPT-6.2 Sol, at `904743a6`; `/tmp/hm-w3/u7b/DEFAULTS.md`): it
+  found 12 differences. The orchestrator ruled on them on 2026-11-26.
+  - **Routed to other units:**
+    - D02: U2b-3a, the ledger trim.
+    - D03 and D05: the candidate-tooling unit, which runs on GPT.
+    - D04: U6b.
+    - D06: the candidate commit.
+    - D12: U2b-4.
+  - **D01, `strict_disconnect`: retired for 1.0, and refused rather than ignored.**
+    - The key is removed from the parser, the published schema and the reference.
+    - `config.toml` refuses unknown fields, so a file that still sets it is refused at load,
+      with the existing usage error naming the per-request and policy controls. Add a test.
+    - The ADR that owns the config schema gets a dated note.
+    - The post-1.0 path is a narrowing-only default, OR'd into the effective strict flag.
+  - **D07, the `[clients]` overrides: deferred to post-1.0.** The parser already rejects the
+    table.
+    - ADR-0010 §2 and ADR-0007 §8 get dated amendments, and the m02-plan reference is
+      corrected.
+    - `limitations.md` gets one line: the client is the platform default and cannot be
+      overridden in 1.0.
+  - **D08, the P04 disclosure.** Setup shows the effective configured ceiling, not a fixed
+    "12 hours", and where to change it, even with an empty catalog.
+    - Add a test with a non-default ceiling.
+    - No setup-time setter. It is on the owner's go/no-go list, with "not for 1.0" as the
+      default answer.
+  - **D10, the login registration.** ADR-0010 §6 item 1 is reconciled with the explicit
+    `service autostart enable` journey.
+    - Setup's summary names that command when managed credentials exist and login
+      registration is off.
+    - Setup itself registers nothing.
+    - Test both behaviours.
+  - **D09 and D11 are text fixes.**
+  - **Where they land:** D01, D07's text, D08, D09, D10 and D11 go in **U7b-final**, together
+    with the final text and matrix. A part that touches a file another unit owns at the time
+    goes with that unit.
   - **A known follow-up from SEC-2, for M07:** `destination inspect` and readiness do not yet show
     a typed `host_pin_defeated` reason when the native passive pin check finds a defeated pin.
     Today that reason comes only from the route helper's report. Adding it needs changes in
