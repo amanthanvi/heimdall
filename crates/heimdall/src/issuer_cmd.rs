@@ -129,12 +129,11 @@ pub(crate) fn open_store(ctx: &Ctx, test: &TestStore) -> Result<Box<dyn SecretSt
     let paths = ctx
         .paths()
         .map_err(|e| Outcome::of(output::error_value(*e)))?;
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
-    let environment =
-        heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
-            .and_then(|s| s.transaction(|tx| tx.self_environment()));
+    let environment = heimdall_store::layout::db_path(&paths.state_dir)
+        .and_then(|db| {
+            heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
+        })
+        .and_then(|s| s.transaction(|tx| tx.self_environment()));
     let Ok(Some(environment)) = environment else {
         return Err(Outcome::of(failure(
             Code::ServiceUnavailable,

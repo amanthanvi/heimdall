@@ -1,0 +1,37 @@
+   Compiling heimdall v0.1.0-m01 (<R>\c1\crates\heimdall)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.95s
+     Running ..\..\tests\e2e\platform_m04.rs (target\debug\deps\e2e_platform_m04-92930141b83c1009.exe)
+
+running 29 tests
+test service_login::wsl_login::linux_login_entry_starts_runtime_at_next_login ... ignored, needs HM_FIXTURE_WSL_DISTRO (a disposable systemd distribution), HM_WSL_LOGIN_USER and HM_WSL_LOGIN_HEIMDALL; run with --ignored on the PC
+test windows::native::a12_enable_disable_leaves_distribution_git_config_identical ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER)
+test windows::native::a12_interop_child_medium_integrity ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT)
+test windows::native::handle_probe_child ... ok
+test service_login::uninstall_removes_only_the_owned_login_entry ... ok
+test windows::native::mode_b::a03_mode_b_fresh_logins_while_windows_locked ... ignored, run by the lock harness (tests/native/m03/lock-windows.ps1) with HM_LOCK_STATE_DIR, and the A13 variables
+test windows::native::mode_b::a12_git_and_ssh_through_windows_ssh_from_wsl ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER), git in it and the harness sshd
+test windows::native::mode_b::a13_binary_scp_sftp_through_bridge ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER) and the harness sshd
+test windows::native::mode_b::a13_binding_end_refuses_then_withdraws_endpoint ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER)
+test windows::native::mode_b::a13_binding_reaches_its_deadline_and_withdraws ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER) and the harness sshd
+test windows::native::mode_b::a13_control_hello_on_bridge_socket_fails ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER) with python3
+test windows::native::mode_b::a13_deleted_socket_recreated ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER)
+test windows::native::mode_b::a13_git_over_linux_ssh_through_bridge ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER), git in it and on the harness sshd
+test windows::native::mode_b::a13_lists_only_binding_identities_and_refuses_unlisted_key ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER) and the harness sshd
+test windows::native::mode_b::a13_other_distribution_sees_no_endpoint ... ignored, needs two disposable WSL distributions (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER, _DISTRO2)
+test windows::native::mode_b::a13_other_linux_user_refused ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER); it creates and removes a user in it
+test windows::native::mode_b::a13_runtime_stop_helper_exits_and_removes_endpoints ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER)
+test windows::native::mode_b::a13_terminate_then_user_restart_recreates_endpoint_without_background_start ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER)
+test windows::native::mode_b::a13_two_enabled_distributions_get_disjoint_endpoints ... ignored, needs two disposable WSL distributions (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER, _DISTRO2)
+test windows::native::mode_b::a13_unregistered_distribution_releases_bindings ... ignored, destroys HM_WSL_TEST_DISTRO2 (needs HM_WSL_TEST_ALLOW_UNREGISTER=1): run it alone, last
+test windows::native::mode_b::a31_uninstall_with_a_live_mode_b_binding ... ignored, needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER) and the harness sshd
+test windows::native::runtime_child_inherits_only_listed_handles ... ok
+test windows::native::a14_git_bundled_client_reported_not_claimed ... ok
+test service_login::login_mode_yields_to_running_instance ... ok
+test service_login::service_autostart_commands_report_refuse_and_touch_only_their_own_entry ... ok
+test windows::native::a14_no_global_agent_takeover_inventory_identical ... ok
+test windows::native::inherited_state_dir_then_setup_rollback_and_uninstall ... ok
+test windows::native::issuer_child_answers_its_hello_on_every_start ... ok
+test windows::native::cli_started_runtime_keeps_no_handle_of_its_caller ... ok
+
+test result: ok. 10 passed; 0 failed; 19 ignored; 0 measured; 0 filtered out; finished in 4.55s
+

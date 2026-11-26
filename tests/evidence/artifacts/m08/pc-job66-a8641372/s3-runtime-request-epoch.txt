@@ -1,0 +1,18 @@
+   Compiling heimdall-runtime v0.1.0-m01 (<R>\c1\crates\runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 31.57s
+     Running ..\..\tests\integration\request_epoch.rs (target\debug\deps\integration_request_epoch-8ab523d553c08b20.exe)
+
+running 10 tests
+test a_requester_keeping_an_epoch_from_before_a_raise_is_refused_before_any_write ... ok
+test equal_request_ids_across_clients_roles_and_kinds_have_separate_fences ... ok
+test a_frame_refused_for_its_role_appends_nothing_to_the_ledger ... ok
+test a_request_the_uninstall_fence_refuses_appends_nothing_to_the_ledger ... ok
+test a_decision_minted_under_an_older_epoch_is_stale ... ok
+test clients_carry_the_epoch_with_a_kept_request_id ... ok
+test a_damaged_ledger_refuses_every_request_with_a_request_id ... ok
+test fence_retention_follows_the_idempotency_contract ... ok
+test stale_epoch_is_refused_before_any_write ... ok
+test ledger_append_precedes_the_first_store_write ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+

@@ -596,7 +596,8 @@ async fn powershell_hook_startup_with_an_unreachable_runtime() {
             .run(&host, RENDER, &["loaded", PROMPT, "rendered"])
             .await;
         assert_eq!(InstanceInfo::read_file(runtime_dir).unwrap(), Some(info));
-        assert!(!fixture.paths.state_dir.join("state.db").exists());
+        let db = heimdall_store::layout::db_path(&fixture.paths.state_dir).unwrap();
+        assert!(!db.exists());
     })
     .await;
 }

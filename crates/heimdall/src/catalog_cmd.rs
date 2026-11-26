@@ -193,6 +193,7 @@ async fn destination_flow(ctx: &Ctx, command: DestinationCommand) -> Outcome {
         DestinationCommand::Remove {
             destination,
             request_id: given,
+            request_epoch: _,
         } => {
             let id = match destination_id(ctx, &destination).await {
                 Ok(id) => id,
@@ -298,6 +299,7 @@ async fn identity_flow(ctx: &Ctx, command: IdentityCommand) -> Outcome {
         IdentityCommand::Remove {
             identity,
             request_id: given,
+            request_epoch: _,
         } => {
             let (id, rid) = match (identity_id(&identity), request_id(given.as_deref())) {
                 (Ok(i), Ok(r)) => (i, r),
@@ -315,6 +317,7 @@ async fn identity_flow(ctx: &Ctx, command: IdentityCommand) -> Outcome {
         IdentityCommand::WithdrawDeclaration {
             identity,
             request_id: given,
+            request_epoch: _,
         } => {
             let (id, rid) = match (identity_id(&identity), request_id(given.as_deref())) {
                 (Ok(i), Ok(r)) => (i, r),
@@ -335,6 +338,7 @@ async fn identity_flow(ctx: &Ctx, command: IdentityCommand) -> Outcome {
             identity,
             interaction: _,
             request_id: given,
+            request_epoch: _,
         } => {
             let (id, rid) = match (identity_id(&identity), request_id(given.as_deref())) {
                 (Ok(i), Ok(r)) => (i, r),
@@ -718,6 +722,7 @@ async fn profile_flow(ctx: &Ctx, command: ProfileCommand) -> Outcome {
             pairs: list,
             label,
             request_id: given,
+            request_epoch: _,
         } => {
             let built = (|| {
                 Ok::<_, Outcome>((
@@ -744,11 +749,13 @@ async fn profile_flow(ctx: &Ctx, command: ProfileCommand) -> Outcome {
             profile,
             pairs: list,
             request_id: given,
+            request_epoch: _,
         } => edit_pairs(ctx, &profile, &list, given.as_deref(), true).await,
         ProfileCommand::Remove {
             profile,
             pairs: list,
             request_id: given,
+            request_epoch: _,
         } if !list.is_empty() => edit_pairs(ctx, &profile, &list, given.as_deref(), false).await,
         ProfileCommand::Remove {
             profile,

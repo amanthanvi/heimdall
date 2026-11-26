@@ -220,5 +220,39 @@ reproducible only by a PC pair at a commit with the record split: the candidate'
 - **Records:** `tests/evidence/artifacts/m08/pc-job57-7905a671/`.
 - **Finding M08-W2-F2** (step 5c): an unquoted `-Features default,iroh` failed PowerShell's
   parameter binding before the script's own refusal. It failed closed: nothing was built. It
-  was fixed in W2.3 (`2215e8a0`; `-Features` is a list), and the Windows run of
-  `build-release-features-selftest.ps1` is pending.
+  was fixed in W2.3 (`2215e8a0`; `-Features` is a list). **Closed by PC job 59 at `8ba4f28c`:**
+  `build-release-features-selftest: PASS (18 checks)` under Windows PowerShell 5.1 and
+  PowerShell 7. The unquoted `default,iroh` now reaches the refusal (exit 2) in both.
+
+## The release feature set has no test kit (M08 U3c, 2026-11-24)
+
+The binary's edge to `heimdall-testkit` (the debug-build test configuration) is the optional
+default feature `test-config` (`crates/heimdall/Cargo.toml`). Every release build is made
+with `--no-default-features`: `build-release.sh`, `build-release.ps1`,
+`tools/validation/release-gate.sh` and every cargo call in `provenance.py`
+(`RELEASE_FEATURE_ARGS`). A debug build without the feature fails to compile, and says why
+(`crates/heimdall/src/main.rs`).
+
+- **The check:** `provenance.py check-features` now also runs
+  `release_graph_holds_no_test_only_crate`. The test-only set is what the debug graph reaches
+  only through the kit: the default graph minus the same graph with `--prune heimdall-testkit`,
+  plus the kit itself. None of it may be in the release graph.
+- **Observed on `aarch64-apple-darwin`:** 14 such crates (`bit-set`, `bit-vec`, `core_detect`,
+  `fastrand`, `fnv`, `heimdall-testkit`, `proptest`, `quick-error`, `rand_xorshift`,
+  `regex-syntax`, `rusty-fork`, `tempfile`, `unarray`, `wait-timeout`). The release graph holds
+  none of them.
+- **Shown failing without the fix:** with `RELEASE_FEATURE_ARGS` emptied, `check-features`
+  refuses and names all 14.
+- **The record:** the build record, the SBOM's `heimdall:features` and the notices header now
+  name the set as `--no-default-features` (plus `--features …` if any), not `default`.
+- **A forgotten flag cannot ship the kit** (the orchestrator's condition, 2026-11-24).
+  - `check-features` and `build-record` refuse a request naming `test-config` (or
+    `--all-features`).
+  - `build-record` refuses a build whose compiled set holds any test-only crate. That is what a
+    build without `--no-default-features` produces.
+  - The record states `test_kit: not included …` only after that check, as for `iroh`.
+  - The release gate checks that its release build's graph has no `heimdall-testkit`, and says
+    that every `HEIMDALL_TEST_*` it probes is refused at run time.
+- **The release graph, observed** (`cargo tree --no-default-features -p heimdall -e normal
+  --target aarch64-apple-darwin`): 203 packages, none of them `heimdall-testkit`, `proptest` or
+  `tempfile`.

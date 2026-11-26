@@ -7,6 +7,14 @@
 //! command goes through `heimdall_app::Operations`, locally in `service run` or
 //! over the authenticated control endpoint otherwise.
 
+// ⟨M08 U3c⟩ The test configuration (`testcfg`, the scratch stores, the fake sources) needs the
+// test kit, which a release build never has: a debug build without the default feature
+// `test-config` is not a supported configuration.
+#[cfg(all(debug_assertions, not(feature = "test-config")))]
+compile_error!(
+    "a debug build of heimdall needs the default feature `test-config`; a release build is built with --no-default-features"
+);
+
 mod activate_cmd;
 mod catalog_cmd;
 mod cli;
@@ -48,11 +56,9 @@ mod uninstall_cmd;
 // ⟨M04⟩ joint wave 0 (ADR-0010 §9 item 9): refusals until the M04 handlers land.
 mod wsl_cmd;
 
-use clap::Parser;
-
 fn main() -> std::process::ExitCode {
     let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
-    let args = match cli::Cli::try_parse_from(&argv) {
+    let args = match cli::parse_args(&argv) {
         Ok(a) => a,
         Err(e) => {
             // Help and version are successes; every other parse failure is a

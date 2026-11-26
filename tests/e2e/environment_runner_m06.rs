@@ -1156,9 +1156,7 @@ mod driver_e2e {
         controller_paths.ensure().unwrap();
         let store = Arc::new(
             Store::open(
-                &controller_paths
-                    .state_dir
-                    .join(heimdall_runtime::service::STATE_DB_FILE),
+                &heimdall_store::layout::db_path(&controller_paths.state_dir).unwrap(),
                 Arc::new(NoFaults),
             )
             .unwrap(),
@@ -1507,9 +1505,7 @@ mod driver_e2e {
         };
         {
             let store = Store::open(
-                &paths
-                    .state_dir
-                    .join(heimdall_runtime::service::STATE_DB_FILE),
+                &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
                 Arc::new(NoFaults),
             )
             .unwrap();
@@ -2524,9 +2520,8 @@ async fn remote_init_refuses_and_reports_what_it_never_changes() {
     assert!(message.contains("is a symbolic link"), "{message}");
     assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
     assert!(
-        !heimdall_runtime::Paths::under(&linked.home)
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE)
+        !heimdall_store::layout::db_path(&heimdall_runtime::Paths::under(&linked.home).state_dir)
+            .unwrap()
             .exists(),
         "no state was written"
     );

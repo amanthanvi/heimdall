@@ -215,6 +215,7 @@ fn helper_main(args: &[OsString]) -> i32 {
         let dialer = TokioLegDialer {
             ssh_client: fixture.ssh_client.clone(),
             relay_jump_stderr: true,
+            fill: |_, _| {},
         };
         let ports = FixturePorts::new(fixture);
         let mut stderr = std::io::stderr();
@@ -442,6 +443,7 @@ fn run_helper(
         let dialer = TokioLegDialer {
             ssh_client: PathBuf::from("/nonexistent/ssh"),
             relay_jump_stderr: false,
+            fill: |_, _| {},
         };
         let (client, helper) = tokio::io::duplex(64 * 1024);
         let (helper_in, helper_out) = tokio::io::split(helper);
@@ -803,6 +805,7 @@ fn each_host_pin_defeated_combination_is_refused_by_ssh_g() {
             Some(&config),
             "final",
             &expect(owned),
+            heimdall_localenv::sys::openssh_env::fill_openssh_environment,
         ))
     };
     assert_eq!(check("", "", None), Ok(()), "P alone verifies");
@@ -924,7 +927,12 @@ fn each_host_pin_defeated_combination_is_refused_by_ssh_g() {
         certificate_file: None,
     };
     assert_eq!(
-        rt.block_on(verify_jump_leg(&ssh, &hop, Hop::Jump(0))),
+        rt.block_on(verify_jump_leg(
+            &ssh,
+            &hop,
+            Hop::Jump(0),
+            heimdall_localenv::sys::openssh_env::fill_openssh_environment
+        )),
         Ok(())
     );
 }
@@ -1045,7 +1053,8 @@ fn two_hop_unix() {
             &ssh,
             Some(&config),
             "final",
-            &expect
+            &expect,
+            |_, _| {}
         )),
         Ok(())
     );

@@ -1987,8 +1987,11 @@ mod console {
     }
 
     /// The scratch home, the hook, the in-process runtime and the TUI's environment.
+    // ⟨W3 review fixes; PC job 65⟩ Fields drop in declaration order, so the scratch directory
+    // comes last: every handle on its files (the store and what holds it) is dropped first. On
+    // Windows an open file cannot be deleted, and the directory's drop swallows the error, which
+    // leaves fixture directories in TEMP.
     struct World {
-        home: ScratchHome,
         hook: HookBinary,
         /// The hook's log: one line per run of the configuration's `Match exec`.
         log: PathBuf,
@@ -1998,6 +2001,7 @@ mod console {
         thread: Option<std::thread::JoinHandle<()>>,
         principal: PrincipalRef,
         n: AtomicU32,
+        home: ScratchHome,
     }
 
     impl World {

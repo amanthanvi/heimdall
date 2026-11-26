@@ -86,6 +86,11 @@ pub enum Code {
     /// The decision record is no longer completable: already consumed, expired, or
     /// the authority generation moved since it was issued (ADR-0006 §3.1).
     DecisionStale,
+    /// ⟨rev7⟩ A mutating request from before a restore (ADR-0014 H13, §3.6 steps 3–4; U0-Q5,
+    /// Q6): its restore epoch is not the current one (reason `restore_epoch_stale`), or the
+    /// request ledger fenced its key at a restore or a repair (`restored_before_completion`).
+    /// Never executed; send a new request with a new request ID under a fresh hello.
+    RequestStale,
 
     // --- uncertain external outcome (exit 7) -------------------------------------------
     /// An external mutation may or may not have applied (spec §7.5, §11.4). (spec)
@@ -144,6 +149,7 @@ const TABLE: &[(Code, &str)] = &[
     (Code::RequestExpired, "REQUEST_EXPIRED"),
     (Code::ResyncRequired, "RESYNC_REQUIRED"),
     (Code::DecisionStale, "DECISION_STALE"),
+    (Code::RequestStale, "REQUEST_STALE"),
     (Code::OutcomeUnknown, "OUTCOME_UNKNOWN"),
     (Code::UsageError, "USAGE_ERROR"),
     (Code::SchemaUnsupported, "SCHEMA_UNSUPPORTED"),
@@ -178,6 +184,7 @@ const ALL: &[Code] = &[
     Code::RequestExpired,
     Code::ResyncRequired,
     Code::DecisionStale,
+    Code::RequestStale,
     Code::OutcomeUnknown,
     Code::UsageError,
     Code::SchemaUnsupported,
@@ -248,7 +255,8 @@ impl Code {
             | Code::ConfigConflict
             | Code::RequestExpired
             | Code::ResyncRequired
-            | Code::DecisionStale => ExitCode::Conflict,
+            | Code::DecisionStale
+            | Code::RequestStale => ExitCode::Conflict,
             Code::OutcomeUnknown => ExitCode::OutcomeUnknown,
             Code::UsageError | Code::SchemaUnsupported | Code::NotFound => ExitCode::Usage,
             Code::InternalError | Code::Unknown(_) => ExitCode::Internal,
@@ -318,7 +326,7 @@ impl Code {
             | Code::StateUnavailable
             | Code::Backpressure => "retry_after",
             Code::UnsupportedClient => "change_client",
-            Code::RequestConflict | Code::RequestExpired => "new_request_id",
+            Code::RequestConflict | Code::RequestExpired | Code::RequestStale => "new_request_id",
             Code::ConfigConflict => "review_config",
             Code::ResyncRequired => "resync",
             Code::DecisionStale => "fix_request",
@@ -439,6 +447,25 @@ mod tests {
                 "{code}"
             );
         }
+    }
+
+    /// ⟨rev7⟩ U0-Q6: `REQUEST_STALE` is exit class 6 (conflict), not retryable, effect `none`,
+    /// next `new_request_id` (ADR-0006 §19.3).
+    #[test]
+    fn request_stale_is_a_conflict_that_asks_for_a_new_request_id() {
+        let c = Code::parse("REQUEST_STALE");
+        assert_eq!(c, Code::RequestStale);
+        assert!(Code::all().contains(&c));
+        assert_eq!(c.exit_code(), ExitCode::Conflict);
+        assert!(!c.retryable());
+        assert_eq!(c.default_effect_status(), EffectStatus::None);
+        assert_eq!(c.default_next_action(), "new_request_id");
+        assert_eq!(c.as_str(), crate::lifecycle::REQUEST_STALE);
+        assert_eq!(c.exit_code().as_i32(), crate::lifecycle::REQUEST_STALE_EXIT);
+        assert_eq!(
+            c.default_next_action(),
+            crate::lifecycle::REQUEST_STALE_NEXT
+        );
     }
 
     #[test]

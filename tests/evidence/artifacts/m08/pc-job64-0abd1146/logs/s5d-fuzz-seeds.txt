@@ -1,0 +1,15 @@
+   Compiling heimdall-remote v0.1.0-m01 (<R>\c1\crates\remote)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.40s
+     Running ..\..\tests\adversarial\m08_fuzz_seeds.rs (target\debug\deps\adversarial_m08_fuzz_seeds-ce4956c53abd396d.exe)
+
+running 7 tests
+test page_select_seeds_decode_their_forms ... ok
+test route_ssh_g_seeds_verify_one_proxy_each ... ok
+test sshd_policy_seeds_verify_only_the_devbox_shape ... ok
+test remote_join_seeds_activate_only_the_matching_join ... ok
+test every_new_target_is_listed_with_a_cap_above_its_seeds ... ok
+test remote_bridge_seeds_reach_the_relay_and_each_closing_rule ... ok
+test route_preident_seeds_identify_or_overflow_at_the_bounds ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

@@ -18,6 +18,10 @@ test-support = []
 [dependencies]
 heimdall-contract = { workspace = true }
 heimdall-domain = { workspace = true }
+# ⟨M08 U2b-1⟩ The generation layout (ADR-0014 §3.6, H12): the pointer switch, the operation
+# record, the staging intent and start-up recovery. ⟨M08 U2b-2⟩ Also the request ledger, keyed
+# by the store's digest of the full idempotency key (`fence`).
+heimdall-stategen = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -42,3 +46,10 @@ path = "../../tests/integration/store_m04_m05.rs"
 [[test]]
 name = "contracts_replay"
 path = "../../tests/contracts/replay.rs"
+
+# ⟨M08 U2b-1⟩ The generation layout of the real store (ADR-0014 §3.6, H12): the switch's
+# fault set, the pointer as the only authority, adoption against an older build, copies
+# through SQLite, and the tests/** path guard.
+[[test]]
+name = "adversarial_store_generations"
+path = "../../tests/adversarial/store_generations.rs"

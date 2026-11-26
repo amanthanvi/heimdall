@@ -25,6 +25,17 @@
           "description": "The request.",
           "$ref": "#/$defs/Request"
         },
+        "request_epoch": {
+          "description": "⟨rev7; M08 U2b-2; ADR-0014 H13⟩ The restore epoch the request's ID was minted\nunder (ruling on ASK-H13a): one field per frame, outside every canonical request\nhash. Only on a session that negotiated\n`request-epoch/1`; reads ignore it. A mutating request whose epoch is not the\ncurrent one is refused `REQUEST_STALE`. Omitted when absent, so every earlier frame\nis byte-identical.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RestoreEpoch"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "seq": {
           "description": "Per-connection sequence number.",
           "type": "integer",
@@ -4633,6 +4644,12 @@
           "type": "boolean"
         }
       }
+    },
+    "RestoreEpoch": {
+      "description": "A restore epoch (ADR-0014 §3.6 \"The restore epoch and the replay fence\"). Every restore\nraises it, durably, before its pointer moves; a store with no restore is at epoch 0, and\nevery reference minted before revision 7's migration belongs to epoch 0.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
     },
     "RevokeRequest": {
       "description": "`revoke` request (spec §6.7).",

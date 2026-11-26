@@ -1,0 +1,13 @@
+   Compiling heimdall-localenv v0.1.0-m01 (<R>\c1\crates\localenv)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.63s
+     Running ..\..\tests\adversarial\alias_collision.rs (target\debug\deps\adversarial_alias_collision-46f0bc66a121f7b8.exe)
+
+running 5 tests
+test doctor_reports_a_legacy_catalog_case_pair ... ok
+test wildcard_negated_and_match_lines_are_out_of_scope ... ok
+test doctor_reports_a_same_name_host_line_in_the_user_file_and_an_included_file ... ok
+test setup_reports_the_conflict_and_keeps_its_steps ... ok
+test setup_applies_the_plan_with_the_conflict_and_leaves_the_users_lines ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+

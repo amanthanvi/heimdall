@@ -49,3 +49,11 @@ proptest = { workspace = true }
 [[test]]
 name = "model_remote_roles"
 path = "../../tests/model/remote_roles.rs"
+
+# ⟨M08 U1b⟩ The new fuzz targets' bodies (`fuzz/fuzz_targets/body/`, ADR-0014 §2.1 boundaries
+# 12 to 15), compiled here from the same files and fed their committed seeds, since the fuzz
+# build itself runs only in the campaign container. Hosted here: this crate has every edge
+# the bodies use (contract, store, app, ipc, tokio).
+[[test]]
+name = "adversarial_m08_fuzz_seeds"
+path = "../../tests/adversarial/m08_fuzz_seeds.rs"

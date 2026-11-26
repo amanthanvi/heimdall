@@ -1,5 +1,5 @@
 {
-  "source": "ADR-0006 section 5 table, transcribed mechanically; independent of the Rust implementation",
+  "source": "ADR-0006 section 5 table, with revision 7's REQUEST_STALE row (section 19.3, H13) after DECISION_STALE, transcribed mechanically; independent of the Rust implementation",
   "rows": [
     {
       "code": "OK",
@@ -168,6 +168,13 @@
       "retryable": false,
       "effect": "none",
       "next": "fix_request"
+    },
+    {
+      "code": "REQUEST_STALE",
+      "exit": 6,
+      "retryable": false,
+      "effect": "none",
+      "next": "new_request_id"
     },
     {
       "code": "OUTCOME_UNKNOWN",

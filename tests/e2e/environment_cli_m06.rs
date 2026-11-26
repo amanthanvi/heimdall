@@ -291,7 +291,9 @@ fn environment_commands_use_the_controller_records_under_the_instance_lock() {
     assert_eq!(env["data"]["environments"], serde_json::json!([]));
     assert_eq!(env["data"]["management"], "mgmt_key_store_unavailable");
     assert!(
-        !rt.home.join("state").join("state.db").exists(),
+        !heimdall_store::layout::db_path(&rt.home.join("state"))
+            .unwrap()
+            .exists(),
         "status wrote nothing"
     );
     let update = rt.run(&[
@@ -311,7 +313,11 @@ fn environment_commands_use_the_controller_records_under_the_instance_lock() {
         "env_0123",
     ]);
     assert_eq!(remove.json()["code"], "NOT_FOUND", "{remove:?}");
-    assert!(rt.home.join("state").join("state.db").exists());
+    assert!(
+        heimdall_store::layout::db_path(&rt.home.join("state"))
+            .unwrap()
+            .exists()
+    );
     let not_running = rt.run(&["--json", "service", "status"]);
     assert_ne!(
         not_running.code, 0,

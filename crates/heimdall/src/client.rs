@@ -34,6 +34,11 @@ pub struct Ctx {
     pub home: Option<PathBuf>,
     /// Whether stdin is a terminal.
     pub stdin_tty: bool,
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 3⟩ `--request-epoch`: the restore epoch a retried
+    /// request ID was first bound to. Every mutating request of this invocation carries it,
+    /// and a runtime that does not offer `request-epoch/1` gets nothing (`SCHEMA_UNSUPPORTED`).
+    /// `None`: each mutating request carries the epoch of this session's hello, bound at send.
+    pub request_epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
 }
 
 impl Ctx {
@@ -94,6 +99,8 @@ type Stream = tokio::net::windows::named_pipe::NamedPipeClient;
 /// A connected, negotiated control session.
 pub struct Client {
     inner: ControlClient<Stream>,
+    /// ⟨M08 U2b-2⟩ This invocation's kept epoch ([`Ctx::request_epoch`]).
+    kept: Option<heimdall_contract::lifecycle::RestoreEpoch>,
 }
 
 impl std::fmt::Debug for Client {
@@ -105,6 +112,11 @@ impl std::fmt::Debug for Client {
 impl Client {
     /// Send a request; a transport failure after sending is `SERVICE_UNAVAILABLE`
     /// with effect `unknown` (the journal decides; a same-ID retry replays).
+    ///
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 3⟩ A mutating request carries the kept epoch
+    /// (`--request-epoch`) or, without one, this session's hello epoch, bound at send; a kept
+    /// epoch the runtime cannot check is answered `SCHEMA_UNSUPPORTED` with nothing sent
+    /// (`heimdall_ipc::session::ControlClient::request`).
     pub async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
         match self.inner.request(request).await {
             Ok(env) => env,
@@ -127,6 +139,28 @@ impl Client {
     #[must_use]
     pub fn server(&self) -> &heimdall_contract::ipc::ServerHello {
         self.inner.server()
+    }
+
+    /// ⟨M08 U2b-2⟩ Send `request` carrying `kept`, the epoch a retried request ID was first
+    /// bound to, instead of this invocation's (the TUI's resend of a request it keeps). `None`:
+    /// [`Self::request`]'s choice for a fresh request.
+    pub async fn request_kept(
+        &mut self,
+        request: Request,
+        kept: Option<heimdall_contract::lifecycle::RestoreEpoch>,
+    ) -> Envelope<serde_json::Value> {
+        let invocation = self.kept;
+        self.inner.keep_epoch(kept.or(invocation));
+        let env = self.request(request).await;
+        self.inner.keep_epoch(invocation);
+        env
+    }
+
+    /// ⟨M08 U2b-2⟩ The epoch a mutating request sent now carries: the kept one, else the
+    /// hello's where the runtime offers `request-epoch/1`; `None` where neither applies.
+    #[must_use]
+    pub fn bound_epoch(&self) -> Option<heimdall_contract::lifecycle::RestoreEpoch> {
+        self.kept.or_else(|| self.inner.fresh_epoch())
     }
 
     /// The underlying session (subscriptions).
@@ -532,7 +566,13 @@ pub async fn connect_as(
     )
     .await
     .map_err(|e| Box::new(transport_failure_envelope(&e, false)))?;
-    Ok(Client { inner })
+    let mut inner = inner;
+    // ⟨M08 U2b-2⟩ A retry's kept epoch travels with every mutating request it sends.
+    inner.keep_epoch(ctx.request_epoch);
+    Ok(Client {
+        inner,
+        kept: ctx.request_epoch,
+    })
 }
 
 /// ⟨M06 W2⟩ A raw connection to the control endpoint of the runtime serving `home` (an

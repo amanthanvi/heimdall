@@ -18,10 +18,7 @@ use heimdall_domain::operation::OperationRecord;
 use heimdall_domain::profile::ProfileDefinition;
 use heimdall_domain::resource::{ManagedResource, OwnerRef, ResourceKind};
 
-use crate::{
-    META_RESTORE_EPOCH, Result, StoreError, Txn, codec, operation_states, parse_restore_epoch,
-    sql_in_list,
-};
+use crate::{Result, StoreError, Txn, codec, operation_states, sql_in_list};
 
 /// A page's row count as SQLite's `LIMIT`.
 fn limit(take: usize) -> Result<i64> {
@@ -29,18 +26,6 @@ fn limit(take: usize) -> Result<i64> {
 }
 
 impl Txn<'_> {
-    /// ⟨rev7; ADR-0014 H9, §3.6⟩ The store's current restore epoch, read where a page is
-    /// served (a page token minted under another epoch is refused). A missing or malformed
-    /// value is damage ([`StoreError::Corrupt`]), never epoch 0, as at every open.
-    pub fn restore_epoch(&mut self) -> Result<u64> {
-        self.meta(META_RESTORE_EPOCH)?
-            .as_deref()
-            .and_then(parse_restore_epoch)
-            .ok_or_else(|| {
-                StoreError::Corrupt("the restore epoch is missing or malformed".to_owned())
-            })
-    }
-
     /// ⟨rev7⟩ At most `take` catalog destinations whose ID sorts after `after` (every one
     /// when `None`), ordered by ID.
     pub fn destinations_after(
@@ -358,7 +343,7 @@ mod tests {
     #[test]
     fn restore_epoch_reads_the_migrated_value_and_refuses_damage() {
         let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
-        assert_eq!(store.transaction(|tx| tx.restore_epoch()).unwrap(), 0);
+        assert_eq!(store.transaction(|tx| tx.restore_epoch()).unwrap().0, 0);
         store
             .transaction(|tx| tx.set_meta(crate::META_RESTORE_EPOCH, "007"))
             .unwrap();

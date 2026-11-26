@@ -115,6 +115,7 @@ fn decide_frame(seq: u64) -> Vec<u8> {
                 decision_id: DecisionId::from_random_bytes([seq.to_le_bytes()[0]; 16]),
                 verdict: Verdict::Approve,
             }),
+            request_epoch: None,
         },
         MAX_CONTROL_FRAME_BYTES,
     )
@@ -133,6 +134,7 @@ fn request_frame(seq: u64) -> Vec<u8> {
                 select: None,
                 page: None,
             }),
+            request_epoch: None,
         },
         MAX_CONTROL_FRAME_BYTES,
     )

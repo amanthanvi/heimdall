@@ -1,0 +1,82 @@
+   Compiling heimdall v0.1.0-m01 (<R>\c1\crates\heimdall)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.69s
+     Running ..\..\tests\e2e\deadline_m03.rs (target\debug\deps\e2e_deadline_m03-a2c1cc7afe8f8f80.exe)
+
+running 13 tests
+test windows::windows_job_probe_child ... ignored, a fixture process of windows_non_ssh_run_has_no_job_object_by_default
+test windows::windows_launcher_fixture_child ... ignored, a fixture process of windows_launcher_death_ends_ssh_through_job
+test registration_failure_reasons_are_launch_failed_127 ... ok
+test windows::windows_pause_before_register_then_revoke_refuses_registration ... FAILED
+test windows::windows_launcher_death_ends_ssh_through_job ... FAILED
+test windows::windows_register_refused_for_ended_grant_child_never_resumed ... FAILED
+test windows::windows_register_while_suspended_under_gate ... FAILED
+test windows::windows_registration_failure_fails_closed ... FAILED
+test windows::windows_revoke_between_register_and_resume_kills_child ... FAILED
+test windows::windows_revoke_makes_exact_ssh_exe_pid_exit ... FAILED
+test windows::windows_ssh_grandchild_inside_job ... FAILED
+test windows::windows_strict_deadline_closes_exact_ssh_exe ... FAILED
+test windows::windows_non_ssh_run_has_no_job_object_by_default ... ok
+
+failures:
+
+---- windows::windows_pause_before_register_then_revoke_refuses_registration stdout ----
+
+thread 'windows::windows_pause_before_register_then_revoke_refuses_registration' (4488) panicked at crates\heimdall\..\..\tests\e2e\deadline_m03.rs:212:9:
+the Windows ownership tests need the harness fixture sshd (HM_FIXTURE_SSHD_*)
+
+---- windows::windows_launcher_death_ends_ssh_through_job stdout ----
+
+thread 'windows::windows_launcher_death_ends_ssh_through_job' (6752) panicked at crates\heimdall\..\..\tests\e2e\deadline_m03.rs:212:9:
+the Windows ownership tests need the harness fixture sshd (HM_FIXTURE_SSHD_*)
+
+---- windows::windows_register_refused_for_ended_grant_child_never_resumed stdout ----
+
+thread 'windows::windows_register_refused_for_ended_grant_child_never_resumed' (27808) panicked at crates\heimdall\..\..\tests\e2e\deadline_m03.rs:212:9:
+the Windows ownership tests need the harness fixture sshd (HM_FIXTURE_SSHD_*)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- windows::windows_register_while_suspended_under_gate stdout ----
+
+thread 'windows::windows_register_while_suspended_under_gate' (29928) panicked at crates\heimdall\..\..\tests\e2e\deadline_m03.rs:212:9:
+the Windows ownership tests need the harness fixture sshd (HM_FIXTURE_SSHD_*)
+
+---- windows::windows_registration_failure_fails_closed stdout ----
+
+thread 'windows::windows_registration_failure_fails_closed' (8440) panicked at crates\heimdall\..\..\tests\e2e\deadline_m03.rs:212:9:
+the Windows ownership tests need the harness fixture sshd (HM_FIXTURE_SSHD_*)
+
+---- windows::windows_revoke_between_register_and_resume_kills_child stdout ----
+
+thread 'windows::windows_revoke_between_register_and_resume_kills_child' (18948) panicked at crates\heimdall\..\..\tests\e2e\deadline_m03.rs:212:9:
+the Windows ownership tests need the harness fixture sshd (HM_FIXTURE_SSHD_*)
+
+---- windows::windows_revoke_makes_exact_ssh_exe_pid_exit stdout ----
+
+thread 'windows::windows_revoke_makes_exact_ssh_exe_pid_exit' (31172) panicked at crates\heimdall\..\..\tests\e2e\deadline_m03.rs:212:9:
+the Windows ownership tests need the harness fixture sshd (HM_FIXTURE_SSHD_*)
+
+---- windows::windows_ssh_grandchild_inside_job stdout ----
+
+thread 'windows::windows_ssh_grandchild_inside_job' (22608) panicked at crates\heimdall\..\..\tests\e2e\deadline_m03.rs:212:9:
+the Windows ownership tests need the harness fixture sshd (HM_FIXTURE_SSHD_*)
+
+---- windows::windows_strict_deadline_closes_exact_ssh_exe stdout ----
+
+thread 'windows::windows_strict_deadline_closes_exact_ssh_exe' (28716) panicked at crates\heimdall\..\..\tests\e2e\deadline_m03.rs:212:9:
+the Windows ownership tests need the harness fixture sshd (HM_FIXTURE_SSHD_*)
+
+
+failures:
+    windows::windows_launcher_death_ends_ssh_through_job
+    windows::windows_pause_before_register_then_revoke_refuses_registration
+    windows::windows_register_refused_for_ended_grant_child_never_resumed
+    windows::windows_register_while_suspended_under_gate
+    windows::windows_registration_failure_fails_closed
+    windows::windows_revoke_between_register_and_resume_kills_child
+    windows::windows_revoke_makes_exact_ssh_exe_pid_exit
+    windows::windows_ssh_grandchild_inside_job
+    windows::windows_strict_deadline_closes_exact_ssh_exe
+
+test result: FAILED. 2 passed; 9 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.98s
+
+error: test failed, to rerun pass `-p heimdall --test e2e_deadline_m03`

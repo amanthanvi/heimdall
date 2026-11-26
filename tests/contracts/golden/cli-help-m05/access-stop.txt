@@ -13,4 +13,5 @@ Options:
       --all                      Stop every policy
       --cwd <PATH>               With `--workspace`: the directory whose workspace is meant (default the working directory)
       --request-id <REQUEST_ID>  With `--work`: the idempotency request ID (a fresh one is minted and reported when absent)
+      --request-epoch <N>        The restore epoch the request ID was first sent with (the answer's `request_epoch`): give it with the same `--request-id` to retry. Without it, the runtime's current epoch is used
   -h, --help                     Print help

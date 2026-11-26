@@ -19,8 +19,10 @@ account) are not kept. The zips are not kept either; their digests are below and
 | 6 | With `CARGO_TARGET_DIR` set: refused before the build, exit 2. `%LOCALAPPDATA%\hm-w22-td` was never created. The planted stale file was put back and removed by exact path |
 | 7 | 7a to 7e as expected: the reviewer's R01 case, the 3a stop, case C, the 4b-stop marker cases and the job-47 message. `heimdall.exe` was never run |
 
-**F2 is found by job 57, fixed in W2.3 (`2215e8a0`), and its PC self-test is pending**
-(`tools/packaging/build-release-features-selftest.ps1`, job file `PC-M08-W23.md`).
+**F2 was found by job 57, fixed in W2.3 (`2215e8a0`), and closed by PC job 59 at `8ba4f28c`:**
+`tools/packaging/build-release-features-selftest.ps1` PASS (18 checks) under 5.1 and 7. Every case
+behaved as expected: exit 2 for `default,iroh`, `'default,iroh'`, `iroh`, `heimdall-runtime/iroh`,
+`default, iroh`, `'iroh iroh'` and `-AllFeatures`; exit 0 for no features and `-Features default`.
 
 **Harness note.** The first step-4 attempt hung: cargo blocked writing to the PC wrapper's
 PowerShell `2>&1` pipe. Steps 4 to 7 were rerun with `cmd /c … > file 2>&1` (`logs/steps.log`,

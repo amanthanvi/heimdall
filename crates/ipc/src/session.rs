@@ -24,6 +24,12 @@
 //!   negotiated that capability (ADR-0006 §2.4, §13.6 item 8). After each
 //!   dispatched request's response is written, [`Dispatcher::replied`] runs (the
 //!   runtime starts a requested drain there).
+//! * ⟨M08 U2b-2; ADR-0014 H13⟩ A request frame's `request_epoch` is accepted only on a
+//!   session that negotiated `request-epoch/1`; on any other session the frame is answered
+//!   `SCHEMA_UNSUPPORTED` and never dispatched (an epoch is never silently dropped). The
+//!   dispatcher gets the frame's epoch with its request ([`Dispatcher::dispatch_request`]),
+//!   and a session that negotiated the capability reads the runtime's epoch in its hello
+//!   ([`Dispatcher::restore_epoch`], `ServerHello.restore_epoch`).
 //! * When the peer disconnects, outstanding dispatch futures are dropped (the
 //!   application layer is cancellation-safe: a dropped caller never changes
 //!   operation state, plan §6.3 #7); on `shutdown` the server sends
@@ -103,6 +109,7 @@ use heimdall_contract::ipc::{
     MAX_CONTROL_FRAME_BYTES, MAX_HELLO_FRAME_BYTES, MAX_SUBSCRIPTIONS_PER_CONNECTION, PeerInfo,
     PrincipalInfo, ServerHello, ServerMessage, capability,
 };
+use heimdall_contract::lifecycle::RestoreEpoch;
 use heimdall_contract::remote::Role;
 use heimdall_contract::request::{InteractionMode, ObserveRequest, Request};
 use heimdall_contract::{Code, PROTOCOL_VERSION, SchemaVersion};
@@ -150,6 +157,64 @@ pub fn server_capabilities() -> BTreeSet<String> {
     .chain([capability::PAGES_V1])
     .map(str::to_owned)
     .collect()
+}
+
+/// ⟨M08 U2b-2; ADR-0014 H13⟩ What this build's client offers in its hello
+/// ([`ControlClient::handshake`]): [`server_capabilities`] and `request-epoch/1`, which only a
+/// runtime that checks the epoch offers (it is not in [`server_capabilities`], the default
+/// offer of a [`Dispatcher`]). Offered, never required: a runtime that does not offer it is
+/// still served, without an epoch on any frame.
+#[must_use]
+pub fn client_capabilities() -> BTreeSet<String> {
+    let mut offer = server_capabilities();
+    offer.insert(capability::REQUEST_EPOCH_V1.to_owned());
+    offer
+}
+
+/// ⟨M08 U2b-2; ADR-0014 §3.6 step 3; the ruling on ASK-H13b⟩ What a request frame carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EpochChoice {
+    /// Send the frame with this `request_epoch` (none: the field is omitted).
+    Send(Option<RestoreEpoch>),
+    /// Send nothing: the caller holds a kept epoch, and the session did not negotiate
+    /// `request-epoch/1`, so the runtime could not check it.
+    Refuse,
+}
+
+/// ⟨M08 U2b-2; ADR-0014 §3.6 step 3; the ruling on ASK-H13b⟩ The epoch a request frame carries
+/// on a session whose server hello is `hello`. A read carries none. A mutating request
+/// ([`Request::is_effectful`]) carries `kept` (the epoch kept with a request ID for a retry)
+/// where the session negotiated `request-epoch/1`, and is refused, unsent, where it did not.
+/// With no kept epoch it carries the hello's epoch where negotiated (bound at send), and
+/// none otherwise (a fresh request is sent without one).
+#[must_use]
+pub fn choose_request_epoch(
+    hello: &ServerHello,
+    request: &Request,
+    kept: Option<RestoreEpoch>,
+) -> EpochChoice {
+    if !request.is_effectful() {
+        return EpochChoice::Send(None);
+    }
+    let negotiated = hello.capabilities.contains(capability::REQUEST_EPOCH_V1);
+    match (kept, negotiated) {
+        (Some(kept), true) => EpochChoice::Send(Some(kept)),
+        (Some(_), false) => EpochChoice::Refuse,
+        (None, true) => EpochChoice::Send(Some(hello.restore_epoch())),
+        (None, false) => EpochChoice::Send(None),
+    }
+}
+
+/// ⟨M08 U2b-2⟩ The answer to a kept epoch that cannot be sent ([`EpochChoice::Refuse`]):
+/// `SCHEMA_UNSUPPORTED`, effect `none`, nothing sent.
+#[must_use]
+pub fn kept_epoch_unsupported() -> Envelope<serde_json::Value> {
+    to_value_envelope(error_envelope(
+        Code::SchemaUnsupported,
+        EffectStatus::None,
+        "this request keeps the restore epoch it was first sent with, and the runtime does not \
+         offer request-epoch/1, so it could not check it: nothing was sent",
+    ))
 }
 
 /// Negotiate a client hello. Pure: the transport has already authenticated the
@@ -352,6 +417,9 @@ pub fn negotiate_session(
         role: paired.map(|p| p.role),
         // ⟨rev6.2⟩ The resolved paired client, reported back (None for the local owner).
         remote_client: paired.and(hello.remote_client.clone()),
+        // ⟨M08 U2b-2⟩ Set by the serving session from its dispatcher
+        // ([`Dispatcher::restore_epoch`]) when `request-epoch/1` was negotiated.
+        restore_epoch: None,
     })
 }
 
@@ -930,7 +998,15 @@ where
             .map(|h| (h, paired))
         });
         let (negotiated, paired) = match negotiation {
-            Ok((server_hello, paired)) => {
+            Ok((mut server_hello, paired)) => {
+                // ⟨M08 U2b-2; ADR-0014 §3.6 step 1⟩ A session that negotiated
+                // `request-epoch/1` reads the runtime's current epoch in its hello.
+                if server_hello
+                    .capabilities
+                    .contains(capability::REQUEST_EPOCH_V1)
+                {
+                    server_hello.restore_epoch = dispatcher.restore_epoch();
+                }
                 let negotiated = server_hello.capabilities.clone();
                 write_frame(
                     &mut wire,
@@ -1127,8 +1203,12 @@ where
                         }
                     };
                     let reply = match msg {
-                        ClientMessage::Request { seq, request } => {
-                            if request.required_capabilities().any(|c| !negotiated.contains(c)) {
+                        ClientMessage::Request { seq, request, request_epoch } => {
+                            if request_epoch.is_some() && !negotiated.contains(capability::REQUEST_EPOCH_V1) {
+                                // ⟨M08 U2b-2; ADR-0014 H13⟩ An epoch on a session that did not
+                                // negotiate it is never dropped silently: refused, not dispatched.
+                                Some(response(seq, Code::SchemaUnsupported, "this request carries a restore epoch, which the session did not negotiate (request-epoch/1)"))
+                            } else if request.required_capabilities().any(|c| !negotiated.contains(c)) {
                                 // ADR-0006 §2.4, §13.6 item 8: a request outside the
                                 // negotiated capabilities is never dispatched.
                                 Some(response(seq, Code::SchemaUnsupported, "this request needs a capability the session did not negotiate"))
@@ -1152,7 +1232,7 @@ where
                                 let session = session.clone();
                                 let kind = request.kind();
                                 inflight.push(Box::pin(async move {
-                                    let envelope = dispatcher.dispatch(&session, request).await;
+                                    let envelope = dispatcher.dispatch_request(&session, request, request_epoch).await;
                                     Done::Response { seq, kind, envelope }
                                 }));
                                 None
@@ -1419,6 +1499,29 @@ pub trait Dispatcher: Send + Sync {
         request: Request,
     ) -> Envelope<serde_json::Value>;
 
+    /// ⟨M08 U2b-2; ADR-0014 H13⟩ Handle one request with the restore epoch its frame carried
+    /// (`None`: the frame carried none). A frame reaches this with an epoch only on a session
+    /// that negotiated `request-epoch/1`, which only a dispatcher that checks the epoch
+    /// offers ([`Self::offered_capabilities`]); such a dispatcher overrides this. Default:
+    /// [`Self::dispatch`], for a dispatcher that offers no `request-epoch/1` and so never
+    /// gets an epoch.
+    async fn dispatch_request(
+        &self,
+        session: &SessionInfo,
+        request: Request,
+        request_epoch: Option<RestoreEpoch>,
+    ) -> Envelope<serde_json::Value> {
+        let _ = request_epoch;
+        self.dispatch(session, request).await
+    }
+
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 1⟩ The runtime's current restore epoch, reported in the
+    /// hello of a session that negotiated `request-epoch/1`. Default: `None` (a dispatcher
+    /// that does not check the epoch).
+    fn restore_epoch(&self) -> Option<RestoreEpoch> {
+        None
+    }
+
     /// Start a subscription (ADR-0006 §8): create the live receiver first, then read
     /// the boundary and the backlog after `from` (or a snapshot when `from` is
     /// absent or unusable) in one store transaction. The backlog must already be
@@ -1577,6 +1680,8 @@ pub struct ControlClient<S> {
     hello: ServerHello,
     next_seq: u64,
     events: VecDeque<(u64, Event)>,
+    /// ⟨M08 U2b-2⟩ The epoch kept with a request ID for a retry ([`Self::keep_epoch`]).
+    kept_epoch: Option<RestoreEpoch>,
 }
 
 fn invalid(msg: &'static str) -> FrameError {
@@ -1600,7 +1705,8 @@ where
         interaction: InteractionMode,
     ) -> Result<Self, crate::frame::FrameError> {
         let mut wire = Framed::new(stream, BoundedFrameCodec::new(MAX_HELLO_FRAME_BYTES));
-        let mut capabilities = server_capabilities();
+        // ⟨M08 U2b-2⟩ `request-epoch/1` is offered, never required (ASK-H13b).
+        let mut capabilities = client_capabilities();
         capabilities.extend(required.iter().cloned());
         let hello = ClientMessage::Hello(ClientHello {
             protocol: PROTOCOL_VERSION,
@@ -1647,6 +1753,7 @@ where
                     hello: h,
                     next_seq: 1,
                     events: VecDeque::new(),
+                    kept_epoch: None,
                 })
             }
             ServerMessage::Reject(env) => Err(refused(ServerRefusal::Rejected(Box::new(env)))),
@@ -1736,16 +1843,60 @@ where
 
     /// Send one request and await its response. Transport failures are errors;
     /// map them with [`transport_failure_envelope`] (request already sent).
+    ///
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 3⟩ A mutating request carries the restore epoch
+    /// [`choose_request_epoch`] picks: the kept one ([`Self::keep_epoch`]) or the hello's,
+    /// where the session negotiated `request-epoch/1`. A kept epoch the session cannot carry
+    /// is answered here, with nothing sent: `Ok` with [`kept_epoch_unsupported`]
+    /// (`SCHEMA_UNSUPPORTED`, effect `none`).
     pub async fn request(
         &mut self,
         request: Request,
     ) -> Result<Envelope<serde_json::Value>, crate::frame::FrameError> {
+        match choose_request_epoch(&self.hello, &request, self.kept_epoch) {
+            EpochChoice::Send(request_epoch) => {
+                self.request_with_epoch(request, request_epoch).await
+            }
+            EpochChoice::Refuse => Ok(kept_epoch_unsupported()),
+        }
+    }
+
+    /// ⟨M08 U2b-2⟩ Send one request with exactly this frame epoch (none: omitted), whatever
+    /// the session negotiated, and await its response. [`Self::request`] chooses the epoch;
+    /// this is for callers that already chose it, and for tests of the runtime's checks.
+    pub async fn request_with_epoch(
+        &mut self,
+        request: Request,
+        request_epoch: Option<RestoreEpoch>,
+    ) -> Result<Envelope<serde_json::Value>, crate::frame::FrameError> {
         let seq = self.take_seq();
-        self.send(&ClientMessage::Request { seq, request }).await?;
+        self.send(&ClientMessage::Request {
+            seq,
+            request,
+            request_epoch,
+        })
+        .await?;
         match self.await_reply(seq).await? {
             ServerMessage::Response { envelope, .. } => Ok(envelope),
             _ => Err(invalid("subscription reply to a request")),
         }
+    }
+
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 3⟩ Keep `epoch` for every mutating request this session
+    /// sends from now on: the epoch a retried request ID was first bound to (`--request-epoch`).
+    /// `None` goes back to binding the hello's epoch at send.
+    pub fn keep_epoch(&mut self, epoch: Option<RestoreEpoch>) {
+        self.kept_epoch = epoch;
+    }
+
+    /// ⟨M08 U2b-2⟩ The epoch a fresh mutating request sent now carries: the hello's where the
+    /// session negotiated `request-epoch/1`, `None` otherwise. The kept epoch is not looked at.
+    #[must_use]
+    pub fn fresh_epoch(&self) -> Option<RestoreEpoch> {
+        self.hello
+            .capabilities
+            .contains(capability::REQUEST_EPOCH_V1)
+            .then(|| self.hello.restore_epoch())
     }
 
     /// Ask the runtime to mark this session attended (ADR-0006 §3.1). `OK
@@ -2137,6 +2288,251 @@ mod tests {
         // The hello field is omitted when absent: the wire form is unchanged.
         let text = serde_json::to_string(&ClientMessage::Hello(h)).unwrap();
         assert!(!text.contains("remote_client"), "{text}");
+    }
+
+    // --- ⟨M08 U2b-2; ADR-0014 H13⟩ the frame epoch ----------------------------------------
+
+    fn revoke(n: u8) -> Request {
+        Request::Revoke(heimdall_contract::request::RevokeRequest {
+            grant_id: Some(heimdall_contract::ids::GrantId::from_random_bytes([n; 16])),
+            request_id: heimdall_contract::ids::RequestId::parse(&format!("r{n}")).unwrap(),
+            target: None,
+        })
+    }
+
+    fn capabilities_read() -> Request {
+        Request::Inspect(heimdall_contract::request::InspectRequest {
+            subject: heimdall_contract::request::InspectSubject::Capabilities,
+            preview: None,
+            cwd: None,
+            redact: false,
+            select: None,
+            page: None,
+        })
+    }
+
+    type Seen = Arc<std::sync::Mutex<Vec<(&'static str, Option<RestoreEpoch>)>>>;
+
+    /// A dispatcher that records each request's kind and frame epoch; with `epoch` it offers
+    /// `request-epoch/1` and reports that epoch, as the runtime does.
+    struct EpochDispatcher {
+        epoch: Option<RestoreEpoch>,
+        seen: Seen,
+    }
+
+    #[async_trait::async_trait]
+    impl Dispatcher for EpochDispatcher {
+        async fn dispatch(&self, s: &SessionInfo, r: Request) -> Envelope<serde_json::Value> {
+            self.dispatch_request(s, r, None).await
+        }
+        async fn dispatch_request(
+            &self,
+            _: &SessionInfo,
+            r: Request,
+            epoch: Option<RestoreEpoch>,
+        ) -> Envelope<serde_json::Value> {
+            self.seen.lock().unwrap().push((r.kind(), epoch));
+            Envelope::ok(serde_json::json!({}))
+        }
+        async fn subscribe(
+            &self,
+            _: &SessionInfo,
+            _: EventFilter,
+            _: Option<Cursor>,
+        ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>> {
+            Err(Box::new(error_envelope(
+                Code::NotFound,
+                EffectStatus::None,
+                "none",
+            )))
+        }
+        fn offered_capabilities(&self) -> BTreeSet<String> {
+            let mut offer = server_capabilities();
+            if self.epoch.is_some() {
+                offer.insert(capability::REQUEST_EPOCH_V1.to_owned());
+            }
+            offer
+        }
+        fn restore_epoch(&self) -> Option<RestoreEpoch> {
+            self.epoch
+        }
+    }
+
+    /// A served session over an in-memory pipe, and this build's client on its other end.
+    async fn epoch_session(
+        epoch: Option<RestoreEpoch>,
+    ) -> (ControlClient<tokio::io::DuplexStream>, Seen) {
+        let (client_end, server_end) = tokio::io::duplex(1 << 20);
+        let seen: Seen = Arc::default();
+        let dispatcher = EpochDispatcher {
+            epoch,
+            seen: Arc::clone(&seen),
+        };
+        tokio::spawn(
+            ControlConnection::new(server_end, ConnectionLimits::default())
+                .with_server_identity(env(), srv())
+                .serve(
+                    PrincipalInfo::OsUserUnix { uid: 501 },
+                    dispatcher,
+                    CancellationToken::new(),
+                ),
+        );
+        let client = ControlClient::handshake(
+            client_end,
+            srv(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
+        (client, seen)
+    }
+
+    /// The session gate: a frame epoch is accepted only where `request-epoch/1` was
+    /// negotiated. Elsewhere the frame is answered `SCHEMA_UNSUPPORTED` and never reaches the
+    /// dispatcher, and the hello reports no epoch.
+    #[tokio::test]
+    async fn a_frame_epoch_without_the_capability_is_refused_and_never_dispatched() {
+        let (mut c, seen) = epoch_session(None).await;
+        assert!(
+            !c.server()
+                .capabilities
+                .contains(capability::REQUEST_EPOCH_V1)
+        );
+        assert_eq!(c.server().restore_epoch, None);
+        assert_eq!(c.fresh_epoch(), None);
+        let refused = c
+            .request_with_epoch(revoke(1), Some(RestoreEpoch(0)))
+            .await
+            .unwrap();
+        assert_eq!(refused.code, Code::SchemaUnsupported);
+        assert!(seen.lock().unwrap().is_empty(), "never dispatched");
+        // The same request with no epoch is served.
+        assert_eq!(c.request(revoke(1)).await.unwrap().code, Code::Ok);
+        assert_eq!(*seen.lock().unwrap(), [("revoke", None)]);
+    }
+
+    /// Where negotiated, the hello reports the dispatcher's epoch; a fresh mutating request
+    /// carries it, a read carries none, and a kept epoch is sent as kept.
+    #[tokio::test]
+    async fn the_hello_reports_the_epoch_and_each_mutating_frame_carries_one() {
+        let (mut c, seen) = epoch_session(Some(RestoreEpoch(4))).await;
+        assert!(
+            c.server()
+                .capabilities
+                .contains(capability::REQUEST_EPOCH_V1)
+        );
+        assert_eq!(c.server().restore_epoch, Some(RestoreEpoch(4)));
+        assert_eq!(c.fresh_epoch(), Some(RestoreEpoch(4)));
+        for request in [revoke(1), capabilities_read()] {
+            assert_eq!(c.request(request).await.unwrap().code, Code::Ok);
+        }
+        c.keep_epoch(Some(RestoreEpoch(2)));
+        assert_eq!(c.request(revoke(2)).await.unwrap().code, Code::Ok);
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                ("revoke", Some(RestoreEpoch(4))),
+                ("inspect", None),
+                ("revoke", Some(RestoreEpoch(2))),
+            ]
+        );
+    }
+
+    /// A runtime that offers no `request-epoch/1`, read on the wire: it answers its hello
+    /// with `capabilities` and records every later frame as JSON, answering each `OK`.
+    async fn wire_runtime(
+        capabilities: &[&str],
+    ) -> (
+        ControlClient<tokio::io::DuplexStream>,
+        Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    ) {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let (client_end, mut server_end) = tokio::io::duplex(1 << 20);
+        let frames: Arc<std::sync::Mutex<Vec<serde_json::Value>>> = Arc::default();
+        let recorded = Arc::clone(&frames);
+        let offered: BTreeSet<String> = capabilities.iter().map(|c| (*c).to_owned()).collect();
+        tokio::spawn(async move {
+            let read = async |end: &mut tokio::io::DuplexStream| {
+                let mut len = [0u8; 4];
+                end.read_exact(&mut len).await.ok()?;
+                let mut body = vec![0u8; u32::from_be_bytes(len) as usize];
+                end.read_exact(&mut body).await.ok()?;
+                serde_json::from_slice::<serde_json::Value>(&body).ok()
+            };
+            let Some(_hello) = read(&mut server_end).await else {
+                return;
+            };
+            let hello = ServerMessage::Hello(ServerHello {
+                protocol: PROTOCOL_VERSION,
+                schema_version: SchemaVersion::current(),
+                server: srv(),
+                capabilities: offered,
+                principal: PrincipalInfo::OsUserUnix { uid: 501 },
+                environment_id: env(),
+                role: None,
+                remote_client: None,
+                restore_epoch: None,
+            });
+            let frame = encode_frame(&hello, MAX_HELLO_FRAME_BYTES).unwrap();
+            server_end.write_all(&frame).await.unwrap();
+            while let Some(frame) = read(&mut server_end).await {
+                let seq = frame["seq"].as_u64().unwrap_or(0);
+                recorded.lock().unwrap().push(frame);
+                let reply = ServerMessage::Response {
+                    in_reply_to: seq,
+                    envelope: Envelope::ok(serde_json::json!({})),
+                };
+                let bytes = encode_frame(&reply, MAX_CONTROL_FRAME_BYTES).unwrap();
+                if server_end.write_all(&bytes).await.is_err() {
+                    return;
+                }
+            }
+        });
+        let client = ControlClient::handshake(
+            client_end,
+            srv(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
+        (client, frames)
+    }
+
+    /// The ruling on ASK-H13b, first half: a kept epoch facing a runtime that does not offer
+    /// `request-epoch/1` is refused `SCHEMA_UNSUPPORTED` (effect `none`) and nothing is sent.
+    /// A read on the same session still goes.
+    #[tokio::test]
+    async fn kept_epoch_against_a_runtime_without_request_epoch_refuses_schema_unsupported() {
+        let (mut c, frames) = wire_runtime(&[capability::OPERATIONS_V1]).await;
+        c.keep_epoch(Some(RestoreEpoch(3)));
+        let refused = c.request(revoke(1)).await.unwrap();
+        assert_eq!(refused.code, Code::SchemaUnsupported);
+        let error: ErrorData = serde_json::from_value(refused.data).unwrap();
+        assert_eq!(error.error.effect_status, EffectStatus::None);
+        assert!(frames.lock().unwrap().is_empty(), "nothing was sent");
+        assert_eq!(c.request(capabilities_read()).await.unwrap().code, Code::Ok);
+        let sent = frames.lock().unwrap().clone();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["request"]["op"], "inspect");
+        assert!(sent[0].get("request_epoch").is_none());
+    }
+
+    /// The ruling on ASK-H13b, second half: a fresh request with no kept epoch is sent, with no
+    /// `request_epoch` field at all, to a runtime that does not offer `request-epoch/1`.
+    #[tokio::test]
+    async fn fresh_request_without_kept_epoch_is_sent_without_one() {
+        let (mut c, frames) = wire_runtime(&[capability::OPERATIONS_V1]).await;
+        assert_eq!(c.request(revoke(1)).await.unwrap().code, Code::Ok);
+        let sent = frames.lock().unwrap().clone();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["request"]["op"], "revoke");
+        assert!(sent[0].get("request_epoch").is_none(), "{}", sent[0]);
+        // The frame is byte-identical to the earlier wire form.
+        let earlier =
+            serde_json::json!({"type": "request", "seq": 1, "request": sent[0]["request"]});
+        assert_eq!(sent[0], earlier);
     }
 
     #[test]

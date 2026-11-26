@@ -290,6 +290,10 @@ struct State {
     /// ⟨M05⟩ The runtime answered an M05 `inspect` as unsupported on this connection: it does
     /// not offer `trusted-work/1`, so it is not asked again until the next connection.
     m05_unavailable: bool,
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 3⟩ The restore epoch each request ID this TUI minted was
+    /// first sent with, kept with it for a resend ([`Command::Resend`]): the pair travels
+    /// together, across reconnections. One entry per request the owner started here.
+    kept_epochs: BTreeMap<RequestId, heimdall_contract::lifecycle::RestoreEpoch>,
 }
 
 /// What one refresh reads, in order: only `inspect` subjects (read-only, passive;
@@ -522,6 +526,7 @@ impl State {
                 .map(|p| p.to_string_lossy().into_owned())
                 .filter(|c| WorkContext { cwd: c.clone() }.validate().is_ok()),
             m05_unavailable: false,
+            kept_epochs: BTreeMap::new(),
         }
     }
 
@@ -922,16 +927,36 @@ impl State {
     }
 
     /// Send `origin`'s request as it is, attending first when it did.
+    ///
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 3⟩ With the epoch its request ID was first sent with:
+    /// a resend carries that kept epoch, so a request from before a restore is refused
+    /// (`REQUEST_STALE`) and never re-stamped, and a runtime that does not offer
+    /// `request-epoch/1` gets nothing (`SCHEMA_UNSUPPORTED`). The first send binds the
+    /// session's epoch, which is kept from the answer (`request_epoch`).
     async fn send_origin(&mut self, origin: &Origin) -> Outcome {
         if origin.attends
             && let Err(refused) = self.attend().await
         {
             return refused;
         }
-        match self.request((*origin.request).clone()).await {
-            Some(env) => outcome(&env),
-            None => not_sent(),
+        let request = (*origin.request).clone();
+        let kept = kept_epoch(&self.kept_epochs, &request);
+        let request_id = request.request_id().cloned();
+        let Some(client) = self.session().await else {
+            return not_sent();
+        };
+        let bound = kept.or_else(|| client.bound_epoch());
+        let env = client.request_kept(request, kept).await;
+        if env.code == Code::ServiceUnavailable {
+            self.client = None;
+            self.set_runtime(Runtime::Failed(message_of(&env)));
         }
+        keep_epoch(
+            &mut self.kept_epochs,
+            request_id,
+            env.request_epoch.or(bound),
+        );
+        outcome(&env)
     }
 
     fn local_context(&self) -> Option<LocalContext> {
@@ -1135,6 +1160,27 @@ impl State {
     }
 }
 
+/// ⟨M08 U2b-2; ADR-0014 §3.6 step 3⟩ The epoch a resend of `request` carries: the one its
+/// request ID was first sent with, when this TUI sent it before.
+fn kept_epoch(
+    kept: &BTreeMap<RequestId, heimdall_contract::lifecycle::RestoreEpoch>,
+    request: &Request,
+) -> Option<heimdall_contract::lifecycle::RestoreEpoch> {
+    request.request_id().and_then(|id| kept.get(id).copied())
+}
+
+/// ⟨M08 U2b-2⟩ Keep the epoch the first send of `request_id` was bound to (the answer's, else
+/// what the session sent). A later send never replaces it: the pair is fixed at its first send.
+fn keep_epoch(
+    kept: &mut BTreeMap<RequestId, heimdall_contract::lifecycle::RestoreEpoch>,
+    request_id: Option<RequestId>,
+    epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
+) {
+    if let (Some(id), Some(epoch)) = (request_id, epoch) {
+        kept.entry(id).or_insert(epoch);
+    }
+}
+
 /// ⟨M07⟩ `decide` of a listed decision, as `heimdall decision approve|deny <id>` sends it
 /// (`Decide { decision_id, verdict }`); `None` for an ID that does not parse.
 pub(crate) fn decide_request(id: &str, verdict: Verdict) -> Option<Request> {
@@ -1231,6 +1277,45 @@ fn plan_lines(plan: &SetupPlan, repair: HeldRepair) -> Vec<String> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 3⟩ The TUI keeps each request ID it minted with the
+    /// epoch its first send was bound to, and a resend of that request carries the kept epoch,
+    /// never a later one; a request it never sent has none (it is bound at send). Every request
+    /// the TUI originates or decides changes something, so the runtime checks its epoch.
+    #[test]
+    fn clients_carry_the_epoch_with_a_kept_request_id() {
+        use heimdall_contract::lifecycle::RestoreEpoch;
+        let id = RequestId::parse("req-tui").unwrap();
+        let repair = submit_repair_request(PlanDigest::parse(&"a".repeat(64)).unwrap(), id.clone());
+        let mut kept = BTreeMap::new();
+        assert_eq!(
+            kept_epoch(&kept, &repair),
+            None,
+            "first send: bound at send"
+        );
+        keep_epoch(&mut kept, Some(id.clone()), Some(RestoreEpoch(4)));
+        assert_eq!(kept_epoch(&kept, &repair), Some(RestoreEpoch(4)));
+        // A later send (after a restore, a new hello at epoch 5) does not move the pair.
+        keep_epoch(&mut kept, Some(id.clone()), Some(RestoreEpoch(5)));
+        assert_eq!(kept_epoch(&kept, &repair), Some(RestoreEpoch(4)));
+        // Another request ID, and a request with none, have no kept epoch.
+        let other = submit_repair_request(
+            PlanDigest::parse(&"b".repeat(64)).unwrap(),
+            RequestId::parse("req-other").unwrap(),
+        );
+        assert_eq!(kept_epoch(&kept, &other), None);
+        let cancel = cancel_request("op_00112233445566778899aabbccddeeff").unwrap();
+        assert_eq!(kept_epoch(&kept, &cancel), None);
+        keep_epoch(&mut kept, None, Some(RestoreEpoch(9)));
+        assert_eq!(kept.len(), 1);
+        for request in [
+            repair,
+            cancel,
+            decide_request("dec_00112233445566778899aabbccddeeff", Verdict::Approve).unwrap(),
+        ] {
+            assert!(request.is_effectful(), "{}", request.kind());
+        }
+    }
 
     #[test]
     fn refreshes_and_operation_reads_coalesce_in_order() {
@@ -1346,6 +1431,7 @@ mod tests {
                     non_interactive: false,
                     home: Some(home.path().join("hh")),
                     stdin_tty: false,
+                    request_epoch: None,
                 },
                 ssh_paths: None,
                 env: Env::capture(),

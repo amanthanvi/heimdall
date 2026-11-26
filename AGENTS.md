@@ -70,12 +70,24 @@ Before planning, reviewing, testing or recording a wave, read
   `ssh.exe`, through the debug pinned-client redirect `HEIMDALL_TEST_PINNED_CLIENT` (the
   testkit wrapper `hm-pinned-ssh`, which checks the effective configuration with `ssh -G`,
   adds the isolated options and starts the in-box client). Otherwise run inside a
-  container. Never run them on a host any other way.
+  container. Never run them on a host any other way. `hm-pinned-ssh` passes an
+  `SSH_AUTH_SOCK` on, as `IdentityAgent=//./pipe/<name>` after its `ssh -G` check, only
+  when its sidecar declares that exact `\\.\pipe\heimdall-<token>-<kind>` name (never
+  `-control` or `-issuer`) with the runtime's PID and start time, the variable equals
+  that name byte for byte, and the pipe's server is that process. It refuses the
+  variable in every other case and spelling, as it refuses the system agent pipe.
 - Work that `heimdall run` or `connect` launches on a runner gets the account's real
   `HOME`, `USER` and `SHELL` from the account database (ADR-0012 §4), with no debug
   redirect; on the devbox that is the owner's account. So in tests, every `ssh` inside
   runner work passes `-F <scratch config>` and the isolated option set above, and
   never relies on the default `~/.ssh`.
+- A fixture `sshd` that runs as the account must not forward an agent on hosts whose `sshd` is
+  OpenSSH 10.1 or later. Those versions put the forwarded agent's listening socket under the
+  account's real `~/.ssh/agent/`, which they take from the account database, so no `HOME` or
+  `SetEnv` redirect moves it. Tests guard such steps with the testkit's
+  `forwarded_agent_lands_in_account_ssh_dir()` check, which fails closed, and record them as
+  `blocked` there. They run on hosts with an older `sshd`, in a disposable account, or in a
+  container.
 - The owner's SSH config, keys and agent may be used to reach the owner's own
   machines (the Windows PC, devbox, vps1-edge) for authorized work, such as
   copying files or running tests in a scratch directory. Never print, copy or

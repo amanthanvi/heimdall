@@ -1761,6 +1761,79 @@ impl Request {
     pub fn is_effectful(&self) -> bool {
         self.admission() != Admission::ReadOnly
     }
+
+    /// ⟨rev7; M08 U2b-2; ADR-0014 §3.6 step 4⟩ The request ID this request carries, if any:
+    /// the last part of its idempotency key (ADR-0006 §7.1), which the request ledger and the
+    /// replay fence key by. Exhaustive, sub-forms included, so a new form does not compile
+    /// until it says whether it carries one.
+    #[must_use]
+    pub fn request_id(&self) -> Option<&RequestId> {
+        use crate::remote::{RemoteEnvironmentRequest as Re, RunnerLocalRequest as Rl};
+        use crate::route::{RouteRequest as Ro, TransportRequest as Tr};
+        match self {
+            Request::Ensure(r) => Some(&r.request_id),
+            Request::Bind(r) => Some(&r.request_id),
+            Request::Delegate(r) => Some(&r.request_id),
+            Request::Revoke(r) => Some(&r.request_id),
+            Request::Setup(r) => r.request_id(),
+            Request::Catalog(r) => Some(r.request_id()),
+            Request::Enrollment(
+                EnrollmentRequest::Apply { request_id, .. }
+                | EnrollmentRequest::Verify { request_id, .. }
+                | EnrollmentRequest::Remove { request_id, .. },
+            ) => Some(request_id),
+            Request::Enrollment(
+                EnrollmentRequest::Preview { .. }
+                | EnrollmentRequest::Reconcile { .. }
+                | EnrollmentRequest::Abandon { .. }
+                | EnrollmentRequest::Step { .. }
+                | EnrollmentRequest::StepResult { .. },
+            ) => None,
+            Request::RemoteEnvironment(Re::Invite { request_id, .. }) => Some(request_id),
+            Request::RemoteEnvironment(
+                Re::Add { .. }
+                | Re::ActivationProbe { .. }
+                | Re::Join { .. }
+                | Re::RotateEndpoint { .. }
+                | Re::RunnerPolicyRecheck { .. }
+                | Re::RevokeClient { .. }
+                | Re::Remove { .. }
+                | Re::Update { .. }
+                | Re::Status { .. },
+            ) => None,
+            Request::RunnerLocal(
+                Rl::TrustIssuer { request_id, .. }
+                | Rl::DesignateTimeSource { request_id, .. }
+                | Rl::EnrollOwner { request_id, .. }
+                | Rl::PolicyRecheck { request_id },
+            ) => Some(request_id),
+            Request::RunnerLocal(Rl::DistrustIssuer { .. } | Rl::ClearTimeSource) => None,
+            Request::Route(Ro::Add { request_id, .. }) => Some(request_id),
+            Request::Route(Ro::Prefer { request_id, .. }) => request_id.as_ref(),
+            Request::Route(
+                Ro::Remove { .. } | Ro::ResolveBinding { .. } | Ro::RecordHealth { .. },
+            ) => None,
+            Request::Transport(
+                Tr::Enable { request_id, .. } | Tr::AdoptRoost { request_id, .. },
+            ) => Some(request_id),
+            Request::Transport(Tr::Disable | Tr::Rotate) => None,
+            Request::Inspect(_)
+            | Request::Observe(_)
+            | Request::Cancel(_)
+            | Request::Release(_)
+            | Request::Policy(_)
+            | Request::Decide(_)
+            | Request::ConfirmTime(_)
+            | Request::Shutdown(_)
+            | Request::Issuer(_)
+            | Request::Connections(_)
+            | Request::UninstallFence(_)
+            | Request::Environment(_)
+            | Request::Device(_)
+            | Request::Runner(_)
+            | Request::ControllerRecord(_) => None,
+        }
+    }
 }
 
 #[cfg(test)]

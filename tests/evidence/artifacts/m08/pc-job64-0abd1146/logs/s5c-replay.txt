@@ -1,0 +1,11 @@
+   Compiling heimdall-testkit v0.1.0-m01 (<R>\c1\crates\testkit)
+   Compiling heimdall-issuer v0.1.0-m01 (<R>\c1\crates\issuer)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.15s
+     Running ..\..\tests\adversarial\issuer_reservation_replay.rs (target\debug\deps\adversarial_issuer_reservation_replay-2874def4312f266d.exe)
+
+running 2 tests
+test pre_restart_reservation_replay_is_refused_after_revocation ... ok
+test pre_restart_reservation_replay_is_bound_to_its_own_reservation_and_age ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
+

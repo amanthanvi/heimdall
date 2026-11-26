@@ -1,0 +1,47 @@
+   Compiling windows-sys v0.61.2
+   Compiling mio v1.2.4
+   Compiling socket2 v0.6.5
+   Compiling tempfile v3.27.0
+   Compiling tokio v1.54.1
+   Compiling rusty-fork v0.3.1
+   Compiling proptest v1.12.0
+   Compiling tokio-util v0.7.20
+   Compiling heimdall-app v0.1.0-m01 (<R>\c1\crates\app)
+   Compiling heimdall-ipc v0.1.0-m01 (<R>\c1\crates\ipc)
+   Compiling heimdall-remote v0.1.0-m01 (<R>\c1\crates\remote)
+   Compiling heimdall-credential v0.1.0-m01 (<R>\c1\crates\credential)
+   Compiling heimdall-issuer v0.1.0-m01 (<R>\c1\crates\issuer)
+   Compiling heimdall-testkit v0.1.0-m01 (<R>\c1\crates\testkit)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 31.80s
+     Running ..\..\tests\integration\issuer_child.rs (target\debug\deps\integration_issuer_child-cb31d1b19aaace69.exe)
+
+running 25 tests
+test assess_read_only_on_open_read_only_store_writes_nothing ... ok
+test assess_read_only_fails_closed_without_anchor ... ok
+test ca_retiring_refused ... ok
+test ceiling_two_principals ... ok
+test ceiling_validity_too_long ... ok
+test ca_not_loaded ... ok
+test ceiling_x11_extension ... ok
+test continuing_reissue_under_pause_passes_issuer_and_publication_new_activation_refused_by_both ... ok
+test entry_not_reserved_published_voided_missing ... ok
+test entry_stale_after_60s ... ok
+test hello_load_status_round_trip ... ok
+test generation_only_refusal_re_reserves_within_bound ... ok
+test restart_backoff_bounded_and_jittered ... ok
+test stop_during_restart_backoff_spawns_no_child_and_reloads_no_ca ... ok
+test oversized_frame_closes_channel ... ok
+test issuer_signs_reserved_entry_with_exact_bounds ... ok
+test issuer_exits_and_zeroizes_on_stdin_eof ... ok
+test predicate_refusal_after_tombstone_committed_post_reserve ... ok
+test store_unavailable_reports_reason_and_no_fallback ... ok
+test subject_is_a_ca_key ... ok
+test subject_mismatch ... ok
+test verification_entry_for_retiring_ca_refused_from_snapshot ... ok
+test rate_limited_after_64_per_activation ... ok
+test rate_limited_after_600_per_minute ... ok
+test issuance_ro_assess_matches_reserve_predicate has been running for over 60 seconds
+test issuance_ro_assess_matches_reserve_predicate ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 85.62s
+

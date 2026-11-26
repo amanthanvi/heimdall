@@ -23,7 +23,8 @@
 //!   confirms its fingerprint locally ([`LocalConfirm`]). Creating an invitation is a
 //!   widening action, so the runner answers `APPROVAL_REQUIRED` with its own
 //!   `decision_ref`, which the controller returns as is ([`InviteOutcome::Pending`]) with the
-//!   request ID to replay; after the runner-local confirmation, the same request returns the
+//!   request ID to replay ⟨M08 U2b-2⟩ and the restore epoch the runner bound it to; after the
+//!   runner-local confirmation, the same request returns the
 //!   recorded terminal result (T-RA3), from which the public [`InvitationBundle`] is built.
 //! * **`join`** (§3.9 item 1): on the new device, the user confirms the runner's host-key
 //!   fingerprint and environment ID from the bundle; the bundle's key fingerprint must be this
@@ -862,12 +863,16 @@ pub enum AnnouncementResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InviteOutcome {
     /// The runner recorded a pending runner-local decision: confirm it at the runner, then
-    /// repeat the request with the same `request_id`.
+    /// repeat the request with the same `request_id` ⟨M08 U2b-2⟩ and `request_epoch`.
     Pending {
         /// The runner's decision reference.
         decision_ref: String,
         /// The request ID to replay.
         request_id: RequestId,
+        /// ⟨M08 U2b-2 follow-up B; ADR-0014 §3.6 step 3⟩ The restore epoch the runner bound
+        /// the request to (its answer's `request_epoch`), replayed with the request ID. `None`
+        /// from a runner that does not check the epoch.
+        request_epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
     },
     /// The invitation exists: hand the bundle to the new device.
     Created(Box<InvitationBundle>),
@@ -1302,6 +1307,8 @@ impl<'a> RemoteEnvController<'a> {
                 },
             ))
             .await?;
+        // ⟨M08 U2b-2⟩ The epoch the runner bound the request to, kept with its request ID.
+        let request_epoch = response.request_epoch;
         match runner_result(response) {
             Ok(data) => {
                 let created: InviteCreated = serde_json::from_value(data).map_err(|_| {
@@ -1327,6 +1334,7 @@ impl<'a> RemoteEnvController<'a> {
                 Ok(InviteOutcome::Pending {
                     decision_ref: e.next.decision_ref.unwrap_or_default(),
                     request_id: input.request_id.clone(),
+                    request_epoch,
                 })
             }
             Err(e) => Err(e),

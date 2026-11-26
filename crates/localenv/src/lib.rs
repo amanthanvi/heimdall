@@ -22,6 +22,8 @@
 //! **`unsafe`:** only [`sys`] may contain it (overview §9 item 3).
 
 pub mod agents;
+// ⟨M08 U1b; U0-Q10⟩ A user `Host` line naming a managed alias (doctor and setup).
+pub mod alias_collision;
 pub mod clients;
 // ⟨M04⟩ U5: the container environment's ssh_config and known_hosts (ADR-0010 §4 item 2).
 pub mod container;

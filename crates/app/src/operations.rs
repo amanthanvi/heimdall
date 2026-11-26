@@ -9754,6 +9754,8 @@ impl Operations {
             // ⟨M02⟩ U0b row 19, phase 2: the same set as
             // `heimdall_ipc::session::server_capabilities()`, `setup/1` included.
             // ⟨M03⟩ U0b row 13, phase 2 (wave 4): and the four M03 capabilities.
+            // ⟨M08 U2b-2⟩ And `request-epoch/1` (below). The conditional offers (`routes/1`,
+            // `transport-iroh/1`, `remote-control/1`, `runner/1`) are not listed.
             InspectSubject::Capabilities => {
                 // ⟨rev7; D1, PC2⟩ The typed view (`inspect-capabilities`).
                 let offered = [
@@ -9775,6 +9777,10 @@ impl Operations {
                     heimdall_contract::ipc::capability::TRUSTED_WORK_V1,
                     // ⟨rev7⟩ m07-plan U3: `inspect`'s `select` and `page`.
                     heimdall_contract::ipc::capability::PAGES_V1,
+                    // ⟨M08 U2b-2; ADR-0014 H13⟩ Every serving runtime checks the restore epoch
+                    // of each mutating request (its dispatcher's request fence), so it offers
+                    // the frame epoch: beyond `server_capabilities()`, as the hello offers it.
+                    heimdall_contract::ipc::capability::REQUEST_EPOCH_V1,
                 ];
                 let view = heimdall_contract::views::status::CapabilitiesView {
                     capabilities: offered.iter().map(|c| (*c).to_owned()).collect(),

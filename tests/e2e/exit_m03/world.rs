@@ -1101,7 +1101,7 @@ impl World {
 
     /// The state database.
     pub fn db(&self) -> PathBuf {
-        self.hh.join("state").join("state.db")
+        heimdall_store::layout::db_path(&self.hh.join("state")).unwrap()
     }
 
     /// The store, opened by this test (a second writer beside the runtime, as the

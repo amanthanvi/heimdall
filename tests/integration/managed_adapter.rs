@@ -777,8 +777,11 @@ impl Default for Opts {
     }
 }
 
+// ⟨W3 review fixes; PC job 65⟩ Fields drop in declaration order, so the temporary directory
+// comes last: every handle on its files (the store and what holds it) is dropped first. On
+// Windows an open file cannot be deleted, and `TempDir`'s drop swallows the error, which leaves
+// fixture directories in TEMP (U1b's fix of `issuer_reservation_replay.rs`, PC job 64).
 struct World {
-    dir: tempfile::TempDir,
     // Read by the Unix issuer-child cases only.
     #[cfg_attr(not(unix), allow(dead_code))]
     db: PathBuf,
@@ -798,6 +801,7 @@ struct World {
     ca_fp: CaFingerprint,
     /// CAs registered later (rotation), by fingerprint.
     extra_cas: Mutex<Vec<(CaFingerprint, Arc<SecretCaKey>)>>,
+    dir: tempfile::TempDir,
 }
 
 /// How far the fixture driver goes (the stages of ADR-0008 D6 item 1).
@@ -840,7 +844,7 @@ impl World {
         let dir = tempfile::tempdir().unwrap();
         owner_only_anchor(&dir.path().join("state"));
         owner_only_anchor(&dir.path().join("run"));
-        let db = dir.path().join("state").join("state.db");
+        let db = heimdall_store::layout::db_path(&dir.path().join("state")).unwrap();
         let store = Arc::new(Store::open(&db, Arc::new(NoFaults)).unwrap());
         let ca = SecretCaKey::generate().unwrap();
         let ca_fp = ca.fingerprint().unwrap();

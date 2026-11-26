@@ -814,7 +814,11 @@ mod driver {
             std::fs::create_dir_all(home.root.join("etc-ssh")).unwrap();
             std::fs::write(&home.user_config, b"Host native\n    User me\n").unwrap();
             let store = Arc::new(
-                Store::open(&home.state_dir.join("state.db"), Arc::new(NoFaults)).unwrap(),
+                Store::open(
+                    &heimdall_store::layout::db_path(&home.state_dir).unwrap(),
+                    Arc::new(NoFaults),
+                )
+                .unwrap(),
             );
             let paths =
                 SshPaths::with_test_override(home.git_home.clone(), home.root.join("etc-ssh"));

@@ -834,7 +834,8 @@ mod pty {
         let identity = IdentityId::from_random_bytes([0x41; 16]);
         let ca = CaFingerprint::parse(&format!("SHA256:{}", "A".repeat(43))).unwrap();
         let destination = |n: usize| DestinationId::parse(&format!("dm{n:06}")).unwrap();
-        let store = Store::open(&state.join("state.db"), Arc::new(NoFaults)).unwrap();
+        let db = heimdall_store::layout::db_path(&state).unwrap();
+        let store = Store::open(&db, Arc::new(NoFaults)).unwrap();
         store
             .transaction(|tx| {
                 for n in 0..managed {

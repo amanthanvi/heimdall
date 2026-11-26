@@ -1,0 +1,19 @@
+{"fact": "session-bus", "value": "present"}
+{"fact": "secret-tool-store", "value": "exit 0"}
+{"fact": "secret-tool-lookup", "value": "ok"}
+{"fact": "heimdall-version", "value": "heimdall 0.1.0-m01"}
+{"fact": "runtime", "value": "up"}
+{"fact": "time-confirm", "value": "exit 0, OK"}
+{"fact": "store-items-before", "value": "0"}
+{"fact": "issuer-init-A", "value": {"exit": 1, "register_prompt": true, "passphrase_shown": true, "written_prompt": true, "code": "INTERNAL_ERROR", "state": "failed", "error_message": "this installation's environment is unknown", "error_reason": null, "ca_state": null}}
+{"fact": "issuer-init-A-backup-file", "value": "written"}
+{"fact": "issuer-init-A-store-items-after", "value": "1"}
+{"fact": "project-trust", "value": "exit 2, USAGE_ERROR"}
+{"fact": "issuer-init-B", "value": {"exit": 6, "register_prompt": false, "passphrase_shown": false, "written_prompt": false, "code": "CONFIG_CONFLICT", "state": "failed", "error_message": "1 store item(s) no registration names exist", "error_reason": null, "ca_state": null}}
+{"fact": "issuer-init-B-backup-file", "value": "absent"}
+{"fact": "issuer-init-B-store-items-after", "value": "1"}
+{"fact": "issuer-status", "value": "OK; ca state ; store kind "}
+{"fact": "service-stop", "value": "OK"}
+{"fact": "issuer-unlock-after-restart", "value": "exit 4, CAPABILITY_UNAVAILABLE, issuer_not_initialized"}
+{"fact": "issuer-status-after-restart", "value": "OK; ca state "}
+{"fact": "service-stop-2", "value": "OK"}

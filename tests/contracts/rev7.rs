@@ -69,7 +69,7 @@ fn primitive_index_names_six_groups_with_known_schemas_codes_and_capabilities() 
 }
 
 /// D8: every reason of every group is an answer row under exactly its group's codes; every
-/// code is in the code table or is the declared `REQUEST_STALE`; every row's next action is
+/// code is in the code table (⟨M08 U2b-2⟩ `REQUEST_STALE` included); every row's next action is
 /// its code's default unless `NEXT_ACTIONS` names it; the rows are unique and sorted; a
 /// constant that is never an error reason is not a row; every M01/M02 constant and every
 /// manual reason is accounted for.
@@ -83,17 +83,13 @@ fn reason_table_lists_every_answer_with_its_code_and_next_action() {
         let c = row["code"].as_str().unwrap();
         let next = row["next_action"].as_str().unwrap();
         assert!(snake(r), "{r}");
-        if c == lifecycle::REQUEST_STALE {
-            assert_eq!(next, lifecycle::REQUEST_STALE_NEXT, "{r}");
-        } else {
-            let code = Code::parse(c);
-            assert!(Code::all().contains(&code), "{r}: {c}");
-            let named = reasons::NEXT_ACTIONS
-                .iter()
-                .find(|(nr, nc, _)| *nr == r && *nc == c)
-                .map(|(_, _, a)| *a);
-            assert_eq!(next, named.unwrap_or(code.default_next_action()), "{r} {c}");
-        }
+        let code = Code::parse(c);
+        assert!(Code::all().contains(&code), "{r}: {c}");
+        let named = reasons::NEXT_ACTIONS
+            .iter()
+            .find(|(nr, nc, _)| *nr == r && *nc == c)
+            .map(|(_, _, a)| *a);
+        assert_eq!(next, named.unwrap_or(code.default_next_action()), "{r} {c}");
         seen.push((r.to_owned(), c.to_owned()));
     }
     let mut sorted = seen.clone();
@@ -114,9 +110,6 @@ fn reason_table_lists_every_answer_with_its_code_and_next_action() {
             assert!(has(r, c.as_str()), "{r}: {c}");
         }
     }
-    for (r, c) in reason::REV7_DECLARED_CODE {
-        assert!(has(r, c), "{r}");
-    }
     for (r, codes) in reasons::M02_CODES.iter().chain(reasons::M03_LITERAL_CODES) {
         let listed: BTreeSet<&str> = seen
             .iter()
@@ -128,6 +121,7 @@ fn reason_table_lists_every_answer_with_its_code_and_next_action() {
     // The rulings of 2026-11-24: one reason under two codes; the owner's repair; a newer store.
     assert!(has(reason::RESTORE_EPOCH_STALE, "REQUEST_STALE"));
     assert!(has(reason::RESTORE_EPOCH_STALE, "DECISION_STALE"));
+    assert!(has(reason::RESTORED_BEFORE_COMPLETION, "REQUEST_STALE"));
     for (r, next) in [
         (reason::STATE_CORRUPT, "owner_decision"),
         (reason::LEDGER_DAMAGED, "owner_decision"),
@@ -173,39 +167,41 @@ fn reason_table_lists_every_answer_with_its_code_and_next_action() {
                 .contains(&r.into())
         );
     }
-    assert_eq!(
-        table["declared_codes"],
-        serde_json::json!(["REQUEST_STALE"])
-    );
-    // The ruling on ASK-CODE: `REQUEST_STALE` is declared, not in the code table.
-    assert_eq!(
-        Code::parse(lifecycle::REQUEST_STALE),
-        Code::Unknown("REQUEST_STALE".into())
-    );
-    assert_eq!(Code::all().len(), 30);
+    // ⟨M08 U2b-2⟩ The ruling on ASK-CODE: `REQUEST_STALE` joined the code table with its
+    // emitter, so no code is declared apart any more.
+    assert_eq!(table["declared_codes"], serde_json::json!([]));
+    assert_eq!(Code::parse(lifecycle::REQUEST_STALE), Code::RequestStale);
+    assert_eq!(Code::all().len(), 31);
 }
 
-/// The revision-7 capabilities: `pages/1` is offered on every read role's session (m07-plan
-/// U3; ADR-0013 §6.1), `request-epoch/1` stays declared and offered to no role.
+/// The revision-7 capabilities: none is still declared and not offered. `pages/1` is offered
+/// on every read role's session (m07-plan U3; ADR-0013 §6.1); ⟨M08 U2b-2⟩ `request-epoch/1`
+/// (ADR-0014 H13) to the roles that send mutating requests: the owner and ⟨follow-up A⟩ the
+/// requester; never the viewer.
 #[test]
 fn revision_7_pages_offered_to_every_role_request_epoch_declared_not_offered() {
     use heimdall_contract::remote::Role;
-    assert_eq!(
-        capability::REVISION_7_DECLARED,
-        [capability::PAGES_V1, capability::REQUEST_EPOCH_V1]
-    );
+    assert!(capability::REVISION_7_DECLARED.is_empty());
     assert!(capability::ALL.contains(&capability::PAGES_V1));
-    assert!(!capability::ALL.contains(&capability::REQUEST_EPOCH_V1));
+    assert!(capability::ALL.contains(&capability::REQUEST_EPOCH_V1));
     for role in [Role::Owner, Role::Requester, Role::Viewer] {
         assert!(
             capability::for_role(role).contains(&capability::PAGES_V1),
             "{role:?}"
         );
-        assert!(
-            !capability::for_role(role).contains(&capability::REQUEST_EPOCH_V1),
+        assert_eq!(
+            capability::for_role(role).contains(&capability::REQUEST_EPOCH_V1),
+            role != Role::Viewer,
             "{role:?}"
         );
     }
+    for role in [Role::Owner, Role::Requester] {
+        assert!(
+            capability::for_role(role).contains(&capability::REQUEST_EPOCH_V1),
+            "{role:?}"
+        );
+    }
+    assert!(!capability::for_role(Role::Viewer).contains(&capability::REQUEST_EPOCH_V1));
 }
 
 // --- D20: maximal records (the ruling of 2026-11-24) ---------------------------------------

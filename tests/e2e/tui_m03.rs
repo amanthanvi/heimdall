@@ -153,7 +153,7 @@ fn tui_refuses_a_non_terminal_with_m03_state_present() {
     let scratch = tempfile::tempdir().unwrap();
     let home = scratch.path().join("home");
     owner_dir(&home.join("state"));
-    let db = home.join("state").join("state.db");
+    let db = heimdall_store::layout::db_path(&home.join("state")).unwrap();
     seed(&db, |tx| {
         tx.seed_enrollment(&enrollment(1, EnrollmentState::Held, "example.invalid", 22))
     });
@@ -531,7 +531,10 @@ mod pty {
             std::fs::create_dir(&stubs).unwrap();
             std::fs::create_dir(&marks).unwrap();
             let uid = std::fs::metadata(&home.root).unwrap().uid();
-            seed(&home.state_dir.join("state.db"), with);
+            seed(
+                &heimdall_store::layout::db_path(&home.state_dir).unwrap(),
+                with,
+            );
             let mut w = World {
                 home,
                 stubs,

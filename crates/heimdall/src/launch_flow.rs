@@ -741,9 +741,7 @@ pub(crate) fn installation_is_runner(
         )
     };
     let paths = ctx.paths().map_err(|_| unreadable())?;
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
+    let db = heimdall_store::layout::db_path(&paths.state_dir).map_err(|_| unreadable())?;
     if !db.exists() {
         return Ok(None);
     }

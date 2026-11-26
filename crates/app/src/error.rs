@@ -511,6 +511,9 @@ impl<T> Completed<T> {
         Envelope {
             schema_version: heimdall_contract::SchemaVersion::current(),
             operation_id: self.operation_id,
+            // ⟨M08 U2b-2⟩ The runtime's request fence reports these (U0-Q5).
+            request_id: None,
+            request_epoch: None,
             state: self.state,
             code: self.code,
             data: self.data,

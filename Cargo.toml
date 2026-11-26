@@ -72,6 +72,9 @@ heimdall-project = { path = "crates/project" }
 heimdall-remote = { path = "crates/remote" }
 heimdall-transport-iroh = { path = "crates/transport-iroh" }
 heimdall-support = { path = "crates/support" }
+# ⟨M08 U2b-2⟩ The store generations and the request ledger (ADR-0014 §3.6); U2b-1 left it a
+# path edge of heimdall-store while the root manifest was outside its slice.
+heimdall-stategen = { path = "crates/stategen" }
 
 # --- serialization and schemas ---------------------------------------------
 serde = { version = "=1.0.229", features = ["derive"] }

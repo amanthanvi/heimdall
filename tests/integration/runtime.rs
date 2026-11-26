@@ -923,7 +923,7 @@ mod u8b {
     use heimdall_runtime::dispatch::caller_for;
     use heimdall_runtime::instance::{INSTANCE_FILE, InstanceError, InstanceInfo};
     use heimdall_runtime::launcher::{LaunchError, LauncherConfig, Started, ensure_running_with};
-    use heimdall_runtime::service::{STATE_DB_FILE, Service, ServiceError, ServiceOptions};
+    use heimdall_runtime::service::{Service, ServiceError, ServiceOptions};
     use heimdall_store::{FaultAction, FaultHook, FaultPoint, NoFaults, Store};
     use heimdall_testkit::{
         CANARY_PREFIX, FakeCredentialAdapter, FakeStep, ScriptedTimeSync, VirtualClock,
@@ -1029,7 +1029,11 @@ mod u8b {
     fn seed(home: &Path) {
         let paths = Paths::under(home);
         paths.ensure().unwrap();
-        let store = Store::open(&paths.state_dir.join(STATE_DB_FILE), Arc::new(NoFaults)).unwrap();
+        let store = Store::open(
+            &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
+            Arc::new(NoFaults),
+        )
+        .unwrap();
         store
             .transaction(|tx| {
                 tx.init_self_environment(&env_id())?;
@@ -1425,7 +1429,7 @@ mod u8b {
     /// kept byte for byte and no database is created.
     #[tokio::test]
     async fn start_up_refuses_over_an_interrupted_purge_and_keeps_the_log() {
-        use heimdall_runtime::service::{STATE_DB_FILE, ServiceError};
+        use heimdall_runtime::service::ServiceError;
         let tmp = tempfile::tempdir().unwrap();
         let paths = Paths::under(&home(&tmp));
         let clock = VirtualClock::at(t0());
@@ -1440,8 +1444,8 @@ mod u8b {
         };
         drop(start().await.unwrap());
         let state = paths.state_dir.clone();
-        let db = state.join(STATE_DB_FILE);
-        let wal = state.join(format!("{STATE_DB_FILE}-wal"));
+        let db = heimdall_store::layout::db_path(&state).unwrap();
+        let wal = db.with_extension("db-wal");
         let unit = state.join(".hm-purge-0123456789abcdef0123456789abcdef-database");
         let log = b"frames that exist only in this log".to_vec();
         let saved = tmp.path().join("saved.db");
@@ -1449,7 +1453,7 @@ mod u8b {
         let cases: [(&str, &dyn Fn()); 3] = [
             ("the database moved, its log at its name", &|| {
                 std::fs::create_dir(&unit).unwrap();
-                std::fs::rename(&db, unit.join(STATE_DB_FILE)).unwrap();
+                std::fs::rename(&db, unit.join(db.file_name().unwrap())).unwrap();
                 std::fs::write(&wal, &log).unwrap();
             }),
             ("a log without its database", &|| {
@@ -1460,14 +1464,14 @@ mod u8b {
                 "the database back, its log in the quarantine directory",
                 &|| {
                     std::fs::create_dir(&unit).unwrap();
-                    std::fs::write(unit.join(format!("{STATE_DB_FILE}-wal")), &log).unwrap();
+                    std::fs::write(unit.join(wal.file_name().unwrap()), &log).unwrap();
                 },
             ),
         ];
         for (what, layout) in cases {
             let _ = std::fs::remove_dir_all(&unit);
             let _ = std::fs::remove_file(&wal);
-            let _ = std::fs::remove_file(state.join(format!("{STATE_DB_FILE}-shm")));
+            let _ = std::fs::remove_file(db.with_extension("db-shm"));
             std::fs::copy(&saved, &db).unwrap();
             layout();
             let had_db = db.exists();
@@ -1493,7 +1497,7 @@ mod u8b {
             let kept = if wal.exists() {
                 wal.clone()
             } else {
-                unit.join(format!("{STATE_DB_FILE}-wal"))
+                unit.join(wal.file_name().unwrap())
             };
             assert_eq!(
                 std::fs::read(&kept).ok(),
@@ -2128,14 +2132,18 @@ mod u8b {
         assert_eq!(caps.code, Code::Ok);
         assert!(caps.data["capabilities"].is_array());
         // Discovery (`inspect capabilities`, §2.4) lists exactly what the hello
-        // offers, including `service-control/1` (ADR-0006 §13.6 item 8).
+        // offers, including `service-control/1` (ADR-0006 §13.6 item 8). ⟨M08 U2b-2⟩ And
+        // `request-epoch/1`, which every serving runtime offers (its request fence; this
+        // test's dispatcher has none).
         let discovered: std::collections::BTreeSet<String> = caps.data["capabilities"]
             .as_array()
             .unwrap()
             .iter()
             .map(|c| c.as_str().unwrap().to_owned())
             .collect();
-        assert_eq!(discovered, heimdall_ipc::session::server_capabilities());
+        let mut offered = heimdall_ipc::session::server_capabilities();
+        offered.insert(heimdall_contract::ipc::capability::REQUEST_EPOCH_V1.to_owned());
+        assert_eq!(discovered, offered);
         let ready = d
             .handle(
                 &unattended,
@@ -2569,10 +2577,13 @@ mod u8b {
         assert_eq!(already, 7, "{results:?}");
         assert_eq!(advertised.as_ref().map(|i| i.pid), child_pid);
         assert!(matches!(ninth, Ok(Started::AlreadyRunning)));
-        let recorded = Store::open(&paths.state_dir.join(STATE_DB_FILE), Arc::new(NoFaults))
-            .unwrap()
-            .transaction(|tx| tx.self_environment())
-            .unwrap();
+        let recorded = Store::open(
+            &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
+            Arc::new(NoFaults),
+        )
+        .unwrap()
+        .transaction(|tx| tx.self_environment())
+        .unwrap();
         assert_eq!(recorded, Some(hello_env));
         assert_eq!(statuses.len(), 1);
         assert!(
@@ -3821,7 +3832,11 @@ fn windows_fresh_state_dir_is_created_protected_and_passes_the_start_check() {
         Verdict::OwnerOnly
     );
     // A restart (the check on the directory it created) and a file inside.
-    std::fs::write(layout.state_dir.join("state.db"), b"db").unwrap();
+    std::fs::write(
+        heimdall_store::layout::db_path(&layout.state_dir).unwrap(),
+        b"db",
+    )
+    .unwrap();
     layout.ensure().unwrap();
     assert_eq!(
         check_owner_only(&layout.state_dir).unwrap(),
@@ -3830,7 +3845,7 @@ fn windows_fresh_state_dir_is_created_protected_and_passes_the_start_check() {
     // ⟨M04 Windows fix round⟩ A file created inside is unprotected by design: it inherits
     // the directory's one entry, for the user alone, and is owned by the user.
     let me = heimdall_ipc::windows::current_user_sid().unwrap();
-    let inside = dacl_facts(&layout.state_dir.join("state.db")).unwrap();
+    let inside = dacl_facts(&heimdall_store::layout::db_path(&layout.state_dir).unwrap()).unwrap();
     assert_eq!(inside.owner_sid, me, "owned by the user");
     assert!(inside.dacl_present && !inside.protected, "{inside:?}");
     assert_eq!(inside.aces.len(), 1, "one entry: {inside:?}");

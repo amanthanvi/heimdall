@@ -1,0 +1,23 @@
+   Compiling windows-sys v0.61.2
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling tempfile v3.27.0
+   Compiling tokio v1.54.1
+   Compiling rusty-fork v0.3.1
+   Compiling proptest v1.12.0
+   Compiling tokio-util v0.7.20
+   Compiling heimdall-app v0.1.0-m01 (<R>\c1\crates\app)
+   Compiling heimdall-ipc v0.1.0-m01 (<R>\c1\crates\ipc)
+   Compiling heimdall-credential v0.1.0-m01 (<R>\c1\crates\credential)
+   Compiling heimdall-remote v0.1.0-m01 (<R>\c1\crates\remote)
+   Compiling heimdall-issuer v0.1.0-m01 (<R>\c1\crates\issuer)
+   Compiling heimdall-testkit v0.1.0-m01 (<R>\c1\crates\testkit)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 27.79s
+     Running ..\..\tests\adversarial\issuer_reservation_replay.rs (target\debug\deps\adversarial_issuer_reservation_replay-2874def4312f266d.exe)
+
+running 2 tests
+test pre_restart_reservation_replay_is_refused_after_revocation ... ok
+test pre_restart_reservation_replay_is_bound_to_its_own_reservation_and_age ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+

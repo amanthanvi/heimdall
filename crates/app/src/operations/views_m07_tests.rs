@@ -140,7 +140,7 @@ async fn capabilities_view_is_the_hand_built_document() {
             c::OPERATIONS_V1, c::EVENTS_V1, c::OWNER_POLICY_V1, c::SCHEMA_DISCOVERY_V1,
             c::SERVICE_CONTROL_V1, c::SETUP_V1, c::ISSUER_V1, c::ENROLLMENT_V1,
             c::MANAGED_CREDENTIALS_V1, c::CONNECTIONS_V1, c::ENVIRONMENTS_V1,
-            c::TRUSTED_WORK_V1, c::PAGES_V1,
+            c::TRUSTED_WORK_V1, c::PAGES_V1, c::REQUEST_EPOCH_V1,
         ],
         "schemas": heimdall_contract::schema::public_schemas()
             .iter()

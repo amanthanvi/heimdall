@@ -1,0 +1,5 @@
+none
+relay https://relay.example.invalid
+relay https://relay2.example.invalid:8443
+hint https://relay2.example.invalid:8443
+peer bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

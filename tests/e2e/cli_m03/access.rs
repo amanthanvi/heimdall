@@ -164,7 +164,7 @@ impl Rt {
     }
 
     fn db(&self) -> PathBuf {
-        self.home.join("state").join("state.db")
+        heimdall_store::layout::db_path(&self.home.join("state")).unwrap()
     }
 
     /// `access ensure` of the fixture pair h1, returning the result's `data`.

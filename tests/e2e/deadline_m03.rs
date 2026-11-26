@@ -193,8 +193,11 @@ mod windows {
     }
 
     /// The fixture: harness sshd, fixture agent, scratch config, real operations.
+    // ⟨W3 review fixes; PC job 65⟩ Fields drop in declaration order, so the scratch directory
+    // comes last: every handle on its files (the store and what holds it) is dropped first. On
+    // Windows an open file cannot be deleted, and the directory's drop swallows the error, which
+    // leaves fixture directories in TEMP.
     struct World {
-        home: ScratchHome,
         sshd: LoopbackSshd,
         _agent: FakeAgent,
         store: Arc<Store>,
@@ -202,6 +205,7 @@ mod windows {
         sup: Arc<ConnectionSupervisor>,
         ssh: PathBuf,
         data: EnsureData,
+        home: ScratchHome,
     }
 
     fn world(existing: ExistingConnectionsMode) -> World {

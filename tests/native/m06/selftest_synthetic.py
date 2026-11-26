@@ -1015,7 +1015,7 @@ class ControllerImport(unittest.TestCase):
 
     def test_a_canary_a_sid_a_home_path_or_an_address_is_refused_before_anything_is_written(self):
         for n, host in enumerate(("x=HEIMDALL_CANARY_abc\n", "sid=S-1-5-21-1-2-3\n", "p=C:\\Users\\someone\\x\n",
-                                  "addr=192.168.1.7\n", "p=/Users/someone/x\n")):
+                                  "addr=192.0.2.7\n", "p=/Users/someone/x\n")):
             self.refused(controller_out(self.d / f"pc{n}", host=host), "carries")
 
     def test_a_pass_the_journey_never_reported_is_refused(self):

@@ -700,6 +700,7 @@ pub(crate) fn run(ctx: &Ctx, args: SetupArgs) -> ExitCode {
         include_git: false,
         allow_config_commands: false,
         request_id: None,
+        request_epoch: None,
     });
     match action {
         SetupCommand::Preview { include_git } => block(
@@ -717,6 +718,7 @@ pub(crate) fn run(ctx: &Ctx, args: SetupArgs) -> ExitCode {
             include_git,
             allow_config_commands,
             request_id,
+            request_epoch: _,
         } => block(
             ctx,
             effect(
@@ -733,6 +735,7 @@ pub(crate) fn run(ctx: &Ctx, args: SetupArgs) -> ExitCode {
         SetupCommand::Rollback {
             keep_key_files,
             request_id,
+            request_epoch: _,
         } => block(
             ctx,
             effect(ctx, rollback_intent(keep_key_files), request_id, false),
@@ -1551,6 +1554,7 @@ mod tests {
             non_interactive: false,
             home: None,
             stdin_tty: true,
+            request_epoch: None,
         }
     }
 
@@ -1948,6 +1952,7 @@ mod tests {
             operation: op.map(str::to_owned),
             args: a.iter().map(|s| (*s).to_owned()).collect(),
             request_id: None,
+            request_epoch: None,
         };
         assert!(matches!(
             repair_intent(&args(Some(OP), &["keep"])),
@@ -2280,6 +2285,7 @@ mod tests {
             non_interactive: false,
             home: Some(scratch.path().join("hm")),
             stdin_tty: true,
+            request_epoch: None,
         };
         let runtime = InProcessRuntime::start(&ctx);
         let (note, shown, recorded, created) = block_on(async {

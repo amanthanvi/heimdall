@@ -281,7 +281,10 @@ if [ "$same" = no ]; then
     step a31_update_is_refused_while_the_runtime_runs "$?"
     if [ "$killfirst" = yes ]; then
         # The destination was added and used; nothing has checkpointed it into the main file.
-        st=$(dirname "$(find "$HOME" "${HEIMDALL_HOME:-$HOME}" -name state.db -type f 2>/dev/null | head -1)")
+        # The store the pointer names (ADR-0014 §3.6, H12): the generation `CURRENT` names, or
+        # the state directory itself for a build before generations.
+        sd=$(dirname "$(find "$HOME" "${HEIMDALL_HOME:-$HOME}" -name service.lock -type f 2>/dev/null | head -1)")
+        if [ -f "$sd/CURRENT" ]; then st="$sd/generations/$(sed -n 2p "$sd/CURRENT")"; else st=$sd; fi
         echo "fact before-kill-db-bytes=$(size "$st/state.db") wal-bytes=$(size "$st/state.db-wal")"
         python3 -I -c 'import sys; sys.exit(0 if b"hmjourney" not in open(sys.argv[1],"rb").read() else 1)' "$st/state.db"
         echo "fact before-kill-alias-in-main-db-file=$([ $? = 0 ] && echo no || echo yes)"

@@ -108,3 +108,9 @@ path = "../../tests/integration/issuer_remote_m06.rs"
 [[test]]
 name = "model_issuer_linearization"
 path = "../../tests/model/issuer_linearization.rs"
+
+# ⟨M08 U1b⟩ Spec §14.3 "a stopped service recovering with a stale signing handle", the issuer
+# case (m08-plan §7.1): a pre-restart reservation replayed to the restarted child.
+[[test]]
+name = "adversarial_issuer_reservation_replay"
+path = "../../tests/adversarial/issuer_reservation_replay.rs"

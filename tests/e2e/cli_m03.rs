@@ -784,7 +784,7 @@ fn seed_state(home: &Path, states: &[EnrollmentState]) -> PathBuf {
     // one: the fixture gives its directory the protected DACL, as a fresh install has.
     #[cfg(windows)]
     heimdall_testkit::win::set_owner_only(&state_dir).unwrap();
-    let db = state_dir.join("state.db");
+    let db = heimdall_store::layout::db_path(&state_dir).unwrap();
     let store = Store::open(&db, Arc::new(NoFaults)).unwrap();
     store
         .transaction(|tx| {

@@ -195,8 +195,8 @@ fn codes_json_rows_equal_the_model_and_golden() {
     let grows = golden["rows"].as_array().unwrap();
     assert_eq!(
         rows.len(),
-        30,
-        "ADR-0006 section 5 has 30 rows (revision 3)"
+        31,
+        "ADR-0006 section 5 has 30 rows (revision 3); revision 7 adds REQUEST_STALE (section 19.3)"
     );
     assert_eq!(rows.len(), grows.len());
     for (row, g) in rows.iter().zip(grows) {

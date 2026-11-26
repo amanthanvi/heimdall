@@ -457,7 +457,7 @@ if [ "$rc" = 0 ] && [ "$(jget "$S/init.txt" data cas 0 state)" = active ]; then
 else
     hmcli "$S/stop.json" service stop
     python3 -I - "$HH/state" "$S/ca-fp" <<'PY'
-import base64, hashlib, json, os, pty, select, sqlite3, sys, time
+import base64, hashlib, json, os, pty, re, select, sqlite3, sys, time
 state, fp_out = sys.argv[1], sys.argv[2]
 store = os.path.join(state, "scratch-secret-store")
 os.makedirs(store, mode=0o700, exist_ok=True)
@@ -510,7 +510,16 @@ record = {
     "store_kind": "linux_secret_service", "backup_sha256": "ab" * 32,
     "backup_created_at": now, "created_at": now, "store_locator": item,
 }
-db = sqlite3.connect(os.path.join(state, "state.db"), timeout=30)
+def store_db(state):
+    # The store the pointer names (ADR-0014 §3.6, H12), or the flat store before any start.
+    pointer = os.path.join(state, "CURRENT")
+    if not os.path.exists(pointer):
+        return os.path.join(state, "state.db")
+    header, name, rest = open(pointer).read().split("\n", 2)
+    if header != "heimdall-current/1" or rest or not re.fullmatch(r"g-[a-z0-9-]+", name):
+        sys.exit("the state directory's pointer is malformed")
+    return os.path.join(state, "generations", name, "state.db")
+db = sqlite3.connect(store_db(state), timeout=30)
 with db:
     db.execute(
         "INSERT INTO issuers (ca_fingerprint, public_key, state, store_kind, backup_sha256,"

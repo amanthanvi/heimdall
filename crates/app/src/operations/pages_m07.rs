@@ -610,7 +610,7 @@ impl Operations {
         }
         let mut fresh = [0u8; 32];
         getrandom::fill(&mut fresh).map_err(|_| internal("no randomness for the page key"))?;
-        self.write(move |tx, _| Ok((tx.page_token_key(move || fresh)?, tx.restore_epoch()?)))
+        self.write(move |tx, _| Ok((tx.page_token_key(move || fresh)?, tx.restore_epoch()?.0)))
             .await
     }
 

@@ -1,0 +1,3 @@
+unsafe-inventory: PASS (19 entries)
+# --check exit 0
+total unsafe constructs: 380 in 19 files

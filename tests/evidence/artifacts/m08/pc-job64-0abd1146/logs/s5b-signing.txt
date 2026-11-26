@@ -1,0 +1,9 @@
+   Compiling heimdall-credential v0.1.0-m01 (<R>\c1\crates\credential)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.17s
+     Running ..\..\tests\adversarial\stale_signing_handle.rs (target\debug\deps\adversarial_stale_signing_handle-0947cf7bdeec02a6.exe)
+
+running 1 test
+test held_binding_connection_cannot_sign_across_the_stop_and_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+

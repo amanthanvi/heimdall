@@ -1,0 +1,63 @@
+python3: Python 3.12.3
+== request-epoch
+== request-epoch: exit 0
+test a_frame_refused_for_its_role_appends_nothing_to_the_ledger ... ok
+test a_request_the_uninstall_fence_refuses_appends_nothing_to_the_ledger ... ok
+test a_decision_minted_under_an_older_epoch_is_stale ... ok
+test a_damaged_ledger_refuses_every_request_with_a_request_id ... ok
+test a_requester_keeping_an_epoch_from_before_a_raise_is_refused_before_any_write ... ok
+test equal_request_ids_across_clients_roles_and_kinds_have_separate_fences ... ok
+test clients_carry_the_epoch_with_a_kept_request_id ... ok
+test stale_epoch_is_refused_before_any_write ... ok
+test fence_retention_follows_the_idempotency_contract ... ok
+test ledger_append_precedes_the_first_store_write ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.28s
+== e2e-request-epoch
+== e2e-request-epoch: exit 0
+test run_reports_its_minted_request_id_with_the_epoch ... ok
+test clients_carry_the_epoch_with_a_kept_request_id_through_the_cli ... ok
+test stale_epoch_is_refused_before_any_write_through_the_wrapper ... ok
+test stale_epoch_is_refused_before_any_write_through_the_cli ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+== store-fence
+== store-fence: exit 0
+test fence::tests::the_digest_covers_the_full_idempotency_key ... ok
+test fence::tests::fence_lifetimes_follow_the_idempotency_contract_in_the_store ... ok
+test fence::tests::rows_minted_after_the_epoch_rises_carry_it ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 62 filtered out; finished in 0.08s
+== stategen-unit
+== stategen-unit: exit 0
+test ledger::tests::a_failed_append_is_an_error_so_the_request_does_not_proceed ... ok
+test ledger::tests::an_append_to_a_damaged_ledger_is_refused_and_writes_nothing ... ok
+test ledger::tests::digests_separate_keys_and_unfenced_selects_by_record ... ok
+test ledger::tests::retention_follows_the_idempotency_contract ... ok
+test ledger::tests::a_damaged_record_makes_the_ledger_unreadable_and_untrimmed ... ok
+test ledger::tests::append_read_and_a_torn_tail ... ok
+test record::tests::a_cut_or_altered_record_does_not_decode ... ok
+test record::tests::names_cannot_leave_the_generations_directory ... ok
+test record::tests::pointer_is_exact ... ok
+test ledger::tests::a_final_record_of_zeros_is_a_torn_tail ... ok
+test ledger::tests::the_directory_is_synced_until_one_sync_has_succeeded ... ok
+test ledger::tests::trim_drops_only_what_ended_and_survives_a_stop_at_each_step ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+== stategen-faults
+== stategen-faults: exit 0
+test a_directory_no_intent_names_is_never_removed ... ok
+test a_failed_cleanup_keeps_the_intent_so_start_up_removes_the_leftover ... ok
+test a_written_pointer_that_is_gone_is_corrupt_and_nothing_is_removed ... ok
+test adoption_killed_at_each_step_then_older_build_then_newer_build ... ok
+test an_empty_generations_directory_with_stray_files_is_still_a_new_installation ... ok
+test a_pointer_that_was_never_written_is_discarded_and_run_again ... ok
+test child_publish ... ok
+test inspect_writes_nothing_and_open_removes_the_leftover ... ok
+test an_interrupted_install_is_run_again ... ok
+test a_failure_while_completing_the_intent_leaves_the_switch_done ... ok
+test migration_notes_never_touch_the_record_and_ignore_a_cut_line ... ok
+test reset_then_restart_serves_the_new_generation ... ok
+test restore_restore_reset_keeps_every_earlier_generation ... ok
+test staging_refuses_an_unclosed_database_and_unreported_files ... ok
+test a_failure_while_writing_the_switching_mark_leaves_the_old_generation ... ok
+test unreadable_or_dangling_pointer_stops_and_never_picks_another_generation ... ok
+test switch_survives_a_kill_at_each_step ... ok
+test switch_interrupted_before_and_after_each_sync_and_the_rename ... ok
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.19s
