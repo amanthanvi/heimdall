@@ -61,7 +61,12 @@ Workers never commit or push (AGENTS.md).
 
 **W4's review is split by the author's model family (the orchestrator, 2026-11-26).** W4 has
 one review cycle (ADR-0009), divided so that every unit is reviewed by the other family.
-- **GPT-6.2 Sol reviews the units Opus wrote:** W4-T1, U2b-3a and U2b-3b, U2b-4, U6b and U7b.
+- **Gemini 4 Neon** (`antigravity`, `gemini-4-neon`, `thought_level` xhigh) **reviews the units
+  Opus wrote:** W4-T1, U2b-3a and U2b-3b, U2b-4, U6b and U7b. It replaces GPT-6.2 Sol (amended
+  2026-11-26), because GPT-6.2 Sol stops security-boundary review partway through with a
+  "possible cybersecurity risk" flag. GPT is used only if Gemini is unavailable. The review
+  brief is phrased defensively: which guarantee fails and when, no exploit code, and a
+  regression test as the evidence (template: `/tmp/hm-m09-secreview/brief-common-v2.md`).
 - **One Opus reviewer reviews the units GPT wrote:** GRANT-LIVE, and any later unit given to GPT.
 - **Both reviewers get:**
   - the same brief shape;
