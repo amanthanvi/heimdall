@@ -1,0 +1,79 @@
+# SQLite-semantics model (not Heimdall code), python3 -I, system SQLite; scratch directory removed afterwards.
+# The script:
+#   # SQLite-semantics model of the bridge's write against the adoption's fence (WAL mode).
+#   # Not Heimdall code: it models the orders the fix's comment describes.
+#   import os, sqlite3, sys
+#   d = sys.argv[1]
+#   FENCE = 2000000000
+#   
+#   def fresh(name):
+#       p = os.path.join(d, name)
+#       c = sqlite3.connect(p, isolation_level=None)
+#       c.execute("PRAGMA journal_mode=WAL")
+#       c.execute("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT)")
+#       c.execute("PRAGMA user_version=14")
+#       return p, c   # keep c open so no checkpoint removes the log
+#   
+#   def conn(p, timeout=2.0):
+#       return sqlite3.connect(p, isolation_level=None, timeout=timeout)
+#   
+#   def fence(c):
+#       c.execute("BEGIN IMMEDIATE")
+#       c.execute("INSERT INTO meta VALUES('adoption_fenced_from','14')")
+#       c.execute(f"PRAGMA user_version={FENCE}")
+#       c.execute("COMMIT")
+#   
+#   def uv(c):
+#       return c.execute("PRAGMA user_version").fetchone()[0]
+#   
+#   # A: IMMEDIATE, fence commits between the pre-check and BEGIN: the re-read sees the fence.
+#   p, keep = fresh("a.db")
+#   b, f = conn(p), conn(p)
+#   pre = uv(b)
+#   fence(f)
+#   b.execute("BEGIN IMMEDIATE")
+#   inside = uv(b)
+#   b.execute("ROLLBACK")
+#   print(f"A immediate, fence before BEGIN: pre-check {pre}, re-read inside {inside} -> refused={inside == FENCE}")
+#   
+#   # B: IMMEDIATE, the bridge takes the lock first: the fence's BEGIN IMMEDIATE is busy until the
+#   # bridge commits; the copy made after the fence holds the bridge's row.
+#   p, keep2 = fresh("b.db")
+#   b, f = conn(p), conn(p, timeout=0.2)
+#   b.execute("BEGIN IMMEDIATE")
+#   inside = uv(b)
+#   try:
+#       fence(f); fence_during = "committed (unexpected)"
+#   except sqlite3.OperationalError as e:
+#       fence_during = f"refused: {e}"
+#       try: f.execute("ROLLBACK")
+#       except sqlite3.OperationalError: pass
+#   b.execute("INSERT INTO meta VALUES('runner_owner_only','{}')")
+#   b.execute("COMMIT")
+#   fence(f)
+#   copy = os.path.join(d, "b-copy.db")
+#   conn(p).execute("VACUUM INTO ?", (copy,))
+#   rows = conn(copy).execute("SELECT count(*) FROM meta WHERE key='runner_owner_only'").fetchone()[0]
+#   print(f"B immediate, bridge first: re-read {inside}; fence during the bridge's transaction: {fence_during}; row in the copy after the fence: {rows}")
+#   
+#   # C: DEFERRED, the bridge reads, the fence commits, the bridge then writes (WAL).
+#   p, keep3 = fresh("c.db")
+#   b, f = conn(p), conn(p)
+#   b.execute("BEGIN")
+#   inside = uv(b)
+#   fence(f)
+#   try:
+#       b.execute("INSERT INTO meta VALUES('runner_owner_only','{}')")
+#       b.execute("COMMIT"); outcome = "write committed"
+#   except sqlite3.OperationalError as e:
+#       outcome = f"write refused: {e}"
+#       b.execute("ROLLBACK")
+#   rows = conn(p).execute("SELECT count(*) FROM meta WHERE key='runner_owner_only'").fetchone()[0]
+#   print(f"C deferred, read {inside} then the fence commits: {outcome}; row in the fenced family: {rows}")
+#   print("sqlite", sqlite3.sqlite_version)
+# Output:
+A immediate, fence before BEGIN: pre-check 14, re-read inside 2000000000 -> refused=True
+B immediate, bridge first: re-read 14; fence during the bridge's transaction: refused: database is locked; row in the copy after the fence: 1
+C deferred, read 14 then the fence commits: write refused: database is locked; row in the fenced family: 0
+sqlite 3.54.1
+# exit 0

@@ -3,7 +3,7 @@
 **Status:** prepared by M08 U1b on 2026-11-24 at `m08/w3` `c113e3f5`, rechecked at `3a7ed285`
 (m08-plan U1b; §10's deferred sanitizer campaign: this inventory is what M09-T03's review gets
 instead). Its counts, the rows of `platform.rs` and testkit's `win.rs`, and the wiring note
-were corrected at `064f812b` (review W3-R06).
+were corrected in the W3 review fixes (`a8641372`; review W3-R06), to the scan at `064f812b`.
 **The rule:** `unsafe_code = "deny"` in the root manifest's `[workspace.lints.rust]`, and every
 workspace member opts into the workspace lints (`[lints] workspace = true`). A module that needs
 FFI opts in with `#[allow(unsafe_code)]` and a justification. The prose inventory with each
@@ -45,7 +45,7 @@ out of the release graph.
 | `crates/runtime/src/session_lock/sys.rs` | runtime (production) | `#![allow]` | macOS, Windows | 24 | "the only `unsafe` of the session-lock sources: each block is one FFI call ... wrapped in a safe function" (overview §9 item 6; ADR-0008 D9 item 3) | none of its own; `integration_session_lock` (native) |
 | `crates/testkit/src/conpty.rs` | testkit (test only) | `#![allow]` | Windows | 14 | "the Windows pseudoconsole (ConPTY) behind `crate::console`" (ADR-0008 §17.26 item 8) | 2 unit tests; the console users in `e2e_cli_m02`, `e2e_cli_m03`, `e2e_exit_m03` (native Windows) |
 | `crates/testkit/src/hook.rs` | testkit (test only) | `#[allow]` on `mod win` | Windows | 1 | "the one Windows system call the hook makes": `SetHandleInformation` on its own standard handles | the hook's e2e users (native Windows) |
-| `crates/testkit/src/win.rs` | testkit (test only) | `#![allow]` | Windows | 21 | "Windows access-control helpers for the fixtures": owner-only DACLs, deny-read ACEs (ADR-0007 §12.47 item 8); ⟨M07 W9e⟩ "a pipe's server": `hm-pinned-ssh`'s check that a declared agent pipe is served by the test's own runtime (`GetNamedPipeServerProcessId`, `OpenProcess`, `GetProcessTimes`) | 5 unit tests (native Windows) |
+| `crates/testkit/src/win.rs` | testkit (test only) | `#![allow]` | Windows | 21 | "Windows access-control helpers for the fixtures": owner-only DACLs, deny-read ACEs (ADR-0007 §12.47 item 8); ⟨M07 W9e⟩ "a pipe's server": `hm-pinned-ssh`'s check that a declared agent pipe is served by the test's own runtime (`GetNamedPipeServerProcessId`, `OpenProcess`, `GetProcessTimes`) | 6 unit tests (native Windows) |
 | `tests/adversarial/sshconf_block_scan.rs` | test binary | `#[allow]` on `unsafe impl GlobalAlloc` | all | 9 | "`GlobalAlloc` is an `unsafe` trait. Every method forwards its arguments unchanged to `System`" (the counting allocator of M08-W2-F1's regression) | itself |
 | `tests/e2e/run_m02.rs` | test binary (`e2e_run_m02`) | `#[allow]` on one static | Windows | 1 | "the attribute that places this function pointer in the CRT's initializer table" (`#[unsafe(link_section = ".CRT$XCU")]`) | itself (native Windows) |
 | `tests/e2e/windows_m04.rs` | test binary (`e2e_platform_m04`) | `#[allow]` on `mod ffi` | Windows | 3 | "three read or flag-setting calls on handles this test owns" | itself (native Windows) |
