@@ -599,7 +599,7 @@ fn adoption_killed_at_each_step_then_older_build_then_newer_build() {
         ),
         // Completed; the generation's first start has not noted its baseline yet.
         ("after the completion", "8|0|before", true),
-        // Completed and migrated in place (13 to 14); the migration's note is not written.
+        // Completed and migrated to the current schema; the migration's note is not written.
         ("after the completion and the migration", "8|1|before", true),
     ];
     for (case, park, fenced) in stops {
@@ -666,7 +666,7 @@ fn adoption_killed_at_each_step_then_older_build_then_newer_build() {
             pairs,
             vec![
                 ("13".to_owned(), "13".to_owned()),
-                ("13".to_owned(), "14".to_owned())
+                ("13".to_owned(), heimdall_store::SCHEMA_VERSION.to_string())
             ],
             "{case}: {notes}"
         );

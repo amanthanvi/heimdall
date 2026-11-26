@@ -20,10 +20,10 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, PoisonError};
 
+use heimdall_contract::GrantState;
 use heimdall_contract::event::EventType;
 use heimdall_contract::ids::{EnvironmentId, GrantId, ProfileId};
 use heimdall_contract::managed::{LockBehavior, SessionLockEventPayload, SessionLockState};
-use heimdall_contract::{GrantState, Timestamp};
 use heimdall_domain::grant::GrantSnapshot;
 use heimdall_domain::managed::LockEpoch;
 use heimdall_domain::revocation::{RevocationCause, Tombstone};
@@ -85,7 +85,7 @@ fn lock_set(
 ) -> heimdall_store::Result<Vec<GrantId>> {
     let mut out: Vec<GrantId> = Vec::new();
     let mut seen: BTreeSet<GrantId> = BTreeSet::new();
-    for g in tx.grants_due(Timestamp::MAX)? {
+    for g in tx.live_grants()? {
         if g.state.is_terminal() || g.state == GrantState::Revoking || seen.contains(&g.id) {
             continue;
         }

@@ -2721,6 +2721,7 @@ mod tests {
         ("ext_transport.rs", include_str!("ext_transport.rs")),
         ("ext_runner.rs", include_str!("ext_runner.rs")),
         ("ext_effects.rs", include_str!("ext_effects.rs")),
+        ("grant_live_tests.rs", include_str!("grant_live_tests.rs")),
         // ⟨M08 U2b-1⟩ The generation layout (it writes only `meta`).
         ("layout.rs", include_str!("layout.rs")),
         ("lib.rs", include_str!("lib.rs")),

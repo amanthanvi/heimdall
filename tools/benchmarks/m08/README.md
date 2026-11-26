@@ -40,6 +40,22 @@ started on the host. Any future debug-build lane (the managed or runner lane) mu
 **Machine rule:** the container is capped at 2 CPUs and takes no heavy-gate slot; run at
 most one such container (soak or fuzz) at a time.
 
+## Grant-history growth preflight
+
+Run `bash tools/benchmarks/m08/run-soak.sh --grant-history-growth` before the
+lifecycle soak. This workload uses a disposable on-disk store and the same
+transactions and query methods as production. It needs Cargo and runs locally
+without SSH or a container.
+
+It adds 0, 1,000, 10,000 and 100,000 terminal grants while keeping three live
+grants, two of which are due. It samples 1,000 transactions per operation at
+each history size and emits JSON lines with p50 and p95 latency in nanoseconds,
+the number of documents read and the number of SQLite VM instructions per
+operation. Compare latency across sizes on the same machine. The workload
+asserts that the row and VM counts stay constant. Timing is reported separately
+because other activity on the machine can affect it. The longer release-build
+lifecycle soak runs separately.
+
 ## Runs so far
 
 | Date | Build | Length | Result |

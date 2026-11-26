@@ -1001,7 +1001,7 @@ pub(super) fn policy_reader(env: EnvironmentId, action: PolicyAction) -> SetRead
         };
         let mut out: Vec<GrantId> = Vec::new();
         let mut seen: BTreeSet<GrantId> = BTreeSet::new();
-        for g in tx.grants_due(Timestamp::MAX)? {
+        for g in tx.live_grants()? {
             if !g.state.permits_use() || seen.contains(&g.id) {
                 continue;
             }
@@ -1059,7 +1059,7 @@ fn removes_permission(old: &EnvironmentPermissions, new: &EnvironmentPermissions
 fn live_grants_of(tx: &mut Txn<'_>, env: &EnvironmentId) -> heimdall_store::Result<Vec<GrantId>> {
     let mut out: Vec<GrantId> = Vec::new();
     let mut seen: BTreeSet<GrantId> = BTreeSet::new();
-    for g in tx.grants_due(Timestamp::MAX)? {
+    for g in tx.live_grants()? {
         if !g.state.permits_use() || g.environment != *env || seen.contains(&g.id) {
             continue;
         }

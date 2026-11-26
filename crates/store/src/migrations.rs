@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 14;
+pub const SCHEMA_VERSION: u32 = 15;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -109,6 +109,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 14,
         name: "restore_epoch",
         sql: include_str!("../migrations/0014_restore_epoch.sql"),
+    },
+    Migration {
+        version: 15,
+        name: "grant_live",
+        sql: include_str!("../migrations/0015_grant_live.sql"),
     },
 ];
 
@@ -818,7 +823,10 @@ mod tests {
         ))
         .unwrap();
         let before_content = content(&c);
-        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 14);
+        assert_eq!(
+            apply_steps(&mut c, &NoFaults, &MIGRATIONS[..14]).unwrap(),
+            14
+        );
         let mut after_content = content(&c);
         after_content.retain(|r| r != "meta: Text(\"restore_epoch\") | Text(\"0\")");
         assert_eq!(

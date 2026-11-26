@@ -127,7 +127,7 @@ impl crate::Operations {
                     tx.set_managed_environment_state(&env, row.state, to, at)?;
                 }
                 let mut live = Vec::new();
-                for g in tx.grants_due(heimdall_contract::Timestamp::MAX)? {
+                for g in tx.live_grants()? {
                     if g.environment == env && g.state.permits_use() {
                         live.push(g.id);
                     }
