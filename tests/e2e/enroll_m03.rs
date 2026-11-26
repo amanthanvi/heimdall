@@ -144,6 +144,13 @@ mod fx {
     use heimdall_runtime::managed_store::{OpsInstallView, StoreCleanup, StoreSources};
     use std::sync::RwLock;
     use tokio_util::sync::CancellationToken;
+    // ⟨M08 W4-T1⟩ the managed world's teardown (`Managed`'s drop) and the store guard.
+    use heimdall_app::managed::SignPermit;
+    use heimdall_app::ports::{SignRefusal, SignatureAuthority, SignatureRequestFacts};
+    use heimdall_contract::ids::GrantId;
+    use heimdall_credential::table::{InstallRefusal, InstallView};
+    use heimdall_domain::issuance::IssuanceEntry;
+    use std::sync::{PoisonError, Weak};
 
     /// `async_trait` without the crate: the ports are `async_trait` traits, whose
     /// expanded form is `fn … -> Pin<Box<dyn Future + Send + 'a>>`.
@@ -1003,7 +1010,31 @@ mod fx {
         /// ([`WorldOptions::observe_trace`]).
         #[cfg_attr(not(windows), allow(dead_code))]
         pub trace_dump: Option<PathBuf>,
+        /// ⟨M08 W4-T1⟩ The field before the home, so it checks after every other field has
+        /// dropped ([`StoreGuard`]).
+        _store_guard: StoreGuard,
         pub home: ScratchHome,
+    }
+
+    /// ⟨M08 W4-T1⟩ Fails the test when the world's store outlives the rest of the world. The
+    /// store's files are in the scratch home. On Windows an open file cannot be deleted, so
+    /// the home's removal fails (silently) and the directory is left in TEMP. Unix removes it
+    /// anyway, so this check fails the test on every platform instead. The managed world's
+    /// reference cycles are broken when [`Managed`] drops.
+    pub struct StoreGuard(Weak<Store>);
+
+    impl Drop for StoreGuard {
+        fn drop(&mut self) {
+            let holders = self.0.strong_count();
+            // A test that already failed is unwinding: a second panic would abort the binary.
+            if holders > 0 && !std::thread::panicking() {
+                panic!(
+                    "{holders} references to the world's store outlive the world: a value the \
+                     test made from it, a reference cycle, or a task or thread holding one. On \
+                     Windows the store's files stay open and the scratch home is left in TEMP"
+                );
+            }
+        }
     }
 
     pub struct WorldOptions {
@@ -1053,6 +1084,89 @@ mod fx {
     impl LateRegistry {
         fn get(&self) -> Option<EndpointRegistry> {
             self.0.read().unwrap().clone()
+        }
+
+        /// ⟨M08 W4-T1⟩ No registry any more (`Managed`'s drop).
+        fn clear(&self) {
+            *self.0.write().unwrap_or_else(PoisonError::into_inner) = None;
+        }
+    }
+
+    /// ⟨M08 W4-T1⟩ The endpoint registry's signature authority: the world's `Operations`
+    /// until [`Managed`] drops, then none (every request refused, `authority_unavailable`).
+    /// The registry's signers hold it. A stopped endpoint's accept loop, and each of its
+    /// connections, keeps its signer until the runtime next runs it. With the `Operations`
+    /// itself as the authority, those would keep the store open after the world drops.
+    pub struct LateAuthority(RwLock<Option<Operations>>);
+
+    impl LateAuthority {
+        fn current(&self) -> Option<Operations> {
+            self.0
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+        }
+
+        fn clear(&self) {
+            *self.0.write().unwrap_or_else(PoisonError::into_inner) = None;
+        }
+    }
+
+    impl SignatureAuthority for LateAuthority {
+        fn precheck<'a, 'b, 'c>(
+            &'a self,
+            facts: &'b SignatureRequestFacts,
+        ) -> BoxFut<'c, Result<(), SignRefusal>>
+        where
+            'a: 'c,
+            'b: 'c,
+            Self: 'c,
+        {
+            let ops = self.current();
+            Box::pin(async move {
+                match ops {
+                    Some(ops) => ops.precheck(facts).await,
+                    None => Err(SignRefusal::Unavailable),
+                }
+            })
+        }
+
+        fn admit<'a, 'b, 'c>(
+            &'a self,
+            facts: &'b SignatureRequestFacts,
+        ) -> BoxFut<'c, Result<SignPermit, SignRefusal>>
+        where
+            'a: 'c,
+            'b: 'c,
+            Self: 'c,
+        {
+            let ops = self.current();
+            Box::pin(async move {
+                match ops {
+                    Some(ops) => ops.admit(facts).await,
+                    None => Err(SignRefusal::Unavailable),
+                }
+            })
+        }
+    }
+
+    /// ⟨M08 W4-T1⟩ The install view a released signer table keeps (`Managed`'s drop): it
+    /// refuses every install and holds no `Operations`.
+    struct ReleasedView;
+
+    impl InstallView for ReleasedView {
+        fn check<'a, 'b, 'c, 'd>(
+            &'a self,
+            _grant: &'b GrantId,
+            _entry: &'c IssuanceEntry,
+        ) -> BoxFut<'d, Result<(), InstallRefusal>>
+        where
+            'a: 'd,
+            'b: 'd,
+            'c: 'd,
+            Self: 'd,
+        {
+            Box::pin(async { Err(InstallRefusal::StoreViewUnavailable) })
         }
     }
 
@@ -1125,6 +1239,10 @@ mod fx {
         pub data_dir: PathBuf,
         #[cfg_attr(not(windows), allow(dead_code))]
         pub layout: EndpointLayout,
+        /// ⟨M08 W4-T1⟩ The effects' late registry and the registry's authority, both
+        /// cleared on drop.
+        late: Arc<LateRegistry>,
+        authority: Arc<LateAuthority>,
         shutdown: CancellationToken,
     }
 
@@ -1132,6 +1250,15 @@ mod fx {
         fn drop(&mut self) {
             self.registry.stop_all();
             self.shutdown.cancel();
+            // ⟨M08 W4-T1⟩ Break the reference cycles, as the runtime's `ManagedTeardown`
+            // does. The `Operations` holds the adapter and the wiring. Their effects reach
+            // this signer table, whose install view holds the `Operations`, and the late
+            // registry, whose signers hold its authority. Left in place, the cycles keep
+            // the store open for the rest of the run (a probe counted 12 references when
+            // the home dropped), so on Windows the scratch home could not be removed.
+            self.late.clear();
+            self.authority.clear();
+            self.table.set_install_view(Arc::new(ReleasedView));
         }
     }
 
@@ -1265,11 +1392,12 @@ mod fx {
             }));
             let shutdown = CancellationToken::new();
             let signs = Arc::new(SignLog::default());
+            let authority = Arc::new(LateAuthority(RwLock::new(Some(ops.clone()))));
             let registry = EndpointRegistry::new(
                 self.layout.clone(),
                 endpoint_owner(),
                 self.table.clone(),
-                Arc::new(ops.clone()),
+                authority.clone(),
                 SignerLimits::default(),
                 shutdown.clone(),
             )
@@ -1288,6 +1416,8 @@ mod fx {
                 signs,
                 data_dir: self.data_dir,
                 layout: self.layout,
+                late: self.late,
+                authority,
                 shutdown,
             }
         }
@@ -1675,6 +1805,7 @@ mod fx {
                 None => verifier,
             };
             let verifier = Arc::new(verifier);
+            let store_guard = StoreGuard(Arc::downgrade(&store));
             let w = World {
                 ops,
                 store,
@@ -1698,6 +1829,7 @@ mod fx {
                 default_window: o.default_window,
                 client_version,
                 trace_dump,
+                _store_guard: store_guard,
                 home,
             };
             w.wire();
@@ -5043,8 +5175,13 @@ async fn past_not_after() {
 /// step the runner ends at its bound reports no ready line, which the runtime reads as
 /// `registry_unsupported` (it cannot tell a timeout from a remote shell that is not
 /// POSIX); at 1 s an `inspect` under parallel load on Windows failed that way.
+/// ⟨M08 W4-T1⟩ At 10 s, `enroll_reconcile_not_applied_within_validity` ended
+/// `verification_failed` once, in a macOS gate that another build slowed to about 2.5 h.
+/// Its focused reruns took 74.8 s, of which 74 s is [`past_not_after`]'s wait, so every
+/// step together took under a second. 30 s leaves headroom under that load. The not-after
+/// moves with the bound, and so does that wait, so each test that waits takes 20 s longer.
 #[cfg(any(unix, windows))]
-const SHORT_STEP: std::time::Duration = std::time::Duration::from_secs(10);
+const SHORT_STEP: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[cfg(any(unix, windows))]
 fn short_steps() -> WorldOptions {
