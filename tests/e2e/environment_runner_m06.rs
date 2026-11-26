@@ -1827,6 +1827,46 @@ mod driver_e2e {
         drop(j);
     }
 
+    /// ⟨M08 W4-T1⟩ How long the runner's waiting `ensure` may take to settle once the
+    /// controller's host signs on its own pass (every 30 s). A quiet machine needs one pass.
+    /// The bound is headroom for a loaded one: a single 120 s wait ran out in a gate that
+    /// another build slowed to about 2.5 h.
+    const OPERATION_STOPS: Duration = Duration::from_secs(600);
+
+    /// ⟨M08 W4-T1⟩ `operation wait` on `runner`, repeated until `operation` has stopped
+    /// (settled, or an unknown outcome) or `total` has passed, each wait at most 120 s. A wait
+    /// that ends first answers `OK` with the operation still active (`next: observe`, exit
+    /// 5): the contract's answer to a caller's timeout, not the operation's end. Returns the
+    /// last answer.
+    fn wait_until_stopped(runner: &Runner, operation: &str, total: Duration) -> Value {
+        let start = Instant::now();
+        loop {
+            let left = total.saturating_sub(start.elapsed());
+            let ms = left.min(Duration::from_secs(120)).as_millis().max(1);
+            let waited = runner
+                .command()
+                .args(["--json", "operation", "wait", operation])
+                .args(["--timeout-ms", &ms.to_string()])
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            let answer: Value = serde_json::from_slice(&waited.stdout).unwrap_or_else(|_| {
+                panic!(
+                    "{} {}",
+                    String::from_utf8_lossy(&waited.stdout),
+                    String::from_utf8_lossy(&waited.stderr)
+                )
+            });
+            let active = matches!(
+                answer["data"]["state"].as_str(),
+                Some("queued" | "running" | "awaiting_approval")
+            );
+            if !active || start.elapsed() >= total {
+                return answer;
+            }
+        }
+    }
+
     /// ⟨M06 W5 `sourceb`; m06-plan §2 item 3 "Record source (b)"; ADR-0005 §3.5 condition 8
     /// (b); ADR-0012 §4 item 2 ⟨2026-11-21⟩; spec A07's unattended shape⟩ **Record source
     /// (b), with real binaries on both sides and no forwarded `ensure`.**
@@ -2022,22 +2062,19 @@ mod driver_e2e {
                 .unwrap_or_else(|| panic!("the pending answer names no operation: {answer}"))
                 .to_owned();
             // 3. Nothing was forwarded: the controller's host adopts and signs on its own
-            // pass (every 30 s).
-            let waited = j
-                .runner
-                .command()
-                .args(["--json", "operation", "wait", &operation])
-                .args(["--timeout-ms", "120000"])
-                .stdin(Stdio::null())
-                .output()
-                .unwrap();
-            answer = serde_json::from_slice(&waited.stdout).unwrap_or_else(|_| {
-                panic!(
-                    "{} {}",
-                    String::from_utf8_lossy(&waited.stdout),
-                    String::from_utf8_lossy(&waited.stderr)
-                )
-            });
+            // pass (every 30 s). ⟨M08 W4-T1⟩ The wait repeats until the operation stops, and
+            // the operation must have succeeded: an `OK` alone can be a wait that ran out.
+            answer = wait_until_stopped(&j.runner, &operation, OPERATION_STOPS);
+            assert_eq!(
+                answer["data"]["state"],
+                "succeeded",
+                "the runner's ensure did not succeed within {OPERATION_STOPS:?}: \
+                 {answer}\n{}\n{}\n{}",
+                j.controller.stderr(),
+                std::fs::read_to_string(j.runner.account.join("runtime.stderr"))
+                    .unwrap_or_default(),
+                j.controller.status(&environment)
+            );
             grant
         } else {
             GrantId::parse(answer["data"]["grant_id"].as_str().unwrap_or_default()).unwrap()

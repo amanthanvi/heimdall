@@ -781,6 +781,10 @@ impl Default for Opts {
 // comes last: every handle on its files (the store and what holds it) is dropped first. On
 // Windows an open file cannot be deleted, and `TempDir`'s drop swallows the error, which leaves
 // fixture directories in TEMP (U1b's fix of `issuer_reservation_replay.rs`, PC job 64).
+// ⟨M08 W4-T1; PC job 66⟩ Field order alone was not enough: a value a test makes from the World
+// (a fresh process, a slot table, a clone of the adapter or effects) holds the store too, and
+// it outlived the World when `finish` consumed it. `finish` now borrows the World, and the
+// directory ([`Scratch`]) checks on every platform that nothing still holds the store.
 struct World {
     // Read by the Unix issuer-child cases only.
     #[cfg_attr(not(unix), allow(dead_code))]
@@ -801,7 +805,40 @@ struct World {
     ca_fp: CaFingerprint,
     /// CAs registered later (rotation), by fingerprint.
     extra_cas: Mutex<Vec<(CaFingerprint, Arc<SecretCaKey>)>>,
+    dir: Scratch,
+}
+
+/// ⟨M08 W4-T1; PC job 66⟩ The World's scratch directory, which holds the store's files, and
+/// the check that nothing outlives the World holding that store. It is the World's last
+/// field, so by the time it drops every field that held the store has dropped too. A
+/// reference still counted then belongs to something else: a value the test made from the
+/// World, or a task or thread holding one. On Windows the store's files are still open then,
+/// so `TempDir` cannot remove the directory and it is left in TEMP. Unix removes it anyway,
+/// so this check fails the test on every platform instead.
+struct Scratch {
+    store: std::sync::Weak<Store>,
     dir: tempfile::TempDir,
+}
+
+impl Scratch {
+    fn path(&self) -> &Path {
+        self.dir.path()
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let holders = self.store.strong_count();
+        // A test that already failed is unwinding: a second panic would abort the binary.
+        if holders > 0 && !std::thread::panicking() {
+            panic!(
+                "{holders} references to the World's store outlive the World: a value the \
+                 test made from it (a clone of its store, sources, effects or adapter, a slot \
+                 table, a fresh process), or a task or thread holding one. Drop it first: on \
+                 Windows the store's files stay open and the scratch directory is left in TEMP"
+            );
+        }
+    }
 }
 
 /// How far the fixture driver goes (the stages of ADR-0008 D6 item 1).
@@ -956,7 +993,10 @@ impl World {
         *hook.clock.lock().unwrap() = Some(clock.clone());
         ops.set_narrowing_hook(hook.clone());
         Self {
-            dir,
+            dir: Scratch {
+                store: Arc::downgrade(&store),
+                dir,
+            },
             db,
             store,
             clock,
@@ -1281,7 +1321,9 @@ impl World {
 
     /// No leftover vault slot (the vault-slot counter: `KeyVault::len`, a public
     /// accessor, read only by tests): every key this world generated is destroyed.
-    async fn finish(self, grants: &[GrantId]) {
+    /// ⟨M08 W4-T1⟩ It borrows the World, which then drops at the end of the test, after
+    /// the values the test made from it ([`Scratch`]).
+    async fn finish(&self, grants: &[GrantId]) {
         self.effects.destroy(grants).await.unwrap();
         assert_eq!(self.table().vault().len(), 0, "leftover vault slots");
     }
