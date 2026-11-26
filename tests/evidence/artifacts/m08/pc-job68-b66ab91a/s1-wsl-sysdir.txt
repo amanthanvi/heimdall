@@ -1,0 +1,29 @@
+   Compiling num-traits v0.2.19
+   Compiling getrandom v0.4.3
+   Compiling heimdall-stategen v0.1.0-m01 (<R>\c1\crates\stategen)
+   Compiling tempfile v3.27.0
+   Compiling heimdall-store v0.1.0-m01 (<R>\c1\crates\store)
+   Compiling num-integer v0.1.47
+   Compiling num-iter v0.1.46
+   Compiling num-bigint-dig v0.8.6
+   Compiling rsa v0.9.10
+   Compiling ssh-key v0.6.7
+   Compiling ssh-agent-lib v0.6.0
+   Compiling heimdall-ipc v0.1.0-m01 (<R>\c1\crates\ipc)
+   Compiling heimdall-app v0.1.0-m01 (<R>\c1\crates\app)
+   Compiling heimdall-localenv v0.1.0-m01 (<R>\c1\crates\localenv)
+   Compiling heimdall-wsl v0.1.0-m01 (<R>\c1\crates\wsl)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.41s
+     Running unittests src\lib.rs (target\debug\deps\heimdall_wsl-948d9c9bceea8b6f.exe)
+
+running 1 test
+
+running 1 test
+test spawn::tests::windows_inbox_programs_ignore_redirected_system_root ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+test spawn::tests::windows_inbox_programs_ignore_redirected_system_root ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.01s
+

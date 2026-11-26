@@ -1,0 +1,39 @@
+ Downloading crates ...
+  Downloaded tracing-attributes v0.1.31
+  Downloaded etcetera v0.11.0
+  Downloaded futures-macro v0.3.34
+  Downloaded thread_local v1.1.10
+  Downloaded tracing-subscriber v0.3.23
+  Downloaded sharded-slab v0.1.7
+   Compiling windows-sys v0.61.2
+   Compiling sharded-slab v0.1.7
+   Compiling thread_local v1.1.10
+   Compiling tracing-subscriber v0.3.23
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling tempfile v3.27.0
+   Compiling tokio v1.54.1
+   Compiling rusty-fork v0.3.1
+   Compiling proptest v1.12.0
+   Compiling etcetera v0.11.0
+   Compiling tokio-util v0.7.20
+   Compiling heimdall-app v0.1.0-m01 (<R>\c1\crates\app)
+   Compiling heimdall-ipc v0.1.0-m01 (<R>\c1\crates\ipc)
+   Compiling heimdall-transport-iroh v0.1.0-m01 (<R>\c1\crates\transport-iroh)
+   Compiling heimdall-localenv v0.1.0-m01 (<R>\c1\crates\localenv)
+   Compiling heimdall-credential v0.1.0-m01 (<R>\c1\crates\credential)
+   Compiling heimdall-remote v0.1.0-m01 (<R>\c1\crates\remote)
+   Compiling heimdall-issuer v0.1.0-m01 (<R>\c1\crates\issuer)
+   Compiling heimdall-testkit v0.1.0-m01 (<R>\c1\crates\testkit)
+   Compiling heimdall-wsl v0.1.0-m01 (<R>\c1\crates\wsl)
+   Compiling heimdall-enroll v0.1.0-m01 (<R>\c1\crates\enroll)
+   Compiling heimdall-adapters v0.1.0-m01 (<R>\c1\crates\adapters)
+   Compiling heimdall-runtime v0.1.0-m01 (<R>\c1\crates\runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 51.64s
+     Running unittests src\lib.rs (target\debug\deps\heimdall_runtime-21b1fa2495c594fd.exe)
+
+running 1 test
+test state_store::tests::served_state_files_require_owner_only_before_open ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 73 filtered out; finished in 0.09s
+

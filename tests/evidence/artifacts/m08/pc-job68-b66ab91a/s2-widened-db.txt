@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running unittests src\lib.rs (target\debug\deps\heimdall_runtime-21b1fa2495c594fd.exe)
+
+running 1 test
+test state_store::tests::windows_widened_state_db_dacl_is_refused_before_sqlite_open ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 73 filtered out; finished in 0.10s
+

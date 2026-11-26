@@ -1,0 +1,16 @@
+s1-unc-fs exit=0 temp=default before=3577 after=3577
+  new: a6e70fb1-1c61-4448-b726-2e51f9de090f.tmp kind=file created=18:37:08.028 class=file
+  gone: 6ae3bf6b-0862-4cb4-bbb2-21506dcaa1a8.tmp
+s1-remote-class exit=0 temp=default before=3577 after=3577
+s1-include exit=0 temp=default before=3577 after=3579
+  new: 06af085e-e075-4922-a950-654a13e1b050.tmp kind=file created=18:38:09.145 class=file
+  new: 5de5e95f-9c06-4c28-8092-e8bc5a934ff7.tmp kind=file created=18:38:09.026 class=file
+  new: fb798b80-8841-4bba-a986-d991ff3fb43c.tmp kind=file created=18:37:59.135 class=file
+  gone: a6e70fb1-1c61-4448-b726-2e51f9de090f.tmp
+s1-worktree exit=0 temp=default before=3579 after=3579
+s1-ssh-sysdir exit=0 temp=default before=3579 after=3579
+s1-wsl-sysdir exit=0 temp=default before=3579 after=3577
+  gone: 06af085e-e075-4922-a950-654a13e1b050.tmp
+  gone: fb798b80-8841-4bba-a986-d991ff3fb43c.tmp
+s2-owner-only exit=0 temp=<R>\tmp-owner before=0 after=0
+s2-widened-db exit=0 temp=<R>\tmp-owner before=0 after=0

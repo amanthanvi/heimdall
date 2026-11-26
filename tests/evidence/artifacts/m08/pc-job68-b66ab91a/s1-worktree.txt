@@ -1,0 +1,9 @@
+   Compiling heimdall-project v0.1.0-m01 (<R>\c1\crates\project)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.05s
+     Running ..\..\tests\model\project_pure.rs (target\debug\deps\model_project_pure-0ec65f73b752c4b6.exe)
+
+running 1 test
+test remote_git_worktree_pointers_are_not_canonicalized ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.00s
+
