@@ -608,6 +608,10 @@ impl WithoutManaged<'_> {
 }
 
 impl ConfigSource for WithoutManaged<'_> {
+    fn allows_local_path(&self, path: &Path) -> bool {
+        self.inner.allows_local_path(path)
+    }
+
     fn read(&self, path: &Path) -> Result<SourceBytes, SourceError> {
         match self.is_managed(path) {
             Some(canonical) => Ok(SourceBytes {

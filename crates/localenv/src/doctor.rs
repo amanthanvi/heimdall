@@ -47,7 +47,7 @@ use heimdall_contract::setup::ConflictKind;
 use heimdall_sshconf::directive::{Keyword, KnownKeyword};
 use heimdall_sshconf::edit::{BlockPosition, find_blocks};
 use heimdall_sshconf::eval::{
-    Evaluation, Invocation, OpenSshVersion, Resolved, UnresolvedReason, Value, evaluate,
+    Evaluation, Invocation, OpenSshVersion, Query, Resolved, UnresolvedReason, Value, evaluate,
 };
 use heimdall_sshconf::include::{self, ConfigSet, Roots};
 use heimdall_sshconf::limits::Limits;
@@ -429,8 +429,8 @@ pub fn path_display(path: &Path, home: &Path) -> String {
             format!("~/{}", text(rest))
         }
     };
-    let canonical_home = std::fs::canonicalize(home).ok();
-    let canonical_path = std::fs::canonicalize(path).ok();
+    let canonical_home = crate::fs::canonical_path(home).ok();
+    let canonical_path = crate::fs::canonical_path(path).ok();
     let candidates = [
         (Some(path), Some(home)),
         (Some(path), canonical_home.as_deref()),
@@ -621,18 +621,156 @@ struct Doctor<'a> {
 /// only `ProxyCommand` P ever renders, ADR-0012 §5.3). An unreadable or absent P: no.
 #[must_use]
 pub fn helper_alias(managed_file: Option<&Path>, alias: &str) -> bool {
-    let Some(text) = managed_file.and_then(|p| std::fs::read_to_string(p).ok()) else {
-        return false;
-    };
-    let mut inside = false;
-    for line in text.lines() {
-        if let Some(name) = line.strip_prefix("Host ") {
-            inside = name.trim() == alias;
-        } else if inside && line.trim_start().starts_with("ProxyCommand ") {
-            return true;
+    matches!(
+        projected_pin(managed_file, alias),
+        Some(ProjectedPin::Helper { .. })
+    )
+}
+
+pub(crate) enum ProjectedPin {
+    Helper {
+        key_alias: Option<String>,
+    },
+    Native {
+        jump: Option<String>,
+        key_alias: Option<String>,
+    },
+    OwnerKnownHosts,
+}
+
+impl ProjectedPin {
+    fn status(&self, evaluation: &Evaluation) -> heimdall_sshconf::routes::StaticPin {
+        use heimdall_sshconf::routes::{
+            StaticPin, native_pin_status, native_route_status, static_pin_status,
+        };
+        match self {
+            Self::Helper { .. } => static_pin_status(evaluation),
+            Self::Native { jump, .. } => native_pin_status(evaluation)
+                .worse(native_route_status(evaluation, jump.as_deref())),
+            Self::OwnerKnownHosts => StaticPin::Holds,
         }
     }
-    false
+
+    pub(crate) fn has_approved_key(&self, managed_file: Option<&Path>) -> bool {
+        let (Self::Native {
+            key_alias: Some(name),
+            ..
+        }
+        | Self::Helper {
+            key_alias: Some(name),
+        }) = self
+        else {
+            return true;
+        };
+        managed_file
+            .and_then(Path::parent)
+            .and_then(|dir| {
+                let file = dir.join("keys").join(crate::projection::HOST_PINS_FILE);
+                crate::fs::read_bounded(&file, Limits::default().file_bytes).ok()
+            })
+            .is_some_and(|source| {
+                source.bytes.split(|byte| *byte == b'\n').any(|line| {
+                    line.split(|byte| byte.is_ascii_whitespace()).next() == Some(name.as_bytes())
+                })
+            })
+    }
+
+    pub(crate) fn status_with_jump(
+        &self,
+        evaluation: &Evaluation,
+        managed_file: Option<&Path>,
+        evaluate_jump: impl FnOnce(&str) -> Evaluation,
+    ) -> heimdall_sshconf::routes::StaticPin {
+        use heimdall_sshconf::routes::StaticPin;
+        let status = self.status(evaluation);
+        if status == StaticPin::Holds
+            && let Self::Native {
+                jump: Some(jump), ..
+            } = self
+        {
+            match projected_pin(managed_file, jump) {
+                Some(pin @ Self::Native { jump: None, .. })
+                    if pin.has_approved_key(managed_file) =>
+                {
+                    pin.status(&evaluate_jump(jump))
+                }
+                _ => StaticPin::Defeated("proxyjump"),
+            }
+        } else {
+            status
+        }
+    }
+}
+
+pub(crate) fn projected_pin(managed_file: Option<&Path>, alias: &str) -> Option<ProjectedPin> {
+    let bytes = crate::fs::read_bounded(managed_file?, Limits::default().file_bytes)
+        .ok()?
+        .bytes;
+    let text = std::str::from_utf8(&bytes).ok()?;
+    let mut inside = false;
+    let mut helper = false;
+    let mut key_alias = None;
+    let mut jump = None;
+    let mut managed_slot = false;
+    for line in text.lines() {
+        if let Some(name) = line.strip_prefix("Host ") {
+            if inside {
+                break;
+            }
+            inside = name.trim() == alias;
+        } else if inside {
+            let line = line.trim_start();
+            helper |= line.starts_with("ProxyCommand ");
+            if let Some(alias) = line.strip_prefix("ProxyJump ") {
+                jump = Some(alias.to_owned());
+            }
+            if let Some(name) = line.strip_prefix("HostKeyAlias ")
+                && name.starts_with(heimdall_sshconf::routes::HOST_KEY_ALIAS_PREFIX)
+            {
+                key_alias = Some(name.to_owned());
+            }
+            managed_slot |= line.starts_with("IdentityFile ")
+                && line.contains("/managed/")
+                && line.ends_with("/cert.pub\"");
+            managed_slot |= line.starts_with("CertificateFile ");
+        }
+    }
+    if helper {
+        Some(ProjectedPin::Helper { key_alias })
+    } else if key_alias.is_some() || managed_slot {
+        Some(ProjectedPin::Native { jump, key_alias })
+    } else {
+        inside.then_some(ProjectedPin::OwnerKnownHosts)
+    }
+}
+
+pub(crate) fn catalog_host_trust_finding(alias: &str, subject_id: &str, required: bool) -> Finding {
+    let reason = heimdall_contract::envelope::reason::HOST_TRUST_UNDETERMINED;
+    let (severity, message) = if required {
+        (
+            FindingSeverity::Problem,
+            format!(
+                "`{alias}` is not ready because its host key is not approved in Heimdall's catalog. Approve or verify the destination's host key."
+            ),
+        )
+    } else {
+        (
+            FindingSeverity::Info,
+            format!(
+                "`{alias}` has no approved host key in Heimdall's catalog. Your own `known_hosts` verifies it."
+            ),
+        )
+    };
+    Finding {
+        code: reason.to_owned(),
+        severity,
+        subject: subject("destination", Some(subject_id)),
+        level: ProbeLevel::Static,
+        provenance: None,
+        message,
+        next: next("review_host_trust"),
+        reason: Some(reason.to_owned()),
+    }
 }
 
 fn subject(kind: &str, id: Option<&str>) -> ResourceRef {
@@ -1387,9 +1525,35 @@ impl Doctor<'_> {
         // hold its destination's catalog pin: every pin setting decided by P's own section.
         // Static, like the rest of this level (nothing runs); the helper itself checks
         // with `ssh -G` before every connection.
-        if helper_alias(ctx.managed_file.as_deref(), alias) {
+        let projected = projected_pin(ctx.managed_file.as_deref(), alias).or_else(|| {
+            (ctx.managed_file.is_some()
+                && catalog
+                    .as_ref()
+                    .is_some_and(|a| a.definition == AliasDefinition::Managed))
+            .then_some(ProjectedPin::Native {
+                jump: None,
+                key_alias: None,
+            })
+        });
+        let helper = matches!(projected, Some(ProjectedPin::Helper { .. }));
+        if matches!(projected, Some(ProjectedPin::OwnerKnownHosts)) {
+            self.findings
+                .push(catalog_host_trust_finding(alias, alias, false));
+        } else if let Some(pin) = projected {
+            if !pin.has_approved_key(ctx.managed_file.as_deref()) {
+                self.findings
+                    .push(catalog_host_trust_finding(alias, alias, true));
+            }
             use heimdall_sshconf::routes::StaticPin;
-            match heimdall_sshconf::routes::static_pin_status(&evaluation) {
+            let status = pin.status_with_jump(&evaluation, ctx.managed_file.as_deref(), |jump| {
+                let jump_query = Query {
+                    host: jump.to_owned(),
+                    invocation: Invocation::ForwardOnly,
+                    ..query.clone()
+                };
+                evaluate(&mut set, &source, &roots, &jump_query, &ctx.limits)
+            });
+            match status {
                 StaticPin::Holds => {}
                 StaticPin::Defeated(setting) => self.add(
                     heimdall_contract::envelope::reason::HOST_PIN_DEFEATED,
@@ -1400,9 +1564,7 @@ impl Doctor<'_> {
                     format!(
                         "the SSH configuration decides `{setting}` for `{alias}` outside \
                          Heimdall's own section, so the destination's catalog host-key pin \
-                         does not hold (host_pin_defeated: {setting}); `ssh {alias}` is \
-                         refused by Heimdall's route helper until that setting no longer \
-                         applies"
+                         does not hold (host_pin_defeated: {setting}); `{alias}` is not ready"
                     ),
                     "review_host_trust",
                     Some(heimdall_contract::envelope::reason::HOST_PIN_DEFEATED),
@@ -1411,22 +1573,24 @@ impl Doctor<'_> {
                 // said as such, never as a defeat. The helper's `ssh -G` check decides.
                 StaticPin::Undetermined(setting) => self.add(
                     finding::DYNAMIC_MATCH_UNRESOLVED,
-                    FindingSeverity::Warning,
+                    if helper { FindingSeverity::Warning } else { FindingSeverity::Problem },
                     subj(),
                     ProbeLevel::Static,
                     None,
-                    format!(
-                        "`{alias}`: host-key pin status: undetermined. Whether `{setting}` \
-                         is decided by Heimdall's own section depends on a condition this \
-                         level does not run (a `Match exec`, for example). Heimdall's route \
-                         helper checks the effective configuration before it tries any \
-                         route and refuses `ssh {alias}` if the pin does not hold"
-                    ),
+                    if helper {
+                        format!(
+                            "`{alias}`: host-key pin status: undetermined for `{setting}`. \
+                             Heimdall's route helper checks the effective configuration before connecting"
+                        )
+                    } else {
+                        format!("`{alias}` is not ready because the effective `{setting}` is undetermined")
+                    },
                     "review_host_trust",
                     None,
                 ),
             }
-        } else if ctx.routes_unused.contains(alias) {
+        }
+        if !helper && ctx.routes_unused.contains(alias) {
             // ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ An existing-access alias keeps its
             // native rendering: its destination's approved routes are not used by
             // ordinary `ssh`.

@@ -40,7 +40,7 @@ rustix = { workspace = true }
 libc = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true }
+windows-sys = { workspace = true, features = ["Win32_System_SystemInformation"] }
 
 [dev-dependencies]
 heimdall-testkit = { workspace = true }

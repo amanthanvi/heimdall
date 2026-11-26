@@ -73,6 +73,8 @@ struct MemFs {
     no_identities: bool,
     next_ino: u64,
     reads: RefCell<BTreeMap<PathBuf, usize>>,
+    refused_path: Option<PathBuf>,
+    canonicalizations: RefCell<Vec<PathBuf>>,
 }
 
 impl MemFs {
@@ -337,6 +339,10 @@ fn components(path: &Path) -> Vec<String> {
 }
 
 impl FsView for MemFs {
+    fn allows_local_path(&self, path: &Path) -> bool {
+        self.refused_path.as_deref() != Some(path)
+    }
+
     fn kind(&self, path: &Path) -> io::Result<Option<FsKind>> {
         Ok(self.lresolve(path)?.map(|p| match &self.nodes[&p] {
             Node::Dir => FsKind::Dir,
@@ -347,6 +353,7 @@ impl FsView for MemFs {
     }
 
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
+        self.canonicalizations.borrow_mut().push(path.to_owned());
         self.resolve(path)
     }
 
@@ -1494,6 +1501,36 @@ fn a_verified_linked_worktree_is_a_member() {
         match_workspace(&obs, &[rec]),
         WorkspaceMatch::Member { workspace: ws(1) }
     );
+}
+
+#[test]
+fn remote_git_worktree_pointers_are_not_canonicalized() {
+    for (file, prefix, local_calls) in [
+        ("/work/wt/.git", "gitdir: ", 1),
+        ("/work/proj/.git/worktrees/wt/gitdir", "", 2),
+    ] {
+        for remote in [
+            r"\\server\share\worktree",
+            r"\\?\UNC\server\share\worktree",
+            r"X:\worktree",
+        ] {
+            let mut fs = worktree_fs();
+            fs.file(file, format!("{prefix}{remote}\n").as_bytes());
+            fs.refused_path = Some(PathBuf::from(remote));
+            assert!(matches!(
+                observe(&fs, "/work/wt").git,
+                Some(GitObservation::LinkedWorktree {
+                    verified: false,
+                    ..
+                })
+            ));
+            assert_eq!(
+                fs.canonicalizations.borrow().len(),
+                local_calls,
+                "passive observation canonicalized a remote pointer"
+            );
+        }
+    }
 }
 
 /// ⟨W1 Windows fix⟩ Windows path forms (ADR-0011 §2.3 on Windows): a working directory

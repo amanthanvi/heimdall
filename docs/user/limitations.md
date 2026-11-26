@@ -23,6 +23,13 @@ Short, and meant to be read once.
 - **A sleeping or powered-off machine does no work.** Locking the screen does not stop
   approved background work; sleep, logout and reboot each behave as the status view says.
 - **Uninstalling does not remove lines on remote hosts.** Remove enrollments first.
+- **Direct aliases using your fixed identity use the catalog key when one is
+  approved.** Until then, your own `known_hosts` verifies the host, and doctor
+  identifies that trust source. Managed credentials and required jump hops need
+  an approved catalog key before access is ready.
+- **Windows checks state-file permissions before opening its database.** A process with
+  permission to replace entries or change their permissions can still race startup between
+  the check and the open.
 - **An `issuer init` still at its `written` prompt when its decision expires (15 minutes
   after the registration is shown) leaves an orphan CA key.** The key is in the store, but no
   registration names it. `heimdall issuer status` shows its fingerprint. Recover with

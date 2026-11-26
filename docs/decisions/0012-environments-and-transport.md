@@ -560,6 +560,12 @@ The same path repairs a lost host pin or a lost K_mgmt.
 
 This text replaces nothing else in ADR-0010 §5.
 
+⟨Amendment, 2026-11-26, M08 W4 SEC-2, S4-01, orchestrator ruling⟩ The
+catalog-only host-trust directives also apply to the native sections covered
+by ADR-0010 §5. The helper's execution exception continues to apply only to the
+helper described above. A defeated required pin makes its alias unready and
+excludes it from the projection.
+
 ### 5.4 ⟨r2⟩ ⟨r3⟩ The helper's jump leg keeps ADR-0010 §5's authority (R04)
 
 **A jump route inside the helper is the single-hop `ProxyJump` semantics of ADR-0010 §5 items 1–4, unchanged.**

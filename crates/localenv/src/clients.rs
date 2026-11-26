@@ -73,7 +73,7 @@ impl ClientKind {
 pub enum ClientSource {
     /// `PATH`.
     Path,
-    /// `%WINDIR%\System32\OpenSSH`.
+    /// The operating system's system directory, under `OpenSSH`.
     System32,
     /// Git for Windows' bundled MSYS client.
     GitBundled,
@@ -257,9 +257,23 @@ pub fn resolve_clients_on(
     platform: Platform,
 ) -> ClientInventory {
     let _ = paths;
+    let system_dir = platform
+        .is_windows()
+        .then(crate::sys::windows_system_directory)
+        .flatten();
+    resolve_clients_with_system_dir(env, config, queries, platform, system_dir.as_deref())
+}
+
+fn resolve_clients_with_system_dir(
+    env: &Env,
+    config: &ClientsConfig,
+    queries: LocalQueries,
+    platform: Platform,
+    system_dir: Option<&Path>,
+) -> ClientInventory {
     let mut candidates = Vec::new();
     for kind in ClientKind::ALL {
-        let found = candidates_for(env, config, kind, platform);
+        let found = candidates_for_with_system_dir(env, config, kind, platform, system_dir);
         let chosen = chosen_index(&found, kind, platform);
         for (i, (path, source)) in found.into_iter().enumerate() {
             let (version, identity) = if kind == ClientKind::Ssh && queries == LocalQueries::Enabled
@@ -316,6 +330,20 @@ pub fn candidates_for(
     kind: ClientKind,
     platform: Platform,
 ) -> Vec<(PathBuf, ClientSource)> {
+    let system_dir = platform
+        .is_windows()
+        .then(crate::sys::windows_system_directory)
+        .flatten();
+    candidates_for_with_system_dir(env, config, kind, platform, system_dir.as_deref())
+}
+
+fn candidates_for_with_system_dir(
+    env: &Env,
+    config: &ClientsConfig,
+    kind: ClientKind,
+    platform: Platform,
+    system_dir: Option<&Path>,
+) -> Vec<(PathBuf, ClientSource)> {
     let dirs = path_dirs(env);
     let mut found: Vec<(PathBuf, ClientSource)> = Vec::new();
     let mut push = |p: PathBuf, s: ClientSource| {
@@ -331,9 +359,12 @@ pub fn candidates_for(
     }
     if platform.is_windows()
         && kind.is_openssh()
-        && let Some(p) = system32_client(env, kind)
+        && let Some(dir) = system_dir
     {
-        push(p, ClientSource::System32);
+        let path = dir.join("OpenSSH").join(exe_name(kind.program(), platform));
+        if is_regular_file(&path) {
+            push(path, ClientSource::System32);
+        }
     }
     if let Some(p) = search_path(&dirs, kind.program(), platform) {
         push(p, ClientSource::Path);
@@ -377,7 +408,7 @@ pub fn selected_path(env: &Env, config: &ClientsConfig, kind: ClientKind) -> Opt
 /// Whether `path` names an existing regular file (the `[clients]` rule).
 #[must_use]
 pub fn is_regular_file(path: &Path) -> bool {
-    std::fs::metadata(path).is_ok_and(|m| m.is_file())
+    crate::fs::allows_passive_path(path) && std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
 /// `PATH` from the snapshot, absolute entries only (a relative entry would resolve
@@ -407,18 +438,6 @@ pub fn search_path(dirs: &[PathBuf], program: &str, platform: Platform) -> Optio
     dirs.iter()
         .map(|d| d.join(&name))
         .find(|p| is_regular_file(p))
-}
-
-fn system32_client(env: &Env, kind: ClientKind) -> Option<PathBuf> {
-    let root = env
-        .get("SystemRoot")
-        .or_else(|| env.get("WINDIR"))
-        .or_else(|| env.get("windir"))?;
-    let p = PathBuf::from(root)
-        .join("System32")
-        .join("OpenSSH")
-        .join(exe_name(kind.program(), Platform::Windows));
-    is_regular_file(&p).then_some(p)
 }
 
 /// Git for Windows' own `ssh.exe`: `<git root>\usr\bin\ssh.exe`, where `git.exe` is
@@ -456,6 +475,9 @@ const MAX_HASH_BYTES: u64 = 512 << 20;
 /// SHA-256 of a regular file, lowercase hex; `None` when unreadable or too large.
 #[must_use]
 pub fn sha256_file(path: &Path) -> Option<String> {
+    if !crate::fs::allows_passive_path(path) {
+        return None;
+    }
     let file = std::fs::File::open(path).ok()?;
     let meta = file.metadata().ok()?;
     if !meta.is_file() || meta.len() > MAX_HASH_BYTES {
@@ -548,6 +570,47 @@ mod tests {
     }
 
     #[test]
+    fn redirected_system_root_is_not_selected_as_inbox_ssh() {
+        let dir = tempfile::tempdir().unwrap();
+        let ssh = dir.path().join("System32/OpenSSH/ssh.exe");
+        touch(&ssh);
+        let env = Env::from_vars([
+            ("SystemRoot", dir.path().as_os_str().to_owned()),
+            ("windir", dir.path().as_os_str().to_owned()),
+        ]);
+        let selected = resolve_clients_on(
+            &env,
+            &scratch_paths(dir.path()),
+            &ClientsConfig::default(),
+            LocalQueries::Disabled,
+            Platform::Windows,
+        );
+        let selected = selected.selected(ClientKind::Ssh);
+        assert!(
+            selected.is_none_or(|client| client.path != ssh),
+            "redirected SystemRoot was selected as in-box ssh.exe"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_inbox_ssh_selection_ignores_redirected_system_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = Env::from_vars([("SystemRoot", dir.path().as_os_str().to_owned())]);
+        let expected = crate::sys::windows_system_directory()
+            .unwrap()
+            .join("OpenSSH/ssh.exe");
+        assert!(
+            expected.is_file(),
+            "the native row needs Windows in-box OpenSSH"
+        );
+        assert_eq!(
+            selected_path(&env, &ClientsConfig::default(), ClientKind::Ssh),
+            Some(expected)
+        );
+    }
+
+    #[test]
     fn windows_rules_select_system32_and_record_path_first_and_bundled_clients() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("Windows");
@@ -563,12 +626,12 @@ mod tests {
             ("PATH", path),
             ("SystemRoot", root.clone().into_os_string()),
         ]);
-        let inv = resolve_clients_on(
+        let inv = resolve_clients_with_system_dir(
             &env,
-            &scratch_paths(dir.path()),
             &ClientsConfig::default(),
             LocalQueries::Disabled,
             Platform::Windows,
+            Some(&root.join("System32")),
         );
         let ssh: Vec<_> = inv
             .candidates

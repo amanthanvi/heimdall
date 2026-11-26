@@ -62,7 +62,10 @@ use heimdall_testkit::home::ScratchHome;
 
 /// Synthetic public keys by identity (preview only).
 #[derive(Default)]
-struct KeyBook(Mutex<BTreeMap<String, String>>);
+struct KeyBook(
+    Mutex<BTreeMap<String, String>>,
+    Mutex<BTreeMap<String, Vec<String>>>,
+);
 
 impl PublicKeySource for KeyBook {
     fn public_key(&self, identity: &IdentityId) -> Option<String> {
@@ -71,6 +74,16 @@ impl PublicKeySource for KeyBook {
             .unwrap_or_else(PoisonError::into_inner)
             .get(identity.as_str())
             .cloned()
+    }
+
+    fn catalog_host_keys(&self, alias: &ManagedAliasSpec) -> Result<Vec<String>, String> {
+        Ok(self
+            .1
+            .lock()
+            .unwrap()
+            .get(&alias.alias)
+            .cloned()
+            .unwrap_or_else(|| vec![PIN_A.into()]))
     }
 }
 
@@ -452,7 +465,15 @@ fn p_renders_managed_alias_with_slot_paths_and_control_none() {
             "IdentitiesOnly",
             "IdentityFile",
             "ControlMaster",
-            "ControlPath"
+            "ControlPath",
+            "HostKeyAlias",
+            "UserKnownHostsFile",
+            "GlobalKnownHostsFile",
+            "KnownHostsCommand",
+            "StrictHostKeyChecking",
+            "VerifyHostKeyDNS",
+            "UpdateHostKeys",
+            "CheckHostIP",
         ],
         "{text}"
     );
@@ -466,7 +487,7 @@ fn p_renders_managed_alias_with_slot_paths_and_control_none() {
         "no existing-access key for a managed alias"
     );
     assert!(
-        plan.files.iter().all(|s| s.role != FileRole::Key),
+        plan.files.iter().all(|s| s.path != spec.key_file),
         "a managed alias writes no M02 key file"
     );
 }
@@ -1093,6 +1114,15 @@ impl Ordinary {
             .or_else(current_account)
             .expect("account");
         fx.home.trust_host_key(&sshd.host_key_line).unwrap();
+        let host_key = sshd.host_key_line.split_once(' ').unwrap().1;
+        fx.keys
+            .1
+            .lock()
+            .unwrap()
+            .insert("work".into(), vec![host_key.to_owned()]);
+        fx.home
+            .trust_host_key(&format!("hm-dest-dst-work {host_key}"))
+            .unwrap();
         // The slot key and its certificate (principal = the login account).
         let key = FixtureKey::generate();
         let kdir = fx.home.scratch().subdir("u8key").unwrap();
@@ -1385,7 +1415,9 @@ fn route_helper_changes_only_the_alias_with_routes_and_shows_it_first() {
     );
     assert!(!p0.contains("ProxyCommand"));
     let pins = fx.home.config_dir.join("keys").join("host_pins");
-    assert!(!pins.exists());
+    let pins0 =
+        format!("hm-dest-dst-other {PIN_A}\nhm-dest-dst-plain {PIN_A}\nhm-dest-dst-work {PIN_A}\n");
+    assert_eq!(std::fs::read_to_string(&pins).unwrap(), pins0);
 
     // Routes approved since: the next preview shows the helper, and writes nothing.
     fx.managed.1.lock().unwrap().insert(
@@ -1398,7 +1430,7 @@ fn route_helper_changes_only_the_alias_with_routes_and_shows_it_first() {
         p0,
         "the preview writes nothing"
     );
-    assert!(!pins.exists());
+    assert_eq!(std::fs::read_to_string(&pins).unwrap(), pins0);
     let summary = plan.summary.as_ref().expect("the change needs a decision");
     assert!(plan.view.consent.decision_required);
     assert_eq!(summary.changed_aliases, ["work"], "{summary:?}");
@@ -1408,10 +1440,8 @@ fn route_helper_changes_only_the_alias_with_routes_and_shows_it_first() {
             && summary
                 .diff_text
                 .contains("route connect --destination dst-work --account deploy")
-            && summary.diff_text.contains("+    StrictHostKeyChecking yes")
-            && summary
-                .diff_text
-                .contains("+    HostKeyAlias hm-dest-dst-work"),
+            && planned_p(&plan).contains("    StrictHostKeyChecking yes")
+            && planned_p(&plan).contains("    HostKeyAlias hm-dest-dst-work"),
         "{}",
         summary.diff_text
     );
@@ -1463,7 +1493,9 @@ fn route_helper_changes_only_the_alias_with_routes_and_shows_it_first() {
     );
     assert_eq!(
         std::fs::read_to_string(&pins).unwrap(),
-        format!("hm-dest-dst-bastion {PIN_B}\nhm-dest-dst-work {PIN_A}\n")
+        format!(
+            "hm-dest-dst-bastion {PIN_B}\nhm-dest-dst-other {PIN_A}\nhm-dest-dst-plain {PIN_A}\nhm-dest-dst-work {PIN_A}\n"
+        )
     );
 }
 
@@ -1519,7 +1551,7 @@ fn a_user_setting_that_defeats_the_pin_is_reported_and_the_helper_is_not_rendere
             plan.files
                 .iter()
                 .all(|s| s.role != FileRole::ManagedSsh && s.role != FileRole::Key),
-            "{line}: P and the pin file are not planned: the alias stays native"
+            "{line}: the existing block placement conflict holds all writes"
         );
         assert_eq!(std::fs::read_to_string(fx.p()).unwrap(), p0);
     }
@@ -1535,11 +1567,389 @@ fn a_user_setting_that_defeats_the_pin_is_reported_and_the_helper_is_not_rendere
     );
 }
 
+#[test]
+fn a_defeated_native_pin_is_reported_and_its_alias_is_omitted() {
+    use heimdall_contract::setup::{ConflictKind, RepairResolution};
+
+    let fx = Fx::new();
+    let alias = fx.alias("work", "work.example.invalid", None, "deploy");
+    fx.prefer_managed(&alias, fx.environment_endpoint("t"));
+    let aliases = vec![alias];
+    let first = fx
+        .writer(true)
+        .preview(&fx.spec(aliases.clone()), &apply_intent())
+        .unwrap();
+    let spec = apply_and_record(&fx, &first, aliases);
+    let writer = fx.writer(true);
+    let record = spec.record.as_ref().unwrap();
+    let observations = writer.observe(record, &["work".to_owned()]);
+    assert!(observations[0].identity_selection.is_some());
+    let block = std::fs::read_to_string(&fx.home.user_config).unwrap();
+    std::fs::write(
+        &fx.home.user_config,
+        format!("StrictHostKeyChecking no\n{block}"),
+    )
+    .unwrap();
+    let observations = writer.observe(record, &["work".to_owned()]);
+    assert!(
+        observations[0].identity_selection.is_none(),
+        "a defeated pin left the alias ready"
+    );
+    let config = fx.config(true);
+    let mut ctx = heimdall_localenv::doctor::LocalContext::new(
+        config.paths,
+        config.env,
+        config.platform,
+        Default::default(),
+        Default::default(),
+    );
+    ctx.managed_file = Some(fx.p());
+    let mut request = heimdall_localenv::doctor::DoctorRequest::passive();
+    request.aliases = Some(vec!["work".to_owned()]);
+    request.local_queries = heimdall_localenv::local_query::LocalQueries::Disabled;
+    let report = heimdall_localenv::doctor::run(&ctx, &request);
+    assert!(
+        report.findings.iter().any(|f| {
+            f.code == "host_pin_defeated" && f.message.contains("stricthostkeychecking")
+        }),
+        "doctor did not name the defeating directive"
+    );
+    let manual = PreviewIntent::Repair {
+        conflict: ConflictKind::IncludeConditional,
+        resolution: RepairResolution::ManualMode,
+        operation: None,
+    };
+    let plan = fx.writer(true).preview(&spec, &manual).unwrap();
+    assert!(
+        plan.view.findings.iter().any(|f| {
+            f.code == "host_pin_defeated"
+                && f.severity == FindingSeverity::Problem
+                && f.message.contains("stricthostkeychecking")
+        }),
+        "native pin defeat is missing from the readiness findings"
+    );
+    assert!(
+        !planned_p(&plan).contains("\nHost work\n"),
+        "the alias must not be rendered"
+    );
+}
+
+#[test]
+fn a_native_route_without_an_approved_jump_key_is_not_ready() {
+    let fx = Fx::new();
+    let mut work = fx.alias("work", "work.example.invalid", None, "deploy");
+    let jump = fx.alias("jump", "jump.example.invalid", None, "deploy");
+    work.jump_alias = Some("jump".into());
+    fx.prefer_managed(&work, fx.environment_endpoint("t"));
+    fx.keys.1.lock().unwrap().insert("jump".into(), Vec::new());
+    let plan = fx
+        .writer(true)
+        .preview(&fx.spec(vec![work, jump]), &apply_intent())
+        .unwrap();
+    assert!(
+        plan.view
+            .findings
+            .iter()
+            .any(|f| { f.code == "route_dependency_out_of_scope" && f.message.contains("`jump`") })
+    );
+    let projection = planned_p(&plan);
+    assert!(!projection.contains("\nHost work\n"));
+    assert!(projection.contains("\nHost jump\n"));
+}
+
+#[test]
+fn a_pin_defeat_in_the_forward_only_jump_is_reported() {
+    use heimdall_contract::setup::{ConflictKind, RepairResolution};
+    use heimdall_localenv::clients::{ClientCandidate, ClientKind, ClientSource};
+    use heimdall_sshconf::eval::OpenSshVersion;
+
+    let fx = Fx::new();
+    let mut work = fx.alias("work", "work.example.invalid", None, "deploy");
+    let jump = fx.alias("jump", "jump.example.invalid", None, "deploy");
+    work.jump_alias = Some("jump".into());
+    fx.prefer_managed(&work, fx.environment_endpoint("t"));
+    let aliases = vec![work, jump];
+    let mut config = fx.config(true);
+    config.clients.candidates.push(ClientCandidate {
+        kind: ClientKind::Ssh,
+        path: fx.home.root.join("ssh"),
+        source: ClientSource::Configured,
+        version: Some(OpenSshVersion {
+            major: 10,
+            minor: 5,
+            portable: Some(1),
+        }),
+        sha256: None,
+        identity: None,
+        selected: true,
+    });
+    let writer = LocalProjection::writing(config).unwrap();
+    let first = writer
+        .preview(&fx.spec(aliases.clone()), &apply_intent())
+        .unwrap();
+    let spec = apply_and_record(&fx, &first, aliases);
+    let block = std::fs::read_to_string(&fx.home.user_config).unwrap();
+    std::fs::write(&fx.home.user_config, format!(
+        "Match sessiontype none originalhost jump\n    StrictHostKeyChecking no\nHost *\n{block}"
+    )).unwrap();
+    let manual = PreviewIntent::Repair {
+        conflict: ConflictKind::IncludeConditional,
+        resolution: RepairResolution::ManualMode,
+        operation: None,
+    };
+    let plan = writer.preview(&spec, &manual).unwrap();
+    assert!(
+        plan.view.findings.iter().any(|f| {
+            f.code == "host_pin_defeated" && f.message.contains("stricthostkeychecking")
+        }),
+        "the forwarding-only jump pin defeat was missed"
+    );
+    assert!(!planned_p(&plan).contains("\nHost work\n"));
+}
+
+#[test]
+fn an_unapproved_key_blocks_managed_credentials_but_leaves_fixed_identity_ready() {
+    use heimdall_contract::doctor::AliasDefinition;
+    use heimdall_contract::envelope::reason::HOST_TRUST_UNDETERMINED;
+
+    let fx = Fx::new();
+    let managed = fx.alias("managed", "managed.example.invalid", None, "deploy");
+    let fixed = fx.alias("fixed", "fixed.example.invalid", None, "deploy");
+    fx.prefer_managed(&managed, fx.environment_endpoint("t"));
+    for alias in [&managed, &fixed] {
+        fx.keys
+            .1
+            .lock()
+            .unwrap()
+            .insert(alias.alias.clone(), Vec::new());
+    }
+    let writer = fx.writer(true);
+    let aliases = vec![managed, fixed];
+    let plan = writer
+        .preview(&fx.spec(aliases.clone()), &apply_intent())
+        .unwrap();
+    let finding = |findings: &[heimdall_contract::doctor::Finding], alias: &str, severity| {
+        assert!(
+            findings.iter().any(|finding| {
+                finding.code == HOST_TRUST_UNDETERMINED
+                    && finding.severity == severity
+                    && finding.message.contains(&format!("`{alias}`"))
+                    && finding.next.action == "review_host_trust"
+            }),
+            "missing catalog trust finding for {alias}"
+        );
+    };
+    finding(&plan.view.findings, "managed", FindingSeverity::Problem);
+    finding(&plan.view.findings, "fixed", FindingSeverity::Info);
+    assert_eq!(
+        plan.managed_pairs.len(),
+        1,
+        "the closed section is still recorded as written"
+    );
+    let projected = planned_p(&plan);
+    assert!(section_of(&projected, "managed").contains("StrictHostKeyChecking yes"));
+    assert!(!section_of(&projected, "fixed").contains("HostKeyAlias"));
+    let spec = apply_and_record(&fx, &plan, aliases);
+    let names = ["managed".to_owned(), "fixed".to_owned()];
+    let observations = writer.observe(spec.record.as_ref().unwrap(), &names);
+    assert!(observations[0].identity_selection.is_none());
+    assert!(observations[1].identity_selection.is_some());
+
+    let config = fx.config(true);
+    let mut ctx = heimdall_localenv::doctor::LocalContext::new(
+        config.paths,
+        config.env,
+        config.platform,
+        Default::default(),
+        Default::default(),
+    );
+    ctx.managed_file = Some(fx.p());
+    ctx.catalog = names
+        .iter()
+        .map(|alias| heimdall_localenv::doctor::CatalogAlias {
+            alias: alias.clone(),
+            definition: AliasDefinition::Managed,
+            identity: None,
+        })
+        .collect();
+    let mut request = heimdall_localenv::doctor::DoctorRequest::passive();
+    request.aliases = Some(names.to_vec());
+    request.local_queries = heimdall_localenv::local_query::LocalQueries::Disabled;
+    let report = heimdall_localenv::doctor::run(&ctx, &request);
+    finding(&report.findings, "managed", FindingSeverity::Problem);
+    finding(&report.findings, "fixed", FindingSeverity::Info);
+}
+
+#[cfg(unix)]
+#[test]
+fn native_managed_host_pin_refuses_substitution_at_each_hop() {
+    use heimdall_testkit::agent::FixtureKey;
+    use heimdall_testkit::home::{find_program, ssh_config_quote};
+    use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig, current_account};
+    use std::process::{Command, Stdio};
+
+    let fx = Fx::new();
+    let identity = FixtureKey::generate();
+    let key = fx.home.root.join("fixture-identity");
+    identity.write_private(&key).unwrap();
+    let server = LoopbackSshd::start(
+        fx.home.scratch(),
+        SshdConfig {
+            authorized: vec![identity.public().clone()],
+            agent_forwarding: false,
+            ..SshdConfig::default()
+        },
+    )
+    .unwrap();
+    let jump = LoopbackSshd::start(
+        fx.home.scratch(),
+        SshdConfig {
+            authorized: vec![identity.public().clone()],
+            tcp_forwarding_permit_open: Some(vec![format!("127.0.0.1:{}", server.port)]),
+            agent_forwarding: false,
+            ..SshdConfig::default()
+        },
+    )
+    .unwrap();
+    let account = current_account().unwrap();
+    fx.home.trust_host_key(&server.host_key_line).unwrap();
+    fx.home.trust_host_key(&jump.host_key_line).unwrap();
+    let quote = |p: &Path| ssh_config_quote(p.to_str().unwrap());
+    // Trust files are isolated in the scratch config after P. Command-line
+    // known-hosts flags would take precedence over the pin under test.
+    let user_bytes = format!(
+        "Host observed\n    HostName 127.0.0.1\n    Port {}\n\nHost *\n    UserKnownHostsFile {}\n    GlobalKnownHostsFile {}\n    StrictHostKeyChecking yes\n    BatchMode yes\n    ForwardAgent no\n    IdentityFile {}\n",
+        server.port,
+        quote(&fx.home.known_hosts),
+        quote(&fx.home.global_known_hosts),
+        quote(&key)
+    );
+    std::fs::write(&fx.home.user_config, &user_bytes).unwrap();
+    let direct = fx.alias("direct", "127.0.0.1", Some(server.port), &account);
+    let mut routed = fx.alias("routed", "127.0.0.1", Some(server.port), &account);
+    routed.jump_alias = Some("jump".into());
+    let bastion = fx.alias("jump", "127.0.0.1", Some(jump.port), &account);
+    let fixed_direct = fx.alias("fixed-direct", "127.0.0.1", Some(server.port), &account);
+    let fixed_bastion = fx.alias("fixed-jump", "127.0.0.1", Some(jump.port), &account);
+    let mut fixed_route = fx.alias("fixed-route", "127.0.0.1", Some(server.port), &account);
+    fixed_route.jump_alias = Some("fixed-jump".into());
+    let aliases = vec![
+        direct,
+        routed,
+        bastion,
+        fixed_direct,
+        fixed_bastion,
+        fixed_route,
+    ];
+    let key_line = |line: &str| {
+        line.split_whitespace()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let mut keys = BTreeMap::from([
+        ("direct".into(), vec![key_line(&server.host_key_line)]),
+        ("routed".into(), vec![key_line(&server.host_key_line)]),
+        ("jump".into(), vec![key_line(&jump.host_key_line)]),
+        ("fixed-direct".into(), vec![key_line(&server.host_key_line)]),
+        ("fixed-jump".into(), vec![key_line(&jump.host_key_line)]),
+        ("fixed-route".into(), vec![key_line(&server.host_key_line)]),
+    ]);
+    let mut initially_approved = keys.clone();
+    initially_approved.insert("direct".into(), Vec::new());
+    initially_approved.insert("fixed-direct".into(), Vec::new());
+    *fx.keys.1.lock().unwrap() = initially_approved;
+    for alias in &aliases {
+        if !matches!(alias.alias.as_str(), "fixed-jump" | "fixed-direct") {
+            fx.prefer_managed(alias, fx.environment_endpoint("t"));
+        }
+    }
+    let writer = fx.writer(true);
+    let plan = writer
+        .preview(&fx.spec(aliases.clone()), &apply_intent())
+        .unwrap();
+    let mut spec = apply_and_record(&fx, &plan, aliases.clone());
+    assert!(
+        std::fs::read(&fx.home.user_config)
+            .unwrap()
+            .ends_with(user_bytes.as_bytes())
+    );
+    let projection = std::fs::read_to_string(fx.p()).unwrap();
+    assert!(!projection.contains("\nHost observed\n"));
+    let ssh = find_program("ssh").unwrap();
+    let run = |alias: &str| {
+        Command::new(&ssh)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", &fx.home.git_home)
+            .arg("-F")
+            .arg(&fx.home.user_config)
+            .args([
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=5",
+                alias,
+                "true",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let refused = run("direct");
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("Host key verification failed"));
+    assert!(
+        run("fixed-direct").status.success(),
+        "an owner's fixed identity keeps working"
+    );
+    let fixed = section_of(&projection, "fixed-direct");
+    assert!(!fixed.contains("HostKeyAlias") && !fixed.contains("UserKnownHostsFile"));
+    *fx.keys.1.lock().unwrap() = keys.clone();
+    let plan = writer.preview(&spec, &apply_intent()).unwrap();
+    spec = apply_and_record(&fx, &plan, aliases.clone());
+    for alias in ["direct", "fixed-direct", "routed", "fixed-route"] {
+        let out = run(alias);
+        assert!(
+            out.status.success(),
+            "fixture control login failed for {alias}"
+        );
+    }
+    let mut accepted = Vec::new();
+    for (changed, alias) in [
+        ("direct", "direct"),
+        ("fixed-direct", "fixed-direct"),
+        ("routed", "routed"),
+        ("jump", "routed"),
+        ("fixed-route", "fixed-route"),
+        ("fixed-jump", "fixed-route"),
+    ] {
+        let original = keys
+            .insert(changed.into(), vec![synthetic_public_key()])
+            .unwrap();
+        *fx.keys.1.lock().unwrap() = keys.clone();
+        let plan = writer.preview(&spec, &apply_intent()).unwrap();
+        if !plan.files.is_empty() {
+            spec = apply_and_record(&fx, &plan, aliases.clone());
+        }
+        let out = run(alias);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if out.status.success() || !stderr.contains("Host key verification failed") {
+            accepted.push(changed);
+        }
+        keys.insert(changed.into(), original);
+    }
+    assert!(
+        accepted.is_empty(),
+        "substitution was not refused by the catalog pin at {accepted:?}"
+    );
+}
+
 /// ⟨M06 W5 `w5o` item 11; ADR-0012 §5 ⟨2026-11-22⟩ "the pin check"⟩ What the static check
 /// cannot decide is shown as `undetermined`, and the helper stays rendered (its own `ssh -G`
 /// check is the backstop): a pin setting behind a `Match exec` above the owner's include, in
 /// manual mode. Nothing of the configuration is run by the preview. A setting that is
-/// **determined** to come from outside P is still a defeat, and the alias then stays native.
+/// **determined** to come from outside P is a defeat, and the alias is omitted.
 #[test]
 fn an_undetermined_pin_setting_keeps_the_helper_and_the_plan_says_undetermined() {
     use heimdall_contract::setup::{ConflictKind, RepairResolution};
@@ -1610,7 +2020,7 @@ fn an_undetermined_pin_setting_keeps_the_helper_and_the_plan_says_undetermined()
         "the helper stays rendered: it is the backstop"
     );
 
-    // Determined from outside P (no condition): a defeat, and the alias stays native.
+    // Determined from outside P (no condition): a defeat, and the alias is omitted.
     std::fs::write(
         &fx.home.user_config,
         format!("StrictHostKeyChecking no\n{block}"),

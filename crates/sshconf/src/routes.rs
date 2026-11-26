@@ -44,6 +44,49 @@ pub const HELPER_SUBCOMMAND: [&str; 2] = ["route", "connect"];
 /// The `HostKeyAlias` prefix of a destination's catalog pin.
 pub const HOST_KEY_ALIAS_PREFIX: &str = "hm-dest-";
 
+/// The catalog destination and the trust file shared by native and helper sections.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CatalogPin {
+    destination: String,
+    file: RenderPath,
+}
+
+impl CatalogPin {
+    /// Validate the destination token and the pin file path.
+    ///
+    /// # Errors
+    /// The destination cannot be a host-key alias or the path is not a literal file path.
+    pub fn new(destination: &str, file: RenderPath) -> Result<Self, RenderError> {
+        if !destination_ok(destination) {
+            return Err(RenderError::RefusedValue("destination"));
+        }
+        if file.kind == PathKind::Pipe || file.as_str().contains('%') {
+            return Err(RenderError::RefusedValue("pin_file"));
+        }
+        Ok(Self {
+            destination: destination.to_owned(),
+            file,
+        })
+    }
+
+    pub(crate) fn lines(&self, style: PathStyle) -> Result<String, RenderError> {
+        if !self.file.fits(style) {
+            return Err(RenderError::RefusedValue("pin_file"));
+        }
+        Ok(format!(
+            "    HostKeyAlias {}\n    UserKnownHostsFile {}\n    \
+             GlobalKnownHostsFile none\n    KnownHostsCommand none\n    StrictHostKeyChecking yes\n    \
+             VerifyHostKeyDNS no\n    UpdateHostKeys no\n    CheckHostIP no\n",
+            self.host_key_alias(),
+            self.file.ssh_quoted(),
+        ))
+    }
+
+    fn host_key_alias(&self) -> String {
+        format!("{HOST_KEY_ALIAS_PREFIX}{}", self.destination)
+    }
+}
+
 /// Characters refused in the helper's quoted values (module docs), besides those
 /// [`RenderPath`] already refuses (`"`, `${`, control characters).
 const SHELL_REFUSED: &[char] = &['$', '`', '\\', '!', '^', '&', '|', '<', '>', ';', '%'];
@@ -64,8 +107,7 @@ fn destination_ok(id: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HelperRoute {
     program: RenderPath,
-    destination: String,
-    pin_file: RenderPath,
+    pin: CatalogPin,
 }
 
 impl HelperRoute {
@@ -83,35 +125,28 @@ impl HelperRoute {
         if !program.is_absolute_file() || program.as_str().contains(SHELL_REFUSED) {
             return Err(RenderError::RefusedValue("helper_program"));
         }
-        if !destination_ok(destination) {
-            return Err(RenderError::RefusedValue("destination"));
-        }
-        if pin_file.kind == PathKind::Pipe || pin_file.as_str().contains('%') {
-            return Err(RenderError::RefusedValue("pin_file"));
-        }
         Ok(HelperRoute {
             program,
-            destination: destination.to_owned(),
-            pin_file,
+            pin: CatalogPin::new(destination, pin_file)?,
         })
     }
 
     /// The destination ID.
     #[must_use]
     pub fn destination(&self) -> &str {
-        &self.destination
+        &self.pin.destination
     }
 
     /// `hm-dest-<id>`.
     #[must_use]
     pub fn host_key_alias(&self) -> String {
-        format!("{HOST_KEY_ALIAS_PREFIX}{}", self.destination)
+        self.pin.host_key_alias()
     }
 
     /// The pin file.
     #[must_use]
     pub fn pin_file(&self) -> &RenderPath {
-        &self.pin_file
+        &self.pin.file
     }
 }
 
@@ -132,7 +167,7 @@ pub fn helper_command(
     if !route.program.fits(style) {
         return Err(RenderError::RefusedValue("helper_program"));
     }
-    if !route.pin_file.fits(style) {
+    if !route.pin_file().fits(style) {
         return Err(RenderError::RefusedValue("pin_file"));
     }
     let endpoint_ok = endpoint.fits(style)
@@ -146,7 +181,7 @@ pub fn helper_command(
         route.program.as_str(),
         HELPER_SUBCOMMAND[0],
         HELPER_SUBCOMMAND[1],
-        route.destination,
+        route.destination(),
         endpoint.as_str(),
     ))
 }
@@ -163,11 +198,8 @@ pub(crate) fn helper_lines(
 ) -> Result<String, RenderError> {
     let command = helper_command(route, account, endpoint, style)?;
     Ok(format!(
-        "    ProxyCommand {command}\n    HostKeyAlias {}\n    UserKnownHostsFile {}\n    \
-         GlobalKnownHostsFile none\n    KnownHostsCommand none\n    StrictHostKeyChecking yes\n    \
-         VerifyHostKeyDNS no\n    UpdateHostKeys no\n    CheckHostIP no\n",
-        route.host_key_alias(),
-        route.pin_file.ssh_quoted(),
+        "    ProxyCommand {command}\n{}",
+        route.pin.lines(style)?
     ))
 }
 
@@ -275,25 +307,34 @@ impl StaticPin {
 /// undetermined setting.
 #[must_use]
 pub fn static_pin_status(evaluation: &crate::eval::Evaluation) -> StaticPin {
-    use crate::directive::KnownKeyword as K;
-    use crate::eval::Resolved;
     use crate::include::SourceRole;
     use crate::relevant::{Proxy, ProxyResolution, relevant};
-    let proxy = match relevant(evaluation).proxy {
+    match relevant(evaluation).proxy {
         ProxyResolution::Determined(Proxy::Command(v)) if v.role == SourceRole::Managed => {
             StaticPin::Holds
         }
         ProxyResolution::Undetermined(_) => StaticPin::Undetermined("proxycommand"),
         ProxyResolution::Determined(_) => StaticPin::Defeated("proxycommand"),
-    };
+    }
+    .worse(native_pin_status(evaluation))
+}
+
+/// The effective catalog trust settings for a native direct or jump section.
+#[must_use]
+pub fn native_pin_status(evaluation: &crate::eval::Evaluation) -> StaticPin {
+    use crate::directive::KnownKeyword as K;
+    use crate::eval::Resolved;
+    use crate::include::SourceRole;
+
     [
+        (K::StrictHostKeyChecking, "stricthostkeychecking"),
         (K::HostKeyAlias, "hostkeyalias"),
         (K::UserKnownHostsFile, "userknownhostsfile"),
         (K::GlobalKnownHostsFile, "globalknownhostsfile"),
         (K::KnownHostsCommand, "knownhostscommand"),
-        (K::StrictHostKeyChecking, "stricthostkeychecking"),
         (K::VerifyHostKeyDns, "verifyhostkeydns"),
         (K::UpdateHostKeys, "updatehostkeys"),
+        (K::CheckHostIp, "checkhostip"),
         (K::ControlMaster, "controlmaster"),
         (K::ControlPath, "controlpath"),
     ]
@@ -303,7 +344,29 @@ pub fn static_pin_status(evaluation: &crate::eval::Evaluation) -> StaticPin {
         Some(Resolved::Undetermined(_)) => StaticPin::Undetermined(setting),
         _ => StaticPin::Defeated(setting),
     })
-    .fold(proxy, StaticPin::worse)
+    .fold(StaticPin::Holds, StaticPin::worse)
+}
+
+/// A projected native jump must reach its configured catalog alias.
+#[must_use]
+pub fn native_route_status(evaluation: &crate::eval::Evaluation, jump: Option<&str>) -> StaticPin {
+    use crate::include::SourceRole;
+    use crate::relevant::{Proxy, ProxyResolution, relevant};
+
+    let Some(jump) = jump else {
+        return StaticPin::Holds;
+    };
+    match relevant(evaluation).proxy {
+        ProxyResolution::Determined(Proxy::Jump(value))
+            if value.role == SourceRole::Managed
+                && value.args.first().is_some_and(|value| value == jump) =>
+        {
+            StaticPin::Holds
+        }
+        ProxyResolution::Undetermined(_) => StaticPin::Undetermined("proxyjump"),
+        ProxyResolution::Determined(Proxy::Command(_)) => StaticPin::Defeated("proxycommand"),
+        ProxyResolution::Determined(_) => StaticPin::Defeated("proxyjump"),
+    }
 }
 
 #[cfg(test)]

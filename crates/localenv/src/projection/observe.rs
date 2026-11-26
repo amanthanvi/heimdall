@@ -313,7 +313,33 @@ pub fn observe_as(
             let evaluation = evaluate(&mut set, &source, &roots, &query, &limits);
             let is_managed = managed.contains(&alias.as_str());
             let behavior = behavior_of(&evaluation, config);
-            let identity_selection = if is_managed {
+            let pin_unready = is_managed
+                && crate::doctor::projected_pin(roots.managed.as_deref(), alias).is_some_and(
+                    |pin| {
+                        use crate::doctor::ProjectedPin;
+                        use heimdall_sshconf::routes::StaticPin;
+                        if !pin.has_approved_key(roots.managed.as_deref()) {
+                            return true;
+                        }
+                        let status =
+                            pin.status_with_jump(&evaluation, roots.managed.as_deref(), |jump| {
+                                let jump_query = Query {
+                                    host: jump.to_owned(),
+                                    invocation: Invocation::ForwardOnly,
+                                    ..query.clone()
+                                };
+                                evaluate(&mut set, &source, &roots, &jump_query, &limits)
+                            });
+                        match status {
+                            StaticPin::Defeated(_) => true,
+                            StaticPin::Undetermined(_) => {
+                                !matches!(pin, ProjectedPin::Helper { .. })
+                            }
+                            StaticPin::Holds => false,
+                        }
+                    },
+                );
+            let identity_selection = if is_managed && !pin_unready {
                 match adopted_key(&evaluation, &key_files, config.platform.is_windows()) {
                     Some(adopted) => {
                         Some(identity_selection(&evaluation, Path::new(adopted), &source))

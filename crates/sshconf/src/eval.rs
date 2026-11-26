@@ -163,6 +163,8 @@ pub enum Invocation {
     Exec(Option<String>),
     /// A subsystem (`sftp`).
     Subsystem(String),
+    /// A forwarding-only jump (`ssh -W`), which sets `SessionType none` first.
+    ForwardOnly,
 }
 
 impl Invocation {
@@ -195,6 +197,7 @@ impl Invocation {
             Invocation::Exec(None) => "exec".to_owned(),
             Invocation::Exec(Some(command)) => format!("exec:{command}"),
             Invocation::Subsystem(name) => format!("subsystem:{name}"),
+            Invocation::ForwardOnly => "forward_only".to_owned(),
         }
     }
 }
@@ -1380,7 +1383,7 @@ impl Walker<'_> {
 
     fn command_poss(&self) -> Poss {
         match &self.query.invocation {
-            Invocation::Shell => Poss::one(String::new()),
+            Invocation::Shell | Invocation::ForwardOnly => Poss::one(String::new()),
             Invocation::Exec(Some(c)) => Poss::one(c.clone()),
             Invocation::Exec(None) => Poss::unknown(),
             Invocation::Subsystem(s) => Poss::one(s.clone()),
@@ -1398,6 +1401,7 @@ impl Walker<'_> {
             Invocation::Shell => "shell",
             Invocation::Exec(_) => "exec",
             Invocation::Subsystem(_) => "subsystem",
+            Invocation::ForwardOnly => "none",
         };
         match self.first.get(&KnownKeyword::SessionType) {
             None | Some(Slot::Unset) => Some(by_invocation),
@@ -1488,12 +1492,15 @@ impl Walker<'_> {
     /// Whether a value of `kw` can still be obtained in this pass. The command line is
     /// read first (F1): `-l` sets `User`, and the `-s` of a subsystem invocation sets
     /// the session type, so a `SessionType` line never takes effect then (observed
-    /// with `ssh -G -s` on OpenSSH_10.3p1).
+    /// with `ssh -G -s` on OpenSSH_10.3p1). A jump's `-W` likewise forces `none`.
     fn settable(&self, kw: KnownKeyword) -> bool {
         !(kw == KnownKeyword::User && self.query.user.is_some()
             || kw == KnownKeyword::Hostname && self.pass.is_final
             || kw == KnownKeyword::SessionType
-                && matches!(self.query.invocation, Invocation::Subsystem(_)))
+                && matches!(
+                    self.query.invocation,
+                    Invocation::Subsystem(_) | Invocation::ForwardOnly
+                ))
     }
 
     fn first_wins(&mut self, kw: KnownKeyword, d: &Directive, cur: &Ctx, role: SourceRole) {

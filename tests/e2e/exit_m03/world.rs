@@ -441,6 +441,11 @@ impl World {
                 ))
                 .expect("the server has an account-form registry");
             home.trust_host_key(&pair.sshd.host_key_line).unwrap();
+            // Some consumer rows isolate trust through a command-line file.
+            // Supply the same fixture key under the catalog lookup name as well.
+            let (_, host_key) = pair.sshd.host_key_line.split_once(' ').unwrap();
+            home.trust_host_key(&format!("hm-dest-{} {host_key}", pair.destination))
+                .unwrap();
             pairs.push(pair);
         }
         let mut extra_env = o.extra_env;

@@ -1082,15 +1082,37 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
     r.verify_all();
     assert_eq!(r.define_final(true).code, 0);
     r.apply();
-    let (jump_port, final_port) = (r.w.pairs[JUMP].sshd.port, r.w.pairs[FINAL].sshd.port);
+    let jump_port = r.w.pairs[JUMP].sshd.port;
     let known = std::fs::read_to_string(&r.w.home.known_hosts).unwrap();
-    // The client's copies of the user configuration and known-hosts file.
+    // The client's copies of the user configuration, projection and trust file.
     let client_known = r.w.home.root.join("client_known_hosts");
     let client_config = r.w.home.root.join("client_config");
+    let client_projection = r.w.home.root.join("client_projection");
+    let projection = r.w.hh.join("config/ssh_config");
     let original_config = std::fs::read_to_string(&r.w.home.user_config).unwrap();
     let kh = heimdall_testkit::home::ssh_option_path(&r.w.home.known_hosts);
     let ckh = heimdall_testkit::home::ssh_option_path(&client_known);
     assert!(original_config.contains(&format!("UserKnownHostsFile {kh}")));
+    let include = |path: &std::path::Path| {
+        format!(
+            "Include {}",
+            heimdall_testkit::home::ssh_config_quote(path.to_str().unwrap())
+        )
+    };
+    assert!(original_config.contains(&include(&projection)));
+    let pinned = std::fs::read_to_string(&projection).unwrap();
+    assert_eq!(pinned.matches("    UserKnownHostsFile ").count(), 2);
+    let client_pinned: String = pinned
+        .lines()
+        .map(|line| {
+            if line.starts_with("    UserKnownHostsFile ") {
+                format!("    UserKnownHostsFile {ckh}\n")
+            } else {
+                format!("{line}\n")
+            }
+        })
+        .collect();
+    std::fs::write(&client_projection, client_pinned).unwrap();
     let client_isolation = || -> Vec<std::ffi::OsString> {
         r.w.home
             .isolation_args()
@@ -1112,25 +1134,33 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
             &client_config,
             format!(
                 "{}{extra}",
-                original_config.replace(
-                    &format!("UserKnownHostsFile {kh}"),
-                    &format!("UserKnownHostsFile {ckh}")
-                )
+                original_config
+                    .replace(&include(&projection), &include(&client_projection))
+                    .replace(
+                        &format!("UserKnownHostsFile {kh}"),
+                        &format!("UserKnownHostsFile {ckh}")
+                    )
             ),
         )
         .unwrap();
     };
     client_config_with("");
     std::fs::write(&client_known, &known).unwrap();
-    let line_of = |port: u16| format!("[127.0.0.1]:{port} ");
     let wrong = || heimdall_testkit::agent::FixtureKey::generate().public_line_without_comment();
-    let with = |port: u16, key: Option<String>| -> String {
+    let with = |index: usize, key: Option<String>| -> String {
+        let pair = &r.w.pairs[index];
+        let address = format!("[127.0.0.1]:{}", pair.sshd.port);
+        let catalog = format!("hm-dest-{}", pair.destination);
         known
             .lines()
-            .map(|l| match (&key, l.starts_with(&line_of(port))) {
-                (Some(k), true) => format!("{}{k}\n", line_of(port)),
-                (None, true) => String::new(),
-                _ => format!("{l}\n"),
+            .map(|line| {
+                let name = line.split_once(' ').map_or("", |(name, _)| name);
+                if name == address || name == catalog {
+                    key.as_ref()
+                        .map_or_else(String::new, |key| format!("{name} {key}\n"))
+                } else {
+                    format!("{line}\n")
+                }
             })
             .collect()
     };
@@ -1174,7 +1204,7 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
     assert!(ok.stderr.contains("(via proxy) using"), "{}", ok.stderr);
 
     // A. the bastion's key substituted.
-    std::fs::write(&client_known, with(jump_port, Some(wrong()))).unwrap();
+    std::fs::write(&client_known, with(JUMP, Some(wrong()))).unwrap();
     let marks = r.marks();
     let out = r.run_ssh_isolated(
         "w-d03-a",
@@ -1209,7 +1239,7 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
     assert!(!out.stderr.contains("Authenticated to"), "{}", out.stderr);
 
     // B. the final host's key substituted (the bastion's restored).
-    std::fs::write(&client_known, with(final_port, Some(wrong()))).unwrap();
+    std::fs::write(&client_known, with(FINAL, Some(wrong()))).unwrap();
     let marks = r.marks();
     let out = r.run_ssh_isolated(
         "w-d03-b",
@@ -1241,13 +1271,15 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
     );
     assert!(!out.stdout.contains("hm-d03-b"));
 
-    // C. an inherited KnownHostsCommand as the bastion's key source (no file entry for it).
-    std::fs::write(&client_known, with(jump_port, None)).unwrap();
+    // C. the inherited KnownHostsCommand does not run when the pin file lacks the jump key.
+    std::fs::write(&client_known, with(JUMP, None)).unwrap();
     let script = r.w.home.root.join("khc-wrong");
+    let command_ran = r.w.home.root.join("khc-ran");
     std::fs::write(
         &script,
         format!(
-            "#!/bin/sh\ncase \"$1\" in\n  *:{jump_port}) printf '%s\\n' '[127.0.0.1]:{jump_port} {}' ;;\nesac\n",
+            "#!/bin/sh\ntouch '{}'\ncase \"$1\" in\n  *:{jump_port}) printf '%s\\n' '[127.0.0.1]:{jump_port} {}' ;;\nesac\n",
+            command_ran.display(),
             wrong()
         ),
     )
@@ -1274,8 +1306,9 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
     assert_eq!(
         attempts(JUMP, marks[0]),
         0,
-        "no publickey attempt: the command's key is not the bastion's"
+        "no publickey attempt without an approved jump key"
     );
+    assert!(!command_ran.exists());
     assert!(!out.stderr.contains("Authenticated to"), "{}", out.stderr);
     // The runtime evaluated the unchanged originals throughout: nothing was held, so every
     // refusal above was the client's own.

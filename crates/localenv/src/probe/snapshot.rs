@@ -80,6 +80,10 @@ impl<'a> Digesting<'a> {
 }
 
 impl ConfigSource for Digesting<'_> {
+    fn allows_local_path(&self, path: &Path) -> bool {
+        self.inner.allows_local_path(path)
+    }
+
     fn read(&self, path: &Path) -> Result<SourceBytes, SourceError> {
         let got = self.inner.read(path)?;
         let digest = hex(&Sha256::digest(&got.bytes));

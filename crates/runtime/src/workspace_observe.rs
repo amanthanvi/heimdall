@@ -59,6 +59,10 @@ fn kind_of(t: std::fs::FileType) -> FsKind {
 }
 
 impl FsView for RealFs {
+    fn allows_local_path(&self, path: &Path) -> bool {
+        heimdall_localenv::fs::allows_passive_path(path)
+    }
+
     fn kind(&self, path: &Path) -> io::Result<Option<FsKind>> {
         match std::fs::symlink_metadata(path) {
             Ok(m) => Ok(Some(kind_of(m.file_type()))),

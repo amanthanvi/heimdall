@@ -257,6 +257,8 @@ pub(crate) fn journey() {
     let account = w.pairs[0].account.clone();
     let pin_file = w.hh.join("config").join("keys").join("host_pins");
     let p_file = w.hh.join("config").join("ssh_config");
+    let p_before = std::fs::read_to_string(&p_file).unwrap();
+    let pins_before = std::fs::read(&pin_file).unwrap();
 
     // routes: a jump route and a second direct route, through the product.
     let jump = ok(&w, &["--json", "route", "add", DEST, "--jump", BASTION]);
@@ -283,12 +285,17 @@ pub(crate) fn journey() {
          (definition_address,jump_via_bastion,wrong_host_direct) seeded=nothing",
     );
 
-    // upgrade: routes approved, nothing projected yet; `setup apply` shows it first.
-    let p_before = std::fs::read_to_string(&p_file).unwrap();
+    // The aliases are already pinned natively. The route helper is a separate
+    // projection change, which `setup apply` shows first.
+    assert_eq!(std::fs::read_to_string(&p_file).unwrap(), p_before);
+    assert_eq!(std::fs::read(&pin_file).unwrap(), pins_before);
     let before = alias_block(&w, ALIAS);
     assert!(
-        !before.iter().any(|l| l.contains("ProxyCommand")) && !pin_file.exists(),
-        "the routes changed P without a setup apply: {before:?}"
+        !before.iter().any(|l| l.contains("ProxyCommand"))
+            && before
+                .iter()
+                .any(|l| l.trim() == format!("HostKeyAlias hm-dest-{DEST}")),
+        "the alias remains pinned with its native route before setup apply"
     );
     let user_before = std::fs::read(&w.home.user_config).unwrap();
     let applied = w.confirm_answers(&["setup", "apply"], &["yes"]);
@@ -349,7 +356,7 @@ pub(crate) fn journey() {
     observe(
         CASE,
         "upgrade",
-        "after_route_add=p_unchanged,no_pin_file setup_apply_diff_shows=ProxyCommand_route_connect \
+        "after_route_add=native_p_and_catalog_pins_unchanged setup_apply_diff_shows=ProxyCommand_route_connect \
          alias_after=helper,HostKeyAlias,StrictHostKeyChecking_yes,catalog_only_trust,no_multiplexing \
          helper_endpoint=the_aliases_own_IdentityAgent other_alias=byte_identical \
          user_config=byte_identical pin_file=destination_and_bastion_catalog_keys",

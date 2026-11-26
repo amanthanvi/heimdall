@@ -543,7 +543,10 @@ impl<'a> Builder<'a> {
             }
         }
         let (sections, pins) = self.route_sections(&p_path, plain, &managed, &helpers)?;
-        if let Some(step) = self.pin_file_step(&pins)? {
+        let has_pins = sections
+            .iter()
+            .any(|section| matches!(section, Section::Catalog { .. } | Section::Helper { .. }));
+        if let Some(step) = self.pin_file_step(&pins, has_pins)? {
             key_steps.push(step);
         }
         let p = render::rendered_sections(&sections, self.style, self.identity_form())
@@ -616,13 +619,16 @@ impl<'a> Builder<'a> {
             .aliases
             .iter()
             .zip(&managed)
-            .filter(|(_, m)| m.is_some())
+            .filter(|(a, m)| m.is_some() && sections.iter().any(|s| s.alias().as_str() == a.alias))
             .map(|(a, _)| heimdall_domain::scope::AccessPair {
                 destination: a.destination.clone(),
                 account: a.account.clone(),
             })
             .collect();
-        self.added = self.spec.aliases.iter().map(|a| a.alias.clone()).collect();
+        self.added = sections
+            .iter()
+            .map(|s| s.alias().as_str().to_owned())
+            .collect();
         // ⟨M08 U1b; U0-Q10⟩ A user `Host` line naming an alias P renders: the conflict
         // `alias_collision`, reported (module docs).
         self.alias_collisions();
@@ -1782,17 +1788,8 @@ impl<'a> Builder<'a> {
             .collect()
     }
 
-    /// The sections of P from the plain ones: each alias with a route helper is rendered
-    /// through it **only when the planned configuration holds its catalog pin**
-    /// (`heimdall_sshconf::routes::static_pin_defeat`, evaluated statically over the user
-    /// file as this plan leaves it and the candidate P; nothing executes). An alias whose
-    /// pin a setting of the user's configuration defeats keeps its native rendering, so it
-    /// is never left running the helper under trust the catalog does not control, and the
-    /// plan carries a `host_pin_defeated` finding naming the alias and the setting. An
-    /// automatic projection keeps its include block above every directive of the user file
-    /// (ADR-0007 §3), so this arises when the block is no longer first (`include_conditional`)
-    /// or in manual mode; the helper checks again, with `ssh -G`, before every connection.
-    /// Returns the sections and the pins of the helper aliases rendered.
+    /// Render the catalog's trust file and sections. If the owner's configuration
+    /// defeats a pin, omit that alias and any native routes that depend on it.
     fn route_sections(
         &mut self,
         p_path: &Path,
@@ -1800,92 +1797,169 @@ impl<'a> Builder<'a> {
         managed: &[Option<ManagedSectionSpec>],
         helpers: &[Option<super::HelperRouteSpec>],
     ) -> Result<RoutedSections, PreviewError> {
-        // The helper takes its endpoint literally (ADR-0012 §5.4), so a helper alias names
-        // the environment endpoint by its absolute path, never `~/…`.
-        let mut absolute = plain.clone();
-        for ((section, m), h) in absolute.iter_mut().zip(managed).zip(helpers) {
-            if let (Section::ManagedCertificate { endpoint, .. }, Some(m), Some(_)) =
-                (section, m, h)
-                && m.environment_endpoint.kind != EndpointKind::NamedPipe
-            {
-                *endpoint = self.absolute_path(Path::new(&m.environment_endpoint.locator))?;
-            }
+        use heimdall_sshconf::routes::{CatalogPin, HelperRoute, StaticPin};
+
+        if plain.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
         }
-        let helper_plain = absolute;
         let refused = |e: render::RenderError| PreviewError::Unavailable(format!("render: {e}"));
         let pin_file = self.absolute_path(&self.config.host_pins_path())?;
-        let build =
-            |this: &Self, native: &BTreeSet<String>| -> Result<Vec<Section>, PreviewError> {
-                this.spec
-                    .aliases
-                    .iter()
-                    .zip(plain.iter().cloned().zip(helper_plain.iter().cloned()))
-                    .zip(helpers)
-                    .map(|((a, (section, through_helper)), helper)| match helper {
-                        Some(h) if !native.contains(&a.alias) => Ok(Section::Helper {
-                            route: heimdall_sshconf::routes::HelperRoute::new(
-                                this.absolute_path(&h.program)?,
-                                a.destination.as_str(),
-                                pin_file.clone(),
-                            )
-                            .map_err(refused)?,
-                            section: Box::new(through_helper),
-                        }),
-                        _ => Self::routed(a, section),
-                    })
-                    .collect()
-            };
-        let mut native = BTreeSet::new();
-        if helpers.iter().any(Option::is_some) {
-            let candidate =
-                render::render_sections(&build(self, &native)?, self.style, self.identity_form())
-                    .map_err(refused)?;
-            let user = self.gate_user_bytes(p_path)?;
-            let aliases: Vec<(String, heimdall_contract::ids::DestinationId)> = self
-                .spec
-                .aliases
-                .iter()
-                .zip(helpers)
-                .filter(|(_, h)| h.is_some())
-                .map(|(a, _)| (a.alias.clone(), a.destination.clone()))
-                .collect();
-            for (alias, destination) in aliases {
-                use heimdall_sshconf::routes::StaticPin;
-                match self.static_pin_status(&user, &candidate, &alias) {
-                    StaticPin::Holds => {}
-                    StaticPin::Defeated(setting) => {
-                        self.findings.push(host_pin_defeated_finding(
-                            &alias,
-                            &destination,
-                            setting,
-                        ));
-                        native.insert(alias);
-                    }
-                    // ⟨M06 W5 `w5o`; ADR-0012 §5 ⟨2026-11-22⟩⟩ The static check cannot
-                    // decide (a `Match exec`, for example): the alias is rendered through
-                    // the helper, the plan shows its pin status as `undetermined`, and the
-                    // helper's own `ssh -G` check before any route attempt is the backstop.
-                    StaticPin::Undetermined(setting) => {
-                        self.findings.push(host_pin_undetermined_finding(
-                            &alias,
-                            &destination,
-                            setting,
-                        ));
-                    }
-                }
-            }
-        }
-        let sections = build(self, &native)?;
-        let pins = self
+        let mut sections = Vec::with_capacity(plain.len());
+        let mut native_keys = BTreeMap::new();
+        let required_jumps: BTreeSet<&str> = self
             .spec
             .aliases
             .iter()
             .zip(helpers)
-            .filter(|(a, _)| !native.contains(&a.alias))
-            .filter_map(|(_, h)| h.as_ref())
-            .flat_map(|h| h.pins.iter().cloned())
+            .filter(|(_, helper)| helper.is_none())
+            .filter_map(|(alias, _)| alias.jump_alias.as_deref())
             .collect();
-        Ok((sections, pins))
+        for (((alias, mut section), managed), helper) in self
+            .spec
+            .aliases
+            .iter()
+            .zip(plain)
+            .zip(managed)
+            .zip(helpers)
+        {
+            let id = alias.destination.as_str();
+            if let Some(h) = helper {
+                if !h.pins.iter().any(|(destination, _)| destination == id) {
+                    self.findings
+                        .push(crate::doctor::catalog_host_trust_finding(
+                            &alias.alias,
+                            id,
+                            true,
+                        ));
+                    if let Section::ManagedCertificate { control_path, .. } = &mut section {
+                        *control_path = None;
+                    }
+                }
+                // The helper takes its endpoint literally (ADR-0012 §5.4).
+                if let (Section::ManagedCertificate { endpoint, .. }, Some(m)) =
+                    (&mut section, managed)
+                    && m.environment_endpoint.kind != EndpointKind::NamedPipe
+                {
+                    *endpoint = self.absolute_path(Path::new(&m.environment_endpoint.locator))?;
+                }
+                sections.push(Section::Helper {
+                    route: HelperRoute::new(self.absolute_path(&h.program)?, id, pin_file.clone())
+                        .map_err(refused)?,
+                    section: Box::new(section),
+                });
+            } else {
+                let keys = match &self.config.keys {
+                    Some(source) => source
+                        .catalog_host_keys(alias)
+                        .map_err(PreviewError::Unavailable)?,
+                    None => Vec::new(),
+                };
+                if keys.is_empty() {
+                    let needs_pin = managed.is_some()
+                        || alias.jump_alias.is_some()
+                        || required_jumps.contains(alias.alias.as_str());
+                    self.findings
+                        .push(crate::doctor::catalog_host_trust_finding(
+                            &alias.alias,
+                            id,
+                            needs_pin,
+                        ));
+                    if !needs_pin {
+                        sections.push(section);
+                        continue;
+                    }
+                    // Keep the transport fields for host verification. An
+                    // empty catalog pin makes ordinary SSH fail closed.
+                    if let Section::ManagedCertificate { control_path, .. } = &mut section {
+                        *control_path = None;
+                    }
+                }
+                native_keys.insert(alias.alias.as_str(), keys);
+                sections.push(Section::Catalog {
+                    pin: CatalogPin::new(id, pin_file.clone()).map_err(refused)?,
+                    section: Box::new(Self::routed(alias, section)?),
+                });
+            }
+        }
+
+        if native_keys.is_empty() && helpers.iter().all(Option::is_none) {
+            return Ok((sections, Vec::new()));
+        }
+        let candidate = render::render_sections(&sections, self.style, self.identity_form())
+            .map_err(refused)?;
+        let user = self.gate_user_bytes(p_path)?;
+        let mut refused_aliases = BTreeSet::new();
+        for (alias, helper) in self.spec.aliases.iter().zip(helpers) {
+            if helper.is_none() && !native_keys.contains_key(alias.alias.as_str()) {
+                continue;
+            }
+            let Some(user) = user.as_deref() else {
+                // The manual path can stage a section carrying all its pin
+                // settings even when the owner's configuration cannot be read.
+                // Applied readiness still requires the effective pin.
+                continue;
+            };
+            let status = self.static_pin_status(
+                user,
+                &candidate,
+                alias,
+                helper.is_some(),
+                required_jumps.contains(alias.alias.as_str()),
+            );
+            match status {
+                StaticPin::Holds => {}
+                StaticPin::Defeated(setting) => {
+                    self.findings.push(host_pin_defeated_finding(
+                        &alias.alias,
+                        &alias.destination,
+                        setting,
+                    ));
+                    refused_aliases.insert(alias.alias.as_str());
+                }
+                StaticPin::Undetermined(setting) if helper.is_some() => {
+                    self.findings.push(host_pin_undetermined_finding(
+                        &alias.alias,
+                        &alias.destination,
+                        setting,
+                    ));
+                }
+                StaticPin::Undetermined(setting) => {
+                    self.findings
+                        .push(native_pin_undetermined_finding(alias, setting));
+                    refused_aliases.insert(alias.alias.as_str());
+                }
+            }
+        }
+
+        for (alias, helper) in self.spec.aliases.iter().zip(helpers) {
+            if helper.is_none()
+                && !refused_aliases.contains(alias.alias.as_str())
+                && let Some(jump) = alias.jump_alias.as_deref()
+                && (refused_aliases.contains(jump)
+                    || native_keys.get(jump).is_none_or(Vec::is_empty))
+            {
+                self.findings.push(unready_jump_finding(alias, jump));
+                refused_aliases.insert(alias.alias.as_str());
+            }
+        }
+
+        let mut rendered = Vec::new();
+        let mut pins = Vec::new();
+        for ((alias, section), helper) in self.spec.aliases.iter().zip(sections).zip(helpers) {
+            if refused_aliases.contains(alias.alias.as_str()) {
+                continue;
+            }
+            if let Some(h) = helper {
+                pins.extend(h.pins.iter().cloned());
+            } else if let Some(keys) = native_keys.remove(alias.alias.as_str()) {
+                pins.extend(
+                    keys.into_iter()
+                        .map(|key| (alias.destination.to_string(), key)),
+                );
+            }
+            rendered.push(section);
+        }
+        Ok((rendered, pins))
     }
 
     /// The user file as the pin check reads it: with the include block where a first
@@ -1893,11 +1967,15 @@ impl<'a> Builder<'a> {
     /// other case as it is (one intact block first, which the plan leaves unchanged; a
     /// block below a directive or inside a section, a duplicate, or a file in manual mode,
     /// where the owner's own configuration decides whether and where P is read).
-    fn gate_user_bytes(&self, p_path: &Path) -> Result<Vec<u8>, PreviewError> {
-        let bytes = read_file(&self.config.paths.user_config)?;
+    fn gate_user_bytes(&self, p_path: &Path) -> Result<Option<Vec<u8>>, PreviewError> {
+        let bytes = match crate::fs::read_bounded(&self.config.paths.user_config, READ_MAX) {
+            Ok(source) => Some(source.bytes),
+            Err(SourceError::NotFound) => None,
+            Err(_) => return Ok(None),
+        };
         let current = bytes.clone().unwrap_or_default();
         if self.manual_for.is_some() || !edit::find_blocks(&current).is_empty() {
-            return Ok(current);
+            return Ok(Some(current));
         }
         let newline = bytes
             .as_deref()
@@ -1905,10 +1983,10 @@ impl<'a> Builder<'a> {
             .unwrap_or(Newline::Lf);
         // The position is what the check reads, not the marker's value.
         let Ok(marker) = MarkerId::parse("hm-0000000000000000") else {
-            return Ok(current);
+            return Ok(None);
         };
         let Ok(block) = self.include_block(&marker, p_path, newline)? else {
-            return Ok(current);
+            return Ok(None);
         };
         Ok(edit::plan_insert(
             bytes.as_deref(),
@@ -1917,7 +1995,8 @@ impl<'a> Builder<'a> {
                 bytes: block.bytes().to_vec(),
             },
         )
-        .map_or(current, |plan| plan.bytes))
+        .ok()
+        .map(|plan| plan.bytes))
     }
 
     /// `alias`'s static pin verdict with the user file `user` and P `candidate`, the worst
@@ -1926,7 +2005,9 @@ impl<'a> Builder<'a> {
         &self,
         user: &[u8],
         candidate: &[u8],
-        alias: &str,
+        alias: &ManagedAliasSpec,
+        helper: bool,
+        jump: bool,
     ) -> heimdall_sshconf::routes::StaticPin {
         let paths = &self.config.paths;
         let inner = BoundedSource::new(paths.clone(), self.config.env.clone(), Limits::default());
@@ -1950,22 +2031,33 @@ impl<'a> Builder<'a> {
             .unwrap_or(OpenSshVersion::MINIMUM);
         Invocation::consent_profiles()
             .into_iter()
+            .chain(jump.then_some(Invocation::ForwardOnly))
             .map(|invocation| {
                 let query = Query {
-                    host: alias.to_owned(),
+                    host: alias.alias.clone(),
                     user: None,
                     local_user: self.account.clone(),
                     client_version,
                     invocation,
                 };
                 let mut set = ConfigSet::new();
-                heimdall_sshconf::routes::static_pin_status(&heimdall_sshconf::eval::evaluate(
+                let evaluation = heimdall_sshconf::eval::evaluate(
                     &mut set,
                     &source,
                     &roots,
                     &query,
                     &Limits::default(),
-                ))
+                );
+                if helper {
+                    heimdall_sshconf::routes::static_pin_status(&evaluation)
+                } else {
+                    heimdall_sshconf::routes::native_pin_status(&evaluation).worse(
+                        heimdall_sshconf::routes::native_route_status(
+                            &evaluation,
+                            alias.jump_alias.as_deref(),
+                        ),
+                    )
+                }
             })
             .fold(
                 heimdall_sshconf::routes::StaticPin::Holds,
@@ -1973,16 +2065,17 @@ impl<'a> Builder<'a> {
             )
     }
 
-    /// The pin file's step: the pins of the helper aliases this plan renders, through the
-    /// same file transaction as P (a key-file step: public keys only). With no helper alias
+    /// The pin file's step: the pins of the catalog aliases this plan renders, through the
+    /// same file transaction as P (a key-file step: public keys only). With no catalog alias
     /// an existing pin file is emptied (it trusts nothing), never left stale; none is
     /// created.
     fn pin_file_step(
         &mut self,
         pins: &[(String, String)],
+        has_sections: bool,
     ) -> Result<Option<FileStep>, PreviewError> {
         let path = self.config.host_pins_path();
-        if pins.is_empty() && read_file(&path)?.is_none() {
+        if !has_sections && read_file(&path)?.is_none() {
             return Ok(None);
         }
         let rendered = render::rendered_pin_file(pins)
@@ -2850,6 +2943,10 @@ struct Overlay<'a> {
 }
 
 impl ConfigSource for Overlay<'_> {
+    fn allows_local_path(&self, path: &Path) -> bool {
+        self.inner.allows_local_path(path)
+    }
+
     fn read(&self, path: &Path) -> Result<SourceBytes, SourceError> {
         match self.files.get(path) {
             Some(Some(bytes)) => Ok(SourceBytes {
@@ -2934,15 +3031,11 @@ pub fn slot_free_disclosure(
     }
 }
 
-/// ⟨M06 W5 `w5n`⟩ P's sections, and the pins `(destination ID, "<type> <base64>")` of the
-/// helper aliases among them.
+/// P's sections and their pins `(destination ID, "<type> <base64>")`.
 type RoutedSections = (Vec<Section>, Vec<(String, String)>);
 
-/// ⟨M06 W5 `w5n`; ADR-0012 §5.2⟩ The `host_pin_defeated` finding of a helper alias: the
-/// configuration decides `setting` before (or apart from) P's own section, so the catalog
-/// pin would not hold. `setting` is named as `ssh -G` prints it (`proxycommand` also when
-/// the configuration does not load P for the alias at all). The preview lists it and
-/// renders the alias natively; the doctor reports the same finding for an applied alias.
+/// The catalog pin is defeated by the effective configuration. The setting is named
+/// as `ssh -G` prints it.
 #[must_use]
 pub fn host_pin_defeated_finding(
     alias: &str,
@@ -2959,13 +3052,50 @@ pub fn host_pin_defeated_finding(
         level: ProbeLevel::Static,
         provenance: None,
         message: format!(
-            "the SSH configuration decides `{setting}` for `{alias}` outside Heimdall's own \
-             section, so the destination's catalog host-key pin would not hold \
-             (host_pin_defeated: {setting}); its approved routes are not used by ordinary \
-             `ssh {alias}` until that setting no longer applies to this alias"
+            "`{alias}` is not ready because the SSH configuration decides `{setting}` outside \
+             Heimdall's section (host_pin_defeated: {setting}); the preview omits this alias"
         ),
         next: NextAction::for_code(Code::CapabilityUnavailable),
         reason: Some(heimdall_contract::envelope::reason::HOST_PIN_DEFEATED.to_owned()),
+    }
+}
+
+fn unready_jump_finding(alias: &ManagedAliasSpec, jump: &str) -> Finding {
+    let reason = heimdall_contract::envelope::reason::ROUTE_DEPENDENCY_OUT_OF_SCOPE;
+    Finding {
+        code: reason.to_owned(),
+        severity: FindingSeverity::Problem,
+        subject: ResourceRef {
+            kind: "destination".to_owned(),
+            id: Some(alias.destination.to_string()),
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!(
+            "`{}` is not ready because its jump `{jump}` has no effective catalog host-key pin",
+            alias.alias,
+        ),
+        next: NextAction::for_code(Code::CapabilityUnavailable),
+        reason: Some(reason.to_owned()),
+    }
+}
+
+fn native_pin_undetermined_finding(alias: &ManagedAliasSpec, setting: &str) -> Finding {
+    Finding {
+        code: heimdall_contract::doctor::finding::DYNAMIC_MATCH_UNRESOLVED.to_owned(),
+        severity: FindingSeverity::Problem,
+        subject: ResourceRef {
+            kind: "destination".to_owned(),
+            id: Some(alias.destination.to_string()),
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!(
+            "`{}` is not ready because this check cannot determine the effective `{setting}`",
+            alias.alias,
+        ),
+        next: NextAction::for_code(Code::CapabilityUnavailable),
+        reason: None,
     }
 }
 
