@@ -50,3 +50,8 @@ C: 259.8 to 238.1 GB free. No firewall prompt, no leftover processes, and
   the default `TEMP` was back to 607.
 - `e2e_deadline_m03`'s `windows::*` tests are still not run. They wait for the next full m02
   Windows harness run, at the W4 candidate.
+
+**A limit of these counts (noted 2026-11-26, after W4-T1).** Jobs 66 and 66c counted only
+`.tmp*` entries. Rigs built on `ScratchHome` name their homes `hm-*`. So the no-leak results here
+for `e2e_setup_dispatch`, `model_setup` and 66c's `e2e_tui_m02` do not cover those homes. PC job
+W4-T1 (`PC-M08-W4T1.md`) diffs every new `TEMP` name for these rigs, and it supersedes them.

@@ -86,6 +86,14 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
   - SEC-3b: S2-05's design (Gemini) and its code items.
   - SEC-4 (GPT): cutoff latching (S3-01, S3-03, S3-06, S3-07).
   - S3-04 goes to U2b-3b.
+  - **W4-T1's follow-up: four sibling single waits** (granted test-only, 2026-11-26). These
+    are `tests/e2e/environment_runner_m06.rs:1670` (including its direct read of
+    `data.grant_id`), `exit_m06/t06.rs:98`, `exit_m06/lift.rs:91` and
+    `exit_m06/a25_limited.rs:643`.
+    - Each gets the same settle loop, then asserts the settled outcome.
+    - They go with the next unit that touches tests.
+    - The M06 exit record stays as it is. The W4 record notes that these exit tests were made
+      robust after the exit, and that what they assert did not change.
   - **SEC-3b's rulings (2026-11-26, on the S2-05 design):**
     - **The override:** a narrowing that has an authority effect is never refused. The caps
       with `BACKPRESSURE` apply only to entries with no effect.
