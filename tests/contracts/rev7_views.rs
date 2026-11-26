@@ -1038,3 +1038,79 @@ fn rev7_binding_request_id_reads_and_round_trips() {
         Some("req-0001")
     );
 }
+
+/// ⟨U3-3a; PC2⟩ The subjects typed elsewhere are built as `WithPreview<T>` with no preview
+/// (a preview is added after, untyped, as before: `PreviewView` drops its `null`s, a PC3
+/// change). That document is `T`'s, byte for byte, for every published example of each
+/// subject, and it reads and validates as the subject's `WithPreview` schema.
+#[test]
+fn with_preview_without_a_preview_is_the_view_byte_for_byte() {
+    use heimdall_contract::enrollment::EnrollmentsView;
+    use heimdall_contract::issuer::IssuerStatus;
+    use heimdall_contract::managed::ConnectionsView;
+    use heimdall_contract::trust::{PoliciesView, WorkspaceView};
+    use heimdall_contract::views::WithPreview;
+
+    fn same_literal<T: Serialize + Default>(want: &Value) {
+        let got = serde_json::to_value(WithPreview {
+            view: T::default(),
+            preview: None,
+        })
+        .unwrap();
+        assert_eq!(&got, want);
+    }
+    fn same<T: Serialize + DeserializeOwned + Clone>(example: &str, name: &str) {
+        let doc = load(example);
+        let view: T = serde_json::from_value(doc.clone()).unwrap_or_else(|e| panic!("{e}"));
+        let bare = serde_json::to_string(&view).unwrap();
+        let typed = serde_json::to_string(&WithPreview {
+            view: view.clone(),
+            preview: None,
+        })
+        .unwrap();
+        // Byte for byte once both are read back as `Value`s (the runtime answers a
+        // `Value`, whose maps are ordered by key).
+        let bare: Value = serde_json::from_str(&bare).unwrap();
+        let typed: Value = serde_json::from_str(&typed).unwrap();
+        assert_eq!(typed, bare, "{example}");
+        assert_eq!(
+            serde_json::to_vec(&typed).unwrap(),
+            serde_json::to_vec(&bare).unwrap(),
+            "{example}"
+        );
+        exact::<WithPreview<T>>(example, name, &bare);
+    }
+    same::<EnrollmentsView>(
+        "schemas/examples/inspect.enrollments.json",
+        "inspect-enrollments",
+    );
+    same::<ConnectionsView>(
+        "schemas/examples/inspect.connections.json",
+        "inspect-connections",
+    );
+    same::<IssuerStatus>("schemas/examples/inspect.issuer.json", "inspect-issuer");
+    same::<IssuerStatus>(
+        "schemas/examples/inspect.issuer.awaiting-deletion.json",
+        "inspect-issuer",
+    );
+    same::<PoliciesView>(
+        "schemas/examples/inspect.policies.json",
+        "inspect-policies.full",
+    );
+    same::<PoliciesView>(
+        "schemas/examples/inspect.policies.default-profile.json",
+        "inspect-policies.full",
+    );
+    same::<WorkspaceView>(
+        "schemas/examples/inspect.workspace.json",
+        "inspect-workspace.full",
+    );
+    same::<WorkspaceView>(
+        "schemas/examples/inspect.workspace.proposal.json",
+        "inspect-workspace.full",
+    );
+    // Another role's literals.
+    same_literal::<EnrollmentsView>(&json!({"enrollments": []}));
+    same_literal::<ConnectionsView>(&json!({"connections": []}));
+    same_literal::<PoliciesView>(&json!({"items": []}));
+}

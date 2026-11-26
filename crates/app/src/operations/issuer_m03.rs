@@ -609,6 +609,14 @@ impl Operations {
     }
 
     async fn issuer_status(&self, issuer: &dyn IssuerPort) -> OpResult<serde_json::Value> {
+        let view = self.issuer_status_view(issuer).await?;
+        let data = serde_json::to_value(view).map_err(|_| internal("issuer status"))?;
+        Ok(Completed::ok(Code::Ok, data))
+    }
+
+    /// `issuer.status`'s typed view ([`status_view`] over the port's snapshot and the
+    /// store, read in one transaction).
+    async fn issuer_status_view(&self, issuer: &dyn IssuerPort) -> Result<IssuerStatus, OpError> {
         let snapshot = issuer.status();
         let (cas, enrollments, last_bundle_at) = self
             .write(|tx, _| {
@@ -616,9 +624,28 @@ impl Operations {
                 Ok((cas, enrollments, tx.last_bundle_at()?))
             })
             .await?;
-        let view = status_view(Some(&snapshot), &cas, &enrollments, last_bundle_at);
-        let data = serde_json::to_value(view).map_err(|_| internal("issuer status"))?;
-        Ok(Completed::ok(Code::Ok, data))
+        Ok(status_view(
+            Some(&snapshot),
+            &cas,
+            &enrollments,
+            last_bundle_at,
+        ))
+    }
+
+    /// ⟨rev7; D1, PC2⟩ `inspect issuer`'s view: [`Operations::issuer_request`]'s
+    /// `issuer.status` (the same fence admission, held for the read, the same owner check
+    /// and wiring), typed.
+    ///
+    /// # Errors
+    /// [`OpError`], as `issuer.status`.
+    pub(super) async fn inspect_issuer(&self, caller: &Caller) -> Result<IssuerStatus, OpError> {
+        let _admission = self.issuer_fence_admission(&IssuerRequest::Status)?;
+        if !caller.context.is_owner() {
+            return Err(owner_only());
+        }
+        let wiring = self.managed_wiring().ok_or_else(not_wired)?;
+        let issuer = wiring.issuer.clone().ok_or_else(not_wired)?;
+        self.issuer_status_view(issuer.as_ref()).await
     }
 
     /// `issuer.bundle_written` ([`record_bundle_written`]), answered with the status

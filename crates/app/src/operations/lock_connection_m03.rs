@@ -243,13 +243,15 @@ impl Operations {
         }
     }
 
-    /// ⟨M03; ADR-0008 §17.25 item 21 (Q-T5 (a)), D9 item 1⟩ Add the read-only
-    /// `lock: {behavior, disclosure, acknowledged_at?}` to an `inspect capabilities`
+    /// ⟨M03; ADR-0008 §17.25 item 21 (Q-T5 (a)), D9 item 1⟩ The read-only
+    /// `lock: {behavior, disclosure, acknowledged_at?}` of an `inspect capabilities`
     /// answer, from [`Operations::lock_disclosure`] with this runtime's signal and the
     /// claim table's `lock_continuity` verdict (a wired managed adapter's descriptor;
-    /// none: not verified). A store failure leaves the key absent (the reader shows
-    /// "unknown").
-    pub(super) async fn add_capabilities_lock(&self, data: &mut serde_json::Value) {
+    /// none: not verified). A store failure gives `None`: the key is absent (the reader
+    /// shows "unknown"). ⟨rev7; D1, PC2⟩ Typed (`CapabilitiesView.lock`).
+    pub(super) async fn capabilities_lock(
+        &self,
+    ) -> Option<heimdall_contract::views::status::CapabilitiesLockView> {
         let continuity_verified = self.inner.config.adapters.iter().any(|a| {
             let d = a.descriptor();
             d.identity.mechanism == super::MANAGED_CERTIFICATE
@@ -262,20 +264,14 @@ impl Operations {
             Ok(d) => d,
             Err(e) => {
                 tracing::warn!(code = %e.code, "the lock disclosure could not be read");
-                return;
+                return None;
             }
         };
-        let mut lock = serde_json::json!({
-            "behavior": disclosure.behavior,
-            "disclosure": disclosure.text,
-        });
-        if let (Some(at), serde_json::Value::Object(map)) = (disclosure.acknowledged_at, &mut lock)
-        {
-            map.insert("acknowledged_at".to_owned(), serde_json::json!(at));
-        }
-        if let serde_json::Value::Object(map) = data {
-            map.insert("lock".to_owned(), lock);
-        }
+        Some(heimdall_contract::views::status::CapabilitiesLockView {
+            behavior: disclosure.behavior,
+            disclosure: disclosure.text,
+            acknowledged_at: disclosure.acknowledged_at,
+        })
     }
 
     /// ⟨M03⟩ U0b row 11: the refusal of an M03 policy action that is checked before

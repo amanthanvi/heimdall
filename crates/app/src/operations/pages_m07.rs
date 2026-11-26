@@ -787,3 +787,9 @@ fn carry_preview(data: &mut serde_json::Value, answer: &mut serde_json::Value) {
 #[cfg(test)]
 #[path = "pages_m07_tests.rs"]
 mod tests;
+
+/// ⟨rev7; U3-3a⟩ The typed views of the `inspect` arms (D1, PC2) against the hand-built
+/// documents they replace.
+#[cfg(test)]
+#[path = "views_m07_tests.rs"]
+mod views_m07_tests;

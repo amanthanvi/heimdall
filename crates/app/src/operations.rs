@@ -174,6 +174,10 @@ use heimdall_contract::request::{
     PairIntegration, PolicyAction, RefreshDependency, ReleaseRequest, Request,
     RequiredCapabilities, RevokeData, RevokeRequest, Verdict, WaitMode,
 };
+use heimdall_contract::views::WithPreview;
+use heimdall_contract::views::access::{
+    DecisionKindName, DecisionListView, DecisionStateView, DecisionView,
+};
 use heimdall_contract::{Code, GrantState, OperationState, Timestamp};
 use heimdall_domain::authority::{
     AuthorityDecision, AuthorityDelta, AuthorityInput, resolve_authority,
@@ -5800,7 +5804,57 @@ fn operation_view(op: &OperationRecord) -> serde_json::Value {
     })
 }
 
-fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
+/// ⟨rev7; D1, PC2⟩ A decision kind's view name: [`decision_kind_name`]'s, variant for
+/// variant (both exhaustive; `views_m07_tests` compares whole documents).
+fn decision_kind_view(kind: &DecisionKind) -> DecisionKindName {
+    match kind {
+        DecisionKind::ApproveAuthority { .. } => DecisionKindName::ApproveAuthority,
+        DecisionKind::WidenPolicy { .. } => DecisionKindName::WidenPolicy,
+        DecisionKind::ConfirmTime { .. } => DecisionKindName::ConfirmTime,
+        DecisionKind::ApplyProjection { .. } => DecisionKindName::ApplyProjection,
+        DecisionKind::DeclareInteraction { .. } => DecisionKindName::DeclareInteraction,
+        DecisionKind::RegisterIssuer { .. } => DecisionKindName::RegisterIssuer,
+        DecisionKind::AddEnvironment { .. } => DecisionKindName::AddEnvironment,
+        DecisionKind::RetireIssuer { .. } => DecisionKindName::RetireIssuer,
+        DecisionKind::EnrollAccount { .. } => DecisionKindName::EnrollAccount,
+        DecisionKind::EnrollSystemForm { .. } => DecisionKindName::EnrollSystemForm,
+        DecisionKind::TrustWorkspace { .. } => DecisionKindName::TrustWorkspace,
+        DecisionKind::ReconcileWorkspace { .. } => DecisionKindName::ReconcileWorkspace,
+        DecisionKind::RemoveEnrollment { .. } => DecisionKindName::RemoveEnrollment,
+        DecisionKind::ApproveTargetChange { .. } => DecisionKindName::ApproveTargetChange,
+        DecisionKind::RemoteWidening(_) => DecisionKindName::RemoteWidening,
+    }
+}
+
+/// ⟨rev7; D1, PC2⟩ A decision record's state, as the view names it.
+fn decision_state_view(state: DecisionState) -> DecisionStateView {
+    match state {
+        DecisionState::Pending => DecisionStateView::Pending,
+        DecisionState::Approved => DecisionStateView::Approved,
+        DecisionState::Denied => DecisionStateView::Denied,
+        DecisionState::Expired => DecisionStateView::Expired,
+        DecisionState::Stale => DecisionStateView::Stale,
+        DecisionState::Withdrawn => DecisionStateView::Withdrawn,
+    }
+}
+
+/// ⟨rev7; D1, PC2⟩ One row of `inspect capabilities`' code table, the same as
+/// [`heimdall_contract::schema::code_table`]'s (`code_rows_match_the_code_table` checks).
+fn code_row_view(c: &Code) -> heimdall_contract::views::status::CodeRowView {
+    heimdall_contract::views::status::CodeRowView {
+        code: c.clone(),
+        exit_code: c.exit_code().as_i32(),
+        retryable: c.retryable(),
+        default_effect_status: c.default_effect_status(),
+        default_next_action: c.default_next_action().to_owned(),
+        success: c.is_success(),
+    }
+}
+
+/// ⟨rev7; D1, PC2⟩ One decision record's typed view (`inspect decisions`): its recorded
+/// request verbatim (D9), and none of the keys `inspect` adds after reading its basis
+/// (`reason`, `policies`, `lifted_effects`, `scope`).
+fn decision_view(d: &DecisionRecord, now: Timestamp) -> DecisionView {
     let action = match &d.kind {
         DecisionKind::ApproveAuthority { operation, delta } => serde_json::json!({
             "operation_id": operation,
@@ -5881,17 +5935,21 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
         // ⟨M06 W2⟩ A runner-local widening record: the exact request it runs, verbatim.
         | DecisionKind::RemoteWidening(_) => serde_json::to_value(&d.kind).unwrap_or_default(),
     };
-    serde_json::json!({
-        "decision_id": d.id,
-        "kind": decision_kind_name(&d.kind),
-        "state": d.state,
-        "created_at": d.created_at,
-        "expires_at": d.expires_at,
+    DecisionView {
+        decision_id: d.id.clone(),
+        kind: decision_kind_view(&d.kind),
+        state: decision_state_view(d.state),
+        created_at: d.created_at,
+        expires_at: d.expires_at,
         // R7: the store returns pending records past their expiry; the
         // application compares with its own `now`.
-        "expired": now >= d.expires_at,
-        "request": action,
-    })
+        expired: now >= d.expires_at,
+        request: action,
+        reason: None,
+        policies: None,
+        lifted_effects: Vec::new(),
+        scope: None,
+    }
 }
 
 /// ⟨M06 W5 `w5o`; ADR-0006 §18.9 item 8⟩ A **local** widening record that reached its
@@ -5910,7 +5968,7 @@ fn lapse_local_widening(
     emit: &mut Emit,
     d: &DecisionRecord,
     now: Timestamp,
-) -> heimdall_store::Result<Option<serde_json::Value>> {
+) -> heimdall_store::Result<Option<DecisionView>> {
     let DecisionKind::RemoteWidening(w) = &d.kind else {
         return Ok(None);
     };
@@ -5931,12 +5989,7 @@ fn lapse_local_widening(
         tx.settle_remote_widening(&d.id, DecisionState::Expired, now, Some(&answer))?;
     emit.decision(tx, &settled, None)?;
     let mut view = decision_view(&settled, now);
-    if let serde_json::Value::Object(map) = &mut view {
-        map.insert(
-            "reason".to_owned(),
-            serde_json::json!(heimdall_contract::envelope::reason::APPROVAL_LAPSED),
-        );
-    }
+    view.reason = Some(heimdall_contract::envelope::reason::APPROVAL_LAPSED.to_owned());
     Ok(Some(view))
 }
 
@@ -9672,8 +9725,9 @@ impl Operations {
             // ⟨M02⟩ U0b row 19, phase 2: the same set as
             // `heimdall_ipc::session::server_capabilities()`, `setup/1` included.
             // ⟨M03⟩ U0b row 13, phase 2 (wave 4): and the four M03 capabilities.
-            InspectSubject::Capabilities => serde_json::json!({
-                "capabilities": [
+            InspectSubject::Capabilities => {
+                // ⟨rev7; D1, PC2⟩ The typed view (`inspect-capabilities`).
+                let offered = [
                     heimdall_contract::ipc::capability::OPERATIONS_V1,
                     heimdall_contract::ipc::capability::EVENTS_V1,
                     heimdall_contract::ipc::capability::OWNER_POLICY_V1,
@@ -9692,14 +9746,23 @@ impl Operations {
                     heimdall_contract::ipc::capability::TRUSTED_WORK_V1,
                     // ⟨rev7⟩ m07-plan U3: `inspect`'s `select` and `page`.
                     heimdall_contract::ipc::capability::PAGES_V1,
-                ],
-                "schemas": heimdall_contract::schema::public_schemas()
-                    .iter()
-                    .map(|s| s.name)
-                    .collect::<Vec<_>>(),
-                "codes": heimdall_contract::schema::code_table()["codes"].clone(),
-                "schema_version": heimdall_contract::SchemaVersion::current(),
-            }),
+                ];
+                let view = heimdall_contract::views::status::CapabilitiesView {
+                    capabilities: offered.iter().map(|c| (*c).to_owned()).collect(),
+                    schemas: heimdall_contract::schema::public_schemas()
+                        .iter()
+                        .map(|s| s.name.to_owned())
+                        .collect(),
+                    codes: Code::all().iter().map(code_row_view).collect(),
+                    schema_version: heimdall_contract::SchemaVersion::current(),
+                    // ⟨M03 wave 5⟩ U9-Q3 (a); ⟨M04⟩ the login entry.
+                    lock: self.capabilities_lock().await,
+                    login_start: self.capabilities_login().await,
+                    preview: None,
+                };
+                serde_json::to_value(view)
+                    .map_err(|_| internal("the capabilities could not be rendered"))?
+            }
             InspectSubject::Environments => {
                 // ⟨M04⟩ U5 (design §3): the owner sees every environment the runtime
                 // knows (`items`, its own first, the `inspect-environments` schema),
@@ -9971,8 +10034,8 @@ impl Operations {
                 }
             }
             InspectSubject::Decisions => {
-                if !ctx.is_owner() {
-                    serde_json::json!({ "decisions": [] })
+                let decisions = if !ctx.is_owner() {
+                    Vec::new()
                 } else {
                     self.write(move |tx, emit| {
                         // ⟨rev7; S2⟩ Only `rows`.
@@ -9990,57 +10053,58 @@ impl Operations {
                             let mut view = decision_view(d, now);
                             // ⟨M05⟩ Revision 5.1 (§17.9 C1): a targeted widening lists
                             // the policies it was created over.
-                            if let Some(policies) = stop_m05::listed_policies(tx, d)?
-                                && let serde_json::Value::Object(map) = &mut view
-                            {
-                                map.insert("policies".to_owned(), serde_json::json!(policies));
-                            }
+                            view.policies = stop_m05::listed_policies(tx, d)?;
                             // ⟨M06 W5 `w5m` L2; rev 6.5⟩ A lift names the delivered
                             // effects it lifts: scope, controller, when.
-                            if let Some(lifted) = stop_m05::lifted_effects(tx, d)?
-                                && let serde_json::Value::Object(map) = &mut view
-                            {
-                                map.insert("lifted_effects".to_owned(), serde_json::json!(lifted));
-                            }
+                            view.lifted_effects =
+                                stop_m05::lifted_effects(tx, d)?.unwrap_or_default();
                             // ⟨M05⟩ Revision 5.2 (§17.10 item 22): a `create` record
                             // shows the scope its approval applies.
-                            if let Some(scope) = decision_scope(tx, d)?
-                                && let serde_json::Value::Object(map) = &mut view
-                            {
-                                map.insert("scope".to_owned(), serde_json::json!(scope));
-                            }
+                            view.scope = decision_scope(tx, d)?;
                             decisions.push(view);
                         }
-                        Ok(serde_json::json!({ "decisions": decisions }))
+                        Ok(decisions)
                     })
                     .await?
-                }
+                };
+                // ⟨rev7; D1, PC2⟩ The typed view (`inspect-decisions`).
+                serde_json::to_value(DecisionListView {
+                    decisions,
+                    preview: None,
+                })
+                .map_err(|_| internal("the decisions could not be rendered"))?
             }
             // ⟨M03⟩ wave 4 (U10): `inspect enrollments` (owner only, like decisions:
             // the records name hosts and accounts) and `inspect issuer` (the
             // `issuer.status` view). `inspect connections` has no reader yet (no store
             // index lists every owned connection, U7-Q4): fail closed.
             InspectSubject::Enrollments => {
-                if !ctx.is_owner() {
-                    serde_json::json!({ "enrollments": [] })
+                let view = if !ctx.is_owner() {
+                    heimdall_contract::enrollment::EnrollmentsView::default()
                 } else {
                     // ⟨rev7; S2⟩ Only `rows` for a page or a selection.
-                    let view = self
-                        .write(move |tx, _| match rows.enrollments(tx)? {
-                            None => enrollment_m03::enrollments_view_in(tx),
-                            Some(records) => enrollment_m03::enrollments_view_of(tx, records),
-                        })
-                        .await?;
-                    serde_json::to_value(view).map_err(|_| {
-                        OpError::new(Code::InternalError, "enrollments could not be rendered")
-                    })?
-                }
-            }
-            InspectSubject::Issuer => {
-                self.issuer_request(caller, heimdall_contract::issuer::IssuerRequest::Status)
+                    self.write(move |tx, _| match rows.enrollments(tx)? {
+                        None => enrollment_m03::enrollments_view_in(tx),
+                        Some(records) => enrollment_m03::enrollments_view_of(tx, records),
+                    })
                     .await?
-                    .data
+                };
+                // ⟨rev7; D1, PC2⟩ The typed view (`inspect-enrollments`).
+                serde_json::to_value(WithPreview {
+                    view,
+                    preview: None,
+                })
+                .map_err(|_| {
+                    OpError::new(Code::InternalError, "enrollments could not be rendered")
+                })?
             }
+            // ⟨rev7; D1, PC2⟩ The typed view (`inspect-issuer`): `issuer.status`'s, behind
+            // the same fence admission, owner check and wiring.
+            InspectSubject::Issuer => serde_json::to_value(WithPreview {
+                view: self.inspect_issuer(caller).await?,
+                preview: None,
+            })
+            .map_err(|_| internal("issuer status"))?,
             // ⟨M03⟩ wave 4, round 2 (ADR-0008 §17.21 item 11; §5 item 4): `inspect
             // connections`, read-only over the owned-connection rows, owner only like
             // decisions (rows name bindings, grants and destinations). Only live rows
@@ -10059,116 +10123,125 @@ impl Operations {
                     ConnectionsView, ExistingConnectionsMode, MultiplexingMode,
                 };
                 use heimdall_domain::managed::OwnedConnectionState;
-                if !ctx.is_owner() {
-                    serde_json::json!({ "connections": [] })
+                let view = if !ctx.is_owner() {
+                    ConnectionsView::default()
                 } else {
-                    let view = self
-                        .write(move |tx, _| {
-                            // ⟨rev7; S2⟩ Only `rows`; each row mapped to its entry, or dropped.
-                            let connections = rows.connections(tx, |tx, c| {
-                                let state = match c.state {
-                                    OwnedConnectionState::Up => ConnectionState::Up,
-                                    OwnedConnectionState::Closing => ConnectionState::Closing,
-                                    _ => return Ok(None),
-                                };
-                                let Some(binding) = tx.binding(&c.binding)? else {
-                                    return Ok(None);
-                                };
-                                let from_mux = c
-                                    .control_path
-                                    .as_deref()
-                                    .filter(|_| c.kind == ConnectionKind::Master)
-                                    .and_then(|p| std::path::Path::new(p).file_name())
-                                    .and_then(|n| n.to_str())
-                                    .and_then(|n| DestinationId::parse(n).ok())
-                                    .filter(|d| {
-                                        binding.scope.pairs.iter().any(|p| &p.destination == d)
-                                    });
-                                let Some(destination_id) = from_mux.or_else(|| {
-                                    binding
-                                        .scope
-                                        .pairs
+                    self.write(move |tx, _| {
+                        // ⟨rev7; S2⟩ Only `rows`; each row mapped to its entry, or dropped.
+                        let connections = rows.connections(tx, |tx, c| {
+                            let state = match c.state {
+                                OwnedConnectionState::Up => ConnectionState::Up,
+                                OwnedConnectionState::Closing => ConnectionState::Closing,
+                                _ => return Ok(None),
+                            };
+                            let Some(binding) = tx.binding(&c.binding)? else {
+                                return Ok(None);
+                            };
+                            let from_mux = c
+                                .control_path
+                                .as_deref()
+                                .filter(|_| c.kind == ConnectionKind::Master)
+                                .and_then(|p| std::path::Path::new(p).file_name())
+                                .and_then(|n| n.to_str())
+                                .and_then(|n| DestinationId::parse(n).ok())
+                                .filter(|d| {
+                                    binding.scope.pairs.iter().any(|p| &p.destination == d)
+                                });
+                            let Some(destination_id) = from_mux.or_else(|| {
+                                binding
+                                    .scope
+                                    .pairs
+                                    .iter()
+                                    .next()
+                                    .map(|p| p.destination.clone())
+                            }) else {
+                                return Ok(None);
+                            };
+                            let grant = tx.grant(&c.grant)?;
+                            let origin = tx.grant_origin(&c.grant)?;
+                            let policy = match (&grant, &origin) {
+                                (Some(g), Some(o)) => {
+                                    // ⟨M05⟩ In the grant's recorded context.
+                                    let current: Vec<ConnectionPolicy> =
+                                        crate::policy_context::grant_policies(
+                                            tx,
+                                            &g.environment,
+                                            Some(o),
+                                        )?
                                         .iter()
-                                        .next()
-                                        .map(|p| p.destination.clone())
-                                }) else {
-                                    return Ok(None);
-                                };
-                                let grant = tx.grant(&c.grant)?;
-                                let origin = tx.grant_origin(&c.grant)?;
-                                let policy = match (&grant, &origin) {
-                                    (Some(g), Some(o)) => {
-                                        // ⟨M05⟩ In the grant's recorded context.
-                                        let current: Vec<ConnectionPolicy> =
-                                            crate::policy_context::grant_policies(
-                                                tx,
-                                                &g.environment,
-                                                Some(o),
-                                            )?
-                                            .iter()
-                                            .map(|p| p.connection)
-                                            .collect();
-                                        heimdall_domain::connection::effective_connection_policy(
-                                            o.connection,
-                                            &current,
-                                            None,
-                                        )
-                                    }
-                                    _ => ConnectionPolicy {
-                                        existing: ExistingConnectionsMode::Strict,
-                                        multiplexing: MultiplexingMode::Disabled,
-                                    },
-                                };
-                                let closes = c.kind == ConnectionKind::Master
-                                    || policy.existing == ExistingConnectionsMode::Strict;
-                                let closes_at = match (&grant, closes) {
-                                    (Some(g), true) => {
-                                        let profile = origin.as_ref().map(|o| &o.profile);
-                                        Some(bound_of(tx, g, profile)?)
-                                    }
-                                    _ => None,
-                                };
-                                Ok(Some(ConnectionEntry {
-                                    id: c.id,
-                                    kind: c.kind,
-                                    binding_id: c.binding,
-                                    grant_id: c.grant,
-                                    destination_id,
-                                    started_at: c.started_at,
-                                    policy,
-                                    closes_at,
-                                    state,
-                                }))
-                            })?;
-                            Ok(ConnectionsView { connections })
-                        })
-                        .await?;
-                    serde_json::to_value(view).map_err(|_| {
-                        OpError::new(Code::InternalError, "connections could not be rendered")
-                    })?
-                }
+                                        .map(|p| p.connection)
+                                        .collect();
+                                    heimdall_domain::connection::effective_connection_policy(
+                                        o.connection,
+                                        &current,
+                                        None,
+                                    )
+                                }
+                                _ => ConnectionPolicy {
+                                    existing: ExistingConnectionsMode::Strict,
+                                    multiplexing: MultiplexingMode::Disabled,
+                                },
+                            };
+                            let closes = c.kind == ConnectionKind::Master
+                                || policy.existing == ExistingConnectionsMode::Strict;
+                            let closes_at = match (&grant, closes) {
+                                (Some(g), true) => {
+                                    let profile = origin.as_ref().map(|o| &o.profile);
+                                    Some(bound_of(tx, g, profile)?)
+                                }
+                                _ => None,
+                            };
+                            Ok(Some(ConnectionEntry {
+                                id: c.id,
+                                kind: c.kind,
+                                binding_id: c.binding,
+                                grant_id: c.grant,
+                                destination_id,
+                                started_at: c.started_at,
+                                policy,
+                                closes_at,
+                                state,
+                            }))
+                        })?;
+                        Ok(ConnectionsView { connections })
+                    })
+                    .await?
+                };
+                // ⟨rev7; D1, PC2⟩ The typed view (`inspect-connections`).
+                serde_json::to_value(WithPreview {
+                    view,
+                    preview: None,
+                })
+                .map_err(|_| {
+                    OpError::new(Code::InternalError, "connections could not be rendered")
+                })?
             }
             // ⟨M05⟩ U2: `inspect policies` (ADR-0011 §4.4), owner role only, like the
             // other owner-sensitive subjects (decisions, enrollments).
             InspectSubject::Policies => {
-                if !ctx.is_owner() {
-                    serde_json::json!({ "items": [] })
+                // Another role reads `{"items": []}` (no `default_profiles`).
+                let view = if !ctx.is_owner() {
+                    heimdall_contract::trust::PoliciesView::default()
                 } else {
                     let own = environment.clone();
                     // ⟨rev7; S2⟩ A page reads only its rows (`rows`).
-                    let view = self
-                        .write(move |tx, _| trust_m05::policies_view_of(tx, &own, &rows))
-                        .await?;
-                    serde_json::to_value(view)
-                        .map_err(|_| internal("the policies could not be rendered"))?
-                }
+                    self.write(move |tx, _| trust_m05::policies_view_of(tx, &own, &rows))
+                        .await?
+                };
+                // ⟨rev7; D1, PC2⟩ The typed view (`inspect-policies.full`).
+                serde_json::to_value(WithPreview {
+                    view,
+                    preview: None,
+                })
+                .map_err(|_| internal("the policies could not be rendered"))?
             }
-            // ⟨M05⟩ U4: `inspect workspace` (ADR-0011 §2.3).
-            InspectSubject::Workspace => {
-                let view = self.inspect_workspace(caller, req.cwd.clone()).await?;
-                serde_json::to_value(view)
-                    .map_err(|_| internal("the workspace could not be rendered"))?
-            }
+            // ⟨M05⟩ U4: `inspect workspace` (ADR-0011 §2.3). ⟨rev7; D1, PC2⟩ The typed view
+            // (`inspect-workspace.full`).
+            InspectSubject::Workspace => serde_json::to_value(WithPreview {
+                view: self.inspect_workspace(caller, req.cwd.clone()).await?,
+                preview: None,
+            })
+            .map_err(|_| internal("the workspace could not be rendered"))?,
             // ⟨M05⟩ U7: `inspect export` (ADR-0011 §2.4 I4), owner role only: a bundle
             // for any other role would read as a valid empty one, so it is refused.
             InspectSubject::Export => {
@@ -10187,6 +10260,9 @@ impl Operations {
                     .map_err(|_| internal("the export could not be rendered"))?
             }
         };
+        // ⟨rev7; D1⟩ `preview` stays the untyped document today's builder writes: the typed
+        // `PreviewView` drops its `null`s (PC3, the `inspect-bindings` table), a U3 change
+        // made with its readers. A typed view above carries `preview: None`.
         if let Some(preview) = req.preview {
             let p = self.preview(caller, preview, now).await?;
             if let serde_json::Value::Object(map) = &mut data {
@@ -10198,11 +10274,10 @@ impl Operations {
             ..Completed::ok(Code::Ok, data)
         };
         // ⟨M03 wave 5⟩ U9-Q3 (a): `inspect capabilities` carries the current lock
-        // behaviour's `signal_unverified` (ADR-0008 D9 items 1 and 3).
+        // behaviour's `signal_unverified` (ADR-0008 D9 items 1 and 3). Its `lock` and
+        // `login_start` keys are the typed view's (the arm above).
         if capabilities {
-            self.add_capabilities_lock(&mut done.data).await;
             self.label_capabilities_lock(&mut done).await;
-            self.add_capabilities_login(&mut done.data).await;
         }
         Ok(done)
     }
@@ -14414,7 +14489,7 @@ mod tests {
             decided_at: None,
         };
         let view = decision_view(&record, "2026-10-02T00:00:01Z".parse().unwrap());
-        assert_eq!(view["request"]["diff_text"].as_str(), Some(diff.as_str()));
+        assert_eq!(view.request["diff_text"].as_str(), Some(diff.as_str()));
     }
 
     #[test]

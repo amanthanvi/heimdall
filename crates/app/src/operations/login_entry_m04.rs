@@ -251,8 +251,10 @@ impl Operations {
     }
 
     /// ⟨M04⟩ `inspect capabilities` → `login_start {kind, installed}` (m04-plan §5 item 7).
-    pub(crate) async fn add_capabilities_login(&self, data: &mut serde_json::Value) {
-        let view = match self.login_port() {
+    /// `None` (the key absent) only when the observation task fails. ⟨rev7; D1, PC2⟩ Typed
+    /// (`CapabilitiesView.login_start`).
+    pub(crate) async fn capabilities_login(&self) -> Option<LoginStartView> {
+        Some(match self.login_port() {
             None => LoginStartView {
                 kind: LoginStartKind::None,
                 installed: false,
@@ -264,13 +266,10 @@ impl Operations {
                         kind,
                         installed: matches!(state, Ok(LoginEntryState::Owned)),
                     },
-                    Err(_) => return,
+                    Err(_) => return None,
                 }
             }
-        };
-        if let (serde_json::Value::Object(map), Ok(v)) = (data, serde_json::to_value(view)) {
-            map.insert("login_start".to_owned(), v);
-        }
+        })
     }
 
     /// ⟨M04⟩ The login-entry part of [`Operations::setup`]: `Some` when `req` is a

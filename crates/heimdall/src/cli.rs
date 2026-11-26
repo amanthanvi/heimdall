@@ -1975,6 +1975,29 @@ async fn run_client(ctx: &Ctx, command: Command) -> Result<Done, Done> {
     }
 }
 
+/// ⟨rev7; D1, PC2⟩ `heimdall status --json`'s typed view from the runtime's `inspect
+/// operations` and `inspect decisions` answers: `counts` read as typed rows (`None` when
+/// they do not read), and the two lists counted. `chores` is added after this, by
+/// `doctor_cmd::with_status_chores`, which also words them into an error.
+fn status_view(
+    environment_id: &heimdall_contract::ids::EnvironmentId,
+    operations: &serde_json::Value,
+    decisions: &serde_json::Value,
+) -> Option<heimdall_contract::views::status::StatusView> {
+    let count = |v: &serde_json::Value, k: &str| {
+        let n = v.get(k).and_then(|a| a.as_array()).map_or(0, Vec::len);
+        u64::try_from(n).unwrap_or(u64::MAX)
+    };
+    Some(heimdall_contract::views::status::StatusView {
+        running: true,
+        environment_id: environment_id.clone(),
+        operation_counts: serde_json::from_value(operations.get("counts")?.clone()).ok()?,
+        open_operations: count(operations, "operations"),
+        pending_decisions: count(decisions, "decisions"),
+        chores: Vec::new(),
+    })
+}
+
 async fn status(ctx: &Ctx) -> Result<Done, Done> {
     let mut client = session(ctx, false).await?;
     let inspect = |subject| {
@@ -1995,15 +2018,16 @@ async fn status(ctx: &Ctx) -> Result<Done, Done> {
     if !decisions.code.is_success() {
         return Ok(Done::of(decisions));
     }
-    let count =
-        |v: &serde_json::Value, k: &str| v.get(k).and_then(|a| a.as_array()).map_or(0, Vec::len);
-    let mut env = Envelope::ok(serde_json::json!({
-        "running": true,
-        "environment_id": client.server().environment_id,
-        "operation_counts": ops.data.get("counts").cloned().unwrap_or_default(),
-        "open_operations": count(&ops.data, "operations"),
-        "pending_decisions": count(&decisions.data, "decisions"),
-    }));
+    // ⟨rev7; D1, PC2⟩ The typed view (`status`).
+    let Some(data) = status_view(&client.server().environment_id, &ops.data, &decisions.data)
+        .and_then(|view| serde_json::to_value(view).ok())
+    else {
+        return Ok(Done::of(error_value(error(
+            Code::InternalError,
+            "the status could not be built from the runtime's answers",
+        ))));
+    };
+    let mut env = Envelope::ok(data);
     env.warnings = ops.warnings;
     if !ctx.json {
         // Use the expiry flag computed by the runtime.
@@ -3965,6 +3989,53 @@ mod tests {
         assert_eq!(
             ctx(false, false).interaction(),
             heimdall_contract::request::InteractionMode::NonInteractive
+        );
+    }
+    /// ⟨rev7; U3-3a, PC2⟩ `status --json`'s typed view is the replaced `json!` document over
+    /// populated answers (counts in several states, open operations, pending and expired
+    /// decisions), and empty ones; answers whose `counts` do not read give no view.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn status_view_is_the_hand_built_document() {
+        let env = heimdall_contract::ids::EnvironmentId::from_random_bytes([4; 16]);
+        let legacy = |ops: &serde_json::Value, decisions: &serde_json::Value| {
+            let count = |v: &serde_json::Value, k: &str| {
+                v.get(k).and_then(|a| a.as_array()).map_or(0, Vec::len)
+            };
+            serde_json::json!({
+                "running": true,
+                "environment_id": env,
+                "operation_counts": ops.get("counts").cloned().unwrap_or_default(),
+                "open_operations": count(ops, "operations"),
+                "pending_decisions": count(decisions, "decisions"),
+            })
+        };
+        let ops = serde_json::json!({
+            "operations": [{"operation_id": "op_1"}, {"operation_id": "op_2"}],
+            "counts": [
+                {"state": "running", "count": 2},
+                {"state": "succeeded", "count": 7},
+                {"state": "awaiting_approval", "count": 1}
+            ]
+        });
+        let decisions = serde_json::json!({"decisions": [
+            {"decision_id": "dec_1", "state": "pending", "expired": false},
+            {"decision_id": "dec_2", "state": "pending", "expired": true}
+        ]});
+        let empty_ops = serde_json::json!({"operations": [], "counts": []});
+        let empty_decisions = serde_json::json!({"decisions": []});
+        for (o, d) in [(&ops, &decisions), (&empty_ops, &empty_decisions)] {
+            let view = status_view(&env, o, d).unwrap();
+            assert_eq!(serde_json::to_value(view).unwrap(), legacy(o, d));
+        }
+        assert!(status_view(&env, &serde_json::json!({"operations": []}), &decisions).is_none());
+        assert!(
+            status_view(
+                &env,
+                &serde_json::json!({"counts": [{"state": 3}]}),
+                &decisions
+            )
+            .is_none()
         );
     }
 }
