@@ -86,6 +86,15 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
   - SEC-3b: S2-05's design (Gemini) and its code items.
   - SEC-4 (GPT): cutoff latching (S3-01, S3-03, S3-06, S3-07).
   - S3-04 goes to U2b-3b.
+  - **A known follow-up from SEC-2, for M07:** `destination inspect` and readiness do not yet show
+    a typed `host_pin_defeated` reason when the native passive pin check finds a defeated pin.
+    Today that reason comes only from the route helper's report. Adding it needs changes in
+    `runtime/src/dispatch.rs` and `contract/src/views/catalog.rs`.
+    - **Routed to M07 W10,** to land after W4 is merged into main and M07 has merged main.
+      Doing it sooner would collide with SEC-3a's `dispatch.rs` and with M07's catalog views,
+      which are in flight.
+    - **Not blocking:** projection fails closed, and doctor reports the defeated pin and names
+      the directive.
   - **W4-T1's follow-up: four sibling single waits** (granted test-only, 2026-11-26). These
     are `tests/e2e/environment_runner_m06.rs:1670` (including its direct read of
     `data.grant_id`), `exit_m06/t06.rs:98`, `exit_m06/lift.rs:91` and
