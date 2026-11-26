@@ -86,6 +86,24 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
   - SEC-3b: S2-05's design (Gemini) and its code items.
   - SEC-4 (GPT): cutoff latching (S3-01, S3-03, S3-06, S3-07).
   - S3-04 goes to U2b-3b.
+  - **SEC-1's open items, as ruled on 2026-11-26:**
+    - **S2-04:** a real tombstone still bumps the authority generation once. This is accepted
+      for 1.0, because it fails safe: a pending decision must be confirmed again. SEC-3b may
+      narrow it to a bump only when a local grant or decision is affected, if that is cheap
+      there.
+    - **SEC-5, a new unit, must be fixed before the candidate:**
+      - a runner's success data is screened at the remote ingress, to each field's local
+        grammar; this changes values only, never a shape;
+      - an unknown `Code` is bounded;
+      - S3-02's reading is corrected: `all` always applies, and the time a policy was created
+        is never evidence that a row does not apply;
+      - the void reason for a gone record;
+      - `forward_ensure` refuses a runner-named grant ID that equals a local grant;
+      - `ManagementAnnouncer`'s `key_ready()` moves off the service executor.
+
+      SEC-5 is security-boundary work, so it never runs on GPT.
+    - **A post-1.0 note:** the issuer child's own check of the source policy is defence in
+      depth. Publication enforces the policy since SEC-1.
 - **The U7b defaults inventory** (GPT-6.2 Sol, at `904743a6`; `/tmp/hm-w3/u7b/DEFAULTS.md`): it
   found 12 differences. The orchestrator ruled on them on 2026-11-26.
   - **Routed to other units:**
