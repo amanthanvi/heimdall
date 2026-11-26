@@ -6,7 +6,7 @@
 # Exit code: 0 only when every probe below passes; 1 on any failed probe or a failed build;
 # 2 when the script cannot set up (no testcfg.rs, no python3, no scratch).
 #
-# Builds the release binary once (`cargo build --release --locked -p heimdall`, the single
+# Builds the release binary once (`cargo build --release --locked --no-default-features -p heimdall`, the single
 # ./target dir), then runs it once per HEIMDALL_TEST_* variable and asserts that the build
 # refuses with exit code 2 before anything else happens:
 #   * the M01/M02 variables are read from crates/heimdall/src/testcfg.rs (`ALL_ENV`:
@@ -212,12 +212,30 @@ probe() {
 vars_out="$(read_vars)" || { echo "release-gate: cannot read the test variables from ${TESTCFG}"; exit 2; }
 [ -n "${vars_out}" ] || { echo "release-gate: no test variables found in ${TESTCFG}"; exit 2; }
 
-echo "release-gate: cargo build --release --locked -p heimdall"
-if ! cargo build --release --locked -p heimdall; then
+# --no-default-features, as the release scripts build it (M08 U3c): the gate tests the binary
+# with the release feature set, which has no edge to the test kit.
+echo "release-gate: cargo build --release --locked --no-default-features -p heimdall"
+if ! cargo build --release --locked --no-default-features -p heimdall; then
     echo "release-gate: release build FAILED"
     exit 1
 fi
 [ -x "${BIN}" ] || { echo "release-gate: ${BIN} missing after the build"; exit 1; }
+
+# ⟨M08 U3c⟩ How this build handles the test configuration: the test kit is compiled out (the
+# release feature set has no `test-config`), and every HEIMDALL_TEST_* variable probed below is
+# refused at run time by testcfg (exit 2). The first is checked here from cargo's graph.
+probe_count=$((probe_count + 1))
+# (`cargo tree -i` of a workspace member outside the graph prints nothing and exits 0, so the
+# probe reads its output, not its exit code.)
+kit_tree="$(cargo tree -q --locked --no-default-features -p heimdall -e normal -i heimdall-testkit 2>&1)"
+if [ -n "${kit_tree}" ]; then
+    fail_count=$((fail_count + 1))
+    status=1
+    echo "release-gate: the test kit is in the release feature set's graph: FAIL"
+else
+    echo "release-gate: the test kit is compiled out of the release build (no heimdall-testkit in cargo tree --no-default-features -e normal): PASS"
+fi
+echo "release-gate: every HEIMDALL_TEST_* variable below is refused at run time (exit 2) by the release build's testcfg; none is honoured"
 
 new_dir
 vals="${new_dir_path}"

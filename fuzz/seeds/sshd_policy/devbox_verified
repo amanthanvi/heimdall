@@ -1,0 +1,15 @@
+OpenSSH_9.6p1 Ubuntu-3ubuntu13.5, OpenSSL 3.0.13 30 Jan 2024
+usepam yes
+permittty yes
+allowtcpforwarding yes
+allowagentforwarding yes
+disableforwarding no
+allowstreamlocalforwarding yes
+forcecommand none
+authorizedkeyscommand none
+authorizedprincipalscommand none
+authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2
+acceptenv LANG
+acceptenv LC_*
+authenticationmethods any
+permituserenvironment no

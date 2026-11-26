@@ -60,8 +60,8 @@ reset_lock() { printf '# fake fuzz lock\n' >"$R/fuzz/Cargo.lock"; }
 # 1. A setup that completes records an identity, and it covers the toolchain inputs.
 camp setup >"$T/o1" 2>&1; rc=$?
 check "a completed setup exits 0 and records an identity" '[ "$rc" = 0 ] && [ -s "$out/build-id" ] && [ ! -e "$out/build-id.pending" ]'
-check "the identity names the linked crate, the toolchain file and the toolchain line" \
-    'grep -q " linked-crates=crates/linked toolchain-file=product-rust-toolchain.toml nightly=" "$out/build-id" && grep -q "cargo-fuzz=" "$out/build-id" && grep -q "rustflags=-Clink-arg=-fuse-ld=lld" "$out/build-id"'
+check "the identity names the linked crate, the toolchain file, the pinned base image and the toolchain line" \
+    'grep -q " linked-crates=crates/linked toolchain-file=product-rust-toolchain.toml image=debian@sha256:[0-9a-f]\{64\} nightly=" "$out/build-id" && grep -q "cargo-fuzz=" "$out/build-id" && grep -q "rustflags=-Clink-arg=-fuse-ld=lld" "$out/build-id"'
 id1=$(cut -d" " -f1 "$out/build-id")
 check "build-id show prints the same identity and writes nothing" '[ "$(camp build-id show 2>/dev/null | cut -d" " -f1)" = "$id1" ] && [ "$(cut -d" " -f1 "$out/build-id")" = "$id1" ]'
 check "build-id refuses while an identity exists" 'camp build-id >/dev/null 2>&1; [ $? = 2 ]'

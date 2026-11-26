@@ -297,10 +297,54 @@ fn ceremony_failure(
     refused: Option<Envelope<serde_json::Value>>,
     decision: Option<&str>,
 ) -> Outcome {
-    if let (CeremonyError::Session(_), Some(env)) = (e, refused) {
-        return Outcome::of(env);
+    Outcome::of(failure_envelope(e, refused, decision))
+}
+
+/// [`ceremony_failure`]'s envelope.
+fn failure_envelope(
+    e: &CeremonyError,
+    refused: Option<Envelope<serde_json::Value>>,
+    decision: Option<&str>,
+) -> Envelope<serde_json::Value> {
+    // ⟨M08 U1b, ISS-F1⟩ `init` failed after its store write: the cause's own answer (the
+    // runtime's refusal, relayed, or the ceremony's), whose message also says that a store
+    // item now exists with no registration, with its fingerprint and the recovery commands,
+    // and whose resource is that orphan (kind `issuer`, its fingerprint), as the orphan
+    // refusal's is. Human text and `--json` both read the message.
+    if let CeremonyError::OrphanLeft {
+        fingerprint,
+        backup,
+        cause,
+    } = e
+    {
+        let mut env = failure_envelope(cause, refused, decision);
+        let orphan = heimdall_issuer::ceremony::orphan_left_message(fingerprint, backup);
+        if let Some(error) = env
+            .data
+            .get_mut("error")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            let message = error
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .trim_end_matches('.')
+                .to_owned();
+            error.insert(
+                "message".to_owned(),
+                serde_json::Value::String(format!("{message}. {orphan}")),
+            );
+            error.insert(
+                "resource".to_owned(),
+                serde_json::json!({"kind": "issuer", "id": fingerprint.to_string()}),
+            );
+        }
+        return env;
     }
-    let env = match e {
+    if let (CeremonyError::Session(_), Some(env)) = (e, refused) {
+        return env;
+    }
+    match e {
         CeremonyError::NotConfirmed => setup_cmd::not_confirmed(
             decision,
             None,
@@ -328,8 +372,7 @@ fn ceremony_failure(
             output::error_value(error.into_envelope())
         }
         other => failure(other.code(), &other.to_string(), other.reason().as_deref()),
-    };
-    Outcome::of(env)
+    }
 }
 
 fn backup_out_of(command: &IssuerCommand) -> Option<&Path> {
@@ -650,4 +693,67 @@ fn resolve_displaced(
         text.push_str(&line);
     }
     Ok(text)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    /// ⟨M08 U1b, ISS-F1⟩ A failure after `init`'s store write keeps the cause's answer (the
+    /// runtime's refusal is relayed with its code and reason; a ceremony failure keeps its
+    /// own), and its message (what the human text and `--json` both show) adds the orphan
+    /// with both ways out, while its resource names the orphan as the orphan refusal does.
+    #[test]
+    fn a_failure_after_the_store_write_names_the_orphan_as_its_resource() {
+        let fp = CaFingerprint::parse(&format!("SHA256:{}", "B".repeat(43))).unwrap();
+        let backup = std::path::PathBuf::from("/hm-scratch/ca-backup");
+        let orphan = ceremony::orphan_left_message(&fp, &backup);
+        let left = |cause: CeremonyError| CeremonyError::OrphanLeft {
+            fingerprint: fp.clone(),
+            backup: backup.clone(),
+            cause: Box::new(cause),
+        };
+        let resource = serde_json::json!({"kind": "issuer", "id": fp.to_string()});
+
+        // The runtime's refusal of the approval (an expired decision), relayed.
+        let runtime = failure(
+            Code::DecisionStale,
+            "the decision expired before it was approved",
+            Some("decision_expired"),
+        );
+        let refused = SessionError::Refused {
+            code: Code::DecisionStale,
+            reason: Some("decision_expired".to_owned()),
+        };
+        let env = failure_envelope(&left(CeremonyError::Session(refused)), Some(runtime), None);
+        assert_eq!(env.code, Code::DecisionStale);
+        let error = &env.data["error"];
+        assert_eq!(error["reason"], "decision_expired");
+        assert_eq!(error["resource"], resource);
+        assert_eq!(
+            error["message"].as_str().unwrap(),
+            format!("the decision expired before it was approved. {orphan}")
+        );
+
+        // A ceremony failure of its own after the write (the read-back).
+        let env = failure_envelope(&left(CeremonyError::KeyMismatch), None, None);
+        assert_eq!(env.code, CeremonyError::KeyMismatch.code());
+        let error = &env.data["error"];
+        assert_eq!(error["resource"], resource);
+        let message = error["message"].as_str().unwrap();
+        assert!(
+            message.starts_with("the store returned a different key. "),
+            "{message}"
+        );
+        assert!(message.ends_with(&orphan), "{message}");
+        for part in [
+            fp.as_str(),
+            "heimdall issuer restore --backup <file> --not-stolen",
+            "--replace-orphan",
+            "/hm-scratch/ca-backup",
+        ] {
+            assert!(message.contains(part), "{part}: {message}");
+        }
+    }
 }

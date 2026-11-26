@@ -61,7 +61,9 @@
 //! the child inherits neither. Every failure before launch writes `prelaunch_failed`
 //! (when a side channel is open) and is reported on stderr; stdout is the child's.
 //!
-//! Readings applied: a request ID is minted and reported on stderr when absent;
+//! Readings applied: a request ID is minted and reported on stderr when absent (⟨M08
+//! U2b-2⟩ once connected, with the restore epoch beside it: `--request-id <id>
+//! --request-epoch <n>`, as a retry passes them back);
 //! `--work-id` defaults to the request ID, so a retry with the same request ID replays the
 //! same `ensure` and `bind` (and the launch is the caller's explicit act: nothing
 //! relaunches on its own, R-RT-05). `argv` is read only to resolve the program and to pass
@@ -92,7 +94,7 @@ use heimdall_localenv::env::{Env, Platform};
 use heimdall_localenv::local_query::LocalQueries;
 use heimdall_localenv::paths::SshPaths;
 
-use crate::cli::{RunArgs, TerminalPrompt, ensure_flow, fresh_request_id};
+use crate::cli::{RunArgs, TerminalPrompt, ensure_flow, fresh_request_id, retry_args};
 use crate::client::{Ctx, connect_as};
 use crate::launch_flow::{self, Failure, Launch};
 use crate::output;
@@ -242,13 +244,17 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
     } else {
         None
     };
-    let request_id = match args.request_id.as_deref() {
-        Some(r) => RequestId::parse(r).map_err(|_| none(Failure::usage("invalid request ID")))?,
-        None => {
-            let minted = fresh_request_id().map_err(|d| none(Failure::of(d.env)))?;
-            output::diagnostic(&format!("heimdall: request ID {minted}"));
-            minted
-        }
+    // A minted request ID is reported once the session's hello gives the epoch it is bound to
+    // (below).
+    let (request_id, minted) = match args.request_id.as_deref() {
+        Some(r) => (
+            RequestId::parse(r).map_err(|_| none(Failure::usage("invalid request ID")))?,
+            false,
+        ),
+        None => (
+            fresh_request_id().map_err(|d| none(Failure::of(d.env)))?,
+            true,
+        ),
     };
     let work_id = WorkId::parse(args.work_id.as_deref().unwrap_or(request_id.as_str()))
         .map_err(|_| none(Failure::usage("invalid work ID")))?;
@@ -290,6 +296,14 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
         let mut client = connect_as(ctx, true, extra, interaction)
             .await
             .map_err(|e| none(Failure::of(output::error_value(*e))))?;
+        // ⟨M08 U2b-2 follow-up B; ADR-0014 §3.6 step 3⟩ The minted request ID, with the epoch
+        // its requests are bound to beside it, as a retry passes them back.
+        if minted {
+            output::diagnostic(&format!(
+                "heimdall: request ID {request_id}; retry with {}",
+                retry_args(&request_id, client.bound_epoch())
+            ));
+        }
         // 3. ensure (⟨M05⟩ by context: each mechanism group; `run_m05`).
         let ensured: Vec<crate::run_m05::Ensured> = if by_context {
             crate::run_m05::ensure_by_context(&mut client, &mut TerminalPrompt, ctx, &request)

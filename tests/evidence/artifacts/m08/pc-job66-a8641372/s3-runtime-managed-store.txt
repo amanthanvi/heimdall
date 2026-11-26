@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running unittests src\lib.rs (target\debug\deps\heimdall_runtime-3795ef47c020f798.exe)
+
+running 4 tests
+test managed_store::tests::grant_scopes_read_the_stored_scope_only ... ok
+test managed_store::tests::claim_endpoint_is_native_only_for_the_runtimes_own_environment ... ok
+test managed_store::tests::terms_absent_until_recorded_never_default_continue ... ok
+test managed_store::tests::cleanup_clears_each_slot_by_its_own_generation ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 68 filtered out; finished in 0.13s
+

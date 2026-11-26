@@ -631,9 +631,8 @@ pub(crate) async fn connect_with(
 /// ⟨ADR-0006 §18.7 item 18⟩ The cause token of the owner-only downgrade recorded in the
 /// state database of the runner home `home` (read-only; `None` without the row).
 pub(crate) fn recorded_downgrade(home: &Path) -> Option<String> {
-    let db = heimdall_runtime::Paths::under(home)
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
+    let db =
+        heimdall_store::layout::db_path(&heimdall_runtime::Paths::under(home).state_dir).unwrap();
     heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
         .unwrap()
         .transaction(|tx| tx.runner_downgrade())
@@ -674,20 +673,8 @@ pub(crate) fn plus(t: Timestamp, d: Duration) -> Timestamp {
 
 /// The runner's state database (written by `remote init`).
 pub(crate) fn state_db(home: &Path) -> PathBuf {
-    fn find(dir: &Path) -> Option<PathBuf> {
-        for entry in std::fs::read_dir(dir).ok()?.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                if let Some(found) = find(&path) {
-                    return Some(found);
-                }
-            } else if path.file_name().is_some_and(|n| n == "state.db") {
-                return Some(path);
-            }
-        }
-        None
-    }
-    find(home).expect("the runner's state database")
+    heimdall_store::layout::db_path(&heimdall_runtime::Paths::under(home).state_dir)
+        .expect("the runner's state database")
 }
 
 /// The scratch secret store's directory inside a state directory (the CLI's
@@ -1071,9 +1058,7 @@ pub(crate) fn install_controller(
     };
     {
         let store = Store::open(
-            &paths
-                .state_dir
-                .join(heimdall_runtime::service::STATE_DB_FILE),
+            &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
             Arc::new(NoFaults),
         )
         .unwrap();
@@ -1135,9 +1120,7 @@ pub(crate) fn seed_controller_profile(controller: &ControllerRuntime, pair: &Acc
     let paths = heimdall_runtime::Paths::under(&controller.home);
     paths.ensure().unwrap();
     let store = Store::open(
-        &paths
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE),
+        &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
         Arc::new(NoFaults),
     )
     .unwrap();
@@ -1165,9 +1148,7 @@ pub(crate) fn install_issuer(controller: &ControllerRuntime, ca: &SecretCaKey) {
     );
     let paths = heimdall_runtime::Paths::under(&controller.home);
     let store = Store::open(
-        &paths
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE),
+        &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
         Arc::new(NoFaults),
     )
     .unwrap();

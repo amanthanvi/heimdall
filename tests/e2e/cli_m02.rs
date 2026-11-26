@@ -2124,7 +2124,9 @@ mod json {
         }
         assert_eq!(env["data"]["purged"], false, "{env}");
         assert!(
-            w.home.state_dir.join("state.db").exists(),
+            heimdall_store::layout::db_path(&w.home.state_dir)
+                .unwrap()
+                .exists(),
             "the store is kept"
         );
         assert_eq!(
@@ -2166,7 +2168,9 @@ mod json {
             "{message}"
         );
         assert!(
-            w.home.state_dir.join("state.db").exists(),
+            heimdall_store::layout::db_path(&w.home.state_dir)
+                .unwrap()
+                .exists(),
             "the store is kept"
         );
         assert_eq!(
@@ -2228,7 +2232,9 @@ mod json {
                 "listed before the owner answers: {asked}"
             );
             assert!(
-                w.home.state_dir.join("state.db").exists(),
+                heimdall_store::layout::db_path(&w.home.state_dir)
+                    .unwrap()
+                    .exists(),
                 "nothing happened before the answer"
             );
             case.send(b"yes\r");
@@ -2253,7 +2259,9 @@ mod json {
             }
             assert_eq!(env["data"]["purged"], false, "{env}");
             assert!(
-                w.home.state_dir.join("state.db").exists(),
+                heimdall_store::layout::db_path(&w.home.state_dir)
+                    .unwrap()
+                    .exists(),
                 "the store is kept"
             );
             assert_eq!(
@@ -3117,7 +3125,9 @@ mod unix {
         }
         assert_eq!(env["data"]["purged"], false);
         assert!(
-            w.home.state_dir.join("state.db").exists(),
+            heimdall_store::layout::db_path(&w.home.state_dir)
+                .unwrap()
+                .exists(),
             "the store is kept"
         );
         assert!(
@@ -3182,7 +3192,7 @@ mod unix {
     fn uninstall_purge_state_is_refused_without_a_typed_yes_and_keeps_everything() {
         let (w, _) = single(true);
         let (backup, backup_bytes) = plant_backup(&w);
-        let db = w.home.state_dir.join("state.db");
+        let db = heimdall_store::layout::db_path(&w.home.state_dir).unwrap();
         let tree = w.tree();
         let intact = |what: &str| {
             assert!(db.exists(), "{what}: the state database is kept");
@@ -3273,7 +3283,7 @@ mod unix {
     fn uninstall_purge_state_with_a_typed_yes_discards_the_state() {
         let (w, _) = single(false);
         let (backup, _) = plant_backup(&w);
-        let db = w.home.state_dir.join("state.db");
+        let db = heimdall_store::layout::db_path(&w.home.state_dir).unwrap();
         assert!(db.exists());
         let (code, env, t) = owner(&w, &["uninstall", "--purge-state"]);
         assert_eq!(code, Some(0), "{t}");
@@ -3312,7 +3322,7 @@ mod unix {
     #[test]
     fn uninstall_purge_state_confirmed_then_rolls_back_and_purges() {
         let (w, _) = single(true);
-        let db = w.home.state_dir.join("state.db");
+        let db = heimdall_store::layout::db_path(&w.home.state_dir).unwrap();
         assert_ne!(user(&w), USER, "the projection is installed");
         let (code, env, t) = owner(&w, &["uninstall", "--purge-state"]);
         assert_eq!(code, Some(0), "{t}");

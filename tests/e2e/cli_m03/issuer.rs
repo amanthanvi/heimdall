@@ -213,9 +213,8 @@ impl Rig {
     fn reset_state_keeping_environment(&mut self) {
         let env = self.self_environment();
         self.stop();
-        let db = self
-            .state_dir()
-            .join(heimdall_runtime::service::STATE_DB_FILE);
+        // ⟨M08 U2b-1⟩ The store the pointer names (the grant's mechanical change).
+        let db = heimdall_store::layout::db_path(&self.state_dir()).unwrap();
         for suffix in ["", "-wal", "-shm", "-journal"] {
             let path = PathBuf::from(format!("{}{suffix}", db.display()));
             match std::fs::remove_file(&path) {
@@ -279,6 +278,9 @@ impl Rig {
             ("PATH".into(), path),
             ("HOME".into(), self.account.clone().into()),
             ("HEIMDALL_HOME".into(), self.home.clone().into()),
+            // ⟨M08 U1b, M06-F3⟩ The scratch account home for the static pass: a test
+            // configuration never reads the account's own `~/.ssh` or `/etc/ssh`.
+            ("HEIMDALL_TEST_SSH_HOME".into(), self.account.clone().into()),
             (
                 "HEIMDALL_TEST_SECRET_STORE".into(),
                 self.store_value().into(),
@@ -537,6 +539,8 @@ impl Rig {
             .env_clear()
             .env("HEIMDALL_HOME", &self.home)
             .env("HOME", &self.account)
+            // ⟨M08 U1b, M06-F3⟩ As in `Rig::env`.
+            .env("HEIMDALL_TEST_SSH_HOME", &self.account)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("PATH", "/usr/bin:/bin")
             .env("HEIMDALL_TEST_SECRET_STORE", self.store_value());
@@ -2205,7 +2209,8 @@ fn issuer_status_bundle_unlock_json_envelopes() {
     assert_eq!(recorded, None, "a redacted bundle is not recorded");
     assert_eq!(last, Some(created_at));
     // No path is recorded anywhere in the state database.
-    let db = std::fs::read(rig.state_dir().join("state.db")).unwrap_or_default();
+    let db = std::fs::read(heimdall_store::layout::db_path(&rig.state_dir()).unwrap())
+        .unwrap_or_default();
     let shown = out_path.to_string_lossy().into_owned();
     assert!(!db.windows(shown.len()).any(|w| w == shown.as_bytes()));
 
@@ -3516,7 +3521,7 @@ fn residual_leader_shaped_sign_unconfirmed_stop_keeps_no_admission() {
     let mut rig = Rig::new();
     rig.seed_ca();
     let ops = rig.service.as_ref().unwrap().ops.clone();
-    let db = rig.state_dir().join("state.db");
+    let db = heimdall_store::layout::db_path(&rig.state_dir()).unwrap();
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

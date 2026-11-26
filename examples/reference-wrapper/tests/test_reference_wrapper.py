@@ -15,8 +15,8 @@ import unittest
 # Isolated mode removes the example directory from the default import path.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from reference_wrapper import (  # noqa: E402
-    CAPABILITIES, CONTROL_LIMIT, HELLO_LIMIT, Client, ProtocolError, Refused,
-    Subscription, code_defaults, open_unix,
+    CAPABILITIES, CONTROL_LIMIT, EPOCH_CAPABILITY, HELLO_LIMIT, MUTATING, Client, ProtocolError,
+    Refused, Subscription, code_defaults, open_unix,
 )
 
 
@@ -270,10 +270,14 @@ class WrapperTests(unittest.TestCase):
         ]
 
         def script(conn):
-            hello(conn)
-            for seq, (_, sent, wire) in enumerate(cases, 1):
+            hello(conn, restore_epoch=5)
+            for seq, (kind, sent, wire) in enumerate(cases, 1):
                 request = receive(conn)
-                self.assertEqual(request, {"type": "request", "seq": seq, "request": {**sent, **wire}})
+                frame = {"type": "request", "seq": seq, "request": {**sent, **wire}}
+                if kind in MUTATING:
+                    # A request that changes something carries the hello's restore epoch.
+                    frame["request_epoch"] = 5
+                self.assertEqual(request, frame)
                 respond(conn, request, data={
                     "cursor": "after", "more": True,
                     "events": [event("known", "a"), event("new", "b", "future_type")],
@@ -292,6 +296,73 @@ class WrapperTests(unittest.TestCase):
             self.assertEqual(result["data"]["events"], [event("known", "a")])
             self.assertTrue(result["data"]["more"])
             self.assertEqual(result["data"]["cursor"], "after")
+
+    def test_clients_carry_the_epoch_with_a_kept_request_id(self):
+        # ADR-0014 H13: a fresh request binds the hello's epoch; a retry of a kept request ID
+        # sends the epoch kept with it, never the current one; a read carries none.
+        ensure = {"profile": "p", "work_id": "w", "request_id": "r1"}
+
+        def script(conn):
+            hello(conn, restore_epoch=7)
+            sent = []
+            for _ in range(3):
+                sent.append(receive(conn))
+                respond(conn, sent[-1], data={})
+            fresh, kept, read = sent
+            self.assertEqual(fresh["request_epoch"], 7)
+            self.assertEqual((kept["request"]["request_id"], kept["request_epoch"]), ("r1", 4))
+            self.assertNotIn("request_epoch", read)
+
+        with server(script) as endpoint, Client(endpoint, ENVIRONMENT) as client:
+            self.assertIn(EPOCH_CAPABILITY, client.capabilities)
+            self.assertEqual(client.restore_epoch, 7)
+            client.request("ensure", **ensure)
+            client.request("ensure", request_epoch=4, **ensure)
+            client.request("inspect", subject="bindings")
+            with self.assertRaises(ValueError):
+                client.request("inspect", subject="bindings", request_epoch=4)
+
+    def test_kept_epoch_against_a_runtime_without_request_epoch_refuses_schema_unsupported(self):
+        # The ruling on ASK-H13b: a kept epoch is never sent to a runtime that does not offer
+        # request-epoch/1. The answer is SCHEMA_UNSUPPORTED with effect none, nothing is sent,
+        # and the session stays usable.
+        older = [c for c in CAPABILITIES if c != EPOCH_CAPABILITY]
+
+        def script(conn):
+            hello(conn, capabilities=older)
+            read = receive(conn)
+            self.assertEqual(read["request"]["op"], "inspect", "the kept request was not sent")
+            respond(conn, read, data={})
+
+        with server(script) as endpoint, Client(endpoint, ENVIRONMENT) as client:
+            refused = client.request("revoke", request_epoch=3, grant_id="g", request_id="r4")
+            self.assertEqual(refused["code"], "SCHEMA_UNSUPPORTED")
+            self.assertEqual(refused["data"]["error"]["effect_status"], "none")
+            self.assertEqual(code_defaults(refused).exit_code, 2)
+            self.assertTrue(code_defaults(client.request("inspect", subject="bindings")).success)
+
+    def test_fresh_request_without_kept_epoch_is_sent_without_one(self):
+        # The ruling on ASK-H13b: with no kept epoch, the request goes to an older runtime
+        # exactly as before, with no request_epoch field.
+        older = [c for c in CAPABILITIES if c != EPOCH_CAPABILITY]
+
+        def script(conn):
+            hello(conn, capabilities=older)
+            request = receive(conn)
+            self.assertEqual(request, {"type": "request", "seq": 1, "request": {
+                "grant_id": "g", "request_id": "r4", "op": "revoke"}})
+            respond(conn, request, data={})
+
+        with server(script) as endpoint, Client(endpoint, ENVIRONMENT) as client:
+            self.assertNotIn(EPOCH_CAPABILITY, client.capabilities)
+            self.assertEqual(client.restore_epoch, 0)
+            client.request("revoke", grant_id="g", request_id="r4")
+
+    def test_request_stale_is_a_conflict_that_asks_for_a_new_request_id(self):
+        stale = code_defaults({"code": "REQUEST_STALE"})
+        self.assertEqual((stale.exit_code, stale.effect_status, stale.retryable, stale.next_action),
+                         (6, "none", False, "new_request_id"))
+        self.assertFalse(stale.success)
 
     def test_gap_freezes_cursor_closes_old_stream_and_resumes_same_filter(self):
         applied, persisted = [], []

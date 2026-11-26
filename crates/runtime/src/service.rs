@@ -240,7 +240,8 @@ pub const STATE_DB_FILE: &str = "state.db";
 /// creating or opening the state database: every `.hm-purge-*` entry (an interrupted
 /// uninstall's quarantine: the database family's directory, or a quarantined tree), and,
 /// when `state.db` is absent, its `-wal`, `-shm` and `-journal` (SQLite creating a new
-/// database there would discard a log holding the only copy of commits). Sorted; empty
+/// database there would discard a log holding the only copy of commits). ⟨M08 U2b-1⟩ The
+/// same for the family of the generation `CURRENT` names. Sorted; empty
 /// when start-up may open the store. Read after the instance lock is taken, so no
 /// uninstall is moving files meanwhile.
 ///
@@ -257,9 +258,18 @@ pub fn quarantine_leftovers(
         }
     }
     let present = |p: &std::path::Path| std::fs::symlink_metadata(p).is_ok();
-    if !present(&state_dir.join(STATE_DB_FILE)) {
+    // ⟨M08 U2b-1⟩ The flat family and, when the pointer names one, the generation's family
+    // (named from the pointer alone: this only refuses, it selects nothing).
+    let families = std::iter::once(state_dir.join(STATE_DB_FILE))
+        .chain(heimdall_store::layout::pointed_db(state_dir));
+    for db in families {
+        if present(&db) {
+            continue;
+        }
         for sfx in ["-wal", "-shm", "-journal"] {
-            let p = state_dir.join(format!("{STATE_DB_FILE}{sfx}"));
+            let mut name = db.as_os_str().to_owned();
+            name.push(sfx);
+            let p = std::path::PathBuf::from(name);
             if present(&p) {
                 out.push(p);
             }
@@ -414,6 +424,11 @@ pub struct ServiceOptions {
     /// `service run` wires the CLI's opener; `None` (the default): no host, so an outbox row
     /// waits and nothing is issued remotely. Never used by a remote runner.
     pub controller: Option<crate::controller_host::ControllerHostWiring>,
+    /// ⟨M08 U2b-2; test seam⟩ Where the request fence stops an admitted request
+    /// (`crate::request_fence::FenceHook`): the fault tests' stop between the ledger append
+    /// and the first store write. `None` (every production start): no stop.
+    #[doc(hidden)]
+    pub request_fence_hook: Option<crate::request_fence::FenceHook>,
 }
 
 /// ⟨M03⟩ wave 4: where the session-lock state comes from (ADR-0008 D9 item 3; U9).
@@ -552,6 +567,7 @@ impl ServiceOptions {
             runner: crate::paired::RunnerOptions::default(),
             transport: None,
             controller: None,
+            request_fence_hook: None,
         }
     }
 }
@@ -659,6 +675,9 @@ pub struct Service {
     transport_announcer: Option<Arc<dyn heimdall_app::transport::EndpointAnnouncer>>,
     /// ⟨M06 W3 host⟩ The hosted controller driver's wiring ([`ServiceOptions::controller`]).
     controller: Option<crate::controller_host::ControllerHostWiring>,
+    /// ⟨M08 U2b-2; ADR-0014 §3.6⟩ The epoch check, the replay fence and the request ledger
+    /// of every request this runtime serves.
+    fence: Arc<crate::request_fence::RequestFence>,
     shutdown: CancellationToken,
     _background: StopOnDrop,
     _lock: InstanceLock,
@@ -724,12 +743,37 @@ impl Service {
         if !leftovers.is_empty() {
             return Err(ServiceError::App(quarantine_present(&leftovers)));
         }
-        //    Store: open, integrity check, migrations (with backup).
-        let db = paths.state_dir.join(STATE_DB_FILE);
+        //    Store: ⟨M08 U2b-1; ADR-0014 §3.6⟩ through the generation layout, under the lock:
+        //    the generation `CURRENT` names, the flat store adopted, or a first install. Then
+        //    integrity check and migrations in place (with backup).
+        let state_dir = paths.state_dir.clone();
         let faults = options.store_faults.clone();
-        let store = blocking(move || Store::open(&db, faults)).await??;
+        let now = options.clock.wall();
+        let opened =
+            blocking(move || crate::state_store::open_locked(&state_dir, faults, now)).await??;
+        tracing::info!(began = ?opened.began, "the state store was opened");
         let phases = phases.mark("store_ms");
-        let store = Arc::new(store);
+        let store = Arc::new(opened.store);
+        // ⟨M08 U2b-2; ADR-0014 §3.6⟩ The request fence over this store and the state
+        // directory's request ledger, at the epoch the store records (read once: only a
+        // restore or a repair raises it, under this instance lock).
+        let fence = {
+            let s = store.clone();
+            let state_dir = paths.state_dir.clone();
+            let hook = options.request_fence_hook.clone();
+            blocking(move || {
+                crate::request_fence::RequestFence::open(s, &state_dir).map(|f| match hook {
+                    Some(h) => f.with_hook(h),
+                    None => f,
+                })
+            })
+            .await??
+        };
+        tracing::info!(
+            restore_epoch = fence.epoch().0,
+            "the request fence is ready"
+        );
+        let fence = Arc::new(fence);
 
         // 3. Environment identity: the recorded one, or a new random one at first
         //    start (recorded by `Operations::start`, never replaced).
@@ -1127,6 +1171,7 @@ impl Service {
             transport,
             transport_announcer,
             controller: options.controller,
+            fence,
             shutdown,
             _background: background,
             _lock: lock,
@@ -1157,6 +1202,7 @@ impl Service {
             transport,
             transport_announcer,
             controller,
+            fence,
             shutdown,
             _background,
             _lock,
@@ -1167,7 +1213,9 @@ impl Service {
         let mut dispatcher = OperationsDispatcher::new(operations.clone(), relay, clock.clone())
             .with_service_control(shutdown.clone())
             // ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The controller's records, written for the CLI.
-            .with_controller_records(store.clone());
+            .with_controller_records(store.clone())
+            // ⟨M08 U2b-2; ADR-0014 §3.6⟩ Every mutating request is checked first.
+            .with_request_fence(fence);
         // ⟨M06 W3 host⟩ The controller's driver (`crate::controller_host`): reconnect to the
         // recorded runners, drain the outbox, issue for the delivered grants. Never on a
         // runner; issuing through this runtime's issuer child when it has one.

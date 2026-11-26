@@ -61,10 +61,18 @@ ratatui = { workspace = true }
 # the U7 process fixtures (`fixtures`) stay out of the production build graph.
 # ⟨M03⟩ wave 4 (U3-Q4, ADR-0008 §17.19 item 6): `managed` so the debug-build
 # `internal issuer` can select `ScratchSecretStore` under `cfg(debug_assertions)`.
-heimdall-testkit = { workspace = true, default-features = false, features = ["app", "managed"] }
+# ⟨M08 U3c; m08-plan Q8, ADR-0014 §4.5, H11⟩ Optional, behind the default feature
+# `test-config`. The release scripts build with `--no-default-features`, so a release build's
+# graph holds neither this crate nor what only it brings in (proptest, tempfile and the rest:
+# `release_graph_holds_no_test_only_crate`). A debug build needs the feature (main.rs says so
+# at compile time); every use is under `cfg(debug_assertions)` or `cfg(test)`.
+heimdall-testkit = { workspace = true, default-features = false, features = ["app", "managed"], optional = true }
 
 [features]
-default = []
+# ⟨M08 U3c⟩ The debug-build test configuration's edge to the test kit (above). Release
+# artifacts are built without default features.
+default = ["test-config"]
+test-config = ["dep:heimdall-testkit"]
 # ⟨M06 W3⟩ ADR-0012 §1 item 1: the Iroh transport in this binary (the supervised serve child
 # `transport serve` and the route helper's Iroh leg). Without it the serve child refuses
 # (`driver_unavailable`). The route helper never dials an Iroh leg: it records the leg's
@@ -260,6 +268,20 @@ path = "../../tests/e2e/m07_powershell_hook.rs"
 [[test]]
 name = "e2e_cli_m07"
 path = "../../tests/e2e/cli_m07.rs"
+
+# ⟨M08 U2b-1⟩ The generation layout through the real binary (ADR-0014 §3.2 item 7, §3.6):
+# the candidate on a store one schema ahead refuses and touches nothing; Windows refuses a
+# generation directory that is not owner-only.
+[[test]]
+name = "e2e_store_generations"
+path = "../../tests/e2e/store_generations_cli.rs"
+
+# ⟨M08 U2b-2⟩ The restore epoch through the real binary (ADR-0014 §3.6 step 3, H13; U0-Q5):
+# `--request-epoch` with `--request-id`, the pair every mutating answer reports, and the
+# refusal of a stale epoch before anything is written.
+[[test]]
+name = "e2e_request_epoch"
+path = "../../tests/e2e/request_epoch_cli.rs"
 
 [[test]]
 name = "e2e_wrapper_m07"

@@ -31,3 +31,9 @@ netdev = { workspace = true, optional = true }
 default = []
 # Embeds iroh and applies the netdev patch (the default-route probe is removed).
 iroh = ["dep:iroh", "dep:netdev", "netdev/hm-no-route-probe"]
+
+# ⟨M08 U1b⟩ The `iroh_policy` fuzz target's body (`fuzz/fuzz_targets/body/iroh_policy.rs`,
+# ADR-0014 §2.1 boundary 14), compiled here from the same file and fed its committed seeds.
+[[test]]
+name = "adversarial_m08_fuzz_seeds_iroh"
+path = "../../tests/adversarial/m08_fuzz_seeds_iroh.rs"

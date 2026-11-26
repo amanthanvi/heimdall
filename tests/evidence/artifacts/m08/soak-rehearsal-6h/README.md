@@ -2,7 +2,7 @@
 
 **A rehearsal, not the A34 soak of record** (that is 72 hours on the candidate's archive). It ran
 the Linux arm64 release archive of `76595543`, from before M06 W5 (executable sha256
-`c5ebf788…`), in one capped container on the Mac (`hm-m08-soak:1`, network none, 2 CPUs, 2 GiB),
+`c5ebf788…`), in one capped container on the Mac (`hm-m08-soak:1`, image ID `sha256:880a926048ff776c1fe2281ddbdb8ca37539bd24b91da62b1637a17803fd946b`, built 2026-11-22 from the then-current `debian:13-slim`, network none, 2 CPUs, 2 GiB),
 lanes S (steady) and L (lifecycle), seed 1, one tick a minute, from 00:05:39Z to 06:05:41Z.
 Linux arm64 in a container is supplementary evidence; the native row stays blocked on B9.
 

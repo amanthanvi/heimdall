@@ -55,6 +55,11 @@ pub mod ext_transport;
 pub mod ext_runner;
 // ⟨M06 U4⟩ Typed narrowing effects: the outbox, acknowledgements and policy revisions (ADR-0012 §7).
 pub mod ext_effects;
+// ⟨M08 U2b-2⟩ The restore epoch and the replay fence (ADR-0014 H9, §3.6).
+pub mod fence;
+// ⟨M08 U2b-1⟩ The generation layout (ADR-0014 §3.6, H12): the pointer, the generations and
+// the adoption of a flat store, over `heimdall-stategen`.
+pub mod layout;
 pub mod migrations;
 
 pub use ext::{DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent, StoredEventPage};
@@ -102,6 +107,19 @@ pub enum StoreError {
     /// answers it as `CONFIG_CONFLICT` / `alias_collision`, never as an unavailable store.
     #[error("the destination alias is taken (aliases compare without case)")]
     DestinationAliasTaken,
+    /// ⟨M08 U2b-1; ADR-0014 §3.6 adoption step 2⟩ The family was fenced for adoption into the
+    /// generation layout ([`layout::ADOPTION_FENCE`]). It is never served again: the store is
+    /// the generation `CURRENT` names, or, while the adoption is unfinished, the next start of
+    /// the runtime finishes it ([`layout::open_locked`]).
+    #[error(
+        "this state store was fenced for adoption into the generation layout and is not served; start the runtime to finish the adoption"
+    )]
+    AdoptionFenced,
+    /// ⟨M08 U2b-1; ADR-0014 §3.6⟩ The generation layout's own failure: an I/O error, or a
+    /// refusal, of the state directory's pointer, intent or generation directories
+    /// ([`layout`]). A corrupt layout is [`StoreError::Corrupt`] (`state_corrupt: <reason>`).
+    #[error("state layout: {0}")]
+    Layout(heimdall_stategen::StateError),
 }
 
 /// Result alias.
@@ -515,20 +533,54 @@ impl Store {
         Self::open_with_steps(path, faults, &migrations::MIGRATIONS[..n], false)
     }
 
+    /// ⟨M08 U2b-1⟩ Test support (`tests/adversarial/store_generations.rs`): open the store at
+    /// `path` with this build's migrations **and** `ahead` after them, as a build one or more
+    /// schema versions newer would leave it (the "newer build" of
+    /// `older_build_on_newer_store_refuses_and_touches_nothing`). Never used by production
+    /// code.
+    #[doc(hidden)]
+    pub fn open_ahead_of_this_build(
+        path: &Path,
+        faults: Arc<dyn FaultHook>,
+        ahead: &[migrations::Migration],
+    ) -> Result<Self> {
+        let mut steps = migrations::MIGRATIONS.to_vec();
+        steps.extend_from_slice(ahead);
+        Self::open_with_steps(path, faults, &steps, true)
+    }
+
     pub(crate) fn open_with_steps(
         path: &Path,
         faults: Arc<dyn FaultHook>,
         steps: &[migrations::Migration],
         verify_tables: bool,
     ) -> Result<Self> {
-        create_owner_only(path)?;
-        let mut conn = rusqlite::Connection::open_with_flags(
-            path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
-                | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
-                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .map_err(codec::classify)?;
+        Self::open_family(path, faults, steps, verify_tables, true).map(|(store, _)| store)
+    }
+
+    /// ⟨M08 U2b-1⟩ The store of a generation ([`layout::open_locked`]): an existing database,
+    /// never created (a missing file is an error, not a new store), migrated in place with
+    /// its backup as [`Store::open`] does. Returns the schema version found before any
+    /// migration, for the generation's migration notes.
+    pub(crate) fn open_generation(path: &Path, faults: Arc<dyn FaultHook>) -> Result<(Self, u32)> {
+        Self::open_family(path, faults, migrations::MIGRATIONS, true, false)
+    }
+
+    fn open_family(
+        path: &Path,
+        faults: Arc<dyn FaultHook>,
+        steps: &[migrations::Migration],
+        verify_tables: bool,
+        create: bool,
+    ) -> Result<(Self, u32)> {
+        let mut flags =
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        if create {
+            create_owner_only(path)?;
+            flags |= rusqlite::OpenFlags::SQLITE_OPEN_CREATE;
+        }
+        let mut conn =
+            rusqlite::Connection::open_with_flags(path, flags).map_err(codec::classify)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(codec::classify)?;
         // Read-only checks first: nothing is written to a newer, foreign or damaged
@@ -543,11 +595,14 @@ impl Store {
         if verify_tables {
             verify_schema(&conn)?;
         }
-        Ok(Self {
-            conn: std::sync::Mutex::new(conn),
-            faults,
-            read_only: false,
-        })
+        Ok((
+            Self {
+                conn: std::sync::Mutex::new(conn),
+                faults,
+                read_only: false,
+            },
+            current,
+        ))
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection> {
@@ -1003,6 +1058,25 @@ impl Txn<'_> {
                 idem.expires_at.map(codec::ts),
             ],
         )?;
+        // ⟨M08 U2b-2; ADR-0014 §3.6 steps 2 and 3⟩ The operation ID is minted under the
+        // current epoch, and the request was bound to it (a request bound to another epoch is
+        // refused before the store is written). Both columns default to 0.
+        if let Some(epoch) = self.minted_epoch()? {
+            self.tx.execute(
+                "UPDATE operations SET restore_epoch = ?2 WHERE id = ?1",
+                rusqlite::params![op.id.as_str(), epoch],
+            )?;
+            self.tx.execute(
+                "UPDATE idempotency SET request_epoch = ?4
+                 WHERE caller_json = ?1 AND kind = ?2 AND request_id = ?3",
+                rusqlite::params![
+                    caller_doc(&idem.key)?,
+                    idem.key.kind.as_str(),
+                    idem.key.request_id.as_str(),
+                    epoch
+                ],
+            )?;
+        }
         Ok(())
     }
 

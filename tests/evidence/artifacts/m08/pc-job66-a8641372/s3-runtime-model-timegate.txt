@@ -1,0 +1,35 @@
+   Compiling heimdall-runtime v0.1.0-m01 (<R>\c1\crates\runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.59s
+     Running ..\..\tests\model\timegate.rs (target\debug\deps\model_timegate-39b580d6be399f0d.exe)
+
+running 27 tests
+test forward_jump_without_continuous_progress_is_uncertain_and_wall_branch_expires ... ok
+test admission_fails_closed_without_anchor_and_on_stale_observation ... ok
+test anchor_grant_in_the_same_boot_keeps_the_minimum ... ok
+test backward_jump_is_time_uncertain_and_budget_still_runs_out ... ok
+test confirm_attended_refuses_values_outside_tolerance_and_never_moves_grant_anchor ... ok
+test forward_jump_within_tolerance_only_ends_access_sooner ... ok
+test anchor_grant_refuses_an_observation_from_another_boot ... ok
+test cutoff_after_tolerant_reanchor_stops_admission_by_the_true_cutoff ... ok
+test frozen_wall_checked_every_thirty_seconds_becomes_uncertain ... ok
+test reboot_with_wall_below_the_mark_is_refused_even_when_synchronized ... ok
+test restart_with_stuck_wall_must_not_extend_the_budget ... ok
+test reboot_synchronized_slightly_below_mark_is_uncertain_until_confirmed ... ok
+test reboot_above_the_mark_needs_synchronized_time_and_keeps_the_bound ... ok
+test reboot_with_attended_confirmation_resolves_without_moving_the_deadline ... ok
+test rolled_back_clock_above_the_mark_after_downtime_is_refused_unsynchronized ... ok
+test safe_persists_anchor_and_mark_atomically ... ok
+test shorten_grant_never_lengthens ... ok
+test same_boot_skew_is_cleared_by_attended_confirmation_without_moving_anything ... ok
+test same_boot_restart_keeps_the_deadline_and_the_remaining_budget ... ok
+test shorten_preserves_tolerance_margin_reviewer_counterexample_through_the_gate ... ok
+test sleep_across_expiry_expires_and_is_never_extended ... ok
+test sleep_with_wall_running_expires_at_the_persisted_instant ... ok
+test unsynchronized_safe_pass_advances_the_mark_and_keeps_the_anchor ... ok
+test stuck_wall_checked_often_and_restarted_still_expires_on_real_time ... ok
+test same_boot_restart_from_a_reopened_database_keeps_the_exact_budget ... ok
+test uncertain_persists_nothing ... ok
+test props_gate::no_admission_after_true_bound_through_the_gate ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.32s
+

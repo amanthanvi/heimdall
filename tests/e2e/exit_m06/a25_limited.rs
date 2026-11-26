@@ -348,9 +348,7 @@ fn install(
         pinned_at: heimdall_runtime::platform::SystemClock.wall(),
     };
     let store = Store::open(
-        &paths
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE),
+        &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
         Arc::new(NoFaults),
     )
     .unwrap();

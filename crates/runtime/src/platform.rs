@@ -62,6 +62,7 @@
 //! | Windows | `GetSecurityInfo(dir handle, SE_FILE_OBJECT, OWNER \| DACL, ...)` / `GetSecurityDescriptorControl` / `GetAclInformation` / `GetAce` / `ConvertSidToStringSidW` / `LocalFree` (`win_acl::read_facts`) | the handle is an open `READ_CONTROL` directory handle that outlives the call; every out-pointer valid; the ACL, ACE and SID pointers are read only while the `LocalFree`-owned descriptor is alive; the ACE index is below the reported count; the SID-string scan is bounded |
 //! | Windows | `ConvertStringSecurityDescriptorToSecurityDescriptorW` / `CreateDirectoryW(path, &SECURITY_ATTRIBUTES)` / `LocalFree` (`win_acl::create_dir_with_sddl`) | NUL-terminated UTF-16 strings and a descriptor that outlive the call; the directory is created exclusively with the protected owner-only DACL |
 //! | Windows | ⟨M04 review-fix⟩ `ConvertStringSecurityDescriptorToSecurityDescriptorW` / `GetSecurityDescriptorDacl` / `SetSecurityInfo(dir handle, SE_FILE_OBJECT, DACL \| PROTECTED_DACL, …)` / `LocalFree` (`win_acl::narrow_legacy`) | one `READ_CONTROL \| WRITE_DAC` handle on the directory itself (a final reparse point opened as the link); the descriptor read through it must judge `LegacyInherited` before the call; the new DACL points into a descriptor that outlives the call; owner, group and SACL are not set |
+//! | Windows | ⟨M08 U2b-1, H15⟩ `MoveFileExW(from, to, MOVEFILE_REPLACE_EXISTING \| MOVEFILE_WRITE_THROUGH)` ([`rename_replacing`]) | two NUL-terminated UTF-16 paths with no interior NUL that outlive the call; constant flags; the result is checked |
 //! | Windows | `FreeConsole()` (⟨M04⟩ U1, [`detach_console`], `service run --login` only) | no arguments; a failure (no console) is ignored |
 //! | Windows | `SetHandleInformation(std handle, HANDLE_FLAG_INHERIT, 0)` | this process's own standard handle as std holds it (null skipped); only the inherit flag changes, the handle stays open and valid; a failure is ignored |
 //! | Linux | `adjtimex(&mut tx)` with `tx` zeroed (`modes = 0`) | read-only query: valid, aligned, writable out-pointer; a negative return is an error, never a reading |
@@ -1241,6 +1242,29 @@ mod os {
     }
 }
 
+/// ⟨M08 U2b-1; ADR-0014 §3.6 "Platforms", delta H15⟩ Rename `from` over `to` on one volume,
+/// replacing `to` atomically: the store layout's pointer switch and its intent's update
+/// (`crate::state::PlatformFs`).
+///
+/// * **Windows:** `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`,
+///   which returns only once the move has been written to the disk. Windows has no
+///   directory sync, so this is what stands in for one there; the caller has flushed the
+///   renamed file before the call.
+/// * **Unix:** `rename(2)`. The caller then syncs the directory.
+///
+/// # Errors
+/// The rename failed; `to` is then unchanged.
+pub fn rename_replacing(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        win_move::move_replacing_write_through(from, to)
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::rename(from, to)
+    }
+}
+
 /// The Windows state directory's ACL (ADR-0010 §1 item 7; ADR-0006 §13.12 item 4): a
 /// fresh directory is created with an explicit **protected, owner-only** DACL
 /// ([`create_protected_dir`]), and an existing one is checked with [`check_owner_only`]
@@ -1424,6 +1448,45 @@ pub mod state_dir_acl {
         Ok(judge(&facts, &user))
     }
 
+    /// ⟨M08 U2b-1; ADR-0014 §3.6⟩ The rule for a directory Heimdall creates **inside** the
+    /// protected state directory: `generations/` and each generation directory. Such a
+    /// directory inherits the state directory's one owner-only entry. So it must be owned by
+    /// the user, have a DACL, and hold at least one entry, every one of them an allow-entry
+    /// for the user alone. The entries may be inherited or explicit, the DACL protected or
+    /// not. Anything else is refused and never repaired, as for the state directory itself.
+    #[must_use]
+    pub fn judge_inside(facts: &DaclFacts, user_sid: &str) -> Verdict {
+        if !facts.dacl_present {
+            return Verdict::NoDacl;
+        }
+        if facts.owner_sid != user_sid {
+            return Verdict::ForeignOwner;
+        }
+        if facts
+            .aces
+            .iter()
+            .any(|a| a.kind != AceKind::Allow || a.sid != user_sid)
+        {
+            return Verdict::ForeignAce;
+        }
+        if facts.aces.is_empty() {
+            return Verdict::NoAccess;
+        }
+        Verdict::OwnerOnly
+    }
+
+    /// ⟨M08 U2b-1⟩ Read a directory inside the state directory as [`check_owner_only`]
+    /// reads the state directory, and apply [`judge_inside`] with the current user's SID.
+    ///
+    /// # Errors
+    /// The directory or its security information cannot be read.
+    #[cfg(windows)]
+    pub fn check_inside_owner_only(dir: &Path) -> std::io::Result<Verdict> {
+        let user = heimdall_ipc::windows::current_user_sid()?;
+        let facts = super::win_acl::read_facts(dir)?;
+        Ok(judge_inside(&facts, &user))
+    }
+
     /// ⟨M04 Windows fix round⟩ The owner and DACL facts of `path` (a directory or a file),
     /// read as [`check_owner_only`] reads them, for exact native assertions.
     ///
@@ -1462,6 +1525,47 @@ pub mod state_dir_acl {
     pub fn migrate_legacy(dir: &Path) -> std::io::Result<()> {
         let user = heimdall_ipc::windows::current_user_sid()?;
         super::win_acl::narrow_legacy(dir, &user, &format!("D:P(A;OICI;GA;;;{user})"))
+    }
+}
+
+/// ⟨M08 U2b-1, H15⟩ The write-through rename ([`rename_replacing`]).
+#[cfg(windows)]
+mod win_move {
+    use std::io;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+
+    use windows_sys::Win32::Storage::FileSystem::{
+        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    };
+
+    /// `path` as a NUL-terminated UTF-16 string; a path holding a NUL is refused.
+    fn wide(path: &Path) -> io::Result<Vec<u16>> {
+        let units: Vec<u16> = path.as_os_str().encode_wide().collect();
+        if units.contains(&0) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a path holds a NUL character",
+            ));
+        }
+        Ok(units.into_iter().chain(Some(0)).collect())
+    }
+
+    pub(super) fn move_replacing_write_through(from: &Path, to: &Path) -> io::Result<()> {
+        let (from, to) = (wide(from)?, wide(to)?);
+        // SAFETY: `from` and `to` are NUL-terminated UTF-16 strings with no interior NUL that
+        // outlive the call; the flags are constants; the result is checked.
+        let ok = unsafe {
+            MoveFileExW(
+                from.as_ptr(),
+                to.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
     }
 }
 
@@ -1879,7 +1983,7 @@ mod time_observation_tests {
 mod state_dir_acl_tests {
     use super::state_dir_acl::{
         AceFacts, AceKind, CONTAINER_INHERIT_ACE, DaclFacts, FILE_ALL_ACCESS, GENERIC_ALL,
-        INHERIT_ONLY_ACE, OBJECT_INHERIT_ACE, Verdict, judge,
+        INHERIT_ONLY_ACE, OBJECT_INHERIT_ACE, Verdict, judge, judge_inside,
     };
 
     const ME: &str = "S-1-5-21-1-2-3-1001";
@@ -2039,5 +2143,52 @@ mod state_dir_acl_tests {
             aces: vec![],
         };
         assert_eq!(judge(&null, ME), Verdict::NoDacl);
+    }
+
+    /// ⟨M08 U2b-1; ADR-0014 §3.6⟩ The rule for a directory inside the state directory
+    /// (`generations/`, a generation): the one inherited owner-only entry passes, protected
+    /// or not; another principal, a deny entry, another owner, no entry and no DACL fail.
+    /// (Windows native: `windows_generation_directory_not_owner_only_is_refused`.)
+    #[test]
+    fn a_directory_inside_the_state_directory_passes_only_with_the_users_entries() {
+        for protected in [false, true] {
+            assert_eq!(
+                judge_inside(&facts(protected, ME, vec![allow(ME)]), ME),
+                Verdict::OwnerOnly,
+                "protected {protected}"
+            );
+        }
+        for other in ["S-1-5-18", "S-1-1-0", "S-1-5-32-544"] {
+            assert_eq!(
+                judge_inside(&facts(false, ME, vec![allow(ME), allow(other)]), ME),
+                Verdict::ForeignAce,
+                "{other}"
+            );
+        }
+        let deny = AceFacts {
+            kind: AceKind::Other(1),
+            sid: ME.to_owned(),
+            mask: 0,
+            flags: 0,
+        };
+        assert_eq!(
+            judge_inside(&facts(false, ME, vec![allow(ME), deny]), ME),
+            Verdict::ForeignAce
+        );
+        assert_eq!(
+            judge_inside(&facts(false, "S-1-5-32-544", vec![allow(ME)]), ME),
+            Verdict::ForeignOwner
+        );
+        assert_eq!(
+            judge_inside(&facts(false, ME, vec![]), ME),
+            Verdict::NoAccess
+        );
+        let null = DaclFacts {
+            owner_sid: ME.to_owned(),
+            dacl_present: false,
+            protected: false,
+            aces: vec![],
+        };
+        assert_eq!(judge_inside(&null, ME), Verdict::NoDacl);
     }
 }

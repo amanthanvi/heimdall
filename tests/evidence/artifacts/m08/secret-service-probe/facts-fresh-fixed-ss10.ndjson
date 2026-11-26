@@ -1,0 +1,20 @@
+{"fact": "session-bus", "value": "present"}
+{"fact": "secret-tool-store", "value": "exit 0"}
+{"fact": "secret-tool-lookup", "value": "ok"}
+{"fact": "heimdall-version", "value": "heimdall 0.1.0-m01"}
+{"fact": "runtime", "value": "up"}
+{"fact": "time-confirm", "value": "exit 0, OK"}
+{"fact": "store-items-before", "value": "0"}
+{"fact": "mode", "value": "fresh"}
+{"fact": "issuer-init-A", "value": {"exit": 0, "register_prompt": true, "passphrase_shown": true, "written_prompt": true, "code": "OK", "state": "succeeded", "error_message": null, "error_reason": null, "ca_state": "active"}}
+{"fact": "issuer-init-A-backup-file", "value": "written"}
+{"fact": "issuer-init-A-store-items-after", "value": "1"}
+{"fact": "project-trust", "value": "exit 2, USAGE_ERROR"}
+{"fact": "issuer-init-B", "value": {"exit": 6, "register_prompt": false, "passphrase_shown": false, "written_prompt": false, "code": "CONFIG_CONFLICT", "state": "failed", "error_message": "the issuer is already initialized", "error_reason": null, "ca_state": null}}
+{"fact": "issuer-init-B-backup-file", "value": "absent"}
+{"fact": "issuer-init-B-store-items-after", "value": "1"}
+{"fact": "issuer-status", "value": "OK; ca state active; store kind "}
+{"fact": "service-stop", "value": "OK"}
+{"fact": "issuer-unlock-after-restart", "value": "exit 0, OK, "}
+{"fact": "issuer-status-after-restart", "value": "OK; ca state active"}
+{"fact": "service-stop-2", "value": "OK"}

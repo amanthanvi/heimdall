@@ -1,0 +1,16 @@
+# at a8641372 (this worktree), macOS arm64, through heavy-gate, CARGO_BUILD_JOBS=4
+# cargo test --locked -p heimdall-store --lib ext_runner
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 51.85s
+     Running unittests src/lib.rs (target/debug/deps/heimdall_store-d8b6571ab5999ed7)
+
+running 6 tests
+test ext_runner::tests::issuer_trust_and_the_time_source_are_kept_and_removed ... ok
+test ext_runner::tests::the_downgrade_keeps_its_first_cause_and_a_lift_is_bound_to_its_epoch ... ok
+test ext_runner::tests::the_bridges_write_never_creates_or_writes_a_database_that_is_not_a_runners ... ok
+test ext_runner::tests::a_grant_is_pinned_once_and_never_repinned_to_another_issuer ... ok
+test ext_runner::tests::a_restore_carries_the_downgrade_forward_and_never_lowers_it ... ok
+test ext_runner::tests::the_bridges_write_is_set_only_idempotent_and_bounded ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 59 filtered out; finished in 0.41s
+
+# exit 0

@@ -1,0 +1,18 @@
+   Compiling heimdall-issuer v0.1.0-m01 (<R>\c1\crates\issuer)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.26s
+     Running ..\..\tests\integration\issuer_remote_m06.rs (target\debug\deps\integration_issuer_remote_m06-7735fab2b237071e.exe)
+
+running 10 tests
+test condition_1_needs_a_recorded_runner_and_an_issuing_role ... ok
+test a_remote_reservation_is_signed_when_every_condition_holds ... ok
+test condition_5_needs_a_key_id_naming_the_runners_environment ... ok
+test condition_4_needs_this_controllers_active_ca ... ok
+test condition_2_needs_the_report_read_and_the_outbox_drained ... ok
+test condition_3_needs_the_prepare_answers_key_binding ... ok
+test a_stale_settled_or_revoked_remote_reservation_is_refused ... ok
+test condition_6_signs_only_what_this_controller_delivered ... ok
+test each_remote_refusal_is_named_by_its_own_text ... ok
+test condition_7_bounds_the_validity_by_expiry_cutoff_and_the_runners_bound ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.54s
+

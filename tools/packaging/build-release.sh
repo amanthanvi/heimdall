@@ -161,7 +161,9 @@ feature_args=()
 echo "== build-release: $target at ${commit:0:12} (tree clean: $clean)"
 mkdir -p "$repo/target/release-artifacts"
 messages="$repo/target/release-artifacts/.build-messages-$target.json"
-env "${build_env[@]}" cargo build --release --locked ${offline[@]+"${offline[@]}"} -p heimdall \
+# --no-default-features: the default feature `test-config` is the debug-build edge to the
+# test kit (M08 U3c); a release artifact never has it.
+env "${build_env[@]}" cargo build --release --locked --no-default-features ${offline[@]+"${offline[@]}"} -p heimdall \
     --target "$target" ${feature_args[@]+"${feature_args[@]}"} --message-format=json-render-diagnostics \
     >"$messages" || { echo "build-release: cargo build failed" >&2; exit 1; }
 finished=$(now)

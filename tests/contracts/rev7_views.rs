@@ -185,6 +185,7 @@ fn inspect_capabilities_today() {
             capability::SETUP_V1, capability::ISSUER_V1, capability::ENROLLMENT_V1,
             capability::MANAGED_CREDENTIALS_V1, capability::CONNECTIONS_V1,
             capability::ENVIRONMENTS_V1, capability::TRUSTED_WORK_V1,
+            capability::REQUEST_EPOCH_V1,
         ],
         "schemas": schemas,
         "codes": heimdall_contract::schema::code_table()["codes"].clone(),

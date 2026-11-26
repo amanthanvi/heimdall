@@ -1,0 +1,154 @@
+ Downloading crates ...
+  Downloaded instability v0.3.14
+  Downloaded heck v0.5.0
+  Downloaded castaway v0.2.4
+  Downloaded clap_lex v1.1.1
+  Downloaded compact_str v0.9.1
+  Downloaded crossterm v0.29.0
+  Downloaded num-conv v0.2.2
+  Downloaded darling_macro v0.24.1
+  Downloaded strsim v0.11.1
+  Downloaded indoc v2.0.8
+  Downloaded deranged v0.5.9
+  Downloaded rustversion v1.0.23
+  Downloaded anstyle v1.0.14
+  Downloaded ident_case v1.0.1
+  Downloaded palette_derive v0.7.7
+  Downloaded convert_case v0.10.0
+  Downloaded by_address v1.2.1
+  Downloaded crossterm_winapi v0.9.1
+  Downloaded kasuari v0.4.13
+  Downloaded clap v4.6.7
+  Downloaded scopeguard v1.2.0
+  Downloaded allocator-api2 v0.2.21
+  Downloaded derive_more v2.1.1
+  Downloaded derive_more-impl v2.1.1
+  Downloaded line-clipping v0.3.8
+  Downloaded palette_math v0.7.7
+  Downloaded approx v0.5.1
+  Downloaded litrs v1.0.1
+  Downloaded lock_api v0.4.14
+  Downloaded parking_lot v0.12.5
+  Downloaded parking_lot_core v0.9.12
+  Downloaded clap_builder v4.6.7
+  Downloaded document-features v0.2.12
+  Downloaded ratatui-core v0.1.2
+  Downloaded itertools v0.14.0
+  Downloaded time v0.3.55
+  Downloaded darling v0.24.1
+  Downloaded time-core v0.1.9
+  Downloaded ratatui-crossterm v0.1.2
+  Downloaded palette v0.7.7
+  Downloaded static_assertions v1.1.0
+  Downloaded strum_macros v0.28.0
+  Downloaded ryu v1.0.23
+  Downloaded powerfmt v0.2.1
+  Downloaded ratatui v0.30.2
+  Downloaded unicode-truncate v2.0.1
+  Downloaded portable-atomic v1.15.0
+  Downloaded unicode-segmentation v1.13.3
+  Downloaded either v1.19.0
+  Downloaded darling_core v0.24.1
+  Downloaded lru v0.18.5
+  Downloaded unicode-width v0.2.3
+  Downloaded clap_derive v4.6.7
+  Downloaded ratatui-widgets v0.3.2
+  Downloaded strum v0.28.0
+  Downloaded winapi v0.3.9
+   Compiling syn v3.0.9
+   Compiling equivalent v1.0.3
+   Compiling allocator-api2 v0.2.21
+   Compiling bitflags v2.13.2
+   Compiling unicode-segmentation v1.13.3
+   Compiling hashbrown v0.17.1
+   Compiling rustversion v1.0.23
+   Compiling heck v0.5.0
+   Compiling ident_case v1.0.1
+   Compiling hashlink v0.12.2
+   Compiling strsim v0.11.1
+   Compiling rusqlite v0.41.1
+   Compiling parking_lot_core v0.9.12
+   Compiling winapi v0.3.9
+   Compiling either v1.19.0
+   Compiling itertools v0.14.0
+   Compiling castaway v0.2.4
+   Compiling strum_macros v0.28.0
+   Compiling serde_derive_internals v0.30.0
+   Compiling darling_core v0.24.1
+   Compiling convert_case v0.10.0
+   Compiling scopeguard v1.2.0
+   Compiling unicode-width v0.2.3
+   Compiling ryu v1.0.23
+   Compiling static_assertions v1.1.0
+   Compiling compact_str v0.9.1
+   Compiling thiserror-impl v2.0.21
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling ref-cast v1.0.27
+   Compiling thiserror v2.0.21
+   Compiling schemars_derive v1.2.3
+   Compiling tokio-macros v2.7.2
+   Compiling async-trait v0.1.92
+   Compiling tokio v1.54.1
+   Compiling ssh-agent-lib v0.6.0
+   Compiling serde v1.0.229
+   Compiling darling_macro v0.24.1
+   Compiling kasuari v0.4.13
+   Compiling schemars v1.2.3
+   Compiling heimdall-stategen v0.1.0-m01 (<R>\c1\crates\stategen)
+   Compiling darling v0.24.1
+   Compiling heimdall-contract v0.1.0-m01 (<R>\c1\crates\contract)
+   Compiling tokio-util v0.7.20
+   Compiling unicode-truncate v2.0.1
+   Compiling strum v0.28.0
+   Compiling lock_api v0.4.14
+   Compiling derive_more-impl v2.1.1
+   Compiling lru v0.18.5
+   Compiling indoc v2.0.8
+   Compiling litrs v1.0.1
+   Compiling document-features v0.2.12
+   Compiling instability v0.3.14
+   Compiling crossterm_winapi v0.9.1
+   Compiling ratatui-core v0.1.2
+   Compiling derive_more v2.1.1
+   Compiling parking_lot v0.12.5
+   Compiling line-clipping v0.3.8
+   Compiling crossterm v0.29.0
+   Compiling clap_lex v1.1.1
+   Compiling anstyle v1.0.14
+   Compiling proptest v1.12.0
+   Compiling ratatui-crossterm v0.1.2
+   Compiling clap_builder v4.6.7
+   Compiling ratatui-widgets v0.3.2
+   Compiling clap_derive v4.6.7
+   Compiling clap v4.6.7
+   Compiling ratatui v0.30.2
+   Compiling heimdall-domain v0.1.0-m01 (<R>\c1\crates\domain)
+   Compiling heimdall-ipc v0.1.0-m01 (<R>\c1\crates\ipc)
+   Compiling heimdall-transport-iroh v0.1.0-m01 (<R>\c1\crates\transport-iroh)
+   Compiling heimdall-store v0.1.0-m01 (<R>\c1\crates\store)
+   Compiling heimdall-registry v0.1.0-m01 (<R>\c1\crates\registry)
+   Compiling heimdall-project v0.1.0-m01 (<R>\c1\crates\project)
+   Compiling heimdall-sshconf v0.1.0-m01 (<R>\c1\crates\sshconf)
+   Compiling heimdall-app v0.1.0-m01 (<R>\c1\crates\app)
+   Compiling heimdall-localenv v0.1.0-m01 (<R>\c1\crates\localenv)
+   Compiling heimdall-credential v0.1.0-m01 (<R>\c1\crates\credential)
+   Compiling heimdall-remote v0.1.0-m01 (<R>\c1\crates\remote)
+   Compiling heimdall-issuer v0.1.0-m01 (<R>\c1\crates\issuer)
+   Compiling heimdall-wsl v0.1.0-m01 (<R>\c1\crates\wsl)
+   Compiling heimdall-enroll v0.1.0-m01 (<R>\c1\crates\enroll)
+   Compiling heimdall-adapters v0.1.0-m01 (<R>\c1\crates\adapters)
+   Compiling heimdall-runtime v0.1.0-m01 (<R>\c1\crates\runtime)
+   Compiling heimdall-testkit v0.1.0-m01 (<R>\c1\crates\testkit)
+   Compiling heimdall-launch v0.1.0-m01 (<R>\c1\crates\launch)
+   Compiling heimdall v0.1.0-m01 (<R>\c1\crates\heimdall)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 13s
+     Running ..\..\tests\e2e\request_epoch_cli.rs (target\debug\deps\e2e_request_epoch-7ce1eac1a6f962ba.exe)
+
+running 3 tests
+test run_reports_its_minted_request_id_with_the_epoch ... ok
+test clients_carry_the_epoch_with_a_kept_request_id_through_the_cli ... ok
+test stale_epoch_is_refused_before_any_write_through_the_cli ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+

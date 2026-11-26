@@ -1,0 +1,15 @@
+OpenSSH_8.2p1
+usepam yes
+permittty yes
+allowtcpforwarding yes
+allowagentforwarding yes
+disableforwarding no
+allowstreamlocalforwarding yes
+forcecommand none
+authorizedkeyscommand none
+authorizedprincipalscommand none
+authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2
+acceptenv LANG
+acceptenv LC_*
+authenticationmethods any
+permituserenvironment no

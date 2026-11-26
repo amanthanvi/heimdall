@@ -1,0 +1,24 @@
+# revert proof: an untracked git-archive copy of a8641372 with only crates/store/src/ext_runner.rs:525 (at_this_builds_schema(&tx.tx)?;) replaced by a comment
+# cargo test --locked -p heimdall-runtime --lib -- paired::adoption_window_tests
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 04s
+     Running unittests src/lib.rs (target/debug/deps/heimdall_runtime-1ae6c70e5d42ee4b)
+
+running 1 test
+test paired::adoption_window_tests::a_bridge_write_after_the_adoption_fence_is_refused_and_reaches_the_served_generation_by_the_marker ... FAILED
+
+failures:
+
+---- paired::adoption_window_tests::a_bridge_write_after_the_adoption_fence_is_refused_and_reaches_the_served_generation_by_the_marker stdout ----
+
+thread 'paired::adoption_window_tests::a_bridge_write_after_the_adoption_fence_is_refused_and_reaches_the_served_generation_by_the_marker' (214267224) panicked at crates/runtime/src/paired.rs:3397:9:
+the bridge's write was not refused: Ok(RunnerDowngrade { cause: "session_pty", epoch: 1, recorded_at: 2026-11-25T09:00:00Z, last_event_at: 2026-11-25T09:00:00Z })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    paired::adoption_window_tests::a_bridge_write_after_the_adoption_fence_is_refused_and_reaches_the_served_generation_by_the_marker
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 149 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `-p heimdall-runtime --lib`
+# exit 101

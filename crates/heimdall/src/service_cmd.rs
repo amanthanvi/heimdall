@@ -1050,6 +1050,7 @@ mod tests {
             non_interactive,
             home: None,
             stdin_tty: tty,
+            request_epoch: None,
         }
     }
 

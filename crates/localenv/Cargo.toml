@@ -102,3 +102,9 @@ path = "../../tests/integration/projection_state_dir_guard.rs"
 [[test]]
 name = "integration_projection_managed"
 path = "../../tests/integration/projection_managed.rs"
+
+# ⟨M08 U1b⟩ Spec §14.3 "host alias collision", the same-name case (m08-plan §7.1; U0-Q9, Q10):
+# a user `Host` line naming a managed alias, reported by the doctor and by setup's plan.
+[[test]]
+name = "adversarial_alias_collision"
+path = "../../tests/adversarial/alias_collision.rs"

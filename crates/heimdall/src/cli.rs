@@ -121,6 +121,47 @@ pub struct Cli {
     /// Subcommand; with none, the TUI on a terminal, otherwise the runtime status.
     #[command(subcommand)]
     pub command: Option<Command>,
+    /// ⟨M08 U2b-2⟩ The `--request-epoch` of whichever command was given (every command that
+    /// takes `--request-id` takes it), read by [`parse_args`]; not an argument of its own.
+    #[arg(skip)]
+    pub request_epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
+}
+
+/// The arg ID every command's `--request-epoch` has ([`parse_args`] finds it by this ID).
+pub(crate) const REQUEST_EPOCH_ARG: &str = "request_epoch";
+
+/// ⟨M08 U2b-2; ADR-0014 §3.6 step 3; U0-Q5⟩ Parse `argv` as [`Cli::try_parse_from`] does,
+/// and keep the given command's `--request-epoch` in [`Cli::request_epoch`], whichever
+/// command it is: the kept epoch every mutating request of the invocation then carries.
+///
+/// # Errors
+/// clap's refusal, as [`Cli::try_parse_from`].
+pub fn parse_args<I, T>(argv: I) -> Result<Cli, clap::Error>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    use clap::{CommandFactory as _, FromArgMatches as _};
+    let mut matches = Cli::command().try_get_matches_from(argv)?;
+    let epoch = kept_request_epoch(&matches);
+    // As `Cli::try_parse_from` does: a matching error is formatted with the command.
+    let mut cli =
+        Cli::from_arg_matches_mut(&mut matches).map_err(|e| e.format(&mut Cli::command()))?;
+    cli.request_epoch = epoch;
+    Ok(cli)
+}
+
+/// The `--request-epoch` of the innermost command given, if any.
+fn kept_request_epoch(
+    matches: &clap::ArgMatches,
+) -> Option<heimdall_contract::lifecycle::RestoreEpoch> {
+    let mut at = matches;
+    loop {
+        if let Ok(Some(epoch)) = at.try_get_one::<u64>(REQUEST_EPOCH_ARG) {
+            return Some(heimdall_contract::lifecycle::RestoreEpoch(*epoch));
+        }
+        at = at.subcommand()?.1;
+    }
 }
 
 /// Top-level commands.
@@ -293,6 +334,11 @@ pub struct RunArgs {
     /// reported when absent). A retry with the same ID never relaunches by itself.
     #[arg(long)]
     pub request_id: Option<String>,
+    /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+    /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+    /// is used.
+    #[arg(long, value_name = "N", requires = "request_id")]
+    pub request_epoch: Option<u64>,
     // ADR-0011 §6.
     /// Run the program with a narrower child binding of this parent binding: the program
     /// gets only the child's signing endpoint and no `HEIMDALL_*` variable. A wider scope
@@ -385,6 +431,11 @@ pub enum SetupCommand {
         /// Idempotency request ID (a fresh one is minted and reported when absent).
         #[arg(long)]
         request_id: Option<String>,
+        /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+        /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+        /// is used.
+        #[arg(long, value_name = "N", requires = "request_id")]
+        request_epoch: Option<u64>,
     },
     /// Remove the projection and restore your files to the consented state.
     Rollback {
@@ -394,6 +445,11 @@ pub enum SetupCommand {
         /// Idempotency request ID.
         #[arg(long)]
         request_id: Option<String>,
+        /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+        /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+        /// is used.
+        #[arg(long, value_name = "N", requires = "request_id")]
+        request_epoch: Option<u64>,
     },
     /// Repair a reported conflict (`repair <conflict> <resolution>`), or a held
     /// operation (`repair --operation <id> retry|keep`).
@@ -414,6 +470,11 @@ pub struct RepairArgs {
     /// Idempotency request ID.
     #[arg(long)]
     pub request_id: Option<String>,
+    /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+    /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+    /// is used.
+    #[arg(long, value_name = "N", requires = "request_id")]
+    pub request_epoch: Option<u64>,
 }
 
 /// `doctor` arguments (ADR-0007 §6; m02-plan U9).
@@ -457,6 +518,11 @@ pub enum DestinationCommand {
         /// Idempotency request ID.
         #[arg(long)]
         request_id: Option<String>,
+        /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+        /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+        /// is used.
+        #[arg(long, value_name = "N", requires = "request_id")]
+        request_epoch: Option<u64>,
     },
     /// Choose which mechanism serves an alias: the managed definition or the existing
     /// access (takes effect with `setup apply`).
@@ -519,6 +585,11 @@ pub struct DestinationAddArgs {
     /// Idempotency request ID.
     #[arg(long)]
     pub request_id: Option<String>,
+    /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+    /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+    /// is used.
+    #[arg(long, value_name = "N", requires = "request_id")]
+    pub request_epoch: Option<u64>,
 }
 
 /// `identity` subcommands (ADR-0007 §7; m02-plan U9).
@@ -540,6 +611,11 @@ pub enum IdentityCommand {
         /// Idempotency request ID.
         #[arg(long)]
         request_id: Option<String>,
+        /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+        /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+        /// is used.
+        #[arg(long, value_name = "N", requires = "request_id")]
+        request_epoch: Option<u64>,
     },
     /// Withdraw an interaction declaration (narrowing; no decision).
     WithdrawDeclaration {
@@ -548,6 +624,11 @@ pub enum IdentityCommand {
         /// Idempotency request ID.
         #[arg(long)]
         request_id: Option<String>,
+        /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+        /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+        /// is used.
+        #[arg(long, value_name = "N", requires = "request_id")]
+        request_epoch: Option<u64>,
     },
     /// Remove an adopted identity.
     Remove {
@@ -556,6 +637,11 @@ pub enum IdentityCommand {
         /// Idempotency request ID.
         #[arg(long)]
         request_id: Option<String>,
+        /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+        /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+        /// is used.
+        #[arg(long, value_name = "N", requires = "request_id")]
+        request_epoch: Option<u64>,
     },
 }
 
@@ -593,6 +679,11 @@ pub struct IdentityAdoptArgs {
     /// Idempotency request ID.
     #[arg(long)]
     pub request_id: Option<String>,
+    /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+    /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+    /// is used.
+    #[arg(long, value_name = "N", requires = "request_id")]
+    pub request_epoch: Option<u64>,
 }
 
 /// `profile` subcommands (m02-plan U9).
@@ -611,6 +702,11 @@ pub enum ProfileCommand {
         /// Idempotency request ID.
         #[arg(long)]
         request_id: Option<String>,
+        /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+        /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+        /// is used.
+        #[arg(long, value_name = "N", requires = "request_id")]
+        request_epoch: Option<u64>,
     },
     /// Show a profile (read-only).
     Show {
@@ -627,6 +723,11 @@ pub enum ProfileCommand {
         /// Idempotency request ID.
         #[arg(long)]
         request_id: Option<String>,
+        /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+        /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+        /// is used.
+        #[arg(long, value_name = "N", requires = "request_id")]
+        request_epoch: Option<u64>,
     },
     /// Remove pairs from a profile; without `--pair`, remove the profile.
     Remove {
@@ -638,6 +739,11 @@ pub enum ProfileCommand {
         /// Idempotency request ID.
         #[arg(long)]
         request_id: Option<String>,
+        /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+        /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+        /// is used.
+        #[arg(long, value_name = "N", requires = "request_id")]
+        request_epoch: Option<u64>,
     },
     /// List profiles (read-only).
     List,
@@ -685,6 +791,11 @@ pub enum AccessCommand {
         /// Idempotency request ID (a fresh one is minted and reported when absent).
         #[arg(long)]
         request_id: Option<String>,
+        /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+        /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+        /// is used.
+        #[arg(long, value_name = "N", requires = "request_id")]
+        request_epoch: Option<u64>,
     },
     /// Narrower child binding.
     Delegate(DelegateArgs),
@@ -829,6 +940,11 @@ pub struct AccessStopArgs {
     /// absent).
     #[arg(long, requires = "work")]
     pub request_id: Option<String>,
+    /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+    /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+    /// is used.
+    #[arg(long, value_name = "N", requires = "request_id")]
+    pub request_epoch: Option<u64>,
 }
 
 /// `access default-profile` arguments (M05; ADR-0011 §5.1; ADR-0006 §17.9 item 13).
@@ -843,6 +959,11 @@ pub struct AccessDefaultProfileArgs {
     /// Idempotency request ID (a fresh one is minted and reported when absent).
     #[arg(long)]
     pub request_id: Option<String>,
+    /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+    /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+    /// is used.
+    #[arg(long, value_name = "N", requires = "request_id")]
+    pub request_epoch: Option<u64>,
 }
 
 /// `access lock-behavior` arguments (m03-plan §5 item 24).
@@ -979,6 +1100,11 @@ pub struct EnsureArgs {
     /// Idempotency request ID.
     #[arg(long)]
     pub request_id: String,
+    /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+    /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+    /// is used.
+    #[arg(long, value_name = "N", requires = "request_id")]
+    pub request_epoch: Option<u64>,
     /// Return immediately with the operation to observe (`ACCEPTED`, exit 0).
     #[arg(long = "async")]
     pub r#async: bool,
@@ -1024,6 +1150,11 @@ pub struct DelegateArgs {
     /// Request ID.
     #[arg(long)]
     pub request_id: String,
+    /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+    /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+    /// is used.
+    #[arg(long, value_name = "N", requires = "request_id")]
+    pub request_epoch: Option<u64>,
 }
 
 /// ⟨ADR-0008 §17.28 item 6⟩ `issuer --help`'s note: an ad-hoc-signed macOS build may lose
@@ -1527,6 +1658,11 @@ pub struct ImportArgs {
     /// Idempotency request ID (a fresh one is minted and reported when absent).
     #[arg(long)]
     pub request_id: Option<String>,
+    /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+    /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+    /// is used.
+    #[arg(long, value_name = "N", requires = "request_id")]
+    pub request_epoch: Option<u64>,
 }
 
 /// ⟨rev7⟩ `support` subcommands (ADR-0014 H1): a skeleton answering "not available in this
@@ -1692,6 +1828,7 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         non_interactive: cli.non_interactive,
         home: cli.home,
         stdin_tty: std::io::stdin().is_terminal(),
+        request_epoch: cli.request_epoch,
     };
     let command = match cli.command {
         Some(Command::Schema(SchemaCommand::Show { name })) => return schema_show(&name),
@@ -1852,6 +1989,24 @@ pub(crate) fn fresh_request_id() -> Result<RequestId, Done> {
             Code::InternalError,
             "randomness unavailable",
         )))),
+    }
+}
+
+/// ⟨M08 U2b-2 follow-up B; ADR-0014 §3.6 step 3⟩ The arguments that retry a request, as a
+/// person or an agent passes them back: its request ID and, beside it, the restore epoch the
+/// ID was first sent with, when that is known (a runtime that does not check the epoch reports
+/// none, and a kept epoch could not be sent to it).
+pub(crate) fn retry_args(
+    request_id: &RequestId,
+    epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
+) -> String {
+    match epoch {
+        Some(epoch) => format!(
+            "--request-id {} --request-epoch {}",
+            request_id.as_str(),
+            epoch.0
+        ),
+        None => format!("--request-id {}", request_id.as_str()),
     }
 }
 
@@ -2053,6 +2208,7 @@ async fn access(ctx: &Ctx, command: AccessCommand) -> Result<Done, Done> {
         AccessCommand::Revoke {
             grant_id,
             request_id,
+            request_epoch: _,
         } => {
             let grant_id = parse("grant ID", GrantId::parse, &grant_id)?;
             let request_id = match request_id {
@@ -2989,6 +3145,155 @@ mod tree_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ⟨M08 U2b-2; ASK-FLAGS⟩ Every command that takes `--request-id` takes `--request-epoch`,
+    /// which needs `--request-id`, and the given command's epoch is the invocation's kept one
+    /// ([`parse_args`]), whichever command it is.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn every_request_id_command_takes_its_request_epoch() {
+        use clap::CommandFactory as _;
+        fn walk(cmd: &clap::Command, path: &mut Vec<String>, found: &mut Vec<String>) {
+            let ids: Vec<&str> = cmd.get_arguments().map(|a| a.get_id().as_str()).collect();
+            if ids.contains(&"request_id") {
+                found.push(path.join(" "));
+                assert!(
+                    ids.contains(&REQUEST_EPOCH_ARG),
+                    "{path:?} has no --request-epoch"
+                );
+                let epoch = cmd
+                    .get_arguments()
+                    .find(|a| a.get_id().as_str() == REQUEST_EPOCH_ARG)
+                    .unwrap();
+                assert_eq!(epoch.get_long(), Some("request-epoch"), "{path:?}");
+            } else {
+                assert!(
+                    !ids.contains(&REQUEST_EPOCH_ARG),
+                    "{path:?}: an epoch with no ID"
+                );
+            }
+            for sub in cmd.get_subcommands() {
+                path.push(sub.get_name().to_owned());
+                walk(sub, path, found);
+                path.pop();
+            }
+        }
+        let mut found = Vec::new();
+        walk(&Cli::command(), &mut Vec::new(), &mut found);
+        assert_eq!(found.len(), 20, "{found:?}");
+        let epoch = |argv: &[&str]| {
+            parse_args(std::iter::once("heimdall").chain(argv.iter().copied()))
+                .map(|c| c.request_epoch)
+        };
+        use heimdall_contract::lifecycle::RestoreEpoch;
+        assert_eq!(
+            epoch(&[
+                "access",
+                "revoke",
+                "grant_x",
+                "--request-id",
+                "r",
+                "--request-epoch",
+                "7"
+            ])
+            .unwrap(),
+            Some(RestoreEpoch(7))
+        );
+        assert_eq!(
+            epoch(&[
+                "setup",
+                "apply",
+                "--request-id",
+                "r",
+                "--request-epoch",
+                "3"
+            ])
+            .unwrap(),
+            Some(RestoreEpoch(3))
+        );
+        assert_eq!(
+            epoch(&[
+                "environment",
+                "invite",
+                "env_x",
+                "--role",
+                "viewer",
+                "--public-key",
+                "k",
+                "--request-id",
+                "r",
+                "--request-epoch",
+                "2",
+            ])
+            .unwrap(),
+            Some(RestoreEpoch(2))
+        );
+        assert_eq!(
+            epoch(&["access", "revoke", "grant_x", "--request-id", "r"]).unwrap(),
+            None
+        );
+        // Without the request ID it names, the epoch is a usage error.
+        assert!(epoch(&["access", "revoke", "grant_x", "--request-epoch", "7"]).is_err());
+        assert!(
+            epoch(&[
+                "access",
+                "revoke",
+                "grant_x",
+                "--request-id",
+                "r",
+                "--request-epoch",
+                "-1"
+            ])
+            .is_err()
+        );
+    }
+
+    /// ⟨M08 U2b-2 follow-up B⟩ The retry arguments `run` and `environment invite` report are
+    /// the ones they take back: the request ID with the epoch beside it, or the ID alone when
+    /// the runtime reported no epoch.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn retry_args_are_taken_back_as_reported() {
+        use heimdall_contract::lifecycle::RestoreEpoch;
+        let id = RequestId::parse("req-0123456789abcdef").unwrap();
+        let reported = retry_args(&id, Some(RestoreEpoch(4)));
+        assert_eq!(
+            reported,
+            "--request-id req-0123456789abcdef --request-epoch 4"
+        );
+        assert_eq!(retry_args(&id, None), "--request-id req-0123456789abcdef");
+        for command in [
+            &["run", "--profile", "dev"][..],
+            &[
+                "environment",
+                "invite",
+                "env_x",
+                "--role",
+                "viewer",
+                "--public-key",
+                "k",
+            ][..],
+        ] {
+            let program: &[&str] = if command[0] == "run" {
+                &["--", "ssh"]
+            } else {
+                &[]
+            };
+            let argv = std::iter::once("heimdall")
+                .chain(command.iter().copied())
+                .chain(reported.split(' '))
+                .chain(program.iter().copied());
+            let cli = parse_args(argv).unwrap();
+            assert_eq!(cli.request_epoch, Some(RestoreEpoch(4)), "{command:?}");
+            let given = match cli.command {
+                Some(Command::Run(a)) => a.request_id,
+                Some(Command::Environment(m06_cmd::EnvironmentCommand::Invite(a))) => a.request_id,
+                _ => None,
+            };
+            assert_eq!(given.as_deref(), Some(id.as_str()), "{command:?}");
+        }
+    }
+
     use clap::CommandFactory as _;
 
     #[test]
@@ -3598,6 +3903,7 @@ mod tests {
             non_interactive: false,
             home: None,
             stdin_tty: true,
+            request_epoch: None,
         }
     }
 
@@ -3947,6 +4253,7 @@ mod tests {
             non_interactive: ni,
             home: None,
             stdin_tty: tty,
+            request_epoch: None,
         };
         assert!(ctx(true, false).interactive());
         assert!(!ctx(true, true).interactive());

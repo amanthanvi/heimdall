@@ -38,10 +38,15 @@ pub mod paired_endpoints;
 pub mod paired_lines;
 pub mod paths;
 pub mod platform;
+// ⟨M08 U2b-2⟩ The epoch check, the replay fence and the request ledger (ADR-0014 §3.6, H9,
+// H13).
+pub mod request_fence;
 // ⟨M06 U3⟩ (ADR-0012 §4): the runner runtime's issuance, time source, readiness, clean
 // launch and lifetime.
 pub mod runner;
 pub mod service;
+// ⟨M08 U2b-1⟩ The store through the generation layout (ADR-0014 §3.6, H12, H15).
+pub mod state_store;
 // ⟨M05⟩ U6 (ADR-0011 §5): managed-slot handover.
 pub mod slot_handover;
 // ⟨M03⟩ U9: the session-lock sources (ADR-0008 D9 item 3; m03-plan U9).

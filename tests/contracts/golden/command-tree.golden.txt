@@ -9,13 +9,16 @@ heimdall setup apply
   --include-git
   --allow-config-commands
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall setup rollback
   --keep-key-files
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall setup repair
   --operation <OPERATION_ID>
   <ARG>  [positional required repeatable]
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall setup status
 heimdall connect
   <DESTINATION>  [positional required]
@@ -26,6 +29,7 @@ heimdall run
   --profile <PROFILE>
   --work-id <WORK_ID>
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
   --parent-binding <BINDING>
   --scope <DEST:ACCOUNT>  [repeatable requires=--parent-binding]
   --until <INSTANT>  [requires=--parent-binding]
@@ -57,12 +61,14 @@ heimdall destination add
   --id <ID>
   --label <LABEL>
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall destination list
 heimdall destination show
   <DESTINATION>  [positional required]
 heimdall destination remove
   <DESTINATION>  [positional required]
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall destination prefer
   <ALIAS>  [positional required]
   <MECHANISM>  [positional required values=managed|existing]
@@ -75,32 +81,39 @@ heimdall identity adopt
   --fingerprint <FINGERPRINT>  [requires=--from-agent conflicts=--pub]
   --label <LABEL>
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall identity declare-interaction
   <IDENTITY>  [positional required]
   <INTERACTION>  [positional required values=none]
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall identity withdraw-declaration
   <IDENTITY>  [positional required]
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall identity remove
   <IDENTITY>  [positional required]
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall profile
 heimdall profile create
   <PROFILE>  [positional required]
   --pair <DEST:ACCOUNT>  [repeatable]
   --label <LABEL>
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall profile show
   <PROFILE>  [positional required]
 heimdall profile add
   <PROFILE>  [positional required]
   --pair <DEST:ACCOUNT>  [required repeatable]
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall profile remove
   <PROFILE>  [positional required]
   --pair <DEST:ACCOUNT>  [repeatable]
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall profile list
 heimdall uninstall
   --purge-state
@@ -198,6 +211,7 @@ heimdall import
   <BUNDLE>  [positional required]
   --yes
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall environment
 heimdall environment add
   --destination <DESTINATION>  [required]
@@ -211,6 +225,7 @@ heimdall environment invite
   --role <ROLE>  [required values=owner|requester|viewer]
   --public-key <KEY>  [required]
   --request-id <ID>
+  --request-epoch <N>  [requires=--request-id]
   --iroh
 heimdall environment join
   <BUNDLE>  [positional required_unless=--show-key conflicts=--show-key]
@@ -314,6 +329,7 @@ heimdall access ensure
   --until <UNTIL>  [conflicts=--for]
   --for <FOR_DURATION>  [conflicts=--until]
   --request-id <REQUEST_ID>  [required]
+  --request-epoch <N>  [requires=--request-id]
   --async
   --timeout-ms <TIMEOUT_MS>  [default=30000]
   --strict
@@ -327,12 +343,14 @@ heimdall access release
 heimdall access revoke
   <GRANT_ID>  [positional required]
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall access delegate
   --parent <PARENT>  [required]
   --pair <DEST:ACCOUNT>  [repeatable]
   --until <UNTIL>
   --work-id <WORK_ID>  [required]
   --request-id <REQUEST_ID>  [required]
+  --request-epoch <N>  [requires=--request-id]
 heimdall access pause
   <POLICY_ID>  [positional]
   --profile <PROFILE>
@@ -378,11 +396,13 @@ heimdall access stop
   --all
   --cwd <PATH>  [requires=--workspace]
   --request-id <REQUEST_ID>  [requires=--work]
+  --request-epoch <N>  [requires=--request-id]
   group stop_target: --work,--policy,--profile,--workspace,--all  [required]
 heimdall access default-profile
   <PROFILE>  [positional conflicts=--clear]
   --clear
   --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall operation
 heimdall operation show
   <OPERATION_ID>  [positional required]

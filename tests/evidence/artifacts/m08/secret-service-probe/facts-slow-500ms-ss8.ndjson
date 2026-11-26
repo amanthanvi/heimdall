@@ -1,0 +1,32 @@
+{"fact": "session-bus", "value": "present"}
+{"fact": "secret-tool-store", "value": "exit 0"}
+{"fact": "secret-tool-lookup", "value": "ok"}
+{"fact": "heimdall-version", "value": "heimdall 0.1.0-m01"}
+{"fact": "runtime", "value": "up"}
+{"fact": "time-confirm", "value": "exit 0, OK"}
+{"fact": "store-items-before", "value": "0"}
+{"fact": "mode", "value": "slow"}
+{"fact": "prereq-start", "value": {"result": "-", "environments_after": {"code": "OK", "count": 0, "rows": []}}}
+{"fact": "prereq-identity-adopt", "value": {"result": "OK", "environments_after": {"code": "OK", "count": 0, "rows": []}}}
+{"fact": "prereq-identity-declare-interaction", "value": {"result": "OK", "environments_after": {"code": "OK", "count": 0, "rows": []}}}
+{"fact": "prereq-destination-add", "value": {"result": "OK", "environments_after": {"code": "OK", "count": 0, "rows": []}}}
+{"fact": "prereq-setup-apply", "value": {"result": "OK", "environments_after": {"code": "OK", "count": 0, "rows": []}}}
+{"fact": "prereq-profile-create", "value": {"result": "OK", "environments_after": {"code": "OK", "count": 0, "rows": []}}}
+{"fact": "prereq-access-allow", "value": {"result": "OK", "environments_after": {"code": "OK", "count": 1, "rows": [{"kind": "native_session", "permissions": {"automatic_activation": true, "issuer_access": false, "managed_signing": false}}]}}}
+{"fact": "issuer-init-C", "value": {"exit": 0, "register_prompt": true, "passphrase_shown": true, "written_prompt": true, "code": "OK", "state": "succeeded", "error_message": null, "error_reason": null, "ca_state": "active"}}
+{"fact": "issuer-init-C-backup-file", "value": "written"}
+{"fact": "issuer-init-C-store-items-after", "value": "1"}
+{"fact": "issuer-status", "value": "OK; ca state active; store kind "}
+{"fact": "service-stop", "value": "OK"}
+{"fact": "issuer-unlock-after-restart", "value": "exit 0, OK, "}
+{"fact": "issuer-status-after-restart", "value": "OK; ca state active"}
+{"fact": "service-stop-2", "value": "OK"}
+{"fact": "slow-bus-delay-ms", "value": "500"}
+{"fact": "unlock-fast-bus-1", "value": "exit 0, OK, 45 ms"}
+{"fact": "unlock-fast-bus-2", "value": "exit 0, OK, 48 ms"}
+{"fact": "unlock-fast-bus-3", "value": "exit 0, OK, 52 ms"}
+{"fact": "relay", "value": "started"}
+{"fact": "unlock-slow-bus-1", "value": "exit 4, CAPABILITY_UNAVAILABLE, 9078 ms"}
+{"fact": "unlock-slow-bus-2", "value": "exit 4, CAPABILITY_UNAVAILABLE, 9062 ms"}
+{"fact": "unlock-slow-bus-3", "value": "exit 4, CAPABILITY_UNAVAILABLE, 9070 ms"}
+{"fact": "slow-store-keys", "value": "exit 0"}

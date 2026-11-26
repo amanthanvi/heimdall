@@ -26,7 +26,9 @@
 # (fuzz or soak) at a time.
 set -euo pipefail
 
-IMAGE="debian:13-slim"
+# The base image, pinned by its index digest (Debian 13 slim, 2026-11-24; review M08-W2 re-check:
+# a mutable tag sat outside the build identity). It is part of the identity below.
+IMAGE="debian@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0"
 NIGHTLY="nightly-2026-11-15"
 CARGO_FUZZ="0.13.2"
 RUSTUP_VERSION="1.29.3"
@@ -38,11 +40,17 @@ VOLUME="${HM_FUZZ_VOLUME:-hm-m08-fuzz}"
 case "$VOLUME" in hm-m08-fuzz|hm-m08-fuzz-[a-z0-9]*) ;; *) echo "run-campaign: HM_FUZZ_VOLUME must be hm-m08-fuzz or hm-m08-fuzz-<suffix>" >&2; exit 2 ;; esac
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
-# target:max_len (just above each boundary's own cap, ADR-0014 section 2.1)
+# target:max_len (just above each boundary's own cap, ADR-0014 section 2.1). M08 U1b's seven
+# (boundaries 12 to 15): remote_bridge a 16 KiB hello plus one 1 MiB frame; remote_join and
+# page_select one control frame (1 MiB); sshd_policy sshd -T's 256 KiB; route_preident 8 KiB
+# and 255 bytes of identification, plus the read-size byte; iroh_policy the 64 KiB item bound;
+# route_ssh_g ssh -G's 1 MiB.
 TARGETS="sshconf_parse:1052672 gitedit_scan:1052672 agent_reply:266240 control_frame:1052672
 signing_request:266240 userauth_request:70000 registry_hm1:70000 project_manifest:1052672 runtime_config:1052672
 sshconf_eval:1052672 frame_codec:1052672 registry_line:1052672 issuer_protocol:1052672 issuer_backup:70000
-known_hosts_match:70000 runtime_instance:70000 registry_script:70000"
+known_hosts_match:70000 runtime_instance:70000 registry_script:70000
+remote_bridge:1069056 remote_join:1052672 sshd_policy:266240 route_preident:12288 iroh_policy:70000
+page_select:1052672 route_ssh_g:1052672"
 
 # HM_FUZZ_LOCAL_ROOT=<scratch dir> (fuzz/run-campaign-selftest.sh only, review M08-W2-RC03):
 # setup and build-id run their in-container scripts on this host, with no container, the
@@ -55,7 +63,7 @@ if [ -n "$local_root" ]; then
     case "${1:-}" in setup|build-id) ;; *) echo "run-campaign: HM_FUZZ_LOCAL_ROOT covers setup and build-id only" >&2; exit 2 ;; esac
     in_container() { # NETWORK SCRIPT [ARGS...]: run locally (the self-test)
         local script=$2; shift 2
-        env V="$local_root/vol" S="$repo" NIGHTLY="$NIGHTLY" CARGO_FUZZ="$CARGO_FUZZ" TARGETS="$TARGETS" \
+        env V="$local_root/vol" S="$repo" IMAGE="$IMAGE" NIGHTLY="$NIGHTLY" CARGO_FUZZ="$CARGO_FUZZ" TARGETS="$TARGETS" \
             RUSTFLAGS="-Clink-arg=-fuse-ld=lld" HM_FUZZ_TEST_STOP_AFTER="${HM_FUZZ_TEST_STOP_AFTER:-}" \
             bash -euo pipefail -c "$script" campaign "$@"
     }
@@ -68,7 +76,7 @@ in_container() { # NETWORK SCRIPT [ARGS...]
     docker run --rm --network "$net" --cpus 2 --memory "${HM_FUZZ_MEMORY:-4g}" --pids-limit 512 \
         -v "$repo":/src:ro -v "$VOLUME":/vol -e V=/vol -e S=/src \
         -e CARGO_HOME=/vol/cargo -e RUSTUP_HOME=/vol/rustup -e CARGO_BUILD_JOBS="${HM_FUZZ_JOBS:-2}" \
-        -e RUSTFLAGS="-Clink-arg=-fuse-ld=lld" -e RUSTUP_VERSION="$RUSTUP_VERSION" -e RUSTUP_SHA_AARCH64="$RUSTUP_SHA_AARCH64" -e RUSTUP_SHA_X86_64="$RUSTUP_SHA_X86_64" -e NIGHTLY="$NIGHTLY" -e CARGO_FUZZ="$CARGO_FUZZ" -e TARGETS="$TARGETS" \
+        -e RUSTFLAGS="-Clink-arg=-fuse-ld=lld" -e RUSTUP_VERSION="$RUSTUP_VERSION" -e RUSTUP_SHA_AARCH64="$RUSTUP_SHA_AARCH64" -e RUSTUP_SHA_X86_64="$RUSTUP_SHA_X86_64" -e NIGHTLY="$NIGHTLY" -e CARGO_FUZZ="$CARGO_FUZZ" -e TARGETS="$TARGETS" -e IMAGE="$IMAGE" \
         "$IMAGE" bash -euo pipefail -c "$script" campaign "$@"
 }
 fi
@@ -91,7 +99,7 @@ BUILD_ID_SCRIPT='
         | grep -o "($V/work/src/crates/[^)]*)" | tr -d "()" | sed "s#^$V/work/src/##" | sort -u)
     [ -n "$dirs" ] || { echo "run-campaign: cannot list the crates the fuzz crate links" >&2; exit 1; }
     toolfile=absent; [ ! -f product-rust-toolchain.toml ] || toolfile=product-rust-toolchain.toml
-    inputs="nightly=$NIGHTLY rustc=$(rustc "+$NIGHTLY" --version | tr " " "_") cargo-fuzz=$CARGO_FUZZ rustflags=$RUSTFLAGS"
+    inputs="image=$IMAGE nightly=$NIGHTLY rustc=$(rustc "+$NIGHTLY" --version | tr " " "_") cargo-fuzz=$CARGO_FUZZ rustflags=$RUSTFLAGS"
     id=$( { { find $dirs -type f ! -path "*/target/*"; find fuzz/fuzz_targets -type f; echo fuzz/Cargo.toml; echo fuzz/Cargo.lock
               echo Cargo.toml; echo Cargo.lock; [ "$toolfile" = absent ] || echo "$toolfile"; } \
             | LC_ALL=C sort | xargs sha256sum; echo "$inputs"; } | sha256sum | cut -c1-16)

@@ -125,9 +125,7 @@ fn open_store(home: &Path) -> Store {
     let paths = heimdall_runtime::Paths::under(home);
     paths.ensure().unwrap();
     Store::open(
-        &paths
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE),
+        &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
         Arc::new(NoFaults),
     )
     .unwrap()

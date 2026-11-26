@@ -1,0 +1,60 @@
+{
+ "background_unlocks": {
+  "count": 1,
+  "errors": [
+   false
+  ],
+  "min_ms": null,
+  "p50_ms": null,
+  "succeeded": 0,
+  "what": "issuer unlock calls in the background (latency includes the CLI's process start)"
+ },
+ "destinations": 1,
+ "key_to_first_byte_quiet": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn; no background work (for comparison)",
+  "errors": 0,
+  "max_ms": 2.04,
+  "min_ms": 0.38,
+  "p50_ms": 0.51,
+  "p95_ms": 0.8,
+  "samples": 200
+ },
+ "key_to_first_byte_slow_store": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn, while `issuer unlock` runs in a loop: each makes the runtime's issuer child load its CA from the Secret Service through a bus relay holding each request 500 ms. Measures issuer secret-store load under a slow Secret Service, not each signature",
+  "errors": 0,
+  "max_ms": 1.4,
+  "min_ms": 0.39,
+  "p50_ms": 0.72,
+  "p95_ms": 0.91,
+  "samples": 200
+ },
+ "key_to_frame_quiet": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn; no background work (for comparison); timed only once the reconstructed screen shows the selected view's title, absent before the key; the frame ends at the last byte before 20 ms of quiet",
+  "errors": 0,
+  "max_ms": 2.28,
+  "min_ms": 0.59,
+  "missed": {
+   "no_effect_within_2s": 0,
+   "title_already_shown": 0
+  },
+  "p50_ms": 0.76,
+  "p95_ms": 1.2,
+  "samples": 200
+ },
+ "key_to_frame_slow_store": {
+  "conditions": "one TUI on a 120x40 pty, view keys 2 and 1 in turn, while `issuer unlock` runs in a loop: each makes the runtime's issuer child load its CA from the Secret Service through a bus relay holding each request 500 ms. Measures issuer secret-store load under a slow Secret Service, not each signature",
+  "errors": 0,
+  "max_ms": 2.04,
+  "min_ms": 0.6,
+  "missed": {
+   "no_effect_within_2s": 0,
+   "title_already_shown": 0
+  },
+  "p50_ms": 1.11,
+  "p95_ms": 1.43,
+  "samples": 200
+ },
+ "sample_floor": 200,
+ "schema": "heimdall-m08-bench/1",
+ "started_at": "2026-11-24T19:56:43Z"
+}

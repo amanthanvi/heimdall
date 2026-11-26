@@ -595,6 +595,25 @@ impl Txn<'_> {
                 codec::ts(now),
             ],
         )?;
+        // ⟨M08 U2b-2; ADR-0014 §3.6 steps 2 and 7⟩ The effect is minted under the current
+        // epoch (the column defaults to 0).
+        if n > 0
+            && let Some(epoch) = self.minted_epoch()?
+        {
+            self.tx.execute(
+                "UPDATE remote_effect_outbox SET restore_epoch = ?6
+                 WHERE producer = ?1 AND effect_id = ?2 AND target_kind = ?3 AND target_ref = ?4
+                     AND target_generation = ?5",
+                rusqlite::params![
+                    key.producer.as_str(),
+                    key.effect.as_str(),
+                    kind,
+                    reference,
+                    generation,
+                    epoch
+                ],
+            )?;
+        }
         Ok(n > 0)
     }
 

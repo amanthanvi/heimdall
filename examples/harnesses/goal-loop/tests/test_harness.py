@@ -149,7 +149,7 @@ OP, BINDING, DECISION = "op_fixture", "binding_fixture", "dec_fixture"
 SECOND = "binding_second"
 CODES = ["OK", "ACCESS_READY", "ACCEPTED", "APPROVAL_REQUIRED", "INTERACTION_REQUIRED",
          "PROVIDER_LOCKED", "CAPABILITY_UNAVAILABLE", "POLICY_PAUSED", "POLICY_CUTOFF",
-         "OPERATION_CANCELLED", "REQUEST_CONFLICT", "OUTCOME_UNKNOWN", "NOT_FOUND",
+         "OPERATION_CANCELLED", "REQUEST_CONFLICT", "REQUEST_STALE", "OUTCOME_UNKNOWN", "NOT_FOUND",
          "DESTINATION_UNREACHABLE", "TIME_UNCERTAIN", "SERVICE_UNAVAILABLE", "STATE_UNAVAILABLE",
          "BACKPRESSURE"]
 # Prose that says the opposite of the code: a caller that read it would go wrong.
@@ -585,6 +585,22 @@ class TableTests(unittest.TestCase):
         after, row = h2.transition(h2.State("start"), reading)
         self.assertIsNone(row)
         self.assertIn("no transition from start", h2.no_row(h2.State("start"), reading))
+
+    def test_a_stale_request_is_a_refusal_and_never_sent_again(self):
+        # ADR-0014 H13 (U0-Q6): REQUEST_STALE is exit class 6, effect none, next
+        # new_request_id. Its request was never run, so it is reported as a refusal: never
+        # uncertain, and the goal does not go on with it.
+        self.assertEqual(h2.EXIT_CLASSES["REQUEST_STALE"], 6)
+        self.assertIn("new_request_id", h2.INVALID_REQUEST_ACTIONS)
+        facts = {"code": "REQUEST_STALE", "next": {"action": "new_request_id"},
+                 "data": {"error": {"effect_status": "none", "reason": "restore_epoch_stale"}}}
+        for name in h2.REQUESTING:
+            with self.subTest(state=name):
+                after, row = h2.transition(sample_state(name),
+                                           h2.Reading("REQUEST_STALE", "new_request_id", "none", facts))
+                self.assertIsNotNone(row)
+                self.assertEqual(after, h2.State("failed", code="REQUEST_STALE"))
+        self.assertNotIn("REQUEST_STALE", h2.UNCERTAIN_CODES)
 
     def test_an_uncertain_outcome_is_observed_to_its_end_and_never_requested_again(self):
         named = {"code": "OUTCOME_UNKNOWN", "next": {"action": "reconcile", "operation_id": "op_sample"}}

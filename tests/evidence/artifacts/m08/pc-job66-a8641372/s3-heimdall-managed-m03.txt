@@ -1,0 +1,169 @@
+ Downloading crates ...
+  Downloaded approx v0.5.1
+  Downloaded allocator-api2 v0.2.21
+  Downloaded castaway v0.2.4
+  Downloaded palette_derive v0.7.7
+  Downloaded darling_macro v0.24.1
+  Downloaded crossterm_winapi v0.9.1
+  Downloaded num-conv v0.2.2
+  Downloaded clap_derive v4.6.7
+  Downloaded clap_lex v1.1.1
+  Downloaded compact_str v0.9.1
+  Downloaded time-core v0.1.9
+  Downloaded anstyle v1.0.14
+  Downloaded darling v0.24.1
+  Downloaded clap_builder v4.6.7
+  Downloaded either v1.19.0
+  Downloaded by_address v1.2.1
+  Downloaded convert_case v0.10.0
+  Downloaded deranged v0.5.9
+  Downloaded ryu v1.0.23
+  Downloaded darling_core v0.24.1
+  Downloaded parking_lot v0.12.5
+  Downloaded lock_api v0.4.14
+  Downloaded kasuari v0.4.13
+  Downloaded ratatui v0.30.2
+  Downloaded ratatui-crossterm v0.1.2
+  Downloaded clap v4.6.7
+  Downloaded lru v0.18.5
+  Downloaded ident_case v1.0.1
+  Downloaded document-features v0.2.12
+  Downloaded derive_more v2.1.1
+  Downloaded strum v0.28.0
+  Downloaded instability v0.3.14
+  Downloaded heck v0.5.0
+  Downloaded static_assertions v1.1.0
+  Downloaded unicode-segmentation v1.13.3
+  Downloaded parking_lot_core v0.9.12
+  Downloaded time v0.3.55
+  Downloaded crossterm v0.29.0
+  Downloaded rustversion v1.0.23
+  Downloaded palette_math v0.7.7
+  Downloaded strum_macros v0.28.0
+  Downloaded line-clipping v0.3.8
+  Downloaded unicode-width v0.2.3
+  Downloaded indoc v2.0.8
+  Downloaded derive_more-impl v2.1.1
+  Downloaded palette v0.7.7
+  Downloaded litrs v1.0.1
+  Downloaded powerfmt v0.2.1
+  Downloaded scopeguard v1.2.0
+  Downloaded portable-atomic v1.15.0
+  Downloaded strsim v0.11.1
+  Downloaded unicode-truncate v2.0.1
+  Downloaded winapi v0.3.9
+  Downloaded ratatui-core v0.1.2
+  Downloaded ratatui-widgets v0.3.2
+  Downloaded itertools v0.14.0
+   Compiling syn v3.0.9
+   Compiling equivalent v1.0.3
+   Compiling allocator-api2 v0.2.21
+   Compiling bitflags v2.13.2
+   Compiling unicode-segmentation v1.13.3
+   Compiling hashbrown v0.17.1
+   Compiling rustversion v1.0.23
+   Compiling heck v0.5.0
+   Compiling ident_case v1.0.1
+   Compiling strsim v0.11.1
+   Compiling hashlink v0.12.2
+   Compiling winapi v0.3.9
+   Compiling rusqlite v0.41.1
+   Compiling either v1.19.0
+   Compiling parking_lot_core v0.9.12
+   Compiling itertools v0.14.0
+   Compiling castaway v0.2.4
+   Compiling strum_macros v0.28.0
+   Compiling serde_derive_internals v0.30.0
+   Compiling darling_core v0.24.1
+   Compiling convert_case v0.10.0
+   Compiling static_assertions v1.1.0
+   Compiling ryu v1.0.23
+   Compiling scopeguard v1.2.0
+   Compiling unicode-width v0.2.3
+   Compiling lock_api v0.4.14
+   Compiling unicode-truncate v2.0.1
+   Compiling thiserror-impl v2.0.21
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling ref-cast v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling thiserror v2.0.21
+   Compiling tokio-macros v2.7.2
+   Compiling async-trait v0.1.92
+   Compiling tokio v1.54.1
+   Compiling ssh-agent-lib v0.6.0
+   Compiling darling_macro v0.24.1
+   Compiling kasuari v0.4.13
+   Compiling serde v1.0.229
+   Compiling darling v0.24.1
+   Compiling compact_str v0.9.1
+   Compiling schemars v1.2.3
+   Compiling heimdall-stategen v0.1.0-m01 (<R>\c1\crates\stategen)
+   Compiling derive_more-impl v2.1.1
+   Compiling heimdall-contract v0.1.0-m01 (<R>\c1\crates\contract)
+   Compiling tokio-util v0.7.20
+   Compiling strum v0.28.0
+   Compiling lru v0.18.5
+   Compiling indoc v2.0.8
+   Compiling litrs v1.0.1
+   Compiling document-features v0.2.12
+   Compiling crossterm_winapi v0.9.1
+   Compiling instability v0.3.14
+   Compiling ratatui-core v0.1.2
+   Compiling parking_lot v0.12.5
+   Compiling derive_more v2.1.1
+   Compiling line-clipping v0.3.8
+   Compiling crossterm v0.29.0
+   Compiling anstyle v1.0.14
+   Compiling clap_lex v1.1.1
+   Compiling proptest v1.12.0
+   Compiling ratatui-crossterm v0.1.2
+   Compiling clap_builder v4.6.7
+   Compiling ratatui-widgets v0.3.2
+   Compiling clap_derive v4.6.7
+   Compiling clap v4.6.7
+   Compiling ratatui v0.30.2
+   Compiling heimdall-domain v0.1.0-m01 (<R>\c1\crates\domain)
+   Compiling heimdall-ipc v0.1.0-m01 (<R>\c1\crates\ipc)
+   Compiling heimdall-transport-iroh v0.1.0-m01 (<R>\c1\crates\transport-iroh)
+   Compiling heimdall-registry v0.1.0-m01 (<R>\c1\crates\registry)
+   Compiling heimdall-project v0.1.0-m01 (<R>\c1\crates\project)
+   Compiling heimdall-store v0.1.0-m01 (<R>\c1\crates\store)
+   Compiling heimdall-sshconf v0.1.0-m01 (<R>\c1\crates\sshconf)
+   Compiling heimdall-app v0.1.0-m01 (<R>\c1\crates\app)
+   Compiling heimdall-localenv v0.1.0-m01 (<R>\c1\crates\localenv)
+   Compiling heimdall-credential v0.1.0-m01 (<R>\c1\crates\credential)
+   Compiling heimdall-remote v0.1.0-m01 (<R>\c1\crates\remote)
+   Compiling heimdall-issuer v0.1.0-m01 (<R>\c1\crates\issuer)
+   Compiling heimdall-adapters v0.1.0-m01 (<R>\c1\crates\adapters)
+   Compiling heimdall-enroll v0.1.0-m01 (<R>\c1\crates\enroll)
+   Compiling heimdall-wsl v0.1.0-m01 (<R>\c1\crates\wsl)
+   Compiling heimdall-runtime v0.1.0-m01 (<R>\c1\crates\runtime)
+   Compiling heimdall-testkit v0.1.0-m01 (<R>\c1\crates\testkit)
+   Compiling heimdall-launch v0.1.0-m01 (<R>\c1\crates\launch)
+   Compiling heimdall v0.1.0-m01 (<R>\c1\crates\heimdall)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 42s
+     Running ..\..\tests\e2e\managed_m03.rs (target\debug\deps\e2e_managed_m03-1e511ecd859abdec.exe)
+
+running 18 tests
+test existing_access_prepare_contract_unchanged ... ok
+test client_replaced_while_the_driver_waits_claims_nothing ... ok
+test driver_never_runs_store_work_inside_adapter_bound ... ok
+test credential_instance_persisted_installed_then_destroyed_with_gate ... ok
+test fresh_bind_after_reissue_never_carries_the_stored_claim_values ... ok
+test install_view_refuses_tombstoned_stale_or_expired_grant ... ok
+test credential_instances_found_by_grant_query_not_fingerprint ... ok
+test managed_binding_minted_at_resolve_materialized_then_committed_under_it ... ok
+test existing_access_ensure_intent_and_result_byte_identical_to_m02 ... ok
+test managed_prepare_unwired_fails_closed_before_any_effect ... ok
+test managed_failure_before_commit_cleans_binding_key_and_instance ... ok
+test managed_preference_refused_unwired_activates_when_wired ... ok
+test managed_effect_steps_run_outside_store_transactions ... ok
+test managed_replay_of_request_returns_same_binding ... ok
+test reissue_after_reboot_waits_for_time_confirm ... ok
+test revoke_destroys_k_env_under_the_gates ... ok
+test revoke_result_reports_requested_and_committed_at ... ok
+test reissue_after_runtime_process_restart_same_boot ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+

@@ -108,6 +108,10 @@ run_step clippy-windows clippy_windows
 # product-store rule for custody claims). Cheap, so before the tests.
 run_step crate-graph env PYTHONDONTWRITEBYTECODE=1 \
     python3 -I tools/validation/crate_graph.py
+# M08 U1b (m08-plan U1b; for M09-T03's review): every module that allows `unsafe` is listed in
+# docs/security/unsafe-inventory.md with its reason, and nothing else is. Cheap.
+run_step unsafe-inventory env PYTHONDONTWRITEBYTECODE=1 \
+    python3 -I tools/validation/unsafe_inventory.py --check
 # M06 (m06-plan U0; ADR-0012 sections 1 and 13): the feature-gated iroh build and the vendored
 # netdev patch (third_party/netdev-0.47.0, [patch.crates-io]) must keep compiling, so neither
 # rots between the milestones that exercise them. Compile check only: nothing is bound.

@@ -20,7 +20,9 @@
 //!   revocation is rechecked per request; a pending client is refused everything but the
 //!   activation probe and `join` (`invitation_pending`); `Attend` and `Decide` never reach
 //!   the application (`INTERACTION_REQUIRED`: the session is non-interactive, §3.10 item 1);
-//!   a permission outside the role is `role_insufficient`.
+//!   a permission outside the role is `role_insufficient`. ⟨M08 U2b-2 follow-up A⟩ The check
+//!   runs nothing: a request it passes is run afterwards ([`PairedRunner::answer`], or the
+//!   application), so a request it refuses never reaches the request fence and its ledger.
 //! * **Pending sessions** (R06). A client pending at its hello negotiates only
 //!   `remote-control/1` (`heimdall_ipc::session::PENDING_CAPABILITIES`), and that session
 //!   is served only the activation probe and `join`, with the invitation and identity
@@ -436,12 +438,13 @@ pub fn recorded_owner_only(store: &Store) -> Option<OwnerOnlyCause> {
     }
 }
 
-/// The state database of the home a forced command names (`remote serve --home`).
-#[must_use]
-pub fn state_db_of_home(home: &Path) -> PathBuf {
-    crate::Paths::under(home)
-        .state_dir
-        .join(crate::service::STATE_DB_FILE)
+/// The state database of the home a forced command names (`remote serve --home`), following
+/// the pointer (⟨M08 U2b-1⟩ `heimdall_store::layout::db_path`).
+///
+/// # Errors
+/// The home's layout is corrupt (`state_corrupt`): no database is named.
+pub fn state_db_of_home(home: &Path) -> heimdall_store::Result<PathBuf> {
+    heimdall_store::layout::db_path(&crate::Paths::under(home).state_dir)
 }
 
 /// ⟨ADR-0006 §18.7 items 17–18; ADR-0012 §3.2 "How the downgrade is kept"⟩ The bridge's
@@ -450,20 +453,25 @@ pub fn state_db_of_home(home: &Path) -> PathBuf {
 /// store's one write outside the lock holder
 /// (`heimdall_store::ext_runner::bridge_record_runner_downgrade`): set-only, idempotent, one
 /// `BEGIN IMMEDIATE` transaction with a bounded busy timeout, on an existing runner's
-/// database at this build's schema only (never created, migrated or repaired).
+/// database at this build's schema only (never created, migrated or repaired). ⟨review
+/// W3-R01⟩ The schema is read again inside that transaction, so a flat family that a
+/// runtime's start fenced for adoption after this function found it is refused, not
+/// written; the caller then queues the event, and the runtime records it in the generation
+/// it serves.
 ///
 /// # Errors
 ///
-/// No such database, another schema, not a runner's, the write lock not obtained in time,
-/// or the store's failure: nothing was recorded. The caller refuses its session all the
-/// same and notes the failure ([`note_unrecorded_downgrade`]).
+/// No such database, another schema (a family fenced for adoption included), not a
+/// runner's, the write lock not obtained in time, or the store's failure: nothing was
+/// recorded. The caller refuses its session all the same and notes the failure
+/// ([`note_unrecorded_downgrade`]).
 pub fn record_owner_only_in_home(
     home: &Path,
     cause: OwnerOnlyCause,
     now: Timestamp,
 ) -> heimdall_store::Result<()> {
     heimdall_store::ext_runner::bridge_record_runner_downgrade(
-        &state_db_of_home(home),
+        &state_db_of_home(home)?,
         cause.token(),
         now,
     )
@@ -719,9 +727,25 @@ fn drain_marker(dir: &Path, store: &Store, now: Timestamp) -> Drained {
 
 /// The marker directory of the home whose state database is `db` (the bridge's own rule,
 /// [`state_db_of_home`], read backwards); `None` for a database that is not a home's.
+/// ⟨M08 U2b-1⟩ The database is `<state>/state.db` in the flat layout, or
+/// `<state>/generations/<generation>/state.db`: either names the home.
 fn marker_dir_of_db(db: &Path) -> Option<PathBuf> {
-    let home = db.parent()?.parent()?;
-    (state_db_of_home(home) == db).then(|| crate::Paths::under(home).log_dir)
+    use heimdall_store::layout::stategen::{GenerationName, generations::GENERATIONS};
+    if db.file_name()? != std::ffi::OsStr::new(crate::service::STATE_DB_FILE) {
+        return None;
+    }
+    let parent = db.parent()?;
+    let state_dir = match parent.parent() {
+        Some(generations)
+            if generations.file_name() == Some(std::ffi::OsStr::new(GENERATIONS))
+                && GenerationName::parse(parent.file_name()?.to_str()?).is_some() =>
+        {
+            generations.parent()?
+        }
+        _ => parent,
+    };
+    let paths = crate::Paths::under(state_dir.parent()?);
+    (paths.state_dir == state_dir).then_some(paths.log_dir)
 }
 
 impl RunnerPolicy {
@@ -1483,11 +1507,49 @@ pub struct PairedSession {
 /// What a paired session's request becomes ([`PairedRunner::frame`]).
 #[derive(Debug)]
 pub enum Frame {
-    /// Answered here (a refusal, the probe, `join`, a pending widening record, a client
-    /// revocation).
+    /// Refused by the row check: nothing was run.
     Answer(Envelope<serde_json::Value>),
+    /// ⟨M08 U2b-2 follow-up A⟩ Passed the row check and answered by this runner, not the
+    /// application (the probe, `join`, a pending widening record, a client revocation, an
+    /// endpoint rotation, a policy recheck): nothing has run yet. [`PairedRunner::answer`]
+    /// runs it, after the request fence (`crate::dispatch`).
+    Runner(RunnerFrame),
     /// Passed every check: dispatch to the application as this caller.
     Route(Box<Caller>, Request),
+}
+
+/// ⟨M08 U2b-2 follow-up A⟩ A paired request that passed its row check and that this runner
+/// answers itself ([`Frame::Runner`]).
+#[derive(Debug)]
+pub struct RunnerFrame {
+    client: ClientId,
+    answer: RunnerAnswer,
+    request: Request,
+}
+
+impl RunnerFrame {
+    /// The request.
+    #[must_use]
+    pub fn request(&self) -> &Request {
+        &self.request
+    }
+}
+
+/// Which of this runner's own answers a [`RunnerFrame`] gets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RunnerAnswer {
+    Probe,
+    Join,
+    Widening,
+    RevokeClient {
+        environment: EnvironmentId,
+        client: ClientId,
+    },
+    RotateEndpoint,
+    PolicyRecheck {
+        environment: EnvironmentId,
+        probe: ProbeObservation,
+    },
 }
 
 fn value_of(e: Envelope<impl serde::Serialize>) -> Envelope<serde_json::Value> {
@@ -1656,8 +1718,11 @@ impl PairedRunner {
     }
 
     /// The check of one paired request (module docs, "Per-frame checks"; "Pending
-    /// sessions"): answered here, or routed to the application as the client's caller.
-    pub async fn frame(
+    /// sessions"): refused here, passed to this runner's own answer ([`Self::answer`]), or
+    /// routed to the application as the client's caller. ⟨M08 U2b-2 follow-up A⟩ It reads
+    /// the client's row and runs nothing, so the request fence can come between it and the
+    /// request (`crate::dispatch`).
+    pub fn frame(
         &self,
         principal: &PrincipalInfo,
         session: &PairedSession,
@@ -1678,41 +1743,70 @@ impl PairedRunner {
         if session.pending && !matches!(verdict, Check::Probe | Check::Join | Check::Refuse(_)) {
             return Frame::Answer(refused(Refusal::InvitationPending));
         }
-        match verdict {
+        let answer = match verdict {
             Check::Refuse(r) => {
                 if matches!(r, Refusal::ClientRevoked | Refusal::InvitationExpired) {
                     // Whatever revoked it, this client's other sessions end too.
                     self.revocations.send_modify(|n| *n = n.wrapping_add(1));
                 }
-                Frame::Answer(refused(r))
+                return Frame::Answer(refused(r));
             }
-            Check::Probe => Frame::Answer(self.probe(&session.client, &request).await),
-            Check::Join => Frame::Answer(self.join(&session.client, &request).await),
-            Check::PendingRunnerLocal { .. } => {
-                Frame::Answer(self.submit_widening(&session.client, &request))
-            }
+            Check::Probe => RunnerAnswer::Probe,
+            Check::Join => RunnerAnswer::Join,
+            Check::PendingRunnerLocal { .. } => RunnerAnswer::Widening,
             Check::Dispatch { .. } => match &request {
                 Request::RemoteEnvironment(RemoteEnvironmentRequest::RevokeClient {
                     environment,
                     client,
-                }) => Frame::Answer(self.revoke_client(environment, client).await),
+                }) => RunnerAnswer::RevokeClient {
+                    environment: environment.clone(),
+                    client: client.clone(),
+                },
                 // ⟨M06 W3⟩ The session's own client only (never a field). ⟨W5; ADR-0006
                 // §18.9 item 5⟩ The form is on the base capability, so a limited role's
                 // session reaches this arm too; the check above and the invitation's own
                 // admission (`rotate_endpoint`) are what decide, per request, as before.
                 Request::RemoteEnvironment(RemoteEnvironmentRequest::RotateEndpoint { .. }) => {
-                    Frame::Answer(self.rotate_endpoint(&session.client, &request).await)
+                    RunnerAnswer::RotateEndpoint
                 }
                 // ⟨§18.7 item 19⟩ The session's own client is the probing controller.
                 Request::RemoteEnvironment(RemoteEnvironmentRequest::RunnerPolicyRecheck {
                     environment,
                     probe,
-                }) => Frame::Answer(
-                    self.policy_recheck(&session.client, environment, probe)
-                        .await,
-                ),
-                _ => Frame::Route(Box::new(self.caller(principal, session)), request),
+                }) => RunnerAnswer::PolicyRecheck {
+                    environment: environment.clone(),
+                    probe: *probe,
+                },
+                _ => return Frame::Route(Box::new(self.caller(principal, session)), request),
             },
+        };
+        Frame::Runner(RunnerFrame {
+            client: session.client.clone(),
+            answer,
+            request,
+        })
+    }
+
+    /// ⟨M08 U2b-2 follow-up A⟩ Run a paired request that [`Self::frame`] passed to this
+    /// runner ([`Frame::Runner`]), as the session's client.
+    pub async fn answer(&self, frame: RunnerFrame) -> Envelope<serde_json::Value> {
+        let RunnerFrame {
+            client,
+            answer,
+            request,
+        } = frame;
+        match answer {
+            RunnerAnswer::Probe => self.probe(&client, &request).await,
+            RunnerAnswer::Join => self.join(&client, &request).await,
+            RunnerAnswer::Widening => self.submit_widening(&client, &request),
+            RunnerAnswer::RevokeClient {
+                environment,
+                client: revoked,
+            } => self.revoke_client(&environment, &revoked).await,
+            RunnerAnswer::RotateEndpoint => self.rotate_endpoint(&client, &request).await,
+            RunnerAnswer::PolicyRecheck { environment, probe } => {
+                self.policy_recheck(&client, &environment, &probe).await
+            }
         }
     }
 
@@ -2932,7 +3026,11 @@ mod tests {
         let paths = crate::Paths::under(&home);
         std::fs::create_dir_all(&paths.state_dir).unwrap();
         let store = Arc::new(
-            Store::open(&state_db_of_home(&home), Arc::new(heimdall_store::NoFaults)).unwrap(),
+            Store::open(
+                &state_db_of_home(&home).unwrap(),
+                Arc::new(heimdall_store::NoFaults),
+            )
+            .unwrap(),
         );
         (dir, store, paths.log_dir)
     }
@@ -3163,5 +3261,184 @@ mod tests {
             }
             assert_eq!(standing(&store), Some(("unreadable".to_owned(), 1)));
         }
+    }
+}
+
+/// ⟨review W3-R01⟩ The bridge's write against a concurrent adoption (ADR-0012 §3.2 "How the
+/// downgrade is kept"; ADR-0014 §3.6 adoption). Outside the Unix-only module above, so it
+/// runs on every platform.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod adoption_window_tests {
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+
+    use heimdall_store::layout::{self, Began, Located, Opened};
+    use heimdall_store::{FaultAction, FaultHook, FaultPoint, NoFaults, StoreError};
+
+    use super::*;
+
+    /// The family's data files as they are on disk: the database, its write-ahead log and
+    /// its rollback journal, where they exist. The log's index (`-shm`) is shared memory that
+    /// every reader updates, not data, so it is not compared.
+    fn family_bytes(db: &Path) -> BTreeMap<String, Vec<u8>> {
+        let mut out = BTreeMap::new();
+        for suffix in ["", "-wal", "-journal"] {
+            let mut name = db.as_os_str().to_owned();
+            name.push(suffix);
+            if let Ok(bytes) = std::fs::read(PathBuf::from(name)) {
+                out.insert(suffix.to_owned(), bytes);
+            }
+        }
+        out
+    }
+
+    /// The hook of the bridge's store. At `BeforeTransaction` (the bridge has opened the
+    /// database and checked its schema; its `BEGIN IMMEDIATE` has not begun) the runtime's
+    /// start adopts the home's flat store through its own open and the production file
+    /// system (`crate::state_store::open_locked`): intent, fence, copy, publication,
+    /// completion. The hook keeps the served store and the flat family's bytes as the
+    /// adoption left them.
+    struct AdoptionInTheWindow {
+        state_dir: PathBuf,
+        flat: PathBuf,
+        now: Timestamp,
+        adopted: Mutex<Option<Opened>>,
+        fenced: Mutex<Option<BTreeMap<String, Vec<u8>>>>,
+    }
+
+    impl FaultHook for AdoptionInTheWindow {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            let mut adopted = self.adopted.lock().unwrap();
+            if point == FaultPoint::BeforeTransaction && adopted.is_none() {
+                let opened =
+                    crate::state_store::open_locked(&self.state_dir, Arc::new(NoFaults), self.now)
+                        .unwrap_or_else(|e| panic!("the adoption: {e}"));
+                *self.fenced.lock().unwrap() = Some(family_bytes(&self.flat));
+                *adopted = Some(opened);
+            }
+            FaultAction::Continue
+        }
+    }
+
+    fn downgrade(store: &Store) -> Option<(String, u64)> {
+        store
+            .transaction(|tx| tx.runner_downgrade())
+            .unwrap()
+            .map(|d| (d.cause, d.epoch))
+    }
+
+    /// ⟨review W3-R01⟩ The runtime's start adopts the flat store of a runner home (from a
+    /// build before generations) between the bridge's open and schema check and its
+    /// transaction. The store's fault hook runs the adoption there.
+    /// - **The write is refused.** The bridge's `BEGIN IMMEDIATE` transaction reads the
+    ///   schema again and finds the fence (`AdoptionFenced`).
+    /// - **The marker is queued.** The caller's one fallback for a write that fails
+    ///   (`m06_cmd::refuse_session`; its rule is tested there, by
+    ///   `a_downgrade_the_bridge_cannot_write_is_queued_and_the_next_admission_records_it`)
+    ///   is made here as it makes it: `note_unrecorded_downgrade` in the home's log
+    ///   directory.
+    /// - **The fenced flat family is byte-identical** to what the adoption left. A reader
+    ///   of it stays open throughout, as a runtime's connection would, so closing the
+    ///   bridge's connection checkpoints nothing into it.
+    /// - **The served generation carries the downgrade once the marker is applied**, as the
+    ///   design says. The runner's policy over the served store finds the marker from that
+    ///   generation's database (`marker_dir_of_db`). Until the marker is applied, it alone
+    ///   keeps the runner owner-only (`RunnerPolicy::marker_pending`). The runtime applies it
+    ///   at start (`PairedRunner::new`) and at each limited-role admission
+    ///   (`RunnerPolicy::drain_pending`). The row then stands in the served generation, the
+    ///   marker is gone, and the runner stays owner-only, after a restart too.
+    #[test]
+    fn a_bridge_write_after_the_adoption_fence_is_refused_and_reaches_the_served_generation_by_the_marker()
+     {
+        let at: Timestamp = "2026-11-25T09:00:00Z".parse().unwrap();
+        let cause = OwnerOnlyCause::SessionPty;
+        let dir = tempfile::tempdir().unwrap();
+        // The database reports its real path; the marker directory is found from it.
+        let home = dir.path().canonicalize().unwrap();
+        let paths = crate::Paths::under(&home);
+        paths.ensure().unwrap();
+        let flat = paths.state_dir.join(layout::DB_FILE);
+        init_runner(&Store::open(&flat, Arc::new(NoFaults)).unwrap()).unwrap();
+        // No pointer yet: the bridge resolves the flat family (`record_owner_only_in_home`).
+        assert_eq!(state_db_of_home(&home).unwrap(), flat);
+        let reader = Store::open_read_only(&flat, Arc::new(NoFaults)).unwrap();
+        let hook = Arc::new(AdoptionInTheWindow {
+            state_dir: paths.state_dir.clone(),
+            flat: flat.clone(),
+            now: at,
+            adopted: Mutex::new(None),
+            fenced: Mutex::new(None),
+        });
+
+        // `record_owner_only_in_home`'s write, with the hook.
+        let recorded = heimdall_store::ext_runner::bridge_record_runner_downgrade_with_faults(
+            &state_db_of_home(&home).unwrap(),
+            cause.token(),
+            at,
+            hook.clone(),
+        );
+        let opened = hook
+            .adopted
+            .lock()
+            .unwrap()
+            .take()
+            .expect("the adoption ran in the window");
+        assert!(
+            matches!(opened.began, Began::Adopted { .. }),
+            "{:?}",
+            opened.began
+        );
+        assert!(matches!(
+            layout::locate(&paths.state_dir).unwrap(),
+            Located::Generation { .. }
+        ));
+        assert_eq!(layout::db_path(&paths.state_dir).unwrap(), opened.db);
+        assert!(
+            matches!(recorded, Err(StoreError::AdoptionFenced)),
+            "the bridge's write was not refused: {recorded:?}"
+        );
+        let fenced = hook.fenced.lock().unwrap().take().unwrap();
+        assert!(fenced.contains_key(""), "{:?}", fenced.keys());
+        let after = family_bytes(&flat);
+        let sizes = |f: &BTreeMap<String, Vec<u8>>| -> Vec<(String, usize)> {
+            f.iter().map(|(k, v)| (k.clone(), v.len())).collect()
+        };
+        assert!(
+            after == fenced,
+            "the bridge wrote into the fenced flat family: sizes {:?} became {:?}",
+            sizes(&fenced),
+            sizes(&after)
+        );
+        drop(reader);
+
+        // The caller's fallback (`m06_cmd::refuse_session`): the event is queued.
+        note_unrecorded_downgrade(&paths.log_dir, cause, at).unwrap();
+        assert_eq!(
+            unrecorded_downgrade(&paths.log_dir).map(|n| n.cause),
+            Some(cause),
+            "the marker is not queued"
+        );
+
+        let served = Arc::new(opened.store);
+        assert_eq!(downgrade(&served), None);
+        // The policy finds the marker from the served generation's database, which lives in
+        // `generations/<name>/` (`marker_dir_of_db`): pending, it lowers the runner.
+        let policy = RunnerPolicy::with_store(ManagementPolicy::Verified, served.clone());
+        assert!(
+            policy.marker_pending(),
+            "the marker does not lower the runner"
+        );
+        policy.drain_pending(at);
+        assert_eq!(
+            downgrade(&served),
+            Some((cause.token().to_owned(), 1)),
+            "the served generation does not carry the downgrade"
+        );
+        assert_eq!(unrecorded_downgrade(&paths.log_dir), None);
+        assert_eq!(policy.current(), ManagementPolicy::OwnerOnly);
+        drop(policy);
+        let restarted = RunnerPolicy::with_store(ManagementPolicy::Verified, served.clone());
+        assert_eq!(restarted.current(), ManagementPolicy::OwnerOnly);
     }
 }

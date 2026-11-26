@@ -137,7 +137,7 @@ pub(crate) fn journey() {
     assert_eq!(code, 0, "{shown}");
     let key = shown["data"]["public_key"].as_str().unwrap().to_owned();
     let fingerprint = shown["data"]["fingerprint"].as_str().unwrap().to_owned();
-    let invite = |request: Option<&str>| {
+    let invite = |retry: &[&str]| {
         let mut args = vec![
             "environment",
             "invite",
@@ -147,12 +147,10 @@ pub(crate) fn journey() {
             "--public-key",
             &key,
         ];
-        if let Some(request) = request {
-            args.extend(["--request-id", request]);
-        }
+        args.extend(retry);
         w.controller_typed(&args, &[(CONFIRMATION, "yes")])
     };
-    let held = invite(None);
+    let held = invite(&[]);
     let pending = held.json();
     assert!(
         held.text.contains(&fingerprint),
@@ -162,14 +160,25 @@ pub(crate) fn journey() {
     assert_eq!(pending["code"], "APPROVAL_REQUIRED", "{}", held.text);
     let decision = pending["next"]["decision_ref"].as_str().unwrap().to_owned();
     let message = pending["data"]["error"]["message"].as_str().unwrap();
-    let request = message
-        .rsplit("--request-id ")
+    // ⟨M08 U2b-2⟩ The retry the answer names, as it is passed back: the request ID with the
+    // restore epoch the runner bound it to beside it.
+    let retry: Vec<String> = message
+        .rsplit(" again with ")
         .next()
         .unwrap()
-        .trim()
-        .to_owned();
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(retry.len(), 4, "{message}");
+    assert_eq!(
+        (retry[0].as_str(), retry[2].as_str()),
+        ("--request-id", "--request-epoch"),
+        "{message}"
+    );
+    assert!(retry[3].parse::<u64>().is_ok(), "{message}");
+    let retry: Vec<&str> = retry.iter().map(String::as_str).collect();
     // Unconfirmed at the runner, the same request stays held (no bundle).
-    let still = invite(Some(&request));
+    let still = invite(&retry);
     assert_eq!(still.json()["code"], "APPROVAL_REQUIRED", "{}", still.text);
     observe(
         CASE,
@@ -185,7 +194,7 @@ pub(crate) fn journey() {
         "approve",
         "at=runner_local_terminal command=decision_approve typed=yes",
     );
-    let created = invite(Some(&request));
+    let created = invite(&retry);
     let bundle = created.json();
     assert_eq!(bundle["code"], "OK", "{}", created.text);
     let bundle_file = scratch.path().join("invitation.json");

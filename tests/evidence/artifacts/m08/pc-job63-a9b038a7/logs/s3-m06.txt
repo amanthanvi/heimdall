@@ -1,0 +1,30 @@
+   Compiling heimdall v0.1.0-m01 (<R>\c1\crates\heimdall)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.51s
+     Running ..\..\tests\e2e\environment_cli_m06.rs (target\debug\deps\e2e_environment_cli_m06-12c98c49ad341a23.exe)
+
+running 3 tests
+test show_key_creates_k_mgmt_once_and_a_locked_store_refuses ... ok
+test m06_help_goldens ... ok
+test environment_commands_use_the_controller_records_under_the_instance_lock ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.78s
+
+     Running ..\..\tests\e2e\environment_runner_m06.rs (target\debug\deps\e2e_environment_runner_m06-acfe4296e9a00d12.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running ..\..\tests\e2e\windows_controller_m06.rs (target\debug\deps\e2e_windows_controller_m06-404689b909283b20.exe)
+
+running 7 tests
+test environment_add ... ignored, run by tests/native/m06/run-windows-controller.ps1 with its HM_M06J_* inputs
+test seed_controller ... ignored, run by tests/native/m06/run-windows-controller.ps1 with its HM_M06J_* inputs
+test host_key_lines_are_one_ed25519_key_without_its_comment ... ok
+test the_bootstrap_sessions_runtime_statement_is_read_across_line_breaks ... ok
+test the_answer_is_the_last_envelope_of_the_transcript ... ok
+test facts_are_sorted_single_lines_and_a_missing_input_is_named ... ok
+test the_driver_names_a_missing_fixture_key_store_before_starting_anything ... ok
+
+test result: ok. 5 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

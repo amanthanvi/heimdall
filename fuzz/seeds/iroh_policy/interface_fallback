@@ -1,0 +1,4 @@
+interface 192.0.2.10
+fallback
+port 4433
+direct 192.0.2.20:4433

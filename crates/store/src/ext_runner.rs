@@ -429,19 +429,58 @@ pub const BRIDGE_BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_s
 /// * **Idempotent:** a repeated event leaves the row set with its first cause and time; it
 ///   moves only the row's epoch, so recheck evidence from before it lifts nothing (§18.7
 ///   item 19).
-/// * **One `BEGIN IMMEDIATE` transaction**, the runner check inside it, with a bounded
-///   busy timeout ([`BRIDGE_BUSY_TIMEOUT`]).
+/// * **One `BEGIN IMMEDIATE` transaction** with a bounded busy timeout
+///   ([`BRIDGE_BUSY_TIMEOUT`]). The schema check and the runner check are made inside it,
+///   under the write lock, before the upsert.
+///
+/// ⟨review W3-R01; ADR-0014 §3.6 adoption, step 2⟩ **Why the schema is read again inside
+/// the transaction.** The runtime's start can adopt this database's flat family while the
+/// bridge runs. The adoption's fence (`layout::fence`, its own `BEGIN IMMEDIATE`
+/// transaction) sets the family's `user_version` to [`crate::layout::ADOPTION_FENCE`], and
+/// from then on a copy of the family is served, never the family itself. A check made only
+/// before the transaction lets a fence that commits in between pass: the row then lands in
+/// the fenced family, which is residue, and no marker is queued. Read inside the write
+/// lock, the check sees every fence that committed first and refuses
+/// ([`StoreError::AdoptionFenced`]). A fence that starts later waits for this commit, so
+/// the row is in the family before the fence and therefore in the adoption's copy.
 ///
 /// # Errors
 ///
-/// No such database, another schema, not a runner's, a write lock not obtained in time, or
-/// SQLite's failure: nothing was recorded (the caller refuses its session all the same).
+/// No such database, another schema (a family fenced for adoption included), not a
+/// runner's, a write lock not obtained in time, or SQLite's failure: nothing was recorded.
+/// The caller refuses its session all the same and queues the event in its fail-closed
+/// marker (`heimdall_runtime::paired::note_unrecorded_downgrade`).
 pub fn bridge_record_runner_downgrade(
     path: &std::path::Path,
     cause: &str,
     now: Timestamp,
 ) -> Result<RunnerDowngrade> {
-    bridge_record_with(path, cause, now, BRIDGE_BUSY_TIMEOUT)
+    bridge_record_with(
+        path,
+        cause,
+        now,
+        BRIDGE_BUSY_TIMEOUT,
+        std::sync::Arc::new(crate::NoFaults),
+    )
+}
+
+/// Test support (review W3-R01; `heimdall-runtime`'s
+/// `paired::adoption_window_tests::a_bridge_write_after_the_adoption_fence_is_refused_and_reaches_the_served_generation_by_the_marker`):
+/// [`bridge_record_runner_downgrade`] with `faults` as the hook of the bridge's store. Its
+/// [`crate::FaultPoint::BeforeTransaction`] fires after the bridge has opened the database
+/// and checked its schema, and before its transaction begins: the window a concurrent
+/// adoption's fence can commit in. Never used by production code.
+///
+/// # Errors
+/// As [`bridge_record_runner_downgrade`], and the hook's injected fault.
+#[doc(hidden)]
+pub fn bridge_record_runner_downgrade_with_faults(
+    path: &std::path::Path,
+    cause: &str,
+    now: Timestamp,
+    faults: std::sync::Arc<dyn crate::FaultHook>,
+) -> Result<RunnerDowngrade> {
+    bridge_record_with(path, cause, now, BRIDGE_BUSY_TIMEOUT, faults)
 }
 
 fn bridge_record_with(
@@ -449,6 +488,7 @@ fn bridge_record_with(
     cause: &str,
     now: Timestamp,
     busy: std::time::Duration,
+    faults: std::sync::Arc<dyn crate::FaultHook>,
 ) -> Result<RunnerDowngrade> {
     use heimdall_domain::environment::EnvironmentKind;
     // No `SQLITE_OPEN_CREATE`: a missing file is an error, never a new database.
@@ -458,13 +498,10 @@ fn bridge_record_with(
     )
     .map_err(codec::classify)?;
     conn.busy_timeout(busy).map_err(codec::classify)?;
-    let found = crate::migrations::check_version(&conn, crate::migrations::MIGRATIONS)?;
-    if found < crate::SCHEMA_VERSION {
-        return Err(StoreError::OlderSchema {
-            found,
-            supported: crate::SCHEMA_VERSION,
-        });
-    }
+    // A first refusal, before anything is set on the connection: a file at another schema
+    // (an empty file, an older or newer store, a family fenced for adoption) is never
+    // written. It does not decide the write; the same check inside the transaction does.
+    at_this_builds_schema(&conn)?;
     // Connection settings only (none of them writes the file).
     for (pragma, value) in [
         ("synchronous", "FULL"),
@@ -476,10 +513,16 @@ fn bridge_record_with(
     }
     let store = crate::Store {
         conn: std::sync::Mutex::new(conn),
-        faults: std::sync::Arc::new(crate::NoFaults),
+        faults,
         read_only: false,
     };
+    // `Store::transaction` on a writable store is `BEGIN IMMEDIATE` (`read_only` is false
+    // here): the write lock is taken at `BEGIN`, so no other writer can commit between the
+    // version read and the upsert below. A deferred transaction would read first and take
+    // the write lock only at the upsert, and the adoption's fence could commit in between.
     store.transaction(|tx| {
+        // ⟨W3-R01⟩ The schema again, under the write lock (doc above).
+        at_this_builds_schema(&tx.tx)?;
         let runner = match tx.self_environment()? {
             Some(id) => tx
                 .environment(&id)?
@@ -491,6 +534,20 @@ fn bridge_record_with(
         }
         tx.record_runner_downgrade(cause, now)
     })
+}
+
+/// The database is at exactly this build's schema. An older one (an empty file included)
+/// is [`StoreError::OlderSchema`]; a newer one is [`StoreError::NewerSchema`]; a family
+/// fenced for adoption is [`StoreError::AdoptionFenced`] (`migrations::check_version`).
+fn at_this_builds_schema(conn: &rusqlite::Connection) -> Result<()> {
+    let found = crate::migrations::check_version(conn, crate::migrations::MIGRATIONS)?;
+    if found < crate::SCHEMA_VERSION {
+        return Err(StoreError::OlderSchema {
+            found,
+            supported: crate::SCHEMA_VERSION,
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -744,6 +801,7 @@ mod tests {
                 "session_pty",
                 t("2026-11-21T09:20:00Z"),
                 std::time::Duration::from_millis(150),
+                Arc::new(NoFaults),
             ))
         });
         assert!(matches!(busy, Ok(Err(_))), "{busy:?}");

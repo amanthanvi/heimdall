@@ -946,6 +946,7 @@ async fn wrong_first_message_is_rejected() {
         &ClientMessage::Request {
             seq: 1,
             request: inspect(),
+            request_epoch: None,
         },
         MAX_CONTROL_FRAME_BYTES,
     )
@@ -1103,6 +1104,7 @@ async fn seventeenth_inflight_request_gets_backpressure() {
                     &ClientMessage::Request {
                         seq,
                         request: cancel(seq as u8),
+                        request_epoch: None,
                     },
                     MAX_CONTROL_FRAME_BYTES,
                 )
@@ -1347,6 +1349,7 @@ async fn server_dropped_mid_response_surfaces_service_unavailable() {
         if let ClientMessage::Request {
             request: Request::Cancel(c),
             seq,
+            ..
         } = &frames[1]
         {
             journal
@@ -1674,6 +1677,7 @@ async fn hello_without_interaction_defaults_to_non_interactive() {
     input.extend(frame_of(&ClientMessage::Request {
         seq: 2,
         request: decide(),
+        request_epoch: None,
     }));
     let (r, frames, _) = raw_session(ConnectionLimits::default(), async |s| {
         s.write_all(&input).await.unwrap();
@@ -2191,6 +2195,7 @@ async fn shutdown_needs_the_negotiated_service_control_capability() {
             s.write_all(&frame_of(&ClientMessage::Request {
                 seq: 1,
                 request: Request::Shutdown(ShutdownRequest {}),
+                request_epoch: None,
             }))
             .await
             .unwrap();
@@ -2286,6 +2291,7 @@ async fn reply_hook_runs_after_the_response_so_the_requester_reads_ok_before_goo
             s.write_all(&frame_of(&ClientMessage::Request {
                 seq: 1,
                 request: inspect(),
+                request_epoch: None,
             }))
             .await
             .unwrap();
@@ -2293,6 +2299,7 @@ async fn reply_hook_runs_after_the_response_so_the_requester_reads_ok_before_goo
             s.write_all(&frame_of(&ClientMessage::Request {
                 seq: 2,
                 request: Request::Shutdown(ShutdownRequest {}),
+                request_epoch: None,
             }))
             .await
             .unwrap();

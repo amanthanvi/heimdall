@@ -850,7 +850,11 @@ async fn capabilities_offered_after_activation() {
         .iter()
         .map(|c| c.as_str().unwrap().to_owned())
         .collect();
-    assert_eq!(listed, offered, "inspect capabilities lists the offer");
+    // ⟨M08 U2b-2⟩ With `request-epoch/1`, which every serving runtime offers through its
+    // request fence (this test's dispatchers have none).
+    let mut with_epoch = offered.clone();
+    with_epoch.insert(capability::REQUEST_EPOCH_V1.to_owned());
+    assert_eq!(listed, with_epoch, "inspect capabilities lists the offer");
     let open = |required: BTreeSet<String>, offer: BTreeSet<String>| {
         let ops = w.ops.clone();
         let clock = w.clock.clone();
@@ -1002,7 +1006,15 @@ impl RawClient {
         use tokio::io::AsyncWriteExt;
         self.seq += 1;
         let seq = self.seq;
-        let frame = encode_frame(&ClientMessage::Request { seq, request }, CONTROL_LIMIT).unwrap();
+        let frame = encode_frame(
+            &ClientMessage::Request {
+                seq,
+                request,
+                request_epoch: None,
+            },
+            CONTROL_LIMIT,
+        )
+        .unwrap();
         self.stream.write_all(&frame).await.unwrap();
         loop {
             if let ServerMessage::Response {
@@ -2908,7 +2920,7 @@ mod wave4 {
     use heimdall_runtime::connections::{ConnectionConfig, ConnectionSupervisor};
     use heimdall_runtime::platform::process_start_time;
     use heimdall_runtime::service::{
-        ManagedOptions, STATE_DB_FILE, ServiceOptions, SessionLockWiring, start_step,
+        ManagedOptions, ServiceOptions, SessionLockWiring, start_step,
     };
     use heimdall_runtime::supervisor::ManagedConnections;
     use heimdall_runtime::{Config, Paths, Service};
@@ -2936,8 +2948,13 @@ mod wave4 {
             .open("/dev/fd/3")
             .unwrap();
         let store = Box::new(ScratchSecretStore::new(PathBuf::from(store)));
-        let status =
-            heimdall_issuer::child::run(std::io::stdin(), out, store, Path::new(&db), clock);
+        let status = heimdall_issuer::child::run(
+            std::io::stdin(),
+            out,
+            store,
+            &heimdall_store::layout::db_path(Path::new(&db)).unwrap(),
+            clock,
+        );
         std::process::exit(status);
     }
 
@@ -2960,7 +2977,7 @@ mod wave4 {
             let secret_store = tmp.path().join("store");
             std::fs::create_dir(&secret_store).unwrap();
             let store = Store::open(
-                &paths.state_dir.join(STATE_DB_FILE),
+                &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
                 Arc::new(heimdall_store::NoFaults),
             )
             .unwrap();
@@ -3015,7 +3032,7 @@ mod wave4 {
                 env: vec![
                     (
                         CHILD_DB_ENV.into(),
-                        self.paths().state_dir.join(STATE_DB_FILE).into_os_string(),
+                        self.paths().state_dir.into_os_string(),
                     ),
                     (CHILD_STORE_ENV.into(), self.secret_store.clone().into_os_string()),
                     (CHILD_WALL_ENV.into(), t0().to_string().into()),
@@ -4437,9 +4454,7 @@ mod round2 {
     use super::*;
 
     use heimdall_contract::managed::SessionLockState;
-    use heimdall_runtime::service::{
-        ManagedOptions, STATE_DB_FILE, ServiceOptions, SessionLockWiring,
-    };
+    use heimdall_runtime::service::{ManagedOptions, ServiceOptions, SessionLockWiring};
     use heimdall_runtime::{Config, Paths, Service};
     use heimdall_testkit::session_lock::FakeSessionLockSource;
 
@@ -4459,7 +4474,7 @@ mod round2 {
             let paths = Paths::under(&home);
             paths.ensure().unwrap();
             let store = Store::open(
-                &paths.state_dir.join(STATE_DB_FILE),
+                &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
                 Arc::new(heimdall_store::NoFaults),
             )
             .unwrap();
@@ -4564,7 +4579,7 @@ mod round2 {
         let p = pair("h1", "deploy");
         {
             let store = Store::open(
-                &Paths::under(&home.home).state_dir.join(STATE_DB_FILE),
+                &heimdall_store::layout::db_path(&Paths::under(&home.home).state_dir).unwrap(),
                 Arc::new(heimdall_store::NoFaults),
             )
             .unwrap();
@@ -5853,7 +5868,7 @@ mod setup_switch {
     use heimdall_localenv::paths::SshPaths;
     use heimdall_localenv::projection::{ProjectionConfig, ReplaceHook, ReplacePoint};
     use heimdall_runtime::service::{
-        ManagedOptions, ProjectionWiring, STATE_DB_FILE, ServiceOptions, SessionLockWiring,
+        ManagedOptions, ProjectionWiring, ServiceOptions, SessionLockWiring,
     };
     use heimdall_runtime::{Config, Paths, Service};
     use heimdall_testkit::agent::FixtureKey;
@@ -5932,7 +5947,7 @@ mod setup_switch {
             let paths = Paths::under(&root.join("hh"));
             paths.ensure().unwrap();
             let store = Store::open(
-                &paths.state_dir.join(STATE_DB_FILE),
+                &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
                 Arc::new(heimdall_store::NoFaults),
             )
             .unwrap();
@@ -6482,9 +6497,7 @@ mod wave5_r2 {
     use heimdall_localenv::projection::plan::{
         DEADLINE_GRACEFUL_NOT_EXCLUSIVE, DEADLINE_STRICT_NOT_EXCLUSIVE,
     };
-    use heimdall_runtime::service::{
-        ManagedOptions, STATE_DB_FILE, ServiceOptions, SessionLockWiring,
-    };
+    use heimdall_runtime::service::{ManagedOptions, ServiceOptions, SessionLockWiring};
     use heimdall_runtime::{Config, Paths, Service};
     use heimdall_testkit::session_lock::FakeSessionLockSource;
 
@@ -6498,7 +6511,7 @@ mod wave5_r2 {
         let paths = Paths::under(&home);
         paths.ensure().unwrap();
         let store = Store::open(
-            &paths.state_dir.join(STATE_DB_FILE),
+            &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
             Arc::new(heimdall_store::NoFaults),
         )
         .unwrap();

@@ -165,6 +165,11 @@ pub struct EnvInviteArgs {
     /// Reuse the request ID the pending answer named, after confirming at the runner.
     #[arg(long, value_name = "ID")]
     pub request_id: Option<String>,
+    /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+    /// give it with the same `--request-id` to retry. Without it, the runner's current epoch
+    /// is used.
+    #[arg(long, value_name = "N", requires = "request_id")]
+    pub request_epoch: Option<u64>,
     /// Let the invited device reach the runner over Iroh: it sends its own endpoint ID when
     /// it joins (confirmed at the runner with the invitation).
     #[arg(long)]
@@ -1089,8 +1094,10 @@ async fn alias_pin_defeat(
     let Ok((Some(alias), pins, all)) = catalog else {
         return Some("unreadable".to_owned());
     };
+    // ⟨M08 U1b; M06-F6⟩ With the OpenSSH environment fill, as every M06 launch.
     let Some(effective) =
-        heimdall_app::routes::verify::effective_alias_config(ssh, config, &alias).await
+        heimdall_app::routes::verify::effective_alias_config(ssh, config, &alias, OPENSSH_FILL)
+            .await
     else {
         return Some("unreadable".to_owned());
     };
@@ -1263,7 +1270,10 @@ pub(crate) async fn verify_projected_helper_aliases(ctx: &Ctx) -> Vec<(String, S
     let ssh = ssh_client().unwrap_or_default();
     let mut defeated = Vec::new();
     for a in aliases {
-        match verify_projected_alias(&ssh, config.as_deref(), &a.alias, &a.expect).await {
+        // ⟨M08 U1b; M06-F6⟩ With the OpenSSH environment fill, as every M06 launch.
+        match verify_projected_alias(&ssh, config.as_deref(), &a.alias, &a.expect, OPENSSH_FILL)
+            .await
+        {
             Ok(()) => {}
             Err(RouteVerifyError::Defeated { defeated: d, .. }) => {
                 defeated.push((a.alias, d.setting.to_owned()));
@@ -1302,9 +1312,9 @@ fn route_connect(ctx: &Ctx, args: &crate::cli::PlannedArgs) -> ExitCode {
             return ExitCode::Usage;
         }
     };
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
+    // ⟨M08 U2b-1⟩ The store the pointer names. A corrupt layout names none: an empty path,
+    // which every read-only open refuses.
+    let db = heimdall_store::layout::db_path(&paths.state_dir).unwrap_or_default();
     let rt = match crate::service_cmd::current_thread() {
         Ok(rt) => rt,
         Err(_) => return ExitCode::Unavailable,
@@ -1323,6 +1333,8 @@ fn route_connect(ctx: &Ctx, args: &crate::cli::PlannedArgs) -> ExitCode {
         base: heimdall_app::routes::legs::TokioLegDialer {
             ssh_client: ssh.clone(),
             relay_jump_stderr: true,
+            // ⟨M08 U1b; M06-F6⟩ The jump leg's `ssh` gets the fill, as every M06 launch.
+            fill: OPENSSH_FILL,
         },
         iroh,
         iroh_in_build: heimdall_runtime::supervise_transport::ROUTE_IROH_IN_BUILD,
@@ -1468,10 +1480,8 @@ impl heimdall_app::transport::EndpointAnnouncer for ManagementAnnouncer {
         environment: &EnvironmentId,
         endpoint: &heimdall_contract::ids::IrohEndpointId,
     ) -> Result<(), OpError> {
-        let db = self
-            .paths
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE);
+        let db = heimdall_store::layout::db_path(&self.paths.state_dir)
+            .map_err(|_| state_refusal("the installation's environment cannot be read"))?;
         let own = heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
             .and_then(|s| s.transaction(|tx| tx.self_environment()))
             .ok()
@@ -1503,6 +1513,7 @@ impl heimdall_app::transport::EndpointAnnouncer for ManagementAnnouncer {
             root,
             key: key.clone(),
             fill: OPENSSH_FILL,
+            kept_epoch: None,
         };
         let confirm = TerminalConfirm { interactive: false };
         RemoteEnvController::new(ControllerPorts {
@@ -1546,10 +1557,8 @@ impl DriverSessions {
 #[async_trait::async_trait]
 impl ManagementSessions for DriverSessions {
     async fn open(&self, target: &SessionTarget) -> Result<Box<dyn ManagementSession>, OpError> {
-        let db = self
-            .paths
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE);
+        let db = heimdall_store::layout::db_path(&self.paths.state_dir)
+            .map_err(|_| state_refusal("the installation's environment cannot be read"))?;
         let own = heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
             .and_then(|s| s.transaction(|tx| tx.self_environment()))
             .ok()
@@ -1562,6 +1571,7 @@ impl ManagementSessions for DriverSessions {
                 store: Some(Arc::<dyn MgmtKeyStore>::from(mgmt_store(&self.ctx, &own)?)),
             }),
             fill: OPENSSH_FILL,
+            kept_epoch: None,
         };
         sessions.open(target).await
     }
@@ -1923,11 +1933,9 @@ fn try_writer(paths: &heimdall_runtime::Paths) -> Result<Option<Writer>, OpError
         Err(heimdall_runtime::instance::InstanceError::AlreadyRunning) => return Ok(None),
         Err(_) => return Err(state_refusal("the instance lock cannot be taken")),
     };
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
-    let store = heimdall_store::Store::open(&db, Arc::new(heimdall_store::NoFaults))
-        .map_err(|_| state_refusal("the state database cannot be opened"))?;
+    // ⟨M08 U2b-1⟩ Through the generation layout, under the lock just taken: the generation the
+    // pointer names, the flat store adopted, or a first install.
+    let store = open_locked_store(paths)?.store;
     let fresh = heimdall_app::ids::new_environment_id().map_err(|_| {
         OpError::new(
             Code::InternalError,
@@ -1943,6 +1951,19 @@ fn try_writer(paths: &heimdall_runtime::Paths) -> Result<Option<Writer>, OpError
         })
         .map_err(|_| state_refusal("the installation's environment cannot be recorded"))?;
     Ok(Some(Writer { _lock: lock, store }))
+}
+
+/// ⟨M08 U2b-1; ADR-0014 §3.6⟩ The store of `paths`, read-write, through the generation layout
+/// (`heimdall_runtime::state_store::open_locked`), **under the instance lock the caller holds**.
+fn open_locked_store(
+    paths: &heimdall_runtime::Paths,
+) -> Result<heimdall_store::layout::Opened, OpError> {
+    heimdall_runtime::state_store::open_locked(
+        &paths.state_dir,
+        Arc::new(heimdall_store::NoFaults),
+        heimdall_contract::Timestamp::now(),
+    )
+    .map_err(|_| state_refusal("the state database cannot be opened"))
 }
 
 /// ⟨rev6.3; ADR-0006 §18.7 item 6⟩ How a command that writes the controller's records writes
@@ -2255,6 +2276,12 @@ struct SshSessions {
     key: Arc<StoreKey>,
     /// ⟨M06 exit⟩ The management `ssh`'s and the probes' environment fill ([`OPENSSH_FILL`]).
     fill: env_ssh::OpensshEnvFill,
+    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 3⟩ `environment invite --request-epoch`: the runner's
+    /// epoch the retried request ID was first sent with. The session then offers
+    /// `request-epoch/1` and every mutating request carries this epoch; a runner that does not
+    /// offer it gets nothing (`SCHEMA_UNSUPPORTED`). `None`: no epoch is sent, and the runner
+    /// binds each request to its current epoch at receipt, as before.
+    kept_epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
 }
 
 /// ⟨M06 exit; ADR-0006 §18.9 item 13⟩ The fill every M06 launch of `ssh` applies (the
@@ -2692,6 +2719,12 @@ impl ManagementSessions for SshSessions {
             target.standing,
             heimdall_ipc::session::server_capabilities(),
         );
+        // ⟨M08 U2b-2⟩ With a kept epoch the session offers `request-epoch/1` (never requires
+        // it), so the runner can check the epoch; without one the hello is unchanged.
+        let mut offered = wanted.offered.clone();
+        if self.kept_epoch.is_some() {
+            offered.insert(heimdall_contract::ipc::capability::REQUEST_EPOCH_V1.to_owned());
+        }
         let handshake = tokio::time::timeout(
             SESSION_HELLO_BOUND,
             heimdall_ipc::session::ControlClient::handshake_hello(
@@ -2703,7 +2736,7 @@ impl ManagementSessions for SshSessions {
                         name: CLIENT_NAME.to_owned(),
                         version: env!("CARGO_PKG_VERSION").to_owned(),
                     },
-                    capabilities: wanted.offered.clone(),
+                    capabilities: offered,
                     required: wanted.required.clone(),
                     interaction: InteractionMode::NonInteractive,
                     remote_client: None,
@@ -2711,7 +2744,7 @@ impl ManagementSessions for SshSessions {
             ),
         )
         .await;
-        let client = match handshake {
+        let mut client = match handshake {
             Ok(Ok(client)) => client,
             Ok(Err(e)) => {
                 if let Some(heimdall_ipc::session::ServerRefusal::Rejected(env)) =
@@ -2752,6 +2785,8 @@ impl ManagementSessions for SshSessions {
                 .with_effect(EffectStatus::None),
             ));
         }
+        // ⟨M08 U2b-2⟩ The kept epoch travels with every mutating request of the session.
+        client.keep_epoch(self.kept_epoch);
         let hello = SessionHello {
             environment: client.server().environment_id.clone(),
             role: client.server().role,
@@ -2812,14 +2847,15 @@ async fn wiring(ctx: &Ctx, write: bool) -> Result<Wiring, OpError> {
     let paths = ctx.paths().map_err(|e| {
         OpError::new(Code::UsageError, e.data.error.message.clone()).with_effect(EffectStatus::None)
     })?;
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
     let writes = if write {
         Some(record_writes(ctx, &paths).await?)
     } else {
         None
     };
+    // ⟨M08 U2b-1⟩ The database the pointer names, read after the writer, which may have
+    // adopted the flat store or installed the first generation under the lock.
+    let db = heimdall_store::layout::db_path(&paths.state_dir)
+        .map_err(|_| state_refusal("the state database cannot be located"))?;
     let environment = match &writes {
         Some(RecordWrites::Direct(w)) => w
             .store
@@ -2872,6 +2908,7 @@ async fn wiring(ctx: &Ctx, write: bool) -> Result<Wiring, OpError> {
             root,
             key,
             fill: OPENSSH_FILL,
+            kept_epoch: ctx.request_epoch,
         },
         confirm: TerminalConfirm {
             interactive: ctx.interactive(),
@@ -3124,16 +3161,18 @@ pub(crate) fn environment(ctx: &Ctx, command: EnvironmentCommand) -> ExitCode {
                         );
                         Ok((value, human))
                     }
+                    // ⟨M08 U2b-2 follow-up B⟩ The retry names the epoch beside the request ID.
                     InviteOutcome::Pending {
                         decision_ref,
                         request_id,
+                        request_epoch,
                     } => Err(OpError::new(
                         Code::ApprovalRequired,
                         format!(
                             "the runner holds the invitation for its local confirmation: confirm \
                              decision {decision_ref} at the runner, then run this command again \
-                             with --request-id {}",
-                            request_id.as_str()
+                             with {}",
+                            crate::cli::retry_args(&request_id, request_epoch)
                         ),
                     )
                     .with_effect(EffectStatus::None)
@@ -3279,9 +3318,15 @@ fn environment_resume_issuance(ctx: &Ctx, environment: &str) -> ExitCode {
             return output::exit_code_for(env.code, false);
         }
     };
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
+    let db = match heimdall_store::layout::db_path(&paths.state_dir) {
+        Ok(db) => db,
+        Err(_) => {
+            return emit_error(
+                ctx,
+                state_refusal("the controller's records cannot be read"),
+            );
+        }
+    };
     let unrecorded = || {
         OpError::new(
             Code::NotFound,
@@ -3349,10 +3394,10 @@ fn environment_resume_issuance(ctx: &Ctx, environment: &str) -> ExitCode {
     let confirm = || TerminalConfirm { interactive: true }.ask(&text);
     let env = match heimdall_runtime::InstanceLock::try_acquire(&paths.state_dir) {
         Ok(lock) => {
-            // No runtime: the direct write, holding the lock.
-            let applied = heimdall_store::Store::open(&db, Arc::new(heimdall_store::NoFaults))
-                .map_err(|_| state_refusal("the state database cannot be opened"))
-                .and_then(|store| acknowledge_shown(&store, &environment, &shown, confirm, now()));
+            // No runtime: the direct write, holding the lock (⟨M08 U2b-1⟩ through the layout).
+            let applied = open_locked_store(&paths).and_then(|opened| {
+                acknowledge_shown(&opened.store, &environment, &shown, confirm, now())
+            });
             drop(lock);
             match applied {
                 Ok(data) => Envelope::ok(data),
@@ -3491,11 +3536,9 @@ fn remote_status_views(
     let Ok(paths) = ctx.paths() else {
         return Vec::new();
     };
-    let db = paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
-    let Ok(state) = heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
-    else {
+    let Ok(state) = heimdall_store::layout::db_path(&paths.state_dir).and_then(|db| {
+        heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
+    }) else {
         return Vec::new();
     };
     let now = heimdall_contract::Timestamp::now();
@@ -3571,11 +3614,7 @@ fn remote_lines(v: &heimdall_app::remote_status::RemoteStatus) -> String {
 /// This installation's K_iroh endpoint ID when a verified platform store holds its key
 /// (`heimdall_runtime::supervise_transport::held_endpoint`); `None` otherwise.
 fn own_iroh_endpoint(ctx: &Ctx) -> Option<heimdall_contract::ids::IrohEndpointId> {
-    let db = ctx
-        .paths()
-        .ok()?
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE);
+    let db = heimdall_store::layout::db_path(&ctx.paths().ok()?.state_dir).ok()?;
     let state =
         heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults)).ok()?;
     let environment = state.transaction(|tx| tx.self_environment()).ok()??;
@@ -3622,9 +3661,8 @@ fn show_key(ctx: &Ctx) -> ExitCode {
         let paths = ctx
             .paths()
             .map_err(|_| usage("cannot resolve the Heimdall directories"))?;
-        let db = paths
-            .state_dir
-            .join(heimdall_runtime::service::STATE_DB_FILE);
+        let db = heimdall_store::layout::db_path(&paths.state_dir)
+            .map_err(|_| state_refusal("the installation's environment cannot be read"))?;
         let environment = match self_environment(&db) {
             Some(environment) => environment,
             None => writer(&paths)?
@@ -4483,9 +4521,8 @@ fn state_db(ctx: &Ctx) -> Result<PathBuf, OpError> {
     let paths = ctx
         .paths()
         .map_err(|_| usage("cannot resolve the Heimdall directories"))?;
-    Ok(paths
-        .state_dir
-        .join(heimdall_runtime::service::STATE_DB_FILE))
+    heimdall_store::layout::db_path(&paths.state_dir)
+        .map_err(|_| state_refusal("the state database cannot be located"))
 }
 
 /// A read-only view of this runner's state (`None`: no state yet). Refuses an installation
@@ -4560,13 +4597,10 @@ fn runner_local_apply(
     };
     match heimdall_runtime::InstanceLock::try_acquire(&paths.state_dir) {
         Ok(lock) => {
-            // No runtime: the direct write, holding the lock.
-            let db = paths
-                .state_dir
-                .join(heimdall_runtime::service::STATE_DB_FILE);
-            let store = match heimdall_store::Store::open(&db, Arc::new(heimdall_store::NoFaults)) {
-                Ok(s) => s,
-                Err(_) => return refusal(state_refusal("the state database cannot be opened")),
+            // No runtime: the direct write, holding the lock (⟨M08 U2b-1⟩ through the layout).
+            let store = match open_locked_store(&paths) {
+                Ok(opened) => opened.store,
+                Err(e) => return refusal(e),
             };
             if !confirm(&confirmation) {
                 return not_confirmed();
@@ -5369,6 +5403,7 @@ mod tests {
             root: root.clone(),
             key: Arc::new(StoreKey { store: None }),
             fill: OPENSSH_FILL,
+            kept_epoch: None,
         };
         let got = sessions.session_dir().unwrap_err();
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -5425,6 +5460,7 @@ mod tests {
                 non_interactive: true,
                 home: Some(home.clone()),
                 stdin_tty: false,
+                request_epoch: None,
             };
             let environment = EnvironmentId::from_random_bytes([3; 16]);
             let Err(e) = mgmt_store(&ctx, &environment) else {
@@ -5543,6 +5579,7 @@ mod tests {
             non_interactive: false,
             home: Some(home.clone()),
             stdin_tty: false,
+            request_epoch: None,
         };
         let paths = heimdall_runtime::Paths::under(&home);
         let asked = std::cell::RefCell::new(Vec::new());
@@ -5595,7 +5632,7 @@ mod tests {
         let paths = heimdall_runtime::Paths::under(dir.path());
         // The log directory is not there: the bridge creates it, owner-only.
         std::fs::create_dir_all(&paths.state_dir).unwrap();
-        let db = paired::state_db_of_home(dir.path());
+        let db = paired::state_db_of_home(dir.path()).unwrap();
 
         // No state database: refused, nothing created, the failure noted.
         goodbye(SessionFault::Pty, dir.path());
@@ -5649,7 +5686,7 @@ mod tests {
         std::fs::create_dir_all(&paths.state_dir).unwrap();
         let store = std::sync::Arc::new(
             heimdall_store::Store::open(
-                &paired::state_db_of_home(&home),
+                &paired::state_db_of_home(&home).unwrap(),
                 std::sync::Arc::new(heimdall_store::NoFaults),
             )
             .unwrap(),
@@ -5716,7 +5753,7 @@ mod tests {
         let paths = heimdall_runtime::Paths::under(&home);
         std::fs::create_dir_all(&paths.state_dir).unwrap();
         let store = heimdall_store::Store::open(
-            &paired::state_db_of_home(&home),
+            &paired::state_db_of_home(&home).unwrap(),
             std::sync::Arc::new(heimdall_store::NoFaults),
         )
         .unwrap();
@@ -5727,6 +5764,7 @@ mod tests {
             non_interactive: false,
             home: Some(home.clone()),
             stdin_tty: true,
+            request_epoch: None,
         };
         assert_eq!(policy_recheck_precheck(&ctx).unwrap(), None);
 
@@ -6718,9 +6756,7 @@ mod tests {
         .unwrap();
         paths.ensure().unwrap();
         let store = heimdall_store::Store::open(
-            &paths
-                .state_dir
-                .join(heimdall_runtime::service::STATE_DB_FILE),
+            &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
             Arc::new(heimdall_store::NoFaults),
         )
         .unwrap();
@@ -6783,9 +6819,7 @@ mod tests {
         );
         let read = || {
             heimdall_store::Store::open_read_only(
-                &paths
-                    .state_dir
-                    .join(heimdall_runtime::service::STATE_DB_FILE),
+                &heimdall_store::layout::db_path(&paths.state_dir).unwrap(),
                 Arc::new(heimdall_store::NoFaults),
             )
             .unwrap()

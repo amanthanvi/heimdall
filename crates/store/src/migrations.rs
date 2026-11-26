@@ -144,9 +144,18 @@ pub(crate) fn schema_object_count(conn: &Connection) -> Result<i64> {
 }
 
 /// Refuse a newer schema and an unversioned non-empty schema.
+///
+/// ⟨M08 U2b-1; ADR-0014 §3.6 adoption step 2⟩ A family fenced for adoption
+/// ([`crate::layout::ADOPTION_FENCE`]) is [`StoreError::AdoptionFenced`] for this build's own
+/// step list: it is never opened as a store again. A shorter step list models a build that
+/// predates generations (`Store::open_at_schema_version`), which knows no fence and answers
+/// [`StoreError::NewerSchema`], as such a build does.
 pub(crate) fn check_version(conn: &Connection, steps: &[Migration]) -> Result<u32> {
     let current = user_version(conn)?;
     let supported = target_version(steps);
+    if current == crate::layout::ADOPTION_FENCE && steps.len() == MIGRATIONS.len() {
+        return Err(StoreError::AdoptionFenced);
+    }
     if current > supported {
         return Err(StoreError::NewerSchema {
             found: current,

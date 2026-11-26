@@ -12,13 +12,19 @@
 //! **The fix.** Every product launch of an OpenSSH client calls [`fill_openssh_environment`]
 //! on its command. On Windows, each of [`OPENSSH_WINDOWS_VARS`] that the child would lack
 //! (absent from what it inherits, or removed or never set when its environment is cleared)
-//! is set **from the operating system**, never from another variable:
+//! is set **from the shell's known folders**, never copied from another variable. ⟨M08 U1b;
+//! M06-F5, exit review R01⟩ The known folders are not independent of this process's
+//! environment: the shell expands `FOLDERID_ProgramData` from this process's `SystemDrive`
+//! and `FOLDERID_Windows` from its `windir` (below), so a value given here is the one those
+//! two variables of this process, or their absence, lead the shell to. Every value set must be
+//! a usable absolute drive path ([`is_usable_folder`]: a drive letter, no UNC or `\\?\`
+//! form, nothing left unexpanded); a known folder that is not is never given:
 //!
 //! | Variable | Source |
 //! |---|---|
-//! | `ProgramData`, `ALLUSERSPROFILE` | `SHGetKnownFolderPath(FOLDERID_ProgramData)`; when this process has no `SystemDrive`, failing that, `<the drive of FOLDERID_Windows>\ProgramData` |
-//! | `windir` | `SHGetKnownFolderPath(FOLDERID_Windows)` |
-//! | `SystemDrive` | the drive of `FOLDERID_Windows` (`C:`) |
+//! | `ProgramData`, `ALLUSERSPROFILE` | `SHGetKnownFolderPath(FOLDERID_ProgramData)` when usable; when this process has no `SystemDrive`, failing that, `<the drive of FOLDERID_Windows>\ProgramData` |
+//! | `windir` | `SHGetKnownFolderPath(FOLDERID_Windows)` when usable |
+//! | `SystemDrive` | the drive of a usable `FOLDERID_Windows` (`C:`) |
 //!
 //! **Without this process's `SystemDrive`** ⟨M06 exit, PC job 53⟩. Sources: Microsoft Learn,
 //! *KNOWNFOLDERID* (<https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid>) and
@@ -34,9 +40,16 @@
 //! known folder fails, `ProgramData` is the documented default `%SystemDrive%\ProgramData`
 //! with the system drive derived from the Windows directory (`FOLDERID_Windows`, which resolves
 //! without `SystemDrive`; observed), which is also the `SystemDrive` the child gets. A known
-//! folder that does resolve (a relocated `ProgramData`) always wins, and when this process has
-//! `SystemDrive` and the call still fails, nothing is derived. This process's own environment
-//! is never changed.
+//! folder that resolves to a usable path (a relocated `ProgramData` included) wins; one that
+//! resolves to an unusable path (UNC, `\\?\`, unexpanded) is dropped, and then, only without
+//! `SystemDrive`, the default is derived as above. When this process has `SystemDrive` and the
+//! call still fails or is unusable, nothing is derived. This process's own environment is never
+//! changed.
+//!
+//! **Not checked here** (M06-F5, the guard's half): a variable the child already has. The
+//! M06 launches' guard (`heimdall_app::remote_env_ssh::windows_client_environment_refusal`)
+//! is what would refuse an inherited `ProgramData` that is not [`is_usable_folder`]; it lives
+//! in `heimdall-app`, which cannot depend on this crate.
 //!
 //! Nothing else is ever added, and a variable the child already has is never changed. A
 //! value the operating system cannot give is left unset (the launch then fails as it did
@@ -191,9 +204,15 @@ mod os {
         value
     }
 
-    /// The system drive (`C:`), from the Windows directory (`FOLDERID_Windows`).
+    /// The Windows directory (`FOLDERID_Windows`), only when it is a usable absolute drive
+    /// path (`is_usable_folder`; M06-F5): the shell expands it from this process's `windir`.
+    pub(super) fn windows_dir() -> Option<OsString> {
+        known_folder(&FOLDERID_Windows).filter(|v| v.to_str().is_some_and(super::is_usable_folder))
+    }
+
+    /// The system drive (`C:`), from the usable Windows directory ([`windows_dir`]).
     pub(super) fn system_drive() -> Option<String> {
-        let windows = known_folder(&FOLDERID_Windows)?;
+        let windows = windows_dir()?;
         super::drive_of_windows_dir(windows.to_str()?)
     }
 
@@ -217,7 +236,7 @@ mod os {
     pub(super) fn value_of(name: &str, has_system_drive: bool) -> Option<OsString> {
         match name {
             "ProgramData" | "ALLUSERSPROFILE" => program_data(has_system_drive),
-            "windir" => known_folder(&FOLDERID_Windows),
+            "windir" => windows_dir(),
             "SystemDrive" => system_drive().map(OsString::from),
             _ => None,
         }
@@ -300,7 +319,10 @@ mod tests {
     /// both `SystemDrive` and `ProgramData` (and `ALLUSERSPROFILE`) reach the prepared
     /// command with the values this (full-environment) process resolves, and the child
     /// process's own environment is unchanged. The child is this test binary re-run on this
-    /// test alone, recognized by a marker variable.
+    /// test alone, recognized by a marker variable. ⟨M08 U1b; M06-F8, exit review R04⟩ The child
+    /// also reports whether the derivation ran (`derived=1`: `FOLDERID_ProgramData` did not
+    /// resolve without its `SystemDrive`, so the fallback supplied the value), and the parent
+    /// requires it, so the test cannot pass on a path that never took the fallback.
     #[cfg(windows)]
     #[test]
     fn the_fill_supplies_system_drive_and_program_data_without_the_callers_system_drive() {
@@ -308,6 +330,7 @@ mod tests {
         const WANT_DRIVE: &str = "HEIMDALL_TEST_OPENSSH_FILL_DRIVE";
         const WANT_PD: &str = "HEIMDALL_TEST_OPENSSH_FILL_PROGRAMDATA";
         const MARKER: &str = "openssh-fill-child: ok";
+        const DERIVED: &str = "derived=1";
         let lower = |v: &OsStr| v.to_string_lossy().to_ascii_lowercase();
         if std::env::var_os(CHILD).is_some() {
             for name in ["SystemDrive", "ProgramData", "ALLUSERSPROFILE"] {
@@ -346,12 +369,17 @@ mod tests {
             // The fix is local to the command: this process's environment is unchanged.
             assert!(std::env::var_os("SystemDrive").is_none());
             assert!(std::env::var_os("ProgramData").is_none());
+            // ⟨M06-F8⟩ Whether the value came from the derivation: the known folder does not
+            // resolve to a usable path without this process's `SystemDrive`.
+            let derived = os::known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_ProgramData)
+                .and_then(|v| v.to_str().map(is_usable_folder))
+                != Some(true);
             // The marker is the parent's evidence the child ran. ⟨PC job 55⟩ Under `--nocapture`
             // libtest has already printed `test <name> ... ` with no newline, so the marker starts
             // its own line.
             #[allow(clippy::print_stdout)]
             {
-                println!("\n{MARKER}");
+                println!("\n{MARKER} derived={}", u8::from(derived));
             }
             return;
         }
@@ -395,9 +423,10 @@ mod tests {
             .env(WANT_PD, &want_pd);
         let out = child.output().unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
+        let want = format!("{MARKER} {DERIVED}");
         assert!(
-            out.status.success() && stdout.lines().any(|l| l.trim_end().ends_with(MARKER)),
-            "child exit {:?}\n{stdout}\n{}",
+            out.status.success() && stdout.lines().any(|l| l.trim_end().ends_with(&want)),
+            "child exit {:?} (the child must report {DERIVED}: the fallback ran)\n{stdout}\n{}",
             out.status.code(),
             String::from_utf8_lossy(&out.stderr)
         );
