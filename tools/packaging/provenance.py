@@ -12,6 +12,9 @@ Usage (`build-release.sh` calls these in this order):
                                (after the build: copies exactly the executable cargo reported
                                for heimdall, refused unless it is the expected path in this
                                repository's target directory; the copy's digest is checked)
+    provenance.py stage-payload --stage DIR
+    provenance.py check-wsl-helper --archive FILE --index FILE --commit C [--features F]
+                               [--candidate] [--out FILE --receipt FILE]
     provenance.py build-record --target T [--features F] --commit C --time ISO --clean yes|no
                                --flags TEXT --stage DIR --build-messages FILE --out FILE
                                (the record packed into the archive: deterministic inputs only;
@@ -50,8 +53,10 @@ import hashlib
 import io
 import json
 import os
+from pathlib import Path
 import platform
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -200,6 +205,58 @@ RELEASE_FEATURE_ARGS = ["--no-default-features"]
 def feature_label(features):
     """The feature set a release build used, as the record, SBOM and notices name it."""
     return "--no-default-features" + (f" --features {features}" if features else "")
+
+
+def check_wsl_helper(a):
+    """Bind the Windows helper bytes to the indexed Linux release for this build."""
+    verifier = runpy.run_path(os.path.join(REPO, "tools", "packaging", "verify_artifact.py"))
+    target = verifier["WSL_TARGET"]
+    feature_set = verifier["release_feature_set"]
+    expected_features = feature_set(feature_label(a.get("features")))
+    if expected_features is None or not re.fullmatch(r"[0-9a-f]{40}", a["commit"]):
+        raise Refused("WSL helper verification requires a full Windows build commit and valid feature list")
+    if not a["archive"].endswith((".tar.gz", ".tgz")) or not os.path.isfile(a["archive"]):
+        raise Refused("WSL helper requires a Linux .tar.gz or .tgz release archive")
+    if bool(a.get("out")) != bool(a.get("receipt")):
+        raise Refused("staging a WSL helper requires both --out and --receipt")
+
+    # Verify and read the same bytes even if a caller replaces the source archive mid-build.
+    with tempfile.TemporaryDirectory(prefix="hm-wsl-helper-") as tmp:
+        archive = os.path.join(tmp, os.path.basename(a["archive"]))
+        shutil.copyfile(a["archive"], archive)
+        checked = {}
+
+        def use_verified(root, info):
+            if info.get("schema") != "heimdall-build-record/1" or info.get("profile") != "release":
+                raise Refused("WSL helper needs a Linux release build record")
+            if info.get("commit") != a["commit"]:
+                raise Refused("WSL helper commit differs from the Windows build")
+            if info.get("tree_clean") is not True:
+                raise Refused("WSL helper must come from a clean Linux build")
+            if feature_set(info.get("features")) != expected_features:
+                raise Refused("WSL helper feature set differs from the Windows build")
+            if len(info["outputs"]) != 1 or info["outputs"][0]["path"] != "heimdall":
+                raise Refused("WSL helper archive must contain exactly the Linux heimdall executable")
+            output = info["outputs"][0]
+            helper = root / "heimdall"
+            checked.update(commit=info["commit"], target=target, features=info["features"],
+                           sha256=output["sha256"], archive_sha256=sha256(archive))
+            if a.get("out"):
+                shutil.copyfile(helper, a["out"])
+                if sha256(a["out"]) != checked["sha256"]:
+                    raise Refused("WSL helper digest differs after staging")
+
+        try:
+            errors = verifier["verify"](archive, target=target, index=a["index"],
+                                        candidate=a.get("candidate", False), inspected=use_verified)
+        except (verifier["Failure"], OSError, ValueError, EOFError, tarfile.TarError) as exc:
+            raise Refused(f"WSL helper archive cannot be verified ({type(exc).__name__})") from None
+        if errors:
+            raise Refused(f"WSL helper archive failed static verification: {errors[0]}")
+    if a.get("receipt"):
+        with open(a["receipt"], "w", encoding="utf-8", newline="\n") as receipt:
+            json.dump(checked, receipt, sort_keys=True)
+    print(f"provenance: verified Linux x86-64 WSL helper (sha256 {checked['sha256'][:12]}…)")
 
 
 def tree(target, features, edges, offline, extra=(), release=True):
@@ -673,7 +730,7 @@ def make_record(a, compiled_names):
     # forgotten --no-default-features compiles the kit, and is refused here).
     refuse_test_config_request(a.get("features"))
     refuse_test_only_crates(compiled_names, a.get("test_only") or {TEST_KIT})
-    return {
+    record = {
         "schema": "heimdall-build-record/1",
         "commit": a["commit"], "commit_time": a["time"], "tree_clean": a["clean"] == "yes",
         "target": a["target"], "profile": "release", "features": feature_label(a.get("features")),
@@ -689,6 +746,9 @@ def make_record(a, compiled_names):
                   "cargo-cyclonedx": CYCLONEDX_VERSION},
         "signature": a.get("signature") or "none",
         "outputs": outputs}
+    if "wsl_helper" in a:
+        record["wsl_helper"] = a["wsl_helper"]
+    return record
 
 
 def external_record(record, started, finished):
@@ -1107,8 +1167,8 @@ def self_test():
 def parse(argv):
     opts, it = {}, iter(argv)
     for a in it:
-        if a == "--offline":
-            opts["offline"] = True
+        if a in ("--offline", "--candidate"):
+            opts[a[2:]] = True
         elif a.startswith("--"):
             try:
                 opts[a[2:].replace("-", "_")] = next(it)
@@ -1175,6 +1235,15 @@ def main(argv):
                                opts["expect"], opts["out"])
             print(f"provenance: staged the executable the build reported (sha256 {digest[:12]}…)")
             return 0
+        elif cmd == "stage-payload":
+            need(opts, "stage")
+            payload = runpy.run_path(os.path.join(REPO, "tools", "packaging", "release_payload.py"))
+            payload["stage"](Path(opts["stage"]))
+            return 0
+        elif cmd == "check-wsl-helper":
+            need(opts, "archive", "index", "commit")
+            check_wsl_helper(opts)
+            return 0
         elif cmd == "build-record":
             need(opts, "target", "commit", "time", "clean", "flags", "stage", "build_messages", "out")
             refuse_iroh_request(opts.get("features"))
@@ -1185,6 +1254,10 @@ def main(argv):
             opts["test_only"] = test_only_crates((n for _, n, _, _, _ in dflt), (n for _, n, _, _, _ in pruned))
             meta = cargo_metadata(opts["target"], opts.get("features"), opts.get("offline"))
             compiled = compiled_packages(opts["build_messages"], meta)
+            if "helper_receipt" in opts:
+                with open(opts["helper_receipt"], encoding="utf-8") as fh:
+                    opts["wsl_helper"] = json.load(fh)
+                os.remove(opts["helper_receipt"])
             text = json.dumps(make_record(opts, {name for name, _ in compiled}), indent=1, sort_keys=True) + "\n"
         elif cmd == "external-record":
             need(opts, "record", "started", "finished", "out")

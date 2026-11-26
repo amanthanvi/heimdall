@@ -12,16 +12,49 @@ M08 land. Archives built now are rehearsals, not release evidence.
 | File | What it does |
 |---|---|
 | `build-release.sh <target>` | Builds one archive on the Mac: `aarch64-apple-darwin`, or `x86_64-unknown-linux-gnu` / `aarch64-unknown-linux-gnu` through zig with a glibc 2.31 floor. Remaps build-host paths, stages the archive, writes the inventory, notices, build record and inner manifest, packs, verifies, and rewrites the external index |
-| `build-release.ps1 -LinuxHelper <file>` | The same for `x86_64-pc-windows-msvc`, on the PC, with a static C runtime and the Linux helper in place. **Run once successfully (PC job 40, at `5348551b`)**, after two first-run fixes (jobs 34 and 36) |
-| `verify_artifact.py <archive>` | The static check: allowed dynamic libraries only, no build-host path, no key block or canary value, the inner manifest complete and correct, the build record consistent, and (with `--index`) the archive's digest in the external index. Executes nothing |
-| `provenance.py` | `sbom` (runs the pinned cargo-cyclonedx and validates its output against cargo's selected graph and the build's compiled packages), `notices`, `build-record`, `manifest`, `pack`, `index` |
+| `build-release.ps1 -LinuxArchive <file> -LinuxIndex <SHA256SUMS>` | Builds the Windows archive with a static C runtime. Stages its WSL helper from the verified Linux x86-64 archive and records that archive's digest, the helper's digest, commit, target and feature set |
+| `verify_artifact.py <archive>` | Statically checks the release payload, allowed dynamic libraries, privacy rules, manifest and build record. With `--index` it checks the archive digest against the external index |
+| `provenance.py` | Generates the SBOM, notices, build record, manifest, archive and index, and verifies the Windows helper's source |
+| `rebuild-compare.sh <target> [--commit <ref>]` | Builds one commit twice in clean checkouts at different paths, compares the archives byte for byte, and writes a record under `target/rebuild-compare/` |
 
-Both Python scripts use the standard library only and have a self-test:
+The Python scripts use the standard library only and require Python 3.11 or later.
 
 ```
 python3 -I tools/packaging/verify_artifact.py --self-test
 python3 -I tools/packaging/provenance.py self-test
+python3 -I tools/packaging/rebuild_compare.py --self-test
+python3 -I tools/packaging/payload-install-selftest.py --shell bash
+pwsh -NoProfile -File tools/packaging/build-release-wsl-selftest.ps1
+python -I tools/packaging/payload-install-selftest.py --shell pwsh
 ```
+
+On the PC, run the WSL helper and feature self-tests with Windows PowerShell 5.1.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\packaging\build-release-wsl-selftest.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\packaging\build-release-features-selftest.ps1
+python -I tools\packaging\payload-install-selftest.py --shell powershell
+```
+
+The Windows packager takes the Linux archive and the external `SHA256SUMS` from the release
+build's trusted index. Use `-CheckWSLHelperOnly` to check the pair without compiling.
+Build both from the same frozen commit with the same Cargo feature selection.
+
+`release_payload.py` stages the reference configuration from `tools/packaging/config.toml`
+with its example manifest, the public schemas and payload examples, the release documents,
+and the M07 wrapper, harnesses and skill. The install scripts verify these files as archive
+members. Installation copies only the platform executable and, on Windows, the WSL helper.
+
+Use `--candidate` or `-Candidate` for a finalized candidate. Replace the U7b placeholder in
+`tools/packaging/compatibility-matrix.md` with the candidate's final matrix and supply
+`LICENSE` and `SECURITY.md` first. These checks also run when passing `--candidate` directly
+to the verifier. The D01 `strict_disconnect` and D07 client overrides are pending rulings.
+
+The rebuild comparison uses the selected commit's `build-release.sh`, with a private
+temporary checkout for each build. It compares the archive files, reports the zero-based
+compressed offset and the first affected tar member and offset when applicable, and removes
+both checkouts. The Windows packager already passes `/Brepro`. Repeat the PC two-checkout
+comparison on the final commit using the same verified Linux archive and index for both zips.
 
 ## One-time setup
 

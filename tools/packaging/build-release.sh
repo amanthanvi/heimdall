@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build one Heimdall release archive (m08-plan U3a; ADR-0014 sections 4.2 and 4.4).
 #
-# Usage: bash tools/packaging/build-release.sh <target> [--features <list>] [--allow-dirty] [--offline]
+# Usage: bash tools/packaging/build-release.sh <target> [--features <list>] [--allow-dirty] [--offline] [--candidate]
 #   <target>: aarch64-apple-darwin (on a macOS arm64 host), x86_64-unknown-linux-gnu or
 #             aarch64-unknown-linux-gnu (cross-built through zig, glibc 2.31 floor).
 #             The Windows archive is built on the PC by build-release.ps1.
@@ -16,7 +16,7 @@
 #      rustup homes and this checkout become /builder, /cargo, /rustup and /heimdall), for
 #      Rust and for the bundled C code;
 #   3. stages target/release-artifacts/heimdall-<version>-<target>/ with the executable and
-#      whichever release documents exist in the tree, the SBOM (the pinned cargo-cyclonedx
+#      the release payload, the SBOM (the pinned cargo-cyclonedx
 #      under target/tools, checked by provenance.py against cargo's selected graph and the
 #      packages this build compiled), THIRD-PARTY-NOTICES.txt, BUILD-RECORD.json and the
 #      inner MANIFEST.sha256, which lists every file except itself;
@@ -36,12 +36,13 @@ here=tools/packaging
 export PYTHONDONTWRITEBYTECODE=1
 
 usage() { sed -n '2,10p' "$here/build-release.sh" | sed 's/^# \{0,1\}//' >&2; exit 2; }
-target=""; features=""; allow_dirty=no; offline=()
+target=""; features=""; allow_dirty=no; offline=(); candidate=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --features) [ $# -ge 2 ] || usage; features=$2; shift 2 ;;
         --allow-dirty) allow_dirty=yes; shift ;;
         --offline) offline=(--offline); shift ;;
+        --candidate) candidate=(--candidate); shift ;;
         --all-features) echo "build-release: --all-features is refused: release artifacts are built without the iroh feature" >&2; exit 2 ;;
         -*) usage ;;
         *) [ -z "$target" ] || usage; target=$1; shift ;;
@@ -53,6 +54,10 @@ done
 # check (review M08-W2-RC06): it splits the list as cargo does, refuses any iroh spelling, and
 # refuses a selected graph holding the iroh crate. `build-record` checks what was compiled.
 [ -n "$target" ] || usage
+if [ "${#candidate[@]}" -gt 0 ] && [ "$allow_dirty" = yes ]; then
+    echo "build-release: --candidate requires a clean checkout" >&2
+    exit 2
+fi
 
 zig_target=""
 case "$target" in
@@ -178,8 +183,8 @@ mkdir -p "$stage"
 py stage-exe --target "$target" ${offline[@]+"${offline[@]}"} --build-messages "$messages" \
     --expect "$repo/target/$target/release/heimdall" --out "$stage/heimdall" || exit 1
 
-# Release documents that exist in the tree are packaged; the candidate build (m08-plan U3b)
-# makes the list mandatory.
+py stage-payload --stage "$stage" || exit 1
+# The owner-supplied legal and disclosure files are required for candidate verification.
 missing=()
 for f in LICENSE SECURITY.md; do
     if [ -f "$f" ]; then install -m 0644 "$f" "$stage/$f"; else missing+=("$f"); fi
@@ -218,7 +223,9 @@ if [ "$(id -un | awk '{ print length($0) }')" -ge 4 ]; then id -un >>"$forbid"; 
 label=$(sed -n 's/^pub const LAUNCH_AGENT_LABEL_PREFIX: &str = "\(.*\)";$/\1/p' crates/runtime/src/autostart/render.rs | head -1)
 [ -n "$label" ] || { echo "build-release: the login-entry label was not found in crates/runtime/src/autostart/render.rs" >&2; exit 2; }
 
-verify() { python3 -I "$here/verify_artifact.py" "$1" --target "$target" --forbid-file "$forbid" --allow-exact "$label"; }
+verify() {
+    python3 -I "$here/verify_artifact.py" "$@" --target "$target" --forbid-file "$forbid" --allow-exact "$label" ${candidate[@]+"${candidate[@]}"}
+}
 verify "$stage" || { echo "build-release: the staged tree failed verification; no archive written" >&2; exit 1; }
 archive="$out/$name.tar.gz"
 rm -f -- "$archive"
@@ -232,7 +239,7 @@ install -m 0644 "$stage/heimdall-$target.cdx.json" "$out/$name.cdx.json"
 py external-record --record "$stage/BUILD-RECORD.json" --started "$started" --finished "$finished" \
     --out "$out/$name.build-record.json" || exit 1
 py index --dir "$out" || exit 1
-python3 -I "$here/verify_artifact.py" "$archive" --target "$target" --forbid-file "$forbid" --allow-exact "$label" --index "$out/SHA256SUMS" >/dev/null ||
+verify "$archive" --index "$out/SHA256SUMS" >/dev/null ||
     { echo "build-release: the archive does not match the external index" >&2; exit 1; }
 
 echo "== archive: target/release-artifacts/$name.tar.gz"

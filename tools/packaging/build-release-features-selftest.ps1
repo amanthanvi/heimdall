@@ -1,8 +1,7 @@
 # Self-test of build-release.ps1's feature request handling (review M08-W2-F2; PC job 57 step 5c).
 #
-# STATUS: written for the PC; not yet run. It needs Windows: build-release.ps1 uses Windows
-# paths, and the defect it covers is Windows PowerShell 5.1's parsing of an unquoted
-# `-Features default,iroh` as an array.
+# The original defect was Windows PowerShell 5.1's parsing of unquoted
+# `-Features default,iroh` as an array. PowerShell 7 can also exercise the feature-only path.
 #
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tools\packaging\build-release-features-selftest.ps1
 # Exit code: 0 when every case passes; 1 otherwise.
@@ -15,8 +14,11 @@
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $script = Join-Path $repo "tools\packaging\build-release.ps1"
-$shells = @("powershell.exe")
-if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { $shells += "pwsh.exe" }
+$shells = @("pwsh")
+if ($env:OS -eq "Windows_NT") {
+    $shells = @("powershell.exe")
+    if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { $shells += "pwsh.exe" }
+}
 $fails = 0; $n = 0
 $refusedIroh = "release artifacts are built without the iroh feature"
 $cases = @(
@@ -29,12 +31,12 @@ $cases = @(
     @("-Features 'iroh iroh'", 2, "-Features may hold only"),
     @("-AllFeatures", 2, "-AllFeatures is refused"),
     @("", 0, "no iroh feature requested and no iroh crate in the selected graph"),
-    @("-Features default", 0, "no iroh feature requested and no iroh crate in the selected graph")
+    @("-Features default", 2, "the release graph holds test-only crates")
 )
 foreach ($sh in $shells) {
     foreach ($c in $cases) {
         $n++
-        $line = "& '$script' -LinuxHelper none -CheckFeaturesOnly $($c[0]); exit `$LASTEXITCODE"
+        $line = "& '$script' -CheckFeaturesOnly $($c[0]); exit `$LASTEXITCODE"
         $out = & $sh -NoProfile -ExecutionPolicy Bypass -Command $line 2>&1 | Out-String
         $code = $LASTEXITCODE
         $ok = ($code -eq $c[1]) -and $out.Contains($c[2])
