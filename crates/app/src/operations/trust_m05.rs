@@ -621,7 +621,7 @@ fn live_grants_of(
 ) -> heimdall_store::Result<Vec<GrantId>> {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
-    for g in tx.grants_due(Timestamp::MAX)? {
+    for g in tx.live_grants()? {
         if !g.state.permits_use() || seen.contains(&g.id) || !touches(&g) {
             continue;
         }

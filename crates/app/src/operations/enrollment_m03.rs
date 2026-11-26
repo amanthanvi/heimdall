@@ -1075,7 +1075,7 @@ pub(super) fn affected_grants(
     pair: &AccessPair,
 ) -> heimdall_store::Result<Vec<GrantId>> {
     let mut out = Vec::new();
-    for g in tx.grants_due(Timestamp::MAX)? {
+    for g in tx.live_grants()? {
         if !matches!(
             g.state,
             GrantState::Active | GrantState::Degraded | GrantState::Preparing

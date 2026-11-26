@@ -544,7 +544,7 @@ fn write_revision(
 /// reach personal work or another workspace).
 fn resting_on(tx: &mut Txn<'_>, p: &StandingPolicy) -> heimdall_store::Result<Vec<GrantSnapshot>> {
     let mut out = Vec::new();
-    for g in tx.grants_due(Timestamp::MAX)? {
+    for g in tx.live_grants()? {
         if !g.state.permits_use() {
             continue;
         }

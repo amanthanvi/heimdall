@@ -746,7 +746,7 @@ pub(crate) fn admit_binding(
                 }))
     };
     // Live bindings: the active bindings of this environment's live grants.
-    for g in tx.grants_due(Timestamp::MAX)? {
+    for g in tx.live_grants()? {
         if g.environment != *environment || !g.state.permits_use() || g.deadline.effective <= now {
             continue;
         }

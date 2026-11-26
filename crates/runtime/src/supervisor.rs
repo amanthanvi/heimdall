@@ -1350,7 +1350,7 @@ impl Supervisor {
                         earliest = Some(t);
                     }
                 };
-                for g in tx.grants_due(Timestamp::MAX)? {
+                for g in tx.live_grants()? {
                     let ends = ends_at_bound(g.state);
                     consider(wake_for(g.deadline.effective, wall, ends));
                     if let Some(a) = tx.grant_anchor(&g.id)? {

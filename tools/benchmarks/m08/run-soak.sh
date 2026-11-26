@@ -3,6 +3,7 @@
 #
 # Usage: bash tools/benchmarks/m08/run-soak.sh --stage <staged archive dir> --seconds <n>
 #            [--tick <s>] [--seed <n>] [--id <name>] [--lanes SL|S|L] [--block]
+#        bash tools/benchmarks/m08/run-soak.sh --grant-history-growth
 #   --stage    a directory holding the Linux `heimdall` for this machine's container
 #              architecture (target/release-artifacts/heimdall-<version>-<target>/)
 #   --block    wait for the run, print the analysis, remove the container. Use it for a
@@ -17,6 +18,12 @@
 # Never run the archive's executable on the host: only this container starts it.
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)
+if [ "$#" -eq 1 ] && [ "$1" = --grant-history-growth ]; then
+    cd "$repo"
+    unset CARGO_TARGET_DIR
+    exec env CARGO_BUILD_JOBS=4 cargo test --locked -p heimdall-store --lib \
+        grant_live_tests::grant_history_growth -- --exact --ignored --nocapture
+fi
 image=hm-m08-soak:1
 stage=""; seconds=""; tick=60; seed=1; id=""; block=no; lanes=SL
 while [ $# -gt 0 ]; do

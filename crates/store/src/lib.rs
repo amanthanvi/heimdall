@@ -322,6 +322,7 @@ const REQUIRED_TABLES: &[&str] = &[
 const REQUIRED_COLUMNS: &[(&str, &str)] = &[
     ("grants", "approval_json"),
     ("grants", "origin_json"),
+    ("grants", "is_live"), // schema version 15 (M08 GRANT-LIVE)
     ("bindings", "context_json"),
     // schema version 13 (M06 wave 5: the widening record's origin; ADR-0006 §18.9 item 8)
     ("remote_widening", "origin"),
@@ -332,6 +333,12 @@ const REQUIRED_COLUMNS: &[(&str, &str)] = &[
     ("remote_effect_outbox", "restore_epoch"),
     ("idempotency", "request_epoch"),
 ];
+
+const LIVE_GRANTS_SQL: &str =
+    "SELECT record_json FROM grants WHERE is_live = 1 ORDER BY deadline_effective, id";
+const GRANTS_DUE_SQL: &str =
+    "SELECT record_json FROM grants WHERE is_live = 1 AND deadline_effective <= ?1
+     ORDER BY deadline_effective, id";
 
 const META_SELF_ENVIRONMENT: &str = "self_environment_id";
 const META_AUTHORITY_GENERATION: &str = "authority_generation";
@@ -752,7 +759,7 @@ fn verify_schema(conn: &rusqlite::Connection) -> Result<()> {
     for (table, column) in REQUIRED_COLUMNS {
         let present: bool = conn
             .query_row(
-                "SELECT count(*) > 0 FROM pragma_table_info(?1) WHERE name = ?2",
+                "SELECT count(*) > 0 FROM pragma_table_xinfo(?1) WHERE name = ?2",
                 [table, column],
                 |r| r.get(0),
             )
@@ -1308,14 +1315,15 @@ impl Txn<'_> {
         Ok(())
     }
 
-    /// Grants whose deadline is at or before `now` and that are not terminal.
+    /// Nonterminal grants in deadline and ID order, regardless of deadline passage.
+    /// This includes pending grants and grants in the process of revocation.
+    pub fn live_grants(&mut self) -> Result<Vec<GrantSnapshot>> {
+        self.docs(LIVE_GRANTS_SQL, [])
+    }
+
+    /// Nonterminal grants whose deadline is at or before `now`, in deadline and ID order.
     pub fn grants_due(&mut self, now: Timestamp) -> Result<Vec<GrantSnapshot>> {
-        let all: Vec<GrantSnapshot> = self.docs(
-            "SELECT record_json FROM grants WHERE deadline_effective <= ?1
-             ORDER BY deadline_effective, id",
-            [codec::ts(now)],
-        )?;
-        Ok(all.into_iter().filter(|g| !g.state.is_terminal()).collect())
+        self.docs(GRANTS_DUE_SQL, [codec::ts(now)])
     }
 
     /// Descendants of a grant (transitive children).
@@ -1794,6 +1802,9 @@ impl Txn<'_> {
 }
 
 #[cfg(test)]
+mod grant_live_tests;
+
+#[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
@@ -2218,7 +2229,8 @@ mod tests {
         // ⟨M06 wave 4⟩ 0012 adds one table.
         // ⟨M06 wave 5⟩ 0013 rebuilds `remote_widening` with its origin (rows kept).
         // ⟨rev7⟩ 0014 adds four defaulted columns, one table and two indexes.
-        assert_eq!(migrations::SCHEMA_VERSION, 14);
+        // M08 GRANT-LIVE: 0015 adds the generated live column and replaces the deadline index.
+        assert_eq!(migrations::SCHEMA_VERSION, 15);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"

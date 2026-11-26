@@ -9767,11 +9767,8 @@ impl Operations {
                             remote.insert(g.clone(), view);
                         }
                     }
-                    let mut listed: Vec<(GrantSnapshot, bool)> = tx
-                        .grants_due(Timestamp::MAX)?
-                        .into_iter()
-                        .map(|g| (g, false))
-                        .collect();
+                    let mut listed: Vec<(GrantSnapshot, bool)> =
+                        tx.live_grants()?.into_iter().map(|g| (g, false)).collect();
                     for gid in remote.keys() {
                         if let Some(g) = tx.grant(gid)?
                             && g.state.is_terminal()
@@ -11806,7 +11803,7 @@ impl Operations {
         let found = self
             .write(move |tx, _| {
                 let revoking: Vec<GrantSnapshot> = tx
-                    .grants_due(Timestamp::MAX)?
+                    .live_grants()?
                     .into_iter()
                     .filter(|g| g.state == GrantState::Revoking)
                     .collect();
@@ -12865,7 +12862,7 @@ impl Operations {
         let candidates = self
             .write(move |tx, _| {
                 let mut out = Vec::new();
-                for g in tx.grants_due(Timestamp::MAX)? {
+                for g in tx.live_grants()? {
                     if g.state == GrantState::Revoking {
                         continue;
                     }
@@ -12939,7 +12936,7 @@ impl Operations {
                     let Ok(safe) = gate.check(tx)? else {
                         return Ok(ended);
                     };
-                    for g in tx.grants_due(Timestamp::MAX)? {
+                    for g in tx.live_grants()? {
                         if g.state.permits_use() {
                             ended.extend(end_in(
                                 tx, emit, &env, &adapters, &gate, &g.id, &safe, None, retention,

@@ -567,7 +567,7 @@ impl Operations {
     async fn reissue_candidates(&self) -> Result<Vec<GrantId>, OpError> {
         self.write(|tx, _| {
             let mut out = Vec::new();
-            for g in tx.grants_due(Timestamp::MAX)? {
+            for g in tx.live_grants()? {
                 if g.state == GrantState::Degraded
                     && tx.grant_degradation(&g.id)?
                         == Some(DegradedReason::CredentialReissuePending)
@@ -882,7 +882,7 @@ fn grants_under_ca_in(
     pair: &AccessPair,
 ) -> heimdall_store::Result<Vec<GrantId>> {
     let mut out = Vec::new();
-    for g in tx.grants_due(Timestamp::MAX)? {
+    for g in tx.live_grants()? {
         if !matches!(
             g.state,
             GrantState::Active | GrantState::Degraded | GrantState::Preparing
