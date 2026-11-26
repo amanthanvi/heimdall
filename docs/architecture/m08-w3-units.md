@@ -109,8 +109,11 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
   - **D08, the P04 disclosure.** Setup shows the effective configured ceiling, not a fixed
     "12 hours", and where to change it, even with an empty catalog.
     - Add a test with a non-default ceiling.
-    - No setup-time setter. It is on the owner's go/no-go list, with "not for 1.0" as the
-      default answer.
+    - **Owner decision, 2026-11-26: no setup-time setter for the grant window in 1.0.** P04 is
+      met by setup showing the effective configured ceiling and where to change it (the config
+      file and the policy actions). The D08 commit records this decision in the U7b record, and
+      as a dated note on spec P04's "adjustable during setup" wording, citing the owner's
+      answer.
   - **D10, the login registration.** ADR-0010 §6 item 1 is reconciled with the explicit
     `service autostart enable` journey.
     - Setup's summary names that command when managed credentials exist and login
