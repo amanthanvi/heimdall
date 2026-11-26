@@ -76,6 +76,17 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
 - **The record** names each unit's implementer family and reviewer family.
 - **If Opus is rate-limited** when the review is due, the GRANT-LIVE half waits for it. GPT
   never reviews GPT's code.
+- **The standing fallback (2026-11-26).** If Opus is rate-limited when a review is due, a unit
+  Gemini wrote may be reviewed by GPT-6.2 Sol instead, on the defensive brief. If GPT stops on
+  its cybersecurity flag, that half waits for Opus. A unit is never reviewed by its own family.
+- **The security units from M09's early review (S1 to S4), grouped by file:**
+  - SEC-1 (Opus): the issuer barrier and the remote ingress (S1-01, S1-02, S1-04, S2-04, S3-02).
+  - SEC-2 (GPT): the projection pin and Windows paths (S4-01, S4-03, S4-04, S4-05).
+  - SEC-3a (Gemini): the runtime (S2-01, with U2b-3a's item 2; S2-02; S3-05).
+  - SEC-3b: S2-05's design (Gemini) and its code items.
+  - SEC-4 (GPT): cutoff latching (S3-01, S3-03, S3-06, S3-07).
+  - S3-04 goes to U2b-3b.
+  - The blocking and must-fix units land before U2b-4, U6b and U7b.
 
 **H13's reader side and M07.** H13 is one change, owned by U2b-2. Its readers today are M07's:
 - the TUI's request paths (`crates/heimdall/src/tui/worker.rs`, `tui/m05.rs`, `tui/m07.rs`);
