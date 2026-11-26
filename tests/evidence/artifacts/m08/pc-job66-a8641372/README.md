@@ -35,3 +35,18 @@ collision, before any cargo command ran. It reran step 3 only.
 Credential Manager: 173 before and 173 after, with no Heimdall entries. DWM: 281 to 293 MB. Drive
 C: 259.8 to 238.1 GB free. No firewall prompt, no leftover processes, and
 `%LOCALAPPDATA%\Heimdall` is absent.
+
+## Jobs 66b and 66c: `e2e_tui_m02`'s `console::*` tests (2026-11-26)
+
+- **66b** (`s4-*`): `hm-fixture-hook` was built, so the prerequisite was met. With the default
+  `TEMP`, the `console::*` tests were then refused with `StateDirUnsafe`. The default `TEMP`
+  inherits a read entry for another local group, the class job 63 found. The product's refusal
+  is correct. Exit 101; `.tmp*` count 622 before and after (job 66's leftovers had not yet been
+  removed).
+- **66c** (`s5-*`): with a protected, owner-only `TEMP` under the job root (`s5-acl.txt`: SDDL
+  `D:PAI` with one owner entry), `e2e_tui_m02` exited 0, with 3 passed, 0 failed and 0 ignored.
+  The `.tmp*` count went from 0 to 0. The console rig's drop-order fix is verified on Windows.
+- The 15 `integration_managed_adapter` directories from job 66 were removed by exact path, and
+  the default `TEMP` was back to 607.
+- `e2e_deadline_m03`'s `windows::*` tests are still not run. They wait for the next full m02
+  Windows harness run, at the W4 candidate.

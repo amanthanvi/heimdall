@@ -1,0 +1,6 @@
+   Compiling tokio v1.54.1
+   Compiling tokio-util v0.7.20
+   Compiling heimdall-app v0.1.0-m01 (<R>\c1\crates\app)
+   Compiling heimdall-ipc v0.1.0-m01 (<R>\c1\crates\ipc)
+   Compiling heimdall-testkit v0.1.0-m01 (<R>\c1\crates\testkit)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.92s

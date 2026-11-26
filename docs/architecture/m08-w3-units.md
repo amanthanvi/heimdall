@@ -41,7 +41,20 @@ Workers never commit or push (AGENTS.md).
   - **Not run in job 66 (a harness prerequisite):**
     - `e2e_deadline_m03`'s `windows::*` tests: the next full m02 Windows harness run, at the W4
       candidate at the latest.
-    - `e2e_tui_m02`'s `console::*` tests: job 66b.
+    - `e2e_tui_m02`'s `console::*` tests: covered by job 66c (3 passed, with an owner-only
+      `TEMP`, and `.tmp*` from 0 to 0). Job 66b, with the default `TEMP`, was refused with
+      `StateDirUnsafe`, the correct refusal.
+- **Two load flakes in the merge candidate's gate** (`ae600472`, which ran for about 2.5 hours
+  under another project's build). Each passed three focused runs. They are W4 test-only fixes:
+  - `e2e_environment_runner_m06`
+    `driver_e2e::a_controller_policy_naming_the_runner_issues_for_a_runner_originated_grant`:
+    `operation wait --timeout-ms 120000` returned the operation still `running` (`next:
+    observe`), which is the contract's answer to a caller timeout. The test asserts only `OK`.
+    Fix: loop the wait until the operation settles, or assert the settled state so that it
+    fails clearly.
+  - `e2e_enroll_m03` `enroll_reconcile_not_applied_within_validity`: the 10 s `SHORT_STEP`
+    bound was exceeded. Fix: give the bound headroom under load, or run the test serially,
+    whichever the Windows constraint in its comment allows.
 - **W4** is everything after: U2b-3 (in two slices, U2b-3a and U2b-3b), U2b-4, GRANT-LIVE, U6b,
   U7b and rows 5 and 6 above. It has its own independent review and re-check at the W4
   candidate. Units 4 to 6 in the table above move to W4.

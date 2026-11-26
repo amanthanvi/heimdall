@@ -1,0 +1,35 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running ..\..\tests\e2e\tui_m02.rs (target\debug\deps\e2e_tui_m02-eabf4dd4c3af9ec8.exe)
+
+running 3 tests
+test console::search_never_probes ... FAILED
+test console::config_commands_authorization_requires_typed_yes ... FAILED
+test tui_refuses_json_non_interactive_and_a_non_terminal_before_touching_anything ... ok
+
+failures:
+
+---- console::search_never_probes stdout ----
+
+thread '<unnamed>' (35188) panicked at crates\heimdall\..\..\tests\e2e\tui_m02.rs:2040:22:
+called `Result::unwrap()` on an `Err` value: Config(Io(Custom { kind: PermissionDenied, error: StateDirUnsafe("the state directory inherits an access-control list that lets another principal read it, or limits your own access") }))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'console::search_never_probes' (4948) panicked at crates\heimdall\..\..\tests\e2e\tui_m02.rs:2045:43:
+the runtime started: RecvError
+
+---- console::config_commands_authorization_requires_typed_yes stdout ----
+
+thread '<unnamed>' (17092) panicked at crates\heimdall\..\..\tests\e2e\tui_m02.rs:2040:22:
+called `Result::unwrap()` on an `Err` value: Config(Io(Custom { kind: PermissionDenied, error: StateDirUnsafe("the state directory inherits an access-control list that lets another principal read it, or limits your own access") }))
+
+thread 'console::config_commands_authorization_requires_typed_yes' (25960) panicked at crates\heimdall\..\..\tests\e2e\tui_m02.rs:2045:43:
+the runtime started: RecvError
+
+
+failures:
+    console::config_commands_authorization_requires_typed_yes
+    console::search_never_probes
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p heimdall --test e2e_tui_m02`

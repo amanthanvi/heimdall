@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running ..\..\tests\e2e\tui_m02.rs (target\debug\deps\e2e_tui_m02-eabf4dd4c3af9ec8.exe)
+
+running 3 tests
+test tui_refuses_json_non_interactive_and_a_non_terminal_before_touching_anything ... ok
+test console::search_never_probes ... ok
+test console::config_commands_authorization_requires_typed_yes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.52s
+

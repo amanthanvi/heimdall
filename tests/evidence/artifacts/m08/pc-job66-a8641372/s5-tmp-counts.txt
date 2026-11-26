@@ -1,0 +1,2 @@
+tui-m02 exit=0 before=0 after=0
+  non-.tmp entries in tmp66c: 0
