@@ -1,0 +1,21 @@
+# Version of the configuration format. Required when config.toml exists.
+schema_version = 1
+
+[session]
+# Default and maximum new trusted-work window. A longer explicit request is refused.
+max_window = "12h"
+# Preserve approved managed work across lock where supported; "revoke" sets a revocation floor.
+lock_behavior = "continue"
+
+[retention]
+# Keep settled operations and their idempotency records for this long. Minimum 24 hours.
+operations = "7d"
+# Keep structured local events for this long, subject to the per-environment row cap.
+events = "7d"
+
+[setup]
+# Validity in whole days of newly approved interaction declarations. Range 1–90.
+declaration_validity_days = 30
+
+# Optional inert metadata table. Omitted by default; authority-related keys are refused.
+# [x]

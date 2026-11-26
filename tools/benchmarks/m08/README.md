@@ -114,6 +114,13 @@ an agent it believed stopped was still running.
 `bash tools/benchmarks/m08/run-bench.sh --stage <staged Linux archive dir> [--id NAME]` runs the
 benchmarks of spec §15.1 on a release archive in the same container (network none, 2 CPUs,
 2 GiB), one capped container at a time, and writes `target/m08-bench/<id>/` (never committed).
+The stage must include `BUILD-RECORD.json` and its recorded Linux executable. The runner
+checks the digest before starting the container. After the container exits, `analyze.py`
+writes `evidence.json` against `tests/evidence/record.schema.json`. It records the build,
+platform, ADR-0014 §6.1 budgets, measurements, and the verdict for each metric. Re-run
+`python3 -I tools/benchmarks/m08/analyze.py --benchmark <run-dir>` to regenerate the record.
+An incomplete or failing benchmark exits 1. The current fast-work key timings are retained
+as measurements, while the real slow-provider and idle polling rows remain unmeasured.
 The world: 100 loopback fixture destinations, the projection applied, a profile `bench`, a
 standing personal policy for it (`heimdall access allow --profile bench`, one attended `yes` on
 a pty), and a trusted fixture project for the informational hook row. The host's model, CPU,

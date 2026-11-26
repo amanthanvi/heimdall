@@ -5,7 +5,8 @@
 # Usage: bash tools/benchmarks/m08/run-bench.sh --stage <staged archive dir> [--id <name>]
 #            [--destinations N] [--samples N] [--settle S] [--idle-window S] [--idle-windows N]
 #   defaults: 100 destinations, 200 samples (the floor), 600 s settle, 3 windows of 300 s.
-# Exit code: 0 when the run ended with bench.json written; 1 otherwise; 2 on a usage error.
+# Exit code: 0 when the measurements satisfy the evidence checks; 1 when they fail or
+# are incomplete; 2 on a usage or setup error. The analysis writes evidence.json.
 #
 # The container: no network, 2 CPUs, 2 GiB, 512 processes; the repository and the archive
 # read-only; the only writable mount is the run's output directory. It is capped at 2 CPUs,
@@ -36,6 +37,8 @@ name="hm-m08-bench-$id"
 out="$repo/target/m08-bench/$id"
 [ ! -e "$out" ] || { echo "run-bench: $out exists" >&2; exit 2; }
 mkdir -p "$out"
+analysis="$repo/tools/benchmarks/m08/analyze.py"
+python3 -I "$analysis" --benchmark "$out" --prepare-stage "$stage"
 docker image inspect "$image" >/dev/null 2>&1 || docker build -q -t "$image" "$repo/tools/benchmarks/m08" >/dev/null
 # The host, for the record: model, CPU, memory, OS build and power source. No host name and
 # no account name.
@@ -60,5 +63,7 @@ sampler=$!
 code=$(docker wait "$name")
 wait "$sampler" 2>/dev/null || true
 printf '{"host_stopped_at":"%s","container_exit":%s}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$code" >"$out/host-end.json"
-docker rm "$name" >/dev/null
-[ "$code" = 0 ] && [ -f "$out/bench/bench.json" ]
+analysis_exit=0
+python3 -I "$analysis" --benchmark "$out" || analysis_exit=$?
+docker rm "$name" >/dev/null || exit 2
+exit "$analysis_exit"

@@ -4,7 +4,7 @@
 Usage:
     python3 -I tools/packaging/verify_artifact.py <archive.tar.gz|archive.zip|directory>
             [--target <triple>] [--index <SHA256SUMS>] [--forbid <text>]... [--forbid-file <file>]
-            [--allow-exact <text>]...
+            [--allow-exact <text>]... [--candidate]
     python3 -I tools/packaging/verify_artifact.py --self-test
 
 Nothing in the archive is executed. Exit code 0 only when every check passes; 1 when
@@ -36,7 +36,9 @@ Checks:
   * each executable imports only the libraries the bare operating system has:
     macOS system frameworks, libSystem and libiconv; glibc's own libraries with no
     symbol version above the floor; Windows system DLLs with no separate C runtime;
-  * BUILD-RECORD.json, when present, names the target and lists exactly the executables,
+  * the required release payload is present; --candidate also requires final release
+    material, including the compatibility matrix;
+  * BUILD-RECORD.json names the target and lists exactly the executables,
     with their digests, and no digest of itself, the manifest or the archive.
 
 Standard library only. `--forbid` values are never printed: a hit names the rule.
@@ -44,7 +46,9 @@ Standard library only. `--forbid` values are never printed: a hit names the rule
 import hashlib
 import json
 import os
+from pathlib import Path
 import re
+import runpy
 import struct
 import sys
 import tarfile
@@ -55,6 +59,11 @@ GLIBC_FLOOR = (2, 31)
 SUMS = "MANIFEST.sha256"
 INDEX = "SHA256SUMS"
 RECORD = "BUILD-RECORD.json"
+PAYLOAD = runpy.run_path(str(Path(__file__).with_name("release_payload.py")))
+WINDOWS_TARGET = "x86_64-pc-windows-msvc"
+WSL_TARGET = "x86_64-unknown-linux-gnu"
+WSL_PATH = "linux-x86_64/heimdall"
+RELEASE_TARGETS = {WINDOWS_TARGET, WSL_TARGET, "aarch64-unknown-linux-gnu", "aarch64-apple-darwin"}
 
 # Generic build-host traces. Standard-library paths are remapped by rustc itself to
 # /rustc/<hash>/ and are not build-host paths.
@@ -163,12 +172,17 @@ def unpack(src, dest, metadata=None):
     if src.endswith((".tar.gz", ".tgz")):
         meta += gzip_header_fields(src)
         with tarfile.open(src, "r:gz") as tar:
+            seen = set()
             for key, value in sorted(tar.pax_headers.items()):
                 meta += [str(key).encode("utf-8", "replace"), str(value).encode("utf-8", "replace")]
             for m in tar.getmembers():
                 if not (m.isreg() or m.isdir()):
                     raise Failure(f"archive member is not a regular file or directory: {m.name}")
                 _safe_name(m.name)
+                key = os.path.normcase(m.name.rstrip("/"))
+                if key in seen:
+                    raise Failure("archive contains a duplicate member")
+                seen.add(key)
                 # Each field's own value, never a repr of it (a repr doubles backslashes
                 # and would hide a Windows path).
                 fields = [m.name, m.uname, m.gname, m.linkname]
@@ -208,9 +222,9 @@ def unpack(src, dest, metadata=None):
 
 
 def _safe_name(name):
-    parts = name.replace("\\", "/").split("/")
-    if name.startswith(("/", "\\")) or ".." in parts or (len(name) > 1 and name[1] == ":"):
-        raise Failure(f"archive member leaves the archive root: {name}")
+    parts = name.rstrip("/").split("/")
+    if any(part in ("", ".", "..") for part in parts) or any(c in name for c in ("\\", ":")):
+        raise Failure("archive member leaves the archive root or uses an ambiguous path")
 
 
 def files_under(root):
@@ -388,14 +402,28 @@ def check_binary(rel, data, target, fail):
     if kind and target:
         want = ("macho" if "apple" in target else "pe" if "windows" in target else "elf")
         # The Windows archive carries the Linux helper beside heimdall.exe (ADR-0014 section 4.2).
-        if kind != want and not (want == "pe" and kind == "elf"):
+        wsl = target == WINDOWS_TARGET and rel == WSL_PATH
+        if kind != ("elf" if wsl else want):
             fail(f"{rel}: a {kind} executable in an archive for {target}")
+        machine = {"aarch64-unknown-linux-gnu": 183, WSL_TARGET: 62}.get(WSL_TARGET if wsl else target)
+        if kind == "elf" and machine and struct.unpack_from("<H", data, 18)[0] != machine:
+            fail(f"{rel}: ELF machine does not match the target")
     return kind
 
 
 # -------------------------------------------------------------------------- verify
 
-def verify(src, target=None, forbid=(), index=None, allow_exact=()):
+def release_feature_set(label):
+    """The recorded Cargo feature selection, independent of list ordering and separators."""
+    if not isinstance(label, str):
+        return None
+    match = re.fullmatch(r"--no-default-features(?: --features ([A-Za-z0-9_./+,? \t-]+))?", label)
+    if not match:
+        return None
+    return set(filter(None, re.split(r"[\s,]+", match.group(1) or "")))
+
+
+def verify(src, target=None, forbid=(), index=None, allow_exact=(), candidate=False, inspected=None):
     """Return the list of failures for `src` (empty when it passes)."""
     failures = []
     fail = failures.append
@@ -403,16 +431,20 @@ def verify(src, target=None, forbid=(), index=None, allow_exact=()):
         if os.path.isdir(src):
             fail("--index checks an archive file, not a directory")
         else:
-            want = None
+            matches = []
             with open(index, encoding="utf-8") as fh:
                 for line in fh.read().splitlines():
                     m = re.match(r"^([0-9a-f]{64})  (\S.*)$", line)
                     if m and m.group(2) == os.path.basename(src):
-                        want = m.group(1)
-            if want is None:
+                        matches.append(m.group(1))
+            if not matches:
                 fail(f"the archive is not listed in the external index")
-            elif want != sha256(src):
+            elif len(matches) != 1:
+                fail("the archive has multiple entries in the external index")
+            elif matches[0] != sha256(src):
                 fail(f"the archive's digest differs from the external index")
+        if failures:
+            return failures
     with tempfile.TemporaryDirectory(prefix="hm-verify-") as tmp:
         metadata = []
         root = unpack(src, tmp, metadata)
@@ -473,37 +505,71 @@ def verify(src, target=None, forbid=(), index=None, allow_exact=()):
         for field in metadata:
             if field:
                 scan("(archive metadata)", field)
-        kinds = 0
-        executables = set()
+        rec = {}
+        if RECORD in files:
+            try:
+                rec = json.loads((Path(root) / RECORD).read_text(encoding="utf-8"))
+            except ValueError:
+                fail(f"{RECORD}: not JSON")
+            if not isinstance(rec, dict):
+                rec = {}
+                fail(f"{RECORD}: expected a JSON object")
+        recorded_target = rec.get("target")
+        if not isinstance(recorded_target, str) or recorded_target not in RELEASE_TARGETS:
+            fail(f"{RECORD}: expected a declared release target")
+            recorded_target = None
+        if candidate and rec.get("tree_clean") is not True:
+            fail(f"{RECORD}: candidate must come from a clean checkout")
+        release_target = target or recorded_target
+        executables = {}
         for f in files:
             with open(os.path.join(root, f), "rb") as fh:
                 data = fh.read()
             scan(f, data)
             try:
-                if check_binary(f, data, target, fail):
-                    kinds += 1
-                    executables.add(f)
+                kind = check_binary(f, data, release_target, fail)
+                if kind:
+                    executables[f] = kind
             except (Failure, struct.error, ValueError, IndexError) as e:
                 fail(f"{f}: executable could not be parsed ({e})")
-        if kinds == 0:
+        if not executables:
             fail("the archive holds no executable")
 
         if RECORD in files:
-            try:
-                with open(os.path.join(root, RECORD), encoding="utf-8") as fh:
-                    rec = json.load(fh)
-            except ValueError:
-                rec = None
-                fail(f"{RECORD}: not JSON")
-            if rec is not None:
-                if target and rec.get("target") != target:
-                    fail(f"{RECORD}: target is not {target}")
-                outs = rec.get("outputs") or []
+            if target and recorded_target != target:
+                fail(f"{RECORD}: target is not {target}")
+            outs = rec.get("outputs")
+            paths = set()
+            if isinstance(outs, list):
                 for out in outs:
-                    if actual.get(out.get("path")) != out.get("sha256"):
-                        fail(f"{RECORD}: digest of {out.get('path')} differs from the file")
-                if {o.get("path") for o in outs} != executables:
-                    fail(f"{RECORD}: its outputs are not exactly the archive's executables")
+                    if not isinstance(out, dict) or not isinstance(out.get("path"), str):
+                        fail(f"{RECORD}: malformed executable output")
+                        continue
+                    path = out["path"]
+                    if path in paths:
+                        fail(f"{RECORD}: duplicate executable output")
+                    paths.add(path)
+                    if not isinstance(out.get("sha256"), str) or actual.get(path) != out["sha256"]:
+                        fail(f"{RECORD}: an executable digest differs from the file")
+            if paths != set(executables):
+                fail(f"{RECORD}: its outputs are not exactly the archive's executables")
+        if release_target == WINDOWS_TARGET:
+            if executables != {"heimdall.exe": "pe", WSL_PATH: "elf"}:
+                fail("Windows release must contain heimdall.exe and the Linux x86-64 WSL helper")
+            helper = rec.get("wsl_helper")
+            features = release_feature_set(rec.get("features"))
+            if (not isinstance(helper, dict) or helper.get("target") != WSL_TARGET
+                    or not re.fullmatch(r"[0-9a-f]{40}", str(rec.get("commit")))
+                    or helper.get("commit") != rec.get("commit")
+                    or features is None or release_feature_set(helper.get("features")) != features
+                    or helper.get("sha256") != actual.get(WSL_PATH)
+                    or not re.fullmatch(r"[0-9a-f]{64}", str(helper.get("archive_sha256")))):
+                fail(f"{RECORD}: WSL helper provenance does not match the Windows release")
+        elif release_target and set(executables) != {"heimdall"}:
+            fail("release must contain exactly the platform's heimdall executable")
+        PAYLOAD["check"](Path(root), files, release_target, candidate, fail)
+        if not failures and inspected is not None:
+            inspected(Path(root), rec)
     return failures
 
 
@@ -559,11 +625,35 @@ def _elf(needed, version=None):
     return hdr + load + dynp + body
 
 
+def _payload_fixture(files, target=WSL_TARGET):
+    repo = PAYLOAD["REPO"]
+    payload = {name: b"synthetic payload\n" for name in PAYLOAD["payload"]()}
+    for name in (PAYLOAD["CONFIG"], PAYLOAD["MANIFEST"]):
+        payload[name] = (repo / PAYLOAD["payload"]()[name]).read_bytes()
+    install = "install.ps1" if target == WINDOWS_TARGET else "install.sh"
+    payload.update({install: b"# fixture\n", "THIRD-PARTY-NOTICES.txt": b"notices\n",
+                    f"heimdall-{target}.cdx.json": b"{}\n"})
+    payload.update(files)
+    if target == WINDOWS_TARGET:
+        payload[WSL_PATH] = _elf(["libc.so.6"])
+    outputs = [{"path": path, "sha256": hashlib.sha256(data).hexdigest()} for path, data in payload.items()
+               if data.startswith((b"MZ", b"\x7fELF", b"\xcf\xfa\xed\xfe"))]
+    rec = {"target": target, "outputs": outputs, "commit": "a" * 40, "tree_clean": True,
+           "features": "--no-default-features"}
+    if target == WINDOWS_TARGET:
+        rec["wsl_helper"] = {"target": WSL_TARGET, "commit": rec["commit"], "features": rec["features"],
+                             "sha256": hashlib.sha256(payload[WSL_PATH]).hexdigest(), "archive_sha256": "b" * 64}
+    payload.setdefault(RECORD, json.dumps(rec).encode())
+    return payload
+
+
 def _tree(tmp, name, files, sums=True, tamper=None):
     root = os.path.join(tmp, name, "heimdall-0.0.0-test")
     os.makedirs(root)
     for rel, data in files.items():
-        with open(os.path.join(root, rel), "wb") as fh:
+        path = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
             fh.write(data)
     if sums:
         lines = [f"{sha256(os.path.join(root, r))}  {r}" for r in sorted(files)]
@@ -643,6 +733,8 @@ def self_test():
     bad = 0
     with tempfile.TemporaryDirectory(prefix="hm-verify-selftest-") as tmp:
         for i, (name, files, opt, expect) in enumerate(cases):
+            if expect is None:
+                files = _payload_fixture(files, opt.get("target", WSL_TARGET))
             root = _tree(tmp, f"c{i}", files, tamper=opt.get("tamper"))
             got = verify(root, target=opt.get("target"), forbid=opt.get("forbid", ()),
                          allow_exact=opt.get("allow", ()))
@@ -675,7 +767,7 @@ def self_test():
             print("self-test FAILED: build record listing a non-executable")
         # An archive checked against an external index: listed, tampered, absent.
         import shutil
-        root = _tree(tmp, "packed", {"heimdall": good})
+        root = _tree(tmp, "packed", _payload_fixture({"heimdall": good}))
         arc = shutil.make_archive(os.path.join(tmp, "heimdall-0.0.0-test"), "gztar",
                                   os.path.dirname(root), os.path.basename(root))
         idx = os.path.join(tmp, "IDX")
@@ -761,14 +853,58 @@ def self_test():
         if os.path.exists(os.path.join(os.path.dirname(tmp), "escape")):
             bad += 1
             print("self-test FAILED: escaping tar member written")
-    print(f"verify_artifact self-test: {len(cases) + 15} cases, {bad} failed")
+        full = _payload_fixture({"heimdall": good, "LICENSE": b"fixture", "SECURITY.md": b"fixture"})
+        checks = 0
+
+        def release_case(label, files, expected=None, candidate=True):
+            nonlocal checks, bad
+            checks += 1
+            root = _tree(tmp, f"payload-{checks}", files)
+            got = verify(root, candidate=candidate)
+            if (not got) != (expected is None) or (expected and not any(expected in g for g in got)):
+                bad += 1
+                print(f"self-test FAILED: {label}: {got}")
+            return root
+
+        release_case("complete final payload", full)
+        for missing in sorted(set(full) - {"heimdall"}):
+            release_case("missing required payload file",
+                         {k: v for k, v in full.items() if k != missing}, f"{missing} is missing")
+        release_case("invalid reference config", dict(full, **{PAYLOAD["CONFIG"]: b"schema_version = -1\n"}),
+                     "config.toml:")
+        release_case("invalid example manifest", dict(full, **{PAYLOAD["MANIFEST"]: b"schema_version = 0\n"}),
+                     "heimdall.toml:")
+        release_case("installer references optional skill",
+                     dict(full, **{"install.sh": b". ./skills/heimdall/SKILL.md\n"}), "must leave the skill")
+        win = _payload_fixture({"heimdall.exe": _pe(["kernel32.dll"])}, WINDOWS_TARGET)
+        release_case("Windows installer references optional skill",
+                     dict(win, **{"install.ps1": b"Copy-Item .\\skills\\heimdall\\SKILL.md $Prefix\n"}),
+                     "must leave the skill", candidate=False)
+        bad_record = json.loads(win[RECORD])
+        bad_record["wsl_helper"]["sha256"] = "0" * 64
+        release_case("Windows package helper receipt differs", dict(win, **{RECORD: json.dumps(bad_record).encode()}),
+                     "WSL helper provenance does not match", candidate=False)
+        full[PAYLOAD["MATRIX"]] = PAYLOAD["MATRIX_MARKER"]
+        root = release_case("a placeholder matrix in a rehearsal", full, candidate=False)
+        for argv, expected in (([root], 0), ([root, "--candidate"], 1)):
+            checks += 1
+            saved, sys.stdout = sys.stdout, io.StringIO()
+            try:
+                code = main(argv)
+                output = sys.stdout.getvalue()
+            finally:
+                sys.stdout = saved
+            if code != expected or (expected and "still a placeholder" not in output):
+                bad += 1
+                print("self-test FAILED: placeholder matrix CLI check")
+    print(f"verify_artifact self-test: {len(cases) + 15 + checks} cases, {bad} failed")
     return 1 if bad else 0
 
 
 def main(argv):
     if argv == ["--self-test"]:
         return self_test()
-    src, target, forbid, index, allow = None, None, [], None, []
+    src, target, forbid, index, allow, candidate = None, None, [], None, [], False
     it = iter(argv)
     try:
         for a in it:
@@ -776,6 +912,8 @@ def main(argv):
                 target = next(it)
             elif a == "--index":
                 index = next(it)
+            elif a == "--candidate":
+                candidate = True
             elif a == "--allow-exact":
                 allow.append(next(it))
             elif a == "--forbid":
@@ -797,7 +935,7 @@ def main(argv):
                 raise Failure("one archive at a time")
         if src is None:
             raise Failure("no archive given")
-        failures = verify(src, target, forbid, index, allow)
+        failures = verify(src, target, forbid, index, allow, candidate)
     except StopIteration:
         print("verify_artifact: an option is missing its value")
         return 2

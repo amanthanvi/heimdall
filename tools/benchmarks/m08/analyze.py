@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Judge a soak run's samples against ADR-0014 section 6.2 (m08-plan U5a).
+"""Judge benchmark and soak runs against ADR-0014 section 6 (m08-plan U5).
 
 Usage: python3 -I tools/benchmarks/m08/analyze.py <run directory>      (holds S/ and L/)
+       python3 -I tools/benchmarks/m08/analyze.py --benchmark <run directory>
+           [--prepare-stage <staged archive directory>]
        python3 -I tools/benchmarks/m08/analyze.py --self-test
 Exit code: 0 when no check failed; 1 when one did; 2 on a usage error.
 
@@ -24,12 +26,161 @@ Checks (the section 6.2 items this harness version can see):
 Lane L restarts its runtime, so its memory series is checked per process lifetime for the
 maximum only.
 """
+import argparse
+import hashlib
 import json
+import math
 import os
+from pathlib import Path
+import re
+import runpy
 import statistics
 import sys
+import tempfile
 
 MIB = 1024.0
+REPO = Path(__file__).resolve().parents[3]
+
+LATENCY_BUDGETS = {
+    "inspect_warm": {"max_p95_ms": 100, "min_samples": 200},
+    "ensure_warm": {"max_p95_ms": 250, "min_samples": 200},
+    "tui_first_useful_frame": {"max_p95_ms": 750, "min_samples": 50},
+    "key_to_frame": {"max_p95_ms": 100, "min_samples": 200, "slow_provider": True},
+}
+BENCH_BUDGETS = {
+    "destinations": 100, **LATENCY_BUDGETS, "max_errors_per_latency_metric": 0,
+    "idle_cpu": {"less_than_percent_of_one_core": 0.5, "min_windows": 3,
+                 "min_window_seconds": 300, "min_settle_seconds": 600},
+    "idle_memory": {"max_mib": 150},
+    "idle_polling": {"max_unrequested_attempts_per_provider": 0, "providers": ["sshd", "agent_proxy"]},
+}
+
+
+def read_json(path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def write_json(path, data):
+    path.write_text(json.dumps(data, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+
+
+def prepare_benchmark(out, stage):
+    record = read_json(stage / "BUILD-RECORD.json")
+    if (record.get("schema") != "heimdall-build-record/1" or record.get("profile") != "release"
+            or record.get("target") not in ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu")
+            or not re.fullmatch("[0-9a-f]{40}", str(record.get("commit")))):
+        raise ValueError("expected a Linux release build record")
+    with (stage / "heimdall").open("rb") as binary:
+        digest = hashlib.file_digest(binary, "sha256").hexdigest()
+    outputs = record.get("outputs", [])
+    if not any(item.get("path") == "heimdall" and item.get("sha256") == digest for item in outputs):
+        raise ValueError("staged executable digest differs from its build record")
+    write_json(out / "build.json", {
+        **{key: record[key] for key in ("commit", "target", "features", "tree_clean", "toolchain")},
+        "binary_sha256": digest,
+    })
+
+
+def nonnegative(value):
+    return type(value) in (int, float) and math.isfinite(value) and value >= 0
+
+
+def judge_benchmark(metrics):
+    destinations = metrics.get("destinations")
+    checks = {"destinations": "unmeasured" if destinations is None else
+              "pass" if destinations == BENCH_BUDGETS["destinations"] else "fail"}
+    for name, budget in LATENCY_BUDGETS.items():
+        row = metrics.get(name, {})
+        if not row or (budget.get("slow_provider") and row.get("slow_provider") is not True):
+            checks[name] = "unmeasured"
+            continue
+        p50, p95 = row.get("p50_ms"), row.get("p95_ms")
+        samples, errors = row.get("samples"), row.get("errors")
+        ok = (nonnegative(p50) and nonnegative(p95) and p50 <= p95 <= budget["max_p95_ms"] and type(samples) is int
+              and samples >= budget["min_samples"] and type(errors) is int and errors == 0)
+        checks[name] = "pass" if ok else "fail"
+
+    idle = metrics.get("idle", {})
+    windows = idle.get("windows", [])
+    method = BENCH_BUDGETS["idle_cpu"]
+    settle = idle.get("settle_s")
+    enough = (len(windows) >= method["min_windows"] and nonnegative(settle)
+              and settle >= method["min_settle_seconds"]
+              and all(nonnegative(w.get("seconds")) and w["seconds"] >= method["min_window_seconds"]
+                      for w in windows))
+    for name, field, bound, inclusive in (
+            ("idle_cpu", "cpu_percent_of_one_core", method["less_than_percent_of_one_core"], False),
+            ("idle_memory", "rss_mib", BENCH_BUDGETS["idle_memory"]["max_mib"], True)):
+        values = [w.get(field) for w in windows]
+        if not enough or not all(nonnegative(v) for v in values):
+            checks[name] = "unmeasured"
+        else:
+            checks[name] = "pass" if all(v < bound or (inclusive and v == bound) for v in values) else "fail"
+    polls = idle.get("unrequested_polls", {})
+    counts = [polls.get(provider) for provider in BENCH_BUDGETS["idle_polling"]["providers"]]
+    if not enough or not all(type(count) is int and count >= 0 for count in counts):
+        checks["idle_polling"] = "unmeasured"
+    else:
+        checks["idle_polling"] = "pass" if not any(counts) else "fail"
+    return checks
+
+
+def benchmark_evidence(out):
+    build = read_json(out / "build.json")
+    host = read_json(out / "host.json")
+    container_end = read_json(out / "host-end.json")
+    run_path, bench_path = out / "run.json", out / "bench" / "bench.json"
+    run = read_json(run_path) if run_path.is_file() else {}
+    metrics = read_json(bench_path) if bench_path.is_file() else {}
+    checks = judge_benchmark(metrics)
+    checked_binary = run.get("binary_sha256") == build["binary_sha256"]
+    passed = checked_binary and container_end["container_exit"] == 0 and all(v == "pass" for v in checks.values())
+    limitations = ["Container benchmark only; the native platform rows and soak require separate evidence."]
+    if checks["key_to_frame"] == "unmeasured":
+        limitations.append("Key latency under real slow provider work was not measured.")
+    if checks["idle_polling"] == "unmeasured":
+        limitations.append("The fixture sshd and agent proxy did not both report idle polling counts.")
+    if not checked_binary:
+        limitations.append("The container did not report the recorded executable digest.")
+    evidence = {
+        "case_id": "A34-benchmark",
+        "status": "verified" if passed else "implemented_unverified",
+        "requirement_ids": ["R-QU-03"],
+        "build_commit": build["commit"],
+        "artifact_digest": run.get("binary_sha256"),
+        "environment": {"target": build["target"], "host": host,
+                        "container": {key: run.get(key) for key in ("arch", "kernel", "cpus_seen", "mem_total_kib")}},
+        "provider_versions": [],
+        "started_at": metrics.get("started_at") or host["host_started_at"],
+        "commands_or_harness": "tools/benchmarks/m08/run-bench.sh and analyze.py --benchmark",
+        "observed_result": {
+            "result": "pass" if passed else "fail", "container_exit": container_end["container_exit"],
+            "budgets": BENCH_BUDGETS, "measurements": metrics, "checks": checks, "build": build,
+        },
+        "evidence_paths": [path for path in ("host.json", "host-end.json", "build.json",
+                                            "run.json", "bench/bench.json", "host-load.ndjson")
+                           if (out / path).is_file()],
+        "limitations": limitations,
+    }
+    write_json(out / "evidence.json", evidence)
+    return evidence
+
+
+def benchmark_main(argv):
+    parser = argparse.ArgumentParser(description="Prepare or analyze a benchmark evidence record")
+    parser.add_argument("run_dir", type=Path)
+    parser.add_argument("--prepare-stage", type=Path)
+    args = parser.parse_args(argv)
+    try:
+        if args.prepare_stage:
+            prepare_benchmark(args.run_dir, args.prepare_stage)
+            return 0
+        evidence = benchmark_evidence(args.run_dir)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        print(f"benchmark analysis: could not read or write evidence ({type(exc).__name__})", file=sys.stderr)
+        return 2
+    print(f"benchmark analysis: {evidence['observed_result']['result']} (evidence.json)")
+    return 0 if evidence["observed_result"]["result"] == "pass" else 1
 
 
 def load(path):
@@ -160,6 +311,72 @@ def analyze(run_dir, lanes="SL"):
     return 1 if bad else 0
 
 
+def benchmark_self_test():
+    """Exercise the normal evidence writer with recorded inputs and synthetic measurements."""
+    schema = read_json(REPO / "tests/evidence/record.schema.json")
+    validate = runpy.run_path(str(REPO / "tests/g02/minischema.py"))["validate"]
+    metrics = {"destinations": 100, "started_at": "2026-11-26T00:00:00Z"}
+    for name, budget in LATENCY_BUDGETS.items():
+        metrics[name] = {"p50_ms": budget["max_p95_ms"] / 2, "p95_ms": budget["max_p95_ms"],
+                         "samples": budget["min_samples"], "errors": 0}
+    metrics["key_to_frame"]["slow_provider"] = True
+    metrics["idle"] = {"settle_s": 600, "windows": [
+        {"seconds": 300, "cpu_percent_of_one_core": 0.49, "rss_mib": 150} for _ in range(3)
+    ], "unrequested_polls": {"sshd": 0, "agent_proxy": 0}}
+    stage_record = {"schema": "heimdall-build-record/1", "profile": "release",
+                    "target": "aarch64-unknown-linux-gnu", "commit": "a" * 40,
+                    "features": "--no-default-features", "tree_clean": True, "toolchain": {}}
+    binary = b"synthetic benchmark artifact bytes"
+    digest = hashlib.sha256(binary).hexdigest()
+    stage_record["outputs"] = [{"path": "heimdall", "sha256": digest}]
+    bad = 0
+    with tempfile.TemporaryDirectory(prefix="hm-benchmark-evidence-") as tmp:
+        out = Path(tmp)
+        (out / "bench").mkdir()
+        (out / "heimdall").write_bytes(binary)
+        write_json(out / "BUILD-RECORD.json", stage_record)
+        prepare_benchmark(out, out)
+        write_json(out / "host.json", {"host_started_at": metrics["started_at"], "host_os": "fixture"})
+        write_json(out / "host-end.json", {"container_exit": 0})
+        write_json(out / "run.json", {"binary_sha256": digest, "arch": "aarch64"})
+        bench_path = out / "bench/bench.json"
+        for name, expected, checks in (
+                ("budget equality allowed", "pass", {}),
+                ("strict CPU bound and latency miss", "fail", {"idle_cpu": "fail", "ensure_warm": "fail"}),
+                ("fast-work and missing polls", "fail", {"key_to_frame": "unmeasured", "idle_polling": "unmeasured"}),
+                ("digest mismatch", "fail", {}),
+                ("container failure without metrics", "fail", {"inspect_warm": "unmeasured"})):
+            write_json(bench_path, metrics)
+            if name == "strict CPU bound and latency miss":
+                metrics["idle"]["windows"][0]["cpu_percent_of_one_core"] = 0.5
+                metrics["ensure_warm"]["p95_ms"] = 250.01
+                write_json(bench_path, metrics)
+                metrics["idle"]["windows"][0]["cpu_percent_of_one_core"] = 0.49
+                metrics["ensure_warm"]["p95_ms"] = 250
+            if name == "fast-work and missing polls":
+                metrics["key_to_frame"]["slow_provider"] = False
+                metrics["idle"].pop("unrequested_polls")
+                write_json(bench_path, metrics)
+                metrics["key_to_frame"]["slow_provider"] = True
+                metrics["idle"]["unrequested_polls"] = {"sshd": 0, "agent_proxy": 0}
+            if name == "digest mismatch":
+                write_json(out / "run.json", {"binary_sha256": "b" * 64, "arch": "aarch64"})
+            if name == "container failure without metrics":
+                write_json(out / "run.json", {"binary_sha256": digest, "arch": "aarch64"})
+                write_json(out / "host-end.json", {"container_exit": 1})
+                bench_path.unlink()
+            benchmark_evidence(out)
+            record = read_json(out / "evidence.json")
+            result = record["observed_result"]
+            if (validate(schema, record) or record["build_commit"] != stage_record["commit"]
+                    or record["environment"]["target"] != stage_record["target"]
+                    or result["budgets"] != BENCH_BUDGETS or result["result"] != expected
+                    or any(result["checks"][row] != value for row, value in checks.items())):
+                bad += 1
+                print(f"self-test FAILED: benchmark {name}")
+    return 5, bad
+
+
 def self_test():
     def series(n, rss, fds=20, threads=4, files=50, tick=60):
         return [{"t": i * tick, "tick": i, "pid": 7, "rss_kib": rss(i), "fds": fds if isinstance(fds, int) else fds(i),
@@ -197,13 +414,17 @@ def self_test():
     if not any("gap of" in n for n in notes):
         bad += 1
         print("self-test FAILED: a gap is not reported")
-    print(f"analyze self-test: {len(cases) + 2} cases, {bad} failed")
+    bench_cases, bench_bad = benchmark_self_test()
+    bad += bench_bad
+    print(f"analyze self-test: {len(cases) + 2 + bench_cases} cases, {bad} failed")
     return 1 if bad else 0
 
 
 def main(argv):
     if argv == ["--self-test"]:
         return self_test()
+    if argv[:1] == ["--benchmark"]:
+        return benchmark_main(argv[1:])
     lanes = "SL"
     if len(argv) == 3 and argv[1] == "--lanes" and argv[2] in ("SL", "S", "L"):
         lanes, argv = argv[2], argv[:1]
