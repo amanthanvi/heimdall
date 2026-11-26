@@ -307,7 +307,10 @@ impl Controller {
             .unwrap()
     }
 
-    /// A ledger entry for `grant` and pair `h1`, valid until `valid_before`.
+    /// A ledger entry for `grant` and pair `h1`, valid until `valid_before`. ⟨M08 W4 SEC-1,
+    /// S2-04⟩ Its key ID names the runner's environment and the grant, as a remote issuance's
+    /// does (`heimdall:<environment>:<grant>:<serial>`): this ledger's record of issuing for
+    /// that runner's grant, which a reconciliation reads as the grant's delivery there.
     pub fn entry(&self, grant: &GrantId, valid_before: Timestamp) -> IssuanceEntry {
         let n = self.serial.fetch_add(1, Ordering::SeqCst) as u8;
         IssuanceEntry {
@@ -317,7 +320,11 @@ impl Controller {
             pair: pair("h1"),
             bounds: CertificateBounds {
                 serial: u64::from(n),
-                key_id: format!("heimdall:fixture:{n}"),
+                key_id: format!(
+                    "heimdall:{}:{}:{n}",
+                    self.pin.environment.as_str(),
+                    grant.as_str()
+                ),
                 principal: principal_for(&pair("h1")),
                 valid_after: t0(),
                 valid_before,

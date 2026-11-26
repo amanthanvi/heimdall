@@ -554,6 +554,9 @@ pub struct ResyncOutcome {
     pub acknowledged: Vec<EffectAck>,
     /// The grants of this controller's ledger the report showed tombstoned.
     pub revoked: Vec<RevokedByReport>,
+    /// ⟨M08 W4 SEC-1, S2-04⟩ The report's tombstone entries the reconciliation did not take
+    /// (`Reconciliation::ignored_tombstones`): nothing was written for them.
+    pub ignored_tombstones: usize,
     /// The runner's report.
     pub report: AuthorityReport,
     /// The time sample.
@@ -694,23 +697,25 @@ pub async fn resync(
                 target: row.key.target.clone(),
             })
             .await?;
-        let ack: EffectAck = data(response, "acknowledgement")?;
+        let mut ack: EffectAck = data(response, "acknowledgement")?;
         if ack.key != row.key {
             return Err(OpError::new(
                 Code::OutcomeUnknown,
                 "the runner acknowledged another effect than the one delivered",
             ));
         }
+        screen_ack(&mut ack);
         let at = clock.wall();
         store.transaction(|tx| tx.acknowledge_remote_effect(&ack, at))?;
         acknowledged.push(ack);
     }
 
     // 3. the authority report.
-    let report: AuthorityReport = data(
+    let mut report: AuthorityReport = data(
         channel.call(RunnerRequest::AuthorityReport).await?,
         "authority report",
     )?;
+    screen_report(&mut report);
 
     // 4. the issuer's reconciliation barrier.
     let at = clock.wall();
@@ -728,6 +733,7 @@ pub async fn resync(
         ));
     };
     let revoked = reconciliation.revoked.clone();
+    let ignored_tombstones = reconciliation.ignored_tombstones;
     barrier.admit(reconciliation);
 
     // 5. the time sample.
@@ -739,10 +745,38 @@ pub async fn resync(
     Ok(ResyncOutcome {
         acknowledged,
         revoked,
+        ignored_tombstones,
         report,
         time,
         time_bounded,
     })
+}
+
+/// ⟨M08 W4 SEC-1, S1-02⟩ The scope key kept for a delivered revision whose typed scope has
+/// none in this build (never the runner's text): it names no single policy, so the
+/// issuer's barrier holds it against every policy.
+pub const UNKNOWN_SCOPE_KEY: &str = "unknown";
+
+/// ⟨M08 W4 SEC-1, S1-02; spec §14⟩ The one free string of a runner's authority report, each
+/// delivered revision's `scope_key`, replaced at the ingress by the canonical key of the
+/// row's own typed scope (`heimdall_store::ext_effects::scope_key`), computed here. What this
+/// controller reconciles, stores (`ObservedReport`) and shows (`EarlyCutoff`, `environment
+/// status`) is then never the runner's text. Everything else in a report is typed.
+fn screen_report(report: &mut AuthorityReport) {
+    for row in &mut report.policy_revisions {
+        row.scope_key = scope_key(&row.scope).unwrap_or_else(|| UNKNOWN_SCOPE_KEY.to_owned());
+    }
+}
+
+/// ⟨M08 W4 SEC-1, S1-02⟩ [`screen_report`] for an acknowledgement, before it is stored: a
+/// policy revision's `scope_key` is the canonical key of the effect this controller
+/// delivered (the acknowledgement's key is checked equal to it first).
+fn screen_ack(ack: &mut EffectAck) {
+    if let heimdall_store::ext_effects::AppliedRecord::PolicyRevision { scope_key, .. } =
+        &mut ack.record
+    {
+        *scope_key = target_ref(&ack.key.target).unwrap_or_else(|| UNKNOWN_SCOPE_KEY.to_owned());
+    }
 }
 
 /// One time exchange: the runner's nonce, answered at once with this controller's clock. A

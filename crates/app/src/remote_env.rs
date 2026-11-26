@@ -991,7 +991,10 @@ fn role_name(role: Role) -> String {
 
 /// Map a runner's response: `OK` is its data; `APPROVAL_REQUIRED` or `INTERACTION_REQUIRED`
 /// carrying the runner's `decision_ref` is returned as that refusal with the reference
-/// unchanged (the controller never decides); any other error is the runner's error detail.
+/// unchanged (the controller never decides); any other error is the runner's refusal as
+/// [`peer_refusal`] keeps it. ⟨M08 W4 SEC-1, S1-02⟩ No text of the runner's is kept: a
+/// `decision_ref` only in the form a runtime generates ([`is_generated_decision_ref`]), the
+/// reason only as a stable token, and never its message.
 ///
 /// # Errors
 /// [`OpError`].
@@ -999,7 +1002,11 @@ pub fn runner_result(envelope: Envelope<serde_json::Value>) -> Result<serde_json
     if envelope.code == Code::Ok {
         return Ok(envelope.data);
     }
-    let decision_ref = envelope.next.as_ref().and_then(|n| n.decision_ref.clone());
+    let decision_ref = envelope
+        .next
+        .as_ref()
+        .and_then(|n| n.decision_ref.clone())
+        .filter(|d| is_generated_decision_ref(d));
     if matches!(
         envelope.code,
         Code::ApprovalRequired | Code::InteractionRequired
@@ -1015,12 +1022,89 @@ pub fn runner_result(envelope: Envelope<serde_json::Value>) -> Result<serde_json
     }
     let operation_id = envelope.operation_id.clone();
     match serde_json::from_value::<ErrorData>(envelope.data) {
-        Ok(data) => Err(OpError::from_detail(data.error, operation_id)),
+        Ok(data) => Err(peer_refusal(data.error, operation_id)),
         Err(_) => Err(OpError::new(
             Code::OutcomeUnknown,
             "the runner's response could not be read",
         )),
     }
+}
+
+/// ⟨M08 W4 SEC-1, S1-02⟩ The longest reason a peer's refusal keeps ([`is_reason_token`]).
+pub const MAX_PEER_REASON_BYTES: usize = 64;
+
+/// ⟨M08 W4 SEC-1, S1-02⟩ Whether `reason` is a stable `snake_case` token (the grammar of
+/// `heimdall_contract::envelope::reason`) of at most [`MAX_PEER_REASON_BYTES`]: a lowercase
+/// ASCII letter, then lowercase letters, digits and `_`.
+#[must_use]
+pub fn is_reason_token(reason: &str) -> bool {
+    let bytes = reason.as_bytes();
+    bytes.len() <= MAX_PEER_REASON_BYTES
+        && bytes.first().is_some_and(u8::is_ascii_lowercase)
+        && bytes
+            .iter()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'_')
+}
+
+/// ⟨M08 W4 SEC-1, S1-02⟩ Whether `nonce` has the form a runner generates for an
+/// invitation's activation probe (32 lowercase hex digits,
+/// `heimdall_remote::invitations`).
+#[must_use]
+pub fn is_generated_nonce(nonce: &str) -> bool {
+    is_lower_hex(nonce, 32)
+}
+
+fn is_lower_hex(text: &str, len: usize) -> bool {
+    text.len() == len
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// ⟨M08 W4 SEC-1, S1-02⟩ Whether `decision_ref` has the form a runtime generates for a
+/// decision ID (`dec_` and 32 lowercase hex digits,
+/// `heimdall_contract::ids::DecisionId::from_random_bytes`): the only reference a peer's
+/// answer can carry to this controller's output.
+#[must_use]
+pub fn is_generated_decision_ref(decision_ref: &str) -> bool {
+    decision_ref
+        .strip_prefix("dec_")
+        .is_some_and(|hex| is_lower_hex(hex, 32))
+}
+
+/// ⟨M08 W4 SEC-1, S1-02; spec §14⟩ A peer's refusal (`data.error` of a runner's or a
+/// management session's answer) as this controller keeps it, before anything is stored,
+/// shown or logged. A peer's text is untrusted, and in machine-read output it would be a
+/// prompt-injection channel, so:
+///
+/// * the code and the effect status are kept (a code this build does not know is
+///   `Code::Unknown`, a bounded token, already);
+/// * the reason is kept only when it is a stable token ([`is_reason_token`]), and dropped
+///   otherwise;
+/// * the message is this controller's own fixed text for that code and reason;
+/// * the peer's resource, next action and configuration entries are not kept: the next
+///   action is this build's default for the code.
+#[must_use]
+pub fn peer_refusal(
+    detail: heimdall_contract::envelope::ErrorDetail,
+    operation_id: Option<heimdall_contract::ids::OperationId>,
+) -> OpError {
+    let code = detail.code;
+    let reason = detail.reason.filter(|r| is_reason_token(r));
+    let message = match &reason {
+        Some(r) => format!(
+            "the runner answered {} (reason {r}); a runner's own message is not shown",
+            code.as_str()
+        ),
+        None => format!(
+            "the runner answered {}; a runner's own message is not shown",
+            code.as_str()
+        ),
+    };
+    let mut e = OpError::new(code, message).with_effect(detail.effect_status);
+    e.reason = reason;
+    e.operation_id = operation_id;
+    e
 }
 
 /// Check a route's pins: every hop has 1 to [`MAX_HOST_KEYS`] key lines.
@@ -1311,12 +1395,23 @@ impl<'a> RemoteEnvController<'a> {
         let request_epoch = response.request_epoch;
         match runner_result(response) {
             Ok(data) => {
-                let created: InviteCreated = serde_json::from_value(data).map_err(|_| {
+                let unreadable = || {
                     OpError::new(
                         Code::OutcomeUnknown,
                         "the runner's invitation result could not be read",
                     )
-                })?;
+                };
+                let created: InviteCreated =
+                    serde_json::from_value(data).map_err(|_| unreadable())?;
+                // ⟨M08 W4 SEC-1, S1-02⟩ The probe nonce goes into the bundle this command
+                // prints: only in the form a runner generates it, never the runner's text.
+                if created
+                    .nonce
+                    .as_deref()
+                    .is_some_and(|n| !is_generated_nonce(n))
+                {
+                    return Err(unreadable());
+                }
                 Ok(InviteOutcome::Created(Box::new(InvitationBundle {
                     environment: record.environment.clone(),
                     route: record.route.clone(),
