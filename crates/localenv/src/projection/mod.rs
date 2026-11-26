@@ -99,6 +99,17 @@ pub const CLEANER_STEP: u16 = u16::MAX;
 pub trait PublicKeySource: Send + Sync {
     /// The one-line public key of `identity`, when known.
     fn public_key(&self, identity: &IdentityId) -> Option<String>;
+
+    /// Verified catalog host keys for a pair, as OpenSSH public key lines.
+    ///
+    /// # Errors
+    /// The catalog could not be read.
+    fn catalog_host_keys(
+        &self,
+        _alias: &heimdall_domain::projection::ManagedAliasSpec,
+    ) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
 }
 
 /// ⟨M03⟩ What P renders for a pair whose preference is `managed_certificate` (ADR-0008

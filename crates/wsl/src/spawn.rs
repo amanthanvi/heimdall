@@ -35,7 +35,7 @@ pub const HELPER_DIR: &str = "linux-x86_64";
 /// The helper's file name.
 pub const HELPER_FILE: &str = "heimdall";
 
-/// The in-box OpenSSH client, as Windows names it (used when `SystemRoot` is unset).
+/// The in-box OpenSSH path used by synthetic or unavailable hosts.
 pub const SSH_EXE_DEFAULT: &str = "C:\\Windows\\System32\\OpenSSH\\ssh.exe";
 
 /// The environment variables a `wsl.exe` child keeps.
@@ -48,16 +48,15 @@ pub fn is_plain_argument(s: &str) -> bool {
     !s.is_empty() && !s.starts_with('-') && !s.chars().any(char::is_control)
 }
 
-/// `%SystemRoot%\System32\OpenSSH\ssh.exe`, from the given `SystemRoot`.
+/// The in-box OpenSSH path from the operating system, for the Mode A helper.
 #[must_use]
-pub fn ssh_exe_windows(system_root: Option<&str>) -> String {
-    match system_root.filter(|r| !r.is_empty()) {
-        Some(root) => format!(
-            "{}\\System32\\OpenSSH\\ssh.exe",
-            root.trim_end_matches('\\')
-        ),
-        None => SSH_EXE_DEFAULT.to_owned(),
-    }
+pub fn ssh_exe_windows() -> Option<String> {
+    heimdall_localenv::sys::windows_system_directory()?
+        .join("OpenSSH")
+        .join("ssh.exe")
+        .into_os_string()
+        .into_string()
+        .ok()
 }
 
 /// The Windows path of the Linux helper: `<exe_dir>\linux-x86_64\heimdall`.
@@ -93,14 +92,10 @@ pub fn wsl_command(
     cmd
 }
 
-/// `wsl.exe` under `SystemRoot\System32`, or the bare name when `SystemRoot` is unset (the
-/// search is then the process's own `PATH`).
+/// The absolute system path to `wsl.exe`, or `None` if the lookup fails.
 #[must_use]
-pub fn wsl_exe_path(system_root: Option<&str>) -> PathBuf {
-    match system_root.filter(|r| !r.is_empty()) {
-        Some(root) => Path::new(root).join("System32").join("wsl.exe"),
-        None => PathBuf::from("wsl.exe"),
-    }
+pub fn wsl_exe_path() -> Option<PathBuf> {
+    Some(heimdall_localenv::sys::windows_system_directory()?.join("wsl.exe"))
 }
 
 /// `wsl.exe -d <name> -u <account> --exec /usr/bin/wslpath -u <windows path>`.
@@ -299,6 +294,40 @@ mod tests {
     }
 
     #[test]
+    fn absent_system_directory_never_searches_path_for_wsl() {
+        assert!(
+            wsl_exe_path().is_none_or(|exe| exe.is_absolute()),
+            "missing system directory must not select a bare executable name"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_inbox_programs_ignore_redirected_system_root() {
+        const CHILD: &str = "HEIMDALL_TEST_SYSTEM_DIRECTORY_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let system_dir = heimdall_localenv::sys::windows_system_directory().unwrap();
+            assert_eq!(wsl_exe_path(), Some(system_dir.join("wsl.exe")));
+            assert_eq!(
+                PathBuf::from(ssh_exe_windows().unwrap()),
+                system_dir.join("OpenSSH/ssh.exe")
+            );
+            let redirected = std::env::var_os("SystemRoot").unwrap();
+            assert!(!system_dir.starts_with(redirected));
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let status = Command::new(std::env::current_exe().unwrap())
+            .arg("windows_inbox_programs_ignore_redirected_system_root")
+            .env(CHILD, "1")
+            .env("SystemRoot", dir.path())
+            .env("windir", dir.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+
+    #[test]
     fn child_environment_keeps_only_the_listed_variables() {
         let parent = |n: &str| match n {
             "SystemRoot" => Some(OsString::from("C:\\Windows")),
@@ -330,11 +359,6 @@ mod tests {
         }
         assert_eq!(names, ["PATH", "SystemRoot", "TEMP", "WSL_UTF8"]);
         assert!(envs.iter().any(|(k, v)| k == "WSL_UTF8" && v == "0"));
-        assert_eq!(
-            ssh_exe_windows(Some("C:\\Windows\\")),
-            "C:\\Windows\\System32\\OpenSSH\\ssh.exe"
-        );
-        assert_eq!(ssh_exe_windows(None), SSH_EXE_DEFAULT);
     }
 
     /// ⟨M06 W5 `w5v` round 3⟩ A `wsl.exe` child gets `ProgramData` (and the other variables

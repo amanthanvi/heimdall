@@ -97,6 +97,12 @@ pub enum SourceError {
 
 /// Read-only access to configuration files and the facts OpenSSH expands.
 pub trait ConfigSource {
+    /// Whether a path is safe to inspect passively in this source's namespace.
+    /// Classification must not open the path.
+    fn allows_local_path(&self, _path: &Path) -> bool {
+        true
+    }
+
     /// Read one file, following symlinks as OpenSSH does, regular files only.
     ///
     /// # Errors
@@ -350,6 +356,9 @@ impl ConfigSet {
         path: &Path,
         limits: &Limits,
     ) -> Result<(Arc<ConfigFile>, PathBuf, usize), IncludeError> {
+        if !source.allows_local_path(path) {
+            return Err(from_source(SourceError::PermissionDenied));
+        }
         if let Some(canonical) = self.requested.get(path)
             && let Some(cached) = self.files.get(canonical)
         {
@@ -747,6 +756,9 @@ pub fn glob_sorted(
     pattern: &Path,
     limits: &Limits,
 ) -> Result<Vec<PathBuf>, IncludeError> {
+    if !source.allows_local_path(pattern) {
+        return Err(from_source(SourceError::PermissionDenied));
+    }
     let mut found = match source.glob(pattern) {
         Ok(found) => found,
         Err(SourceError::NotFound) => Vec::new(),
@@ -1152,6 +1164,8 @@ pub struct MemSource {
     env: BTreeMap<String, String>,
     reads: Cell<usize>,
     globs: Cell<usize>,
+    #[cfg(test)]
+    refused_path: Option<PathBuf>,
 }
 
 impl MemSource {
@@ -1225,6 +1239,11 @@ fn mem_key(path: &Path) -> String {
 }
 
 impl ConfigSource for MemSource {
+    #[cfg(test)]
+    fn allows_local_path(&self, path: &Path) -> bool {
+        self.refused_path.as_deref() != Some(path)
+    }
+
     fn read(&self, path: &Path) -> Result<SourceBytes, SourceError> {
         self.reads.set(self.reads.get().saturating_add(1));
         let mut key = mem_key(path);
@@ -1393,6 +1412,33 @@ fn class(p: &[char], start: usize, c: char) -> Option<(bool, usize)> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_include_patterns_do_not_call_the_filesystem() {
+        for remote in [
+            r"\\server\share\*.conf",
+            r"\\?\UNC\server\share\*.conf",
+            r"X:\*.conf",
+        ] {
+            let src = MemSource {
+                refused_path: Some(PathBuf::from(remote)),
+                ..MemSource::default()
+            };
+            let resolved =
+                resolve_include_arg(remote, Origin::User, &src, &|_| None, &Limits::default());
+            assert_eq!(
+                src.globs() + src.reads(),
+                0,
+                "remote Include reached the source"
+            );
+            assert_eq!(
+                resolved.matches,
+                Err(ArgError::Glob(IncludeError::Unreadable(
+                    SourceError::PermissionDenied
+                )))
+            );
+        }
+    }
 
     #[test]
     fn glob_match_basics() {

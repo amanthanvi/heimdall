@@ -17,16 +17,16 @@
 //! one `ProxyJump <jump alias>` line after its `User` line. The jump is an [`AliasName`]
 //! (a literal alias: no `,`, `@`, `:`, `%`), so a multi-hop, a `user@host:port` or a token
 //! form cannot be expressed; it names another section of P, so both hops resolve through
-//! Heimdall's own aliases. Nothing else about hosts is rendered: P never contains
-//! `ForwardAgent`, `StrictHostKeyChecking`, `UpdateHostKeys`, a known-hosts directive or
-//! `ProxyCommand`. `ForwardAgent` exists only as a launch option ([`forward_agent_options`]).
+//! Heimdall's own aliases. `ForwardAgent` exists only as a launch option
+//! ([`forward_agent_options`]).
 //!
 //! **⟨M06 U5a⟩ The route helper** (ADR-0012 §5.3, the one ADR-0010 §5(b) exception):
 //! [`Section::Helper`] wraps a section of a destination with more than one approved route (or
 //! any Iroh route) with Heimdall's own `ProxyCommand "<abs heimdall>" route connect …`, typed
 //! inputs only, and the catalog pin (`HostKeyAlias hm-dest-<id>`, the pin file, strict
-//! checking and catalog-only trust). That one section kind is the only place P names
-//! `ProxyCommand` or a host-trust directive; [`crate::routes`] builds its lines.
+//! checking and catalog-only trust). `ProxyCommand` is reserved for the helper.
+//! [`Section::Catalog`] applies the same pin to native direct and jump aliases
+//! (ADR-0010 §5, SEC-2); [`crate::routes`] renders the shared trust directives.
 //!
 //! **Paths** are always double-quoted, and `%` is written `%%` (OpenSSH expands tokens
 //! in `Include`, `IdentityFile` and `IdentityAgent`, F7, F15). A [`RenderPath`] holds
@@ -745,6 +745,13 @@ pub enum Section {
         /// The section reached through it.
         section: Box<Section>,
     },
+    /// A native catalog alias with its destination's host-key pin.
+    Catalog {
+        /// The destination's host-key alias and the catalog trust file.
+        pin: crate::routes::CatalogPin,
+        /// The direct or single-jump section.
+        section: Box<Section>,
+    },
 }
 
 impl Section {
@@ -754,7 +761,9 @@ impl Section {
         match self {
             Section::ExistingAccess(a) => &a.alias,
             Section::ManagedCertificate { alias, .. } => alias,
-            Section::Routed { section, .. } | Section::Helper { section, .. } => section.alias(),
+            Section::Routed { section, .. }
+            | Section::Helper { section, .. }
+            | Section::Catalog { section, .. } => section.alias(),
         }
     }
 }
@@ -905,7 +914,10 @@ fn push_section(
         } => {
             // One hop: a routed section never wraps a routed (or helper) one.
             if route.is_some()
-                || matches!(**section, Section::Routed { .. } | Section::Helper { .. })
+                || matches!(
+                    **section,
+                    Section::Routed { .. } | Section::Helper { .. } | Section::Catalog { .. }
+                )
             {
                 return Err(RenderError::RefusedValue("jump"));
             }
@@ -917,11 +929,31 @@ fn push_section(
         } => {
             // ⟨M06 U5a⟩ The helper wraps one plain section, never a route.
             if route.is_some()
-                || matches!(**section, Section::Routed { .. } | Section::Helper { .. })
+                || matches!(
+                    **section,
+                    Section::Routed { .. } | Section::Helper { .. } | Section::Catalog { .. }
+                )
             {
                 return Err(RenderError::RefusedValue("route"));
             }
             push_section(out, section, Some(RouteLine::Helper(helper)), style, form)
+        }
+        Section::Catalog { pin, section } => {
+            if route.is_some()
+                || matches!(**section, Section::Catalog { .. } | Section::Helper { .. })
+            {
+                return Err(RenderError::RefusedValue("pin_file"));
+            }
+            let fixed_identity = match section.as_ref() {
+                Section::Routed { section, .. } => matches!(**section, Section::ExistingAccess(_)),
+                section => matches!(section, Section::ExistingAccess(_)),
+            };
+            push_section(out, section, None, style, form)?;
+            out.push_str(&pin.lines(style)?);
+            if fixed_identity {
+                out.push_str("    ControlMaster no\n    ControlPath none\n");
+            }
+            Ok(())
         }
     }
 }

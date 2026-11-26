@@ -53,7 +53,11 @@ impl WslHost {
     pub fn platform(helper_override: Option<PathBuf>) -> WslHost {
         #[cfg(windows)]
         {
-            let system_root = std::env::var("SystemRoot").ok();
+            let (Some(wsl_exe), Some(ssh_exe_windows)) =
+                (spawn::wsl_exe_path(), spawn::ssh_exe_windows())
+            else {
+                return WslHost::unavailable();
+            };
             let helper = helper_override.or_else(|| {
                 std::env::current_exe()
                     .ok()
@@ -61,11 +65,11 @@ impl WslHost {
             });
             WslHost {
                 launcher: Arc::new(WslExeLauncher::new(
-                    spawn::wsl_exe_path(system_root.as_deref()),
+                    wsl_exe,
                     helper.unwrap_or_else(|| PathBuf::from(spawn::HELPER_FILE)),
                 )),
                 discovery: Arc::new(discover_lxss),
-                ssh_exe_windows: spawn::ssh_exe_windows(system_root.as_deref()),
+                ssh_exe_windows,
             }
         }
         #[cfg(not(windows))]

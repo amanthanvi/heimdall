@@ -325,6 +325,15 @@ the same endpoints [S16].
    Anything else is `route_dependency_out_of_scope`. Readiness reports the route dependency, and the
    pair's lock continuity is the weaker of the two hops.
 
+⟨Amendment, 2026-11-26, M08 W4 SEC-2, S4-01, orchestrator ruling⟩ A
+section offering a Heimdall-managed credential and each required jump use
+catalog-only trust from ADR-0012 §5.2. A missing approved key makes this
+access unready. A jump using a fixed identity still requires its own pin.
+A direct catalog alias offering only the owner's fixed identity uses the
+catalog pin when the catalog holds an approved key. Without an approved key,
+its original section remains usable with the owner's `known_hosts` and
+readiness and doctor report that source as information.
+
 **Forwarding:**
 3. **Agent forwarding is off by default.** P never renders `ForwardAgent`. A managed certificate lacks
    `permit-agent-forwarding`, so a user's own `ssh -A` on a managed alias is refused by the destination.

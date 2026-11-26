@@ -157,14 +157,12 @@ fn select(
 /// The distribution's default Linux account, read by running `id -un` inside it (an
 /// explicit `wsl enable`, which may start it). `None` when it cannot be read: the owner then
 /// names it with `--account`.
-fn default_account(name: &str) -> Option<String> {
+fn default_account(name: &str, exe: &std::path::Path) -> Option<String> {
     if !heimdall_wsl::spawn::is_plain_argument(name) {
         return None;
     }
-    let system_root = std::env::var("SystemRoot").ok();
-    let exe = heimdall_wsl::spawn::wsl_exe_path(system_root.as_deref());
     let cmd = heimdall_wsl::spawn::wsl_command(
-        &exe,
+        exe,
         &["-d", name, "--exec", "/usr/bin/id", "-un"],
         &|k| std::env::var_os(k),
     );
@@ -222,7 +220,19 @@ pub(crate) fn enable(ctx: &Ctx, args: crate::cli::WslEnableArgs) -> ExitCode {
             Ok(d) => d,
             Err(o) => return o,
         };
-        let Some(account) = args.account.clone().or_else(|| default_account(&d.name)) else {
+        let account = if let Some(account) = &args.account {
+            Some(account.clone())
+        } else {
+            let Some(wsl_exe) = heimdall_wsl::spawn::wsl_exe_path() else {
+                return wsl_failure(
+                    Code::CapabilityUnavailable,
+                    heimdall_contract::envelope::reason::WSL_UNAVAILABLE,
+                    "the Windows system directory could not be resolved",
+                );
+            };
+            default_account(&d.name, &wsl_exe)
+        };
+        let Some(account) = account else {
             return crate::setup_cmd::usage(
                 "the distribution's default account could not be read: name it with --account",
             );

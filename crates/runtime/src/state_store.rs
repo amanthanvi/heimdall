@@ -11,10 +11,9 @@
 //!   `rename(2)`, followed by the layout's directory sync.
 //! * **The Windows state-directory protection follows the pointer.** The state directory
 //!   itself is checked by `Paths::ensure` (protected, owner-only). `generations/` and the
-//!   served generation's directory are checked here, before the store is opened and again
-//!   after a first publication. Both inherit the state directory's one owner-only entry
-//!   (`platform::state_dir_acl::judge_inside`). Anything else is refused as
-//!   `state_dir_unsafe` and never repaired.
+//!   served generation's directory and files are checked here before the store is opened.
+//!   The entries must be owner-only (`platform::state_dir_acl::judge_inside`). Anything
+//!   else is refused as `state_dir_unsafe` and never repaired.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -22,10 +21,16 @@ use std::sync::Arc;
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::EnvironmentId;
 use heimdall_store::FaultHook;
-use heimdall_store::layout::stategen::{Fs, Kind, Point, RealFs};
+use heimdall_store::layout::stategen::generations::{
+    CURRENT, GENERATIONS, INTENT, MIGRATIONS, RECORD,
+};
+use heimdall_store::layout::stategen::{Fs, Kind, Point, RealFs, Startup, StateDir};
 use heimdall_store::layout::{self, Opened};
 
+use crate::platform::state_dir_acl::Verdict;
 use crate::service::ServiceError;
+
+type StateAclCheck<'a> = dyn Fn(&Path) -> std::io::Result<Verdict> + 'a;
 
 /// The layout's file system in production: `heimdall-stategen`'s [`RealFs`] for every call
 /// but three. The rename is [`crate::platform::rename_replacing`] (write-through on
@@ -119,12 +124,27 @@ pub fn open_locked_with(
     now: Timestamp,
 ) -> Result<Opened, ServiceError> {
     #[cfg(windows)]
-    if let Ok(layout::Located::Generation { current, .. }) = layout::locate(state_dir) {
-        windows_generation_dirs_owner_only(state_dir, &current.dir)?;
+    let check: Option<&StateAclCheck<'_>> =
+        Some(&crate::platform::state_dir_acl::check_inside_owner_only);
+    #[cfg(not(windows))]
+    let check = None;
+    open_locked_with_checks(state_dir, fs, faults, now, check)
+}
+
+fn open_locked_with_checks(
+    state_dir: &Path,
+    fs: &dyn Fs,
+    faults: Arc<dyn FaultHook>,
+    now: Timestamp,
+    check: Option<&StateAclCheck<'_>>,
+) -> Result<Opened, ServiceError> {
+    if let Some(check) = check {
+        check_state_entries(state_dir, fs, check)?;
     }
     let opened = layout::open_locked(state_dir, fs, faults, &new_environment, now)?;
-    #[cfg(windows)]
-    windows_generation_dirs_owner_only(state_dir, &opened.current.dir)?;
+    if let Some(check) = check {
+        generation_dirs_owner_only(state_dir, &opened.current.dir, check)?;
+    }
     Ok(opened)
 }
 
@@ -148,33 +168,97 @@ fn new_environment() -> Option<EnvironmentId> {
     heimdall_app::ids::new_environment_id().ok()
 }
 
-/// `generations/` and the generation directory `current` are owner-only, as inherited from
-/// the protected state directory (module docs).
-#[cfg(windows)]
-fn windows_generation_dirs_owner_only(
-    state_dir: &Path,
-    current: &Path,
+/// Check paths before reading the selector and before SQLite opens the selected family.
+fn check_state_entries(
+    root: &Path,
+    fs: &dyn Fs,
+    check: &StateAclCheck<'_>,
 ) -> Result<(), ServiceError> {
-    use crate::platform::state_dir_acl::{Verdict, check_inside_owner_only};
-    let generations = state_dir.join(layout::stategen::generations::GENERATIONS);
-    for dir in [generations.as_path(), current] {
-        let verdict = check_inside_owner_only(dir).map_err(crate::config::ConfigError::from)?;
-        if verdict != Verdict::OwnerOnly {
-            return Err(ServiceError::Config(crate::config::ConfigError::Io(
-                std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    crate::paths::StateDirUnsafe(verdict.describe()),
-                ),
-            )));
+    for name in [CURRENT, INTENT] {
+        check_state_file(fs, &root.join(name), check)?;
+    }
+    let state = StateDir::new(fs, root);
+    match state.pointer() {
+        Ok(Some(name)) => {
+            let dir = state.generation_dir(&name);
+            if matches!(fs.kind(&dir), Ok(Kind::Dir)) {
+                generation_dirs_owner_only(root, &dir, check)?;
+                for name in [RECORD, MIGRATIONS] {
+                    check_state_file(fs, &dir.join(name), check)?;
+                }
+                check_database_family(fs, &dir, check)?;
+                if let Ok(Startup::Serving(current)) = state.inspect() {
+                    for name in &current.record.files {
+                        if name != layout::DB_FILE {
+                            check_state_file(fs, &dir.join(name), check)?;
+                        }
+                    }
+                }
+            }
         }
+        Ok(None) => check_database_family(fs, root, check)?,
+        // Layout startup retains its existing error for a malformed pointer.
+        Err(_) => {}
     }
     Ok(())
+}
+
+fn check_database_family(
+    fs: &dyn Fs,
+    dir: &Path,
+    check: &StateAclCheck<'_>,
+) -> Result<(), ServiceError> {
+    for suffix in ["", "-wal", "-shm", "-journal"] {
+        check_state_file(fs, &dir.join(format!("{}{suffix}", layout::DB_FILE)), check)?;
+    }
+    Ok(())
+}
+
+fn check_state_file(
+    fs: &dyn Fs,
+    path: &Path,
+    check: &StateAclCheck<'_>,
+) -> Result<(), ServiceError> {
+    match fs.kind(path) {
+        Ok(Kind::Missing) => Ok(()),
+        Ok(Kind::File) => require_owner_only(path, check),
+        Ok(_) => Err(unsafe_state("a state file is not a regular file")),
+        Err(_) => Err(unsafe_state("a state file could not be inspected")),
+    }
+}
+
+fn generation_dirs_owner_only(
+    state_dir: &Path,
+    current: &Path,
+    check: &StateAclCheck<'_>,
+) -> Result<(), ServiceError> {
+    let generations = state_dir.join(GENERATIONS);
+    for dir in [generations.as_path(), current] {
+        require_owner_only(dir, check)?;
+    }
+    Ok(())
+}
+
+fn require_owner_only(path: &Path, check: &StateAclCheck<'_>) -> Result<(), ServiceError> {
+    let verdict = check(path)
+        .map_err(|_| unsafe_state("a state entry's access-control list could not be read"))?;
+    if verdict != Verdict::OwnerOnly {
+        return Err(unsafe_state(verdict.describe()));
+    }
+    Ok(())
+}
+
+fn unsafe_state(message: &'static str) -> ServiceError {
+    ServiceError::Config(crate::config::ConfigError::Io(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        crate::paths::StateDirUnsafe(message),
+    )))
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use heimdall_store::layout::stategen::generations::{CURRENT_TMP, GENERATIONS, INTENT};
+    use heimdall_store::layout::stategen::generations::CURRENT_TMP;
     use heimdall_store::layout::stategen::{Action, Fault, FaultFs, Operation, Point, When};
     use heimdall_store::layout::{Began, Located};
     use heimdall_store::{NoFaults, Store};
@@ -183,6 +267,60 @@ mod tests {
 
     fn t0() -> Timestamp {
         "2026-11-25T00:00:00Z".parse().unwrap()
+    }
+
+    #[test]
+    fn served_state_files_require_owner_only_before_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = crate::Paths::under(&dir.path().join("hh"));
+        paths.ensure().unwrap();
+        let state = paths.state_dir.as_path();
+        let first = open_locked(state, Arc::new(NoFaults), t0()).unwrap();
+        let db = first.db.clone();
+        let record = first.current.dir.join(RECORD);
+        drop(first);
+
+        for path in [db, state.join(CURRENT), record, state.join(INTENT)] {
+            let check = |candidate: &Path| {
+                Ok(if candidate == path {
+                    Verdict::ForeignAce
+                } else {
+                    Verdict::OwnerOnly
+                })
+            };
+            let result =
+                open_locked_with_checks(state, &PlatformFs, Arc::new(NoFaults), t0(), Some(&check));
+            assert!(
+                matches!(result, Err(ServiceError::Config(ref e)) if crate::paths::is_state_dir_unsafe(e)),
+                "a served state file with a widened DACL was opened"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_widened_state_db_dacl_is_refused_before_sqlite_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = crate::Paths::under(&dir.path().join("hh"));
+        paths.ensure().unwrap();
+        let state = paths.state_dir.as_path();
+        let opened = open_locked(state, Arc::new(NoFaults), t0()).unwrap();
+        let db = opened.db.clone();
+        drop(opened);
+
+        let status = std::process::Command::new("icacls.exe")
+            .arg(&db)
+            .args(["/grant", "*S-1-1-0:(R)"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "could not widen the fixture file DACL");
+        let result = open_locked(state, Arc::new(NoFaults), t0());
+        assert!(
+            matches!(result, Err(ServiceError::Config(ref e)) if crate::paths::is_state_dir_unsafe(e)),
+            "a state database with a widened DACL reached SQLite"
+        );
     }
 
     /// The generation the pointer names, if any (read only).

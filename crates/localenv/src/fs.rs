@@ -53,6 +53,10 @@ impl BoundedSource {
 }
 
 impl ConfigSource for BoundedSource {
+    fn allows_local_path(&self, path: &Path) -> bool {
+        allows_passive_path(path)
+    }
+
     fn read(&self, path: &Path) -> Result<SourceBytes, SourceError> {
         read_bounded(path, self.limits.file_bytes)
     }
@@ -130,6 +134,42 @@ pub fn is_device_namespace(path: &Path) -> bool {
         && !(b[2] == b'?' && b.len() >= 6 && b[5] == b':')
 }
 
+/// Refuse explicit UNC paths, remote drive letters and device paths before a
+/// passive filesystem operation. Drive classification uses the root alone.
+#[must_use]
+pub fn allows_passive_path(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        !is_device_namespace(path)
+            && !remote_windows_path(path, crate::sys::windows_drive_is_remote)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        true
+    }
+}
+
+#[cfg(any(windows, test))]
+fn remote_windows_path(path: &Path, drive_is_remote: impl FnOnce(u8) -> bool) -> bool {
+    let bytes = path.as_os_str().as_encoded_bytes();
+    let sep = |byte| matches!(byte, b'\\' | b'/');
+    let drive = match bytes {
+        [a, b, b'?', c, rest @ ..] if sep(*a) && sep(*b) && sep(*c) => {
+            if let [u, n, c, sep_byte, ..] = rest
+                && [*u, *n, *c].eq_ignore_ascii_case(b"UNC")
+                && sep(*sep_byte)
+            {
+                return true;
+            }
+            rest
+        }
+        [a, b, ..] if sep(*a) && sep(*b) => return true,
+        _ => bytes,
+    };
+    matches!(drive, [letter, b':', ..] if letter.is_ascii_alphabetic() && drive_is_remote(*letter))
+}
+
 /// Read one configuration file: regular files only, at most `max` bytes, never
 /// blocking on a FIFO (module documentation). The canonical path follows symlinks.
 ///
@@ -139,6 +179,9 @@ pub fn is_device_namespace(path: &Path) -> bool {
 pub fn read_bounded(path: &Path, max: usize) -> Result<SourceBytes, SourceError> {
     if is_device_namespace(path) {
         return Err(SourceError::NotRegular);
+    }
+    if !allows_passive_path(path) {
+        return Err(SourceError::PermissionDenied);
     }
     if !path.is_absolute() {
         return Err(SourceError::Io("relative path".to_owned()));
@@ -187,6 +230,9 @@ fn open_nonblocking(path: &Path) -> std::io::Result<std::fs::File> {
 /// # Errors
 /// The path cannot be resolved.
 pub fn canonical_path(path: &Path) -> std::io::Result<PathBuf> {
+    if !allows_passive_path(path) {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
     let c = std::fs::canonicalize(path)?;
     Ok(strip_verbatim(c))
 }
@@ -220,6 +266,9 @@ fn strip_verbatim(p: PathBuf) -> PathBuf {
 pub fn glob_bounded(pattern: &Path, max: usize) -> Result<Vec<PathBuf>, SourceError> {
     if is_device_namespace(pattern) {
         return Err(SourceError::NotRegular);
+    }
+    if !allows_passive_path(pattern) {
+        return Err(SourceError::PermissionDenied);
     }
     if !pattern.is_absolute() {
         return Err(SourceError::Io("relative pattern".to_owned()));
@@ -255,6 +304,46 @@ pub fn glob_bounded(pattern: &Path, max: usize) -> Result<Vec<PathBuf>, SourceEr
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_remote_path_classifier_checks_only_drive_letters() {
+        for remote in [
+            r"\\server\share\a",
+            r"\\?\unc\server\share\a",
+            "//server/share/a",
+        ] {
+            assert!(remote_windows_path(Path::new(remote), |_| {
+                panic!("UNC must be refused without querying a drive")
+            }));
+        }
+        for mapped in [r"X:\a", r"\\?\X:\a", "x:relative"] {
+            assert!(remote_windows_path(Path::new(mapped), |c| c.eq_ignore_ascii_case(&b'X')));
+        }
+        for local in [r"C:\a", r"\\?\C:\a", "relative"] {
+            assert!(!remote_windows_path(Path::new(local), |c| c.eq_ignore_ascii_case(&b'X')));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_passive_unc_paths_are_refused_before_filesystem_access() {
+        for remote in [r"\\server\share\a", r"\\?\UNC\server\share\a"] {
+            let path = Path::new(remote);
+            assert!(!allows_passive_path(path));
+            assert!(matches!(
+                read_bounded(path, 1),
+                Err(SourceError::NotRegular | SourceError::PermissionDenied)
+            ));
+            assert!(matches!(
+                glob_bounded(path, 1),
+                Err(SourceError::NotRegular | SourceError::PermissionDenied)
+            ));
+            assert_eq!(
+                canonical_path(path).unwrap_err().kind(),
+                std::io::ErrorKind::PermissionDenied
+            );
+        }
+    }
 
     #[test]
     fn reads_regular_files_within_the_bound_only() {

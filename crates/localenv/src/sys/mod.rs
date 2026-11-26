@@ -95,6 +95,39 @@ pub mod spawn;
 // ⟨M04⟩ U2: the environment OpenSSH for Windows needs to start (the M03 exit suite's
 // Windows diagnosis).
 pub mod openssh_env;
+
+/// The Windows system directory from the operating system, independent of the
+/// process environment. Unavailable off Windows or if the lookup fails.
+#[must_use]
+pub fn windows_system_directory() -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStringExt as _;
+        use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
+
+        let mut units = vec![0u16; 32_768];
+        let capacity = u32::try_from(units.len()).ok()?;
+        // SAFETY: the buffer holds capacity writable UTF-16 code units.
+        let len = unsafe { GetSystemDirectoryW(units.as_mut_ptr(), capacity) } as usize;
+        if len == 0 || len >= units.len() {
+            return None;
+        }
+        let dir = std::path::PathBuf::from(std::ffi::OsString::from_wide(&units[..len]));
+        dir.is_absolute().then_some(dir)
+    }
+    #[cfg(not(windows))]
+    None
+}
+
+#[cfg(windows)]
+pub(crate) fn windows_drive_is_remote(letter: u8) -> bool {
+    use windows_sys::Win32::Storage::FileSystem::GetDriveTypeW;
+    use windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOTE;
+
+    let root = [u16::from(letter), u16::from(b':'), u16::from(b'\\'), 0];
+    // SAFETY: the local buffer is a terminated drive root and outlives the call.
+    (unsafe { GetDriveTypeW(root.as_ptr()) }) == DRIVE_REMOTE
+}
 // ⟨M04⟩ U3 (ADR-0010 §2): the read-only Lxss registry read; Windows only.
 #[cfg(windows)]
 pub mod lxss;

@@ -4111,6 +4111,10 @@ fn findings(plan: &ProjectionPlan) -> Vec<(String, Option<String>)> {
     plan.view
         .findings
         .iter()
+        .filter(|f| {
+            f.severity != heimdall_contract::doctor::FindingSeverity::Info
+                || f.code != heimdall_contract::envelope::reason::HOST_TRUST_UNDETERMINED
+        })
         .map(|f| (f.code.clone(), f.reason.clone()))
         .collect()
 }
@@ -4340,7 +4344,9 @@ fn a22_marker_moved_into_host_section_reported_conditional() {
             Some("include_conditional".to_owned())
         )]
     );
-    assert!(plan.view.findings[0].message.contains("lines"));
+    assert!(plan.view.findings.iter().any(|finding| {
+        finding.code == "include_conditional" && finding.message.contains("lines")
+    }));
 }
 
 #[test]

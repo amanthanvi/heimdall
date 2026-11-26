@@ -131,6 +131,12 @@ P) or **observed**, which is adopt-in-place: the user's configuration defines it
 Heimdall records it but renders nothing for it. Adoption never converts an observed alias
 by editing the user's sections.
 
+⟨Amendment, 2026-11-26, M08 W4 SEC-2, S4-01, orchestrator ruling⟩ Catalog
+sections covered by ADR-0010 §5 carry the closed host-trust directive set from
+ADR-0012 §5.2. The catalog pin file is their sole trust source. The owner retains
+the original sections for observed hosts. A catalog alias whose effective
+configuration defeats a required pin is reported as unready and omitted.
+
 ## 3. D2 — Placement and precedence
 
 **B is inserted before the first `Host`/`Match` line and before any top-level directive**

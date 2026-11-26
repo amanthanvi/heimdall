@@ -74,9 +74,8 @@ fn windows_helper_session_over_wsl_exe_in_a_disposable_distribution() {
         account: account.clone(),
         namespace: EnvironmentId::from_random_bytes([0x31; 16]),
     };
-    let system_root = std::env::var("SystemRoot").ok();
     let launcher = WslExeLauncher::new(
-        spawn::wsl_exe_path(system_root.as_deref()),
+        spawn::wsl_exe_path().expect("Windows system directory"),
         PathBuf::from(helper),
     );
     let linux = launcher.linux_helper_path(&target).unwrap();

@@ -62,6 +62,12 @@ pub enum ReadOutcome {
 /// tests (in memory). Every method is a single observation; none may follow a symlink on the
 /// last component except [`FsView::canonicalize`].
 pub trait FsView {
+    /// Whether a path is safe to inspect passively in this filesystem namespace.
+    /// Classification must not open the path.
+    fn allows_local_path(&self, _path: &Path) -> bool {
+        true
+    }
+
     /// `lstat`: the entry itself, never following a last-component symlink. `Ok(None)` is
     /// absent.
     fn kind(&self, path: &Path) -> io::Result<Option<FsKind>>;
@@ -155,7 +161,14 @@ pub fn observe_workspace(
     if cwd.is_empty() || cwd.contains('\0') {
         return Err(ObserveError::BadCwd);
     }
-    let start = fs.canonicalize(Path::new(cwd)).map_err(|e| io_err(&e))?;
+    let cwd = Path::new(cwd);
+    if !fs.allows_local_path(cwd) {
+        return Err(ObserveError::Io(io::ErrorKind::PermissionDenied));
+    }
+    let start = fs.canonicalize(cwd).map_err(|e| io_err(&e))?;
+    if !fs.allows_local_path(&start) {
+        return Err(ObserveError::Io(io::ErrorKind::PermissionDenied));
+    }
     if fs.kind(&start).map_err(|e| io_err(&e))? != Some(FsKind::Dir) {
         return Err(ObserveError::BadCwd);
     }
@@ -232,6 +245,18 @@ fn resolve(base: &Path, text: &str) -> PathBuf {
     }
 }
 
+fn canonicalize_pointer(fs: &dyn FsView, base: &Path, text: &str) -> Option<PathBuf> {
+    if !fs.allows_local_path(Path::new(text)) {
+        return None;
+    }
+    let path = resolve(base, text);
+    if !fs.allows_local_path(&path) {
+        return None;
+    }
+    let canonical = fs.canonicalize(&path).ok()?;
+    fs.allows_local_path(&canonical).then_some(canonical)
+}
+
 /// Read a one-line pointer file (bounded, no-follow) and return its path text, without the
 /// trailing newline. `prefix` is stripped when given (`gitdir: `).
 fn read_pointer(fs: &dyn FsView, file: &Path, prefix: Option<&str>) -> Option<String> {
@@ -270,7 +295,7 @@ fn read_pointer(fs: &dyn FsView, file: &Path, prefix: Option<&str>) -> Option<St
 fn verify_linked_worktree(fs: &dyn FsView, root: &Path) -> Option<(String, Option<FileIdentity>)> {
     let dot_git = root.join(GIT_NAME);
     let pointer = read_pointer(fs, &dot_git, Some("gitdir: "))?;
-    let entry = fs.canonicalize(&resolve(root, &pointer)).ok()?;
+    let entry = canonicalize_pointer(fs, root, &pointer)?;
     if fs.kind(&entry).ok()? != Some(FsKind::Dir) {
         return None;
     }
@@ -284,7 +309,7 @@ fn verify_linked_worktree(fs: &dyn FsView, root: &Path) -> Option<(String, Optio
     }
 
     let backlink_text = read_pointer(fs, &entry.join("gitdir"), None)?;
-    let backlink = fs.canonicalize(&resolve(&entry, &backlink_text)).ok()?;
+    let backlink = canonicalize_pointer(fs, &entry, &backlink_text)?;
     let own = fs.canonicalize(&dot_git).ok()?;
     if backlink != own {
         return None;

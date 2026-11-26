@@ -173,6 +173,9 @@ impl Harness {
             Invocation::Subsystem(name) => {
                 cmd.arg("-s").arg(alias).arg(name);
             }
+            Invocation::ForwardOnly => {
+                cmd.args(["-W", "127.0.0.1:22", alias]);
+            }
         }
         let out = cmd.output().unwrap();
         let mut map: BTreeMap<String, Vec<String>> = BTreeMap::new();

@@ -1911,6 +1911,19 @@ impl PublicKeySource for CatalogKeys {
             .flatten()
             .map(|r| r.public_key)
     }
+
+    fn catalog_host_keys(
+        &self,
+        alias: &heimdall_domain::projection::ManagedAliasSpec,
+    ) -> Result<Vec<String>, String> {
+        let pair = heimdall_domain::scope::AccessPair {
+            destination: alias.destination.clone(),
+            account: alias.account.clone(),
+        };
+        self.store
+            .transaction(|tx| heimdall_app::routes::catalog_pins(tx, &pair))
+            .map_err(|_| "the destination's catalog host keys could not be read".to_owned())
+    }
 }
 
 /// ⟨M02⟩ The runtime's projection writer: the `LocalProjection` with each managed
