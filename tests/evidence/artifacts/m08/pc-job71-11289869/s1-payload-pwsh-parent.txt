@@ -1,0 +1,10 @@
+payload-install-selftest: FAIL install.ps1 fresh install installer exit: expected 0, got 1
+payload-install-selftest: FAIL install.ps1 fresh install installer stderr | <stage>\install.ps1 : The term 'Get-FileHash' is not 
+payload-install-selftest: FAIL install.ps1 fresh install installer stderr | recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if 
+payload-install-selftest: FAIL install.ps1 fresh install installer stderr | a path was included, verify that the path is correct and try again.
+payload-install-selftest: FAIL install.ps1 fresh install installer stderr |     + CategoryInfo          : ObjectNotFound: (Get-FileHash:String) [install.ps1], CommandNotFoundException
+payload-install-selftest: FAIL install.ps1 fresh install installer stderr |     + FullyQualifiedErrorId : CommandNotFoundException,install.ps1
+payload-install-selftest: FAIL install.ps1 fresh install installer stderr |  
+payload-install-selftest: FAIL install.ps1 fresh install prefix tree: missing path 'heimdall.exe'
+payload-install-selftest: FAIL install.ps1 fresh install prefix tree: missing path 'linux-x86_64'
+payload-install-selftest: FAIL install.ps1 fresh install prefix tree: missing path 'linux-x86_64/heimdall'

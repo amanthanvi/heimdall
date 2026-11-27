@@ -1,0 +1,2 @@
+parent edition=Desktop version=5.1.26100.10068 psmodulepath_has_ps7=False
+payload exit=0 secs=3

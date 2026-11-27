@@ -99,6 +99,15 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
       - The grammar-fit residual is accepted.
     - **SEC-5F, next on Gemini, carries:** those follow-ups, and U2b-3a's held item 4, which
       moved out of U2b-3b so that `remote_env*.rs` and `m06_cmd.rs` have one owner.
+  - **A product-facing installer defect, found by PC jobs 70 and 71.** `install.ps1`, run by
+    Windows PowerShell 5.1 from a PowerShell 7 parent (Windows Terminal's default), fails with
+    `Get-FileHash` not recognized. The cause: `pwsh`'s modules path is inherited through
+    `PSModulePath`.
+    - It would have shipped. It came to light only because the payload self-test gained a run
+      under 5.1 and the capture of the installer's own output.
+    - **The fix unit:** the installer no longer depends on the inherited `PSModulePath`. The
+      self-test runs it under 5.1 with both a clean `PSModulePath` and a `pwsh`-like one.
+    - The PC reruns it from both parent shells (job 72).
   - **The store split while U2b-3b and SEC-3b run in parallel** (approved):
     - **U2b-3b:** migration `0017`, `layout`, the backup, open and restore paths in `lib.rs`,
       `stategen` and `fence`.

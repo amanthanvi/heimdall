@@ -1,0 +1,1 @@
+payload-install-selftest: PASS install.ps1 (fresh install and reinstall)
