@@ -133,6 +133,18 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
       harness needs one.
     - **The record:** it goes with the other benchmark evidence. M07 is adding an A20 P95 row to
       its candidate PC and devbox jobs.
+  - **SEC-3b's record.** Opus wrote it; Gemini reviews it, and that review treats
+    `lift_shown_among` as a publish-path change, since it touches SEC-1's `judge` for both reserve
+    and publish.
+    - **Rulings of 2026-11-27:**
+      - R2's lift confirmation, with no new capability, is the 1.0 mechanism.
+      - R1 is widened: a tombstone for a grant that had already ended is pruned under the same
+        conditions.
+      - S2-10 and S2-11 are left undone in 1.0, as nits outside SEC-3b's scope.
+      - The `Server::bind` and `denied_ancestor` extensions are ratified.
+    - **SEC-3b-F**, on the first free non-GPT lane after U2b-4 merges, carries: the R1 widening
+      with its test, the `lift_shown_among` tests, the ADR-0012 §7.4 notes, and the CLI wording
+      for an oversized report (`m06_cmd.rs` and `doctor_cmd.rs`).
   - **A W4 load flake:** `e2e_tui_m07` `pty::a20_key_latency` (M07's A20, debug build) failed the
     gate at `95043b74`. The search keystroke's completed-frame P95 was 105.5 ms against a 100 ms
     budget; Tab and PageDown were well inside it.
