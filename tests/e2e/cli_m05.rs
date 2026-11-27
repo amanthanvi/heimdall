@@ -596,6 +596,271 @@ fn hook_never_evaluates_repository_text() {
     assert_eq!(rt.decisions(), 0, "the hook created no decision");
 }
 
+// ---- S4-02: the hook runs only the installed heimdall -----------------------------------
+
+/// `path` as `shell init` embeds it for zsh and Bash: one single-quoted word, each `'` as
+/// `'\''` (on Windows without the verbatim prefix `canonicalize` adds, as the binary does
+/// for an ordinary path).
+fn posix_quoted(path: &Path) -> String {
+    let mut text = path.to_string_lossy().into_owned();
+    if cfg!(windows) {
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            text = format!(r"\\{rest}");
+        } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+            text = rest.to_owned();
+        }
+    }
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+/// The fixture key stores every `heimdall` of the S4-02 tests gets (AGENTS.md), inside the
+/// run's scratch root; neither exists before or after.
+#[cfg(unix)]
+fn fixture_stores(rt: &Rt) -> [(&'static str, String); 3] {
+    [
+        ("HEIMDALL_TEST_SECRET_STORE", "scratch".to_owned()),
+        (
+            "HEIMDALL_TEST_MGMT_STORE",
+            format!("fixture-file:{}", rt.ws.path("mgmt-store").display()),
+        ),
+        (
+            "HEIMDALL_TEST_IROH_KEY_STORE",
+            rt.ws.path("iroh-key-store").to_string_lossy().into_owned(),
+        ),
+    ]
+}
+
+/// A second name for the binary under test, `dir/heimdall`: a hard link, else a copy.
+#[cfg(unix)]
+fn install_heimdall(dir: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let to = dir.join("heimdall");
+    if std::fs::hard_link(bin(), &to).is_err() {
+        std::fs::copy(bin(), &to).unwrap();
+    }
+    to
+}
+
+/// A decoy `heimdall` in `dir`, as a hostile checkout would carry: it records that it ran
+/// in `marker` and answers as if access were active.
+#[cfg(unix)]
+fn plant_decoy(dir: &Path, marker: &Path) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let marker = marker.to_str().unwrap();
+    assert!(!marker.contains('\''));
+    let decoy = dir.join("heimdall");
+    std::fs::write(
+        &decoy,
+        format!("#!/bin/sh\n: > '{marker}'\nprintf 'active 7 60\\n'\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&decoy, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// The real shells of the S4-02 tests (those present): `(name, argv before the script)`.
+#[cfg(unix)]
+fn posix_shells() -> Vec<(&'static str, Vec<&'static str>)> {
+    let shells: Vec<_> = [
+        ("bash", vec!["/bin/bash", "--noprofile", "--norc", "-c"]),
+        ("zsh", vec!["/bin/zsh", "-f", "-c"]),
+    ]
+    .into_iter()
+    .filter(|(_, argv)| Path::new(argv[0]).exists())
+    .collect();
+    assert!(
+        !shells.is_empty(),
+        "blocked: neither /bin/bash nor /bin/zsh is present"
+    );
+    shells
+}
+
+/// One noninteractive `shell` session: load the hook printed by `init` (an absolute path,
+/// so the load itself looks nothing up), set `PATH` to `path`, run `before`, enter `dir`
+/// (zsh's `chpwd` runs the hook; Bash runs its prompt function as a prompt would), and print
+/// the hook's state.
+#[cfg(unix)]
+fn posix_hook_session(
+    rt: &Rt,
+    shell: &(&str, Vec<&str>),
+    init: &Path,
+    path: &str,
+    before: &str,
+    dir: &Path,
+) -> Out {
+    let (name, argv) = shell;
+    let prompt = if *name == "bash" {
+        "__heimdall_prompt\n"
+    } else {
+        ""
+    };
+    let script = format!(
+        "eval \"$(\"$HM_INIT\" shell init {name})\" || exit 97\nPATH=\"$HM_PATH\"\n{before}\ncd -- \"$HM_DIR\" || exit 98\n{prompt}printf 'state=%s\\n' \"${{__heimdall_state-}}\"\n"
+    );
+    let out = rt
+        .command(argv[0])
+        .args(&argv[1..])
+        .arg(&script)
+        .envs(fixture_stores(rt))
+        .env("HM_INIT", init)
+        .env("HM_PATH", path)
+        .env("HM_DIR", dir)
+        .current_dir(rt.ws.root())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let out = Out {
+        code: out.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    };
+    assert_no_canary(&out.stdout);
+    assert_no_canary(&out.stderr);
+    assert!(!out.stderr.contains("panicked"), "{name}: {out:?}");
+    for store in ["mgmt-store", "iroh-key-store"] {
+        assert!(!rt.ws.path(store).exists(), "{name}: {store}");
+    }
+    out
+}
+
+/// ⟨M07 W10, finding S4-02; spec §5.3, §14.2; ADR-0011 §3.2⟩ zsh and Bash run only the
+/// heimdall that printed the hook, never one found on `PATH`. A hostile checkout (an
+/// untrusted workspace) carries a decoy `heimdall`; the owner's `PATH` starts with `.`, and
+/// then with an empty element, and holds no other `heimdall`. The hook was printed by the
+/// binary installed under a directory whose name holds a space, a single quote and shell
+/// syntax, so the embedded path's quoting is exercised too. Entering the checkout runs the
+/// installed binary (its status line and its `untrusted` state), never the decoy (no
+/// marker, and never the decoy's `active` answer), and evaluates nothing.
+#[cfg(unix)]
+#[test]
+fn posix_hooks_run_only_the_installed_heimdall() {
+    let rt = Rt::new();
+    let checkout = rt
+        .ws
+        .init_repo(
+            "checkout",
+            Some(&manifest("hostile", "dev", &["h3:deploy"], false)),
+        )
+        .unwrap();
+    let marker = rt.ws.path("decoy-ran");
+    plant_decoy(&checkout, &marker);
+    let installed = install_heimdall(&rt.ws.path("inst dir/it's $(touch hm-evaluated-q) `x`"));
+    let start = rt
+        .command(&bin())
+        .envs(fixture_stores(&rt))
+        .args(["--json", "access", "default-profile", "--clear"])
+        .current_dir(rt.ws.root())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(start.status.code(), Some(0), "{start:?}");
+    let mut ran = Vec::new();
+    for shell in posix_shells() {
+        for path in [".:/usr/bin:/bin", ":/usr/bin:/bin"] {
+            let out = posix_hook_session(&rt, &shell, &installed, path, "", &checkout);
+            let case = format!("{} with PATH={path:?}", shell.0);
+            assert_eq!(out.code, 0, "{case}: {out:?}");
+            assert!(!marker.exists(), "{case}: the decoy ran: {out:?}");
+            assert_eq!(out.stdout, "state=untrusted\n", "{case}: {out:?}");
+            assert!(
+                out.stderr
+                    .contains("heimdall: this workspace is not trusted"),
+                "{case}: the installed heimdall answered: {out:?}"
+            );
+            asks_nothing(&out.stderr);
+            ran.push(case);
+        }
+    }
+    assert!(canaries(rt.ws.root()).is_empty());
+    assert_eq!(rt.decisions(), 0, "the hook created no decision");
+    assert_eq!(ran.len(), 2 * posix_shells().len(), "{ran:?}");
+}
+
+/// ⟨S4-02⟩ A stale hook does nothing. The hook was printed by a heimdall that is then
+/// removed, or replaced by a file that is not executable: entering a checkout with a decoy
+/// `heimdall` and `PATH` starting with `.` prints nothing, writes nothing to stderr, starts
+/// nothing (the Heimdall home is never created) and never falls back to `PATH` (no marker).
+#[cfg(unix)]
+#[test]
+fn a_posix_hook_whose_heimdall_is_gone_does_nothing() {
+    let rt = Rt::new();
+    let checkout = rt.ws.path("checkout");
+    std::fs::create_dir_all(&checkout).unwrap();
+    let marker = rt.ws.path("decoy-ran");
+    plant_decoy(&checkout, &marker);
+    for shell in posix_shells() {
+        for (how, before) in [
+            ("removed", r#"rm -f -- "$HM_INIT" || exit 96"#),
+            (
+                "not executable",
+                r#"rm -f -- "$HM_INIT" && : > "$HM_INIT" && chmod 0644 "$HM_INIT" || exit 96"#,
+            ),
+        ] {
+            let installed = install_heimdall(&rt.ws.path(&format!("gone-{}", shell.0)));
+            let out = posix_hook_session(
+                &rt,
+                &shell,
+                &installed,
+                ".:/usr/bin:/bin",
+                before,
+                &checkout,
+            );
+            let case = format!("{} ({how})", shell.0);
+            assert_eq!(out.code, 0, "{case}: {out:?}");
+            assert_eq!(out.stdout, "state=\n", "{case}: {out:?}");
+            assert_eq!(out.stderr, "", "{case}: {out:?}");
+            assert!(!marker.exists(), "{case}: the decoy ran: {out:?}");
+            let _ = std::fs::remove_file(&installed);
+        }
+    }
+    assert!(!rt.home.exists(), "a stale hook starts nothing");
+}
+
+/// ⟨S4-02⟩ `shell init` refuses, printing no script, when the binary's own path holds a line
+/// break: every shell, in human and `--json` output, with a message that never repeats the
+/// path.
+#[cfg(unix)]
+#[test]
+fn shell_init_refuses_a_path_with_a_line_break() {
+    let rt = Rt::new();
+    let installed = install_heimdall(&rt.ws.path("nl\nhm-dir-x"));
+    for shell in ["zsh", "bash", "powershell"] {
+        for json in [false, true] {
+            let mut cmd = rt.command(installed.to_str().unwrap());
+            if json {
+                cmd.arg("--json");
+            }
+            let out = cmd
+                .envs(fixture_stores(&rt))
+                .args(["shell", "init", shell])
+                .current_dir(rt.ws.root())
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let case = format!("{shell} json={json}: {stdout} {stderr}");
+            assert_ne!(out.status.code(), Some(0), "{case}");
+            for text in [&stdout, &stderr] {
+                assert!(!text.contains("hm-dir-x"), "{case}");
+                assert!(!text.contains("__heimdall"), "{case}");
+                assert!(!text.contains(rt.ws.root().to_str().unwrap()), "{case}");
+            }
+            if json {
+                let env: Value = serde_json::from_str(stdout.trim()).unwrap();
+                assert_eq!(env["code"], "CAPABILITY_UNAVAILABLE", "{case}");
+                assert!(env["data"].get("script").is_none(), "{case}");
+            } else {
+                // The CLI's human error rendering, and no script (checked above).
+                assert!(
+                    format!("{stdout}{stderr}").contains("cannot be written safely"),
+                    "{case}"
+                );
+            }
+        }
+    }
+    assert!(!rt.home.exists());
+}
+
 // ---- journeys --------------------------------------------------------------------------
 
 /// `project trust|status|reconcile|untrust` (ADR-0011 §2.1–§2.3): status reads; trust shows
@@ -1237,8 +1502,10 @@ fn golden(dir: &Path, name: &str, text: &str, mismatches: &mut Vec<String>) {
 
 /// `m05_help_and_shell_script_goldens`: the `--help` of every new M05 command line, and
 /// `shell init zsh|bash`, run from inside a directory whose name holds shell syntax, equal
-/// their goldens byte for byte (the scripts interpolate nothing: not the directory, not the
-/// environment); `--json` carries the same script.
+/// their goldens byte for byte once the one interpolated value, the canonical path of the
+/// binary that printed the script (single-quoted; ⟨S4-02⟩), reads `@HEIMDALL_PROGRAM@` again
+/// (nothing else is interpolated: not the directory, not the environment); `--json` carries
+/// the same script.
 #[test]
 fn m05_help_and_shell_script_goldens() {
     let rt = Rt::new();
@@ -1268,14 +1535,16 @@ fn m05_help_and_shell_script_goldens() {
     let shell_dir = heimdall_testkit::repo::repo_path("tests/contracts/golden/shell-init");
     let odd = rt.ws.path("odd $(touch hm-evaluated) `x`");
     std::fs::create_dir_all(&odd).unwrap();
+    let program = posix_quoted(&std::fs::canonicalize(bin()).unwrap());
     for shell in ["zsh", "bash"] {
         let out = rt.run_in(&odd, &["shell", "init", shell]);
         assert_eq!(out.code, 0, "{out:?}");
         assert!(!out.stdout.contains(odd.to_str().unwrap()));
+        assert_eq!(out.stdout.matches(&program).count(), 1, "{out:?}");
         golden(
             &shell_dir,
             &format!("{shell}.txt"),
-            &out.stdout,
+            &out.stdout.replace(&program, "@HEIMDALL_PROGRAM@"),
             &mut mismatches,
         );
         let json = rt.run_in(&odd, &["--json", "shell", "init", shell]);

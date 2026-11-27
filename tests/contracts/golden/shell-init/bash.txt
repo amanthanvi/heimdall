@@ -1,22 +1,25 @@
 # Heimdall shell integration for bash (`heimdall shell init bash`; ADR-0011 §3.2).
 #
-# This text is static: it holds only Heimdall's code, never anything read from a
-# repository, and it evaluates nothing it is given. On each directory change, and when
-# the access it activated is due again, it runs `heimdall activate --hook`, which never
+# This text holds only Heimdall's code and the absolute path of the heimdall that
+# printed it, never anything read from a repository, and it evaluates nothing it is
+# given. On each directory change, and when the access it activated is due again, it
+# runs that heimdall (never one found on PATH) as `activate --hook`, which never
 # prompts, never asks for an owner decision, activates only what your saved policy
 # already covers and gives up after one second. Heimdall prints one status line when
-# the state changes (untrusted, paused, needs review).
+# the state changes (untrusted, paused, needs review). If that program is moved or
+# removed, the hook does nothing until a new shell runs the line below again.
 #
 # Enable it in ~/.bashrc with:  eval "$(heimdall shell init bash)"
 
 __heimdall_hook() {
-  command -v heimdall >/dev/null 2>&1 || return 0
+  local program=@HEIMDALL_PROGRAM@
+  [ -f "$program" ] && [ -x "$program" ] || return 0
   local out state rest seq recheck prev last
   prev="${__heimdall_seq:-0}"
   case "$prev" in ''|*[!0-9]*|0?*|??????????*) prev=0 ;; esac
   last="${__heimdall_state:-none}"
   case "$last" in active|untrusted|paused|needs_review|none) ;; *) last=none ;; esac
-  out="$(command heimdall activate --hook --cwd "$PWD" --shell-pid "$$" \
+  out="$("$program" activate --hook --cwd "$PWD" --shell-pid "$$" \
     --seq "$prev" --last "$last" </dev/null)"
   state="${out%% *}"
   rest="${out#* }"

@@ -136,6 +136,9 @@ struct Fixture {
     root: PathBuf,
     home: PathBuf,
     paths: Paths,
+    /// The binary `shell init` runs from (`$env:FIXTURE_HEIMDALL`) instead of the one
+    /// `PATH` finds; the hook embeds that path (finding S4-02).
+    init: Option<PathBuf>,
 }
 
 impl Fixture {
@@ -164,19 +167,73 @@ impl Fixture {
             root,
             paths: Paths::under(&home),
             home,
+            init: None,
         }
+    }
+
+    /// A second name for the binary under test, `<root>/<dir>/heimdall` (a hard link, else a
+    /// copy), which loads the hook from then on.
+    fn install(&mut self, dir: &str) -> PathBuf {
+        let dir = self.root.join(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let to = dir.join(format!("heimdall{}", std::env::consts::EXE_SUFFIX));
+        let bin = heimdall_bin();
+        if std::fs::hard_link(&bin, &to).is_err() {
+            std::fs::copy(&bin, &to).unwrap();
+        }
+        self.init = Some(to.clone());
+        to
+    }
+
+    /// A decoy `heimdall` in the hostile location, as a checkout would carry: it records
+    /// that it ran in [`Fixture::decoy_marker`] and answers as if access were active.
+    fn plant_decoy(&self) {
+        let marker = self.decoy_marker();
+        let marker = marker.to_str().unwrap();
+        let dir = self.root.join(LOCATION);
+        if cfg!(windows) {
+            assert!(!marker.contains(['"', '%', '^', '&']));
+            for name in ["heimdall.cmd", "heimdall.bat"] {
+                std::fs::write(
+                    dir.join(name),
+                    format!("@echo off\r\necho ran> \"{marker}\"\r\necho active 7 60\r\n"),
+                )
+                .unwrap();
+            }
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                assert!(!marker.contains('\''));
+                let decoy = dir.join("heimdall");
+                std::fs::write(
+                    &decoy,
+                    format!("#!/bin/sh\n: > '{marker}'\nprintf 'active 7 60\\n'\n"),
+                )
+                .unwrap();
+                std::fs::set_permissions(&decoy, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+    }
+
+    fn decoy_marker(&self) -> PathBuf {
+        self.root.join("decoy-ran")
     }
 
     fn command(&self, host: &Path, body: &str) -> Command {
         let [mgmt, iroh] = self.unused_fixture_stores();
         let script = self.root.join("fixture.ps1");
-        std::fs::write(&script, format!("{LOAD}{body}")).unwrap();
-        // A native run copies the binary elsewhere and names it (`HEIMDALL_E2E_BIN`).
-        let bin = std::env::var("HEIMDALL_E2E_BIN")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| env!("CARGO_BIN_EXE_heimdall").to_owned());
-        let bin = Path::new(&bin);
+        let load = if self.init.is_some() {
+            LOAD.replacen(
+                "& heimdall shell init",
+                "& $env:FIXTURE_HEIMDALL shell init",
+                1,
+            )
+        } else {
+            LOAD.to_owned()
+        };
+        std::fs::write(&script, format!("{load}{body}")).unwrap();
+        let bin = heimdall_bin();
         let mut path = vec![bin.parent().unwrap().to_owned()];
         let mut cmd = Command::new(host);
         cmd.env_clear()
@@ -234,6 +291,9 @@ impl Fixture {
                 .env("LOCALAPPDATA", self.root.join("account/localappdata"));
         } else {
             path.extend(["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(PathBuf::from));
+        }
+        if let Some(init) = &self.init {
+            cmd.env("FIXTURE_HEIMDALL", init);
         }
         cmd.env("PATH", std::env::join_paths(path).unwrap())
             .arg("-File")
@@ -298,6 +358,24 @@ impl Fixture {
         assert_output(&self.root, &out, stdout, &[]);
     }
 }
+
+/// The binary under test. A native run copies it elsewhere and names it
+/// (`HEIMDALL_E2E_BIN`).
+fn heimdall_bin() -> PathBuf {
+    std::env::var("HEIMDALL_E2E_BIN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map_or_else(
+            || PathBuf::from(env!("CARGO_BIN_EXE_heimdall")),
+            PathBuf::from,
+        )
+}
+
+/// Put `.` and then the hostile location first on `PATH`, ahead of the installed client
+/// (finding S4-02): a hook that looked `heimdall` up would find the decoy.
+const HOSTILE_PATH: &str = r#"
+$env:PATH = '.' + [IO.Path]::PathSeparator + $env:FIXTURE_LOCATION + [IO.Path]::PathSeparator + $env:PATH
+"#;
 
 fn excerpt(bytes: &[u8], root: &Path) -> String {
     let mut names: Vec<_> = ["USER", "USERNAME", "LOGNAME", "HOSTNAME", "COMPUTERNAME"]
@@ -466,23 +544,35 @@ foreach ($name in 'ProgramData', 'ALLUSERSPROFILE', 'TEMP', 'TMP', 'USERPROFILE'
     .await;
 }
 
+/// ⟨S4-02⟩ A stale hook: the heimdall that printed it is removed before the prompt. The
+/// prompt renders, the error history is untouched, nothing is started, and the decoy that a
+/// `PATH` lookup would find in the hostile location never runs.
 #[tokio::test]
 async fn powershell_hook_missing_executable_leaves_the_error_history_alone() {
     let body = format!(
-        "$env:PATH = ''\n$before = $Error.Count\n{RENDER}\nif ($Error.Count -ne $before) {{ throw 'hook changed the error history' }}"
+        "Remove-Item -LiteralPath $env:FIXTURE_HEIMDALL\n{HOSTILE_PATH}\n$before = $Error.Count\n{RENDER}\nif ($Error.Count -ne $before) {{ throw 'hook changed the error history' }}\nif ($global:__heimdall_state -cne 'none') {{ throw 'hook accepted an answer' }}"
     );
     for_each_host(|host| {
         let body = body.clone();
         async move {
-            let fixture = Fixture::new();
+            let mut fixture = Fixture::new();
+            let installed = fixture.install("gone");
+            fixture.plant_decoy();
             fixture
                 .run(&host, &body, &["loaded", PROMPT, "rendered"])
                 .await;
+            assert!(!installed.exists());
+            assert!(!fixture.decoy_marker().exists(), "the decoy ran");
             assert!(!fixture.home.exists());
         }
     })
     .await;
 }
+
+/// Replace the binary the hook embeds (`$env:FIXTURE_HEIMDALL`) with the stub beside it
+/// (`<binary>.stub`), so the hook starts the stub by its embedded path.
+#[cfg(unix)]
+const REPLACE_WITH_STUB: &str = "Move-Item -LiteralPath ($env:FIXTURE_HEIMDALL + '.stub') -Destination $env:FIXTURE_HEIMDALL -Force";
 
 #[cfg(unix)]
 #[tokio::test]
@@ -494,15 +584,15 @@ async fn powershell_hook_ignores_start_failures_and_failed_answers() {
             (true, None),
             (false, Some("#!/bin/sh\n: > ran\nprintf 'active 1 60\\n'\nexit 1\n")),
         ] {
-            let fixture = Fixture::new();
-            let path = fixture.root.join("heimdall");
+            let mut fixture = Fixture::new();
+            // The hook embeds the installed path; the stub then takes that file's place.
+            let path = fixture.install("stub").with_extension("stub");
             let missing_interpreter = format!("#!{}\n", fixture.root.join("missing").display());
             std::fs::write(&path, stub.unwrap_or(&missing_interpreter)).unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
             let body = format!(
                 r#"
-$env:PATH = $PWD.ProviderPath
-$null = Get-Command -Name heimdall -CommandType Application -ErrorAction Stop
+{REPLACE_WITH_STUB}
 try {{ throw 'older error' }} catch {{}}
 try {{ throw 'newer error' }} catch {{}}
 $before = $Error.ToArray()
@@ -518,6 +608,7 @@ if ($global:__heimdall_state -cne 'none' -or $global:__heimdall_seq -cne '0' -or
             );
             fixture.run(&host, &body, &["loaded", PROMPT, "rendered"]).await;
             assert_eq!(fixture.root.join("ran").exists(), !start_fails);
+            assert!(!path.exists(), "the stub replaced the installed binary");
         }
     })
     .await;
@@ -529,8 +620,8 @@ if ($global:__heimdall_state -cne 'none' -or $global:__heimdall_seq -cne '0' -or
 async fn powershell_hook_bounds_child_exit_and_inherited_stdout() {
     use std::os::unix::fs::PermissionsExt;
 
+    let timed_render = format!("{REPLACE_WITH_STUB}{TIMED_RENDER}");
     const TIMED_RENDER: &str = r#"
-$env:PATH = $PWD.ProviderPath
 $global:LASTEXITCODE = 42
 $timer = [Diagnostics.Stopwatch]::StartNew()
 prompt
@@ -542,7 +633,9 @@ $child = Get-Process -Id $childId -ErrorAction Ignore
 if ($null -ne $child -and -not $child.WaitForExit(250)) { throw 'hook left its child running' }
 'rendered'
 "#;
-    for_each_host(|host| async move {
+    for_each_host(|host| {
+        let timed_render = timed_render.clone();
+        async move {
         for (stub, holds_stdout) in [
             ("exec /bin/sleep 4", false),
             (
@@ -550,8 +643,8 @@ if ($null -ne $child -and -not $child.WaitForExit(250)) { throw 'hook left its c
                 true,
             ),
         ] {
-            let fixture = Fixture::new();
-            let path = fixture.root.join("heimdall");
+            let mut fixture = Fixture::new();
+            let path = fixture.install("stub").with_extension("stub");
             std::fs::write(
                 &path,
                 format!("#!/bin/sh\nprintf '%s\\n' \"$$\" > child.pid\n{stub}\n"),
@@ -559,7 +652,7 @@ if ($null -ne $child -and -not $child.WaitForExit(250)) { throw 'hook left its c
             .unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
             // Observe the short-lived holder before removing the fixture, even on a failed prompt assertion.
-            let out = fixture.output(&host, TIMED_RENDER).await;
+            let out = fixture.output(&host, &format!("\n{timed_render}")).await;
             if holds_stdout {
                 timeout(Duration::from_secs(5), async {
                     while !fixture.root.join("holder.done").is_file() {
@@ -570,6 +663,7 @@ if ($null -ne $child -and -not $child.WaitForExit(250)) { throw 'hook left its c
                 .expect("the fixture stdout holder exited");
             }
             assert_output(&fixture.root, &out, &["loaded", PROMPT, "rendered"], &[]);
+        }
         }
     })
     .await;
@@ -596,8 +690,20 @@ async fn powershell_hook_startup_with_an_unreachable_runtime() {
             .run(&host, RENDER, &["loaded", PROMPT, "rendered"])
             .await;
         assert_eq!(InstanceInfo::read_file(runtime_dir).unwrap(), Some(info));
-        let db = heimdall_store::layout::db_path(&fixture.paths.state_dir).unwrap();
+        let state_dir = &fixture.paths.state_dir;
+        let db = heimdall_store::layout::db_path(state_dir).unwrap();
         assert!(!db.exists());
+        // No store generation was published or staged either (ruled 2026-11-25).
+        assert_eq!(
+            heimdall_store::layout::pointed_generation(state_dir).unwrap(),
+            None
+        );
+        let generations =
+            state_dir.join(heimdall_store::layout::stategen::generations::GENERATIONS);
+        assert!(
+            std::fs::read_dir(&generations).map_or(true, |mut d| d.next().is_none()),
+            "the state directory holds a generation"
+        );
     })
     .await;
 }
@@ -909,7 +1015,14 @@ fn seed(service: &Service, ca: &SecretCaKey) -> (AccessPair, PolicyId) {
 }
 
 async fn activation_journey(host: &Path, hostile_state: bool) {
-    let fixture = Fixture::new();
+    let mut fixture = Fixture::new();
+    // ⟨S4-02⟩ The hook is loaded from a binary whose directory name holds a space, a single
+    // quote, a smart quote (PowerShell closes a single-quoted string at U+2019 too) and
+    // PowerShell syntax; the hostile location carries a decoy `heimdall`, and `PATH` puts `.`
+    // and that location first. The journey's activation shows the embedded path ran; the
+    // decoy never does.
+    fixture.install("inst ' \u{2019} $([1]) dir");
+    fixture.plant_decoy();
     let stop = CancellationToken::new();
     let _cancel_on_unwind = stop.clone().drop_guard();
     let mut options = ServiceOptions::with_clock(
@@ -971,7 +1084,7 @@ $global:__heimdall_pwd = $env:FIXTURE_LOCATION
     } else {
         ""
     };
-    let body = format!("{junk}{RENDER}{AFTER_ACTIVATION}");
+    let body = format!("{junk}{HOSTILE_PATH}{RENDER}{AFTER_ACTIVATION}");
     let stderr_path = fixture.root.join("shell-stderr");
     let mut shell = fixture
         .command(host, &body)
@@ -1110,6 +1223,7 @@ $global:__heimdall_pwd = $env:FIXTURE_LOCATION
         .unwrap()
         .unwrap();
     assert!(!fixture.paths.runtime_dir.join(INSTANCE_FILE).exists());
+    assert!(!fixture.decoy_marker().exists(), "the decoy ran");
 }
 
 #[tokio::test]

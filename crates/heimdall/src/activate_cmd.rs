@@ -42,8 +42,22 @@
 //!   `needs_review`; it states a fact and names a command, and never asks a question. The
 //!   exit status is always 0: a hook never fails the shell's prompt.
 //!
-//! **`shell init`** prints [`ZSH_SCRIPT`], [`BASH_SCRIPT`] or [`POWERSHELL_SCRIPT`]: static
-//! text, with no interpolation of anything (no path, no repository text, no environment value). It runs
+//! **`shell init`** prints [`ZSH_TEMPLATE`], [`BASH_TEMPLATE`] or [`POWERSHELL_TEMPLATE`]
+//! with one value filled in ([`render_hook`]): the absolute, canonical path of the `heimdall`
+//! that printed it (`std::env::current_exe`), quoted for that shell. Nothing else is
+//! interpolated (no repository text, no environment value, not the working directory).
+//! ⟨M07 W10, finding S4-02; spec §5.3, §14.2; ADR-0011 §3.2⟩ The hook runs only that
+//! program: it never looks `heimdall` up on `PATH` (no `command -v`, no `command heimdall`,
+//! no `Get-Command`), so a relative or empty `PATH` entry can never select a checkout's own
+//! `heimdall`. When that file is gone or is not an executable file, the hook does nothing and
+//! prints nothing, and never falls back to `PATH`. A path the shell's quoting cannot carry
+//! safely (not UTF-8, a line break or any other control character, or not absolute) is
+//! refused: `shell init` prints no script and exits with `CAPABILITY_UNAVAILABLE`, whose
+//! message never repeats the path. zsh and Bash get a POSIX single-quoted word (`'` written
+//! as `'\''`); PowerShell gets single-quoted ASCII literals, with every non-ASCII UTF-16
+//! unit written as `[char]0xXXXX`, so the script stays ASCII whatever console encoding
+//! decodes `& heimdall shell init powershell` (a smart quote such as `’` closes a
+//! PowerShell single-quoted string, and a byte a code page decodes as one would too). It runs
 //! the hook on each directory change (zsh `chpwd`, bash `PROMPT_COMMAND` or PowerShell's
 //! `prompt` wrapper) and when the activated access is due again, passes the path as one quoted
 //! argument, and treats Heimdall's answer as data: three fields, each checked against a
@@ -586,27 +600,31 @@ pub(crate) fn activate(ctx: &Ctx, a: &ActivateArgs) -> ExitCode {
     done.exit
 }
 
-/// The zsh integration (`heimdall shell init zsh`): static text (module docs).
-pub(crate) const ZSH_SCRIPT: &str = r#"# Heimdall shell integration for zsh (`heimdall shell init zsh`; ADR-0011 §3.2).
+/// The zsh integration (`heimdall shell init zsh`): a template whose one [`PROGRAM_SLOT`] is
+/// filled with this program's quoted path (module docs, [`render_hook`]).
+pub(crate) const ZSH_TEMPLATE: &str = r#"# Heimdall shell integration for zsh (`heimdall shell init zsh`; ADR-0011 §3.2).
 #
-# This text is static: it holds only Heimdall's code, never anything read from a
-# repository, and it evaluates nothing it is given. On each directory change, and when
-# the access it activated is due again, it runs `heimdall activate --hook`, which never
+# This text holds only Heimdall's code and the absolute path of the heimdall that
+# printed it, never anything read from a repository, and it evaluates nothing it is
+# given. On each directory change, and when the access it activated is due again, it
+# runs that heimdall (never one found on PATH) as `activate --hook`, which never
 # prompts, never asks for an owner decision, activates only what your saved policy
 # already covers and gives up after one second. Heimdall prints one status line when
-# the state changes (untrusted, paused, needs review).
+# the state changes (untrusted, paused, needs review). If that program is moved or
+# removed, the hook does nothing until a new shell runs the line below again.
 #
 # Enable it in ~/.zshrc with:  eval "$(heimdall shell init zsh)"
 
 __heimdall_hook() {
   emulate -L zsh
-  command -v heimdall >/dev/null 2>&1 || return 0
+  local program=@HEIMDALL_PROGRAM@
+  [ -f "$program" ] && [ -x "$program" ] || return 0
   local out state rest seq recheck prev last
   prev="${__heimdall_seq:-0}"
   case "$prev" in ''|*[!0-9]*|0?*|??????????*) prev=0 ;; esac
   last="${__heimdall_state:-none}"
   case "$last" in active|untrusted|paused|needs_review|none) ;; *) last=none ;; esac
-  out="$(command heimdall activate --hook --cwd "$PWD" --shell-pid "$$" \
+  out="$("$program" activate --hook --cwd "$PWD" --shell-pid "$$" \
     --seq "$prev" --last "$last" </dev/null)"
   state="${out%% *}"
   rest="${out#* }"
@@ -642,26 +660,30 @@ add-zsh-hook precmd __heimdall_due_check
 __heimdall_hook
 "#;
 
-/// The bash integration (`heimdall shell init bash`): static text (module docs).
-pub(crate) const BASH_SCRIPT: &str = r#"# Heimdall shell integration for bash (`heimdall shell init bash`; ADR-0011 §3.2).
+/// The bash integration (`heimdall shell init bash`): a template whose one [`PROGRAM_SLOT`]
+/// is filled with this program's quoted path (module docs, [`render_hook`]).
+pub(crate) const BASH_TEMPLATE: &str = r#"# Heimdall shell integration for bash (`heimdall shell init bash`; ADR-0011 §3.2).
 #
-# This text is static: it holds only Heimdall's code, never anything read from a
-# repository, and it evaluates nothing it is given. On each directory change, and when
-# the access it activated is due again, it runs `heimdall activate --hook`, which never
+# This text holds only Heimdall's code and the absolute path of the heimdall that
+# printed it, never anything read from a repository, and it evaluates nothing it is
+# given. On each directory change, and when the access it activated is due again, it
+# runs that heimdall (never one found on PATH) as `activate --hook`, which never
 # prompts, never asks for an owner decision, activates only what your saved policy
 # already covers and gives up after one second. Heimdall prints one status line when
-# the state changes (untrusted, paused, needs review).
+# the state changes (untrusted, paused, needs review). If that program is moved or
+# removed, the hook does nothing until a new shell runs the line below again.
 #
 # Enable it in ~/.bashrc with:  eval "$(heimdall shell init bash)"
 
 __heimdall_hook() {
-  command -v heimdall >/dev/null 2>&1 || return 0
+  local program=@HEIMDALL_PROGRAM@
+  [ -f "$program" ] && [ -x "$program" ] || return 0
   local out state rest seq recheck prev last
   prev="${__heimdall_seq:-0}"
   case "$prev" in ''|*[!0-9]*|0?*|??????????*) prev=0 ;; esac
   last="${__heimdall_state:-none}"
   case "$last" in active|untrusted|paused|needs_review|none) ;; *) last=none ;; esac
-  out="$(command heimdall activate --hook --cwd "$PWD" --shell-pid "$$" \
+  out="$("$program" activate --hook --cwd "$PWD" --shell-pid "$$" \
     --seq "$prev" --last "$last" </dev/null)"
   state="${out%% *}"
   rest="${out#* }"
@@ -700,10 +722,14 @@ case ";${PROMPT_COMMAND-};" in
 esac
 "#;
 
-/// The PowerShell integration (`heimdall shell init powershell`): static text (module docs).
-pub(crate) const POWERSHELL_SCRIPT: &str = r#"# Heimdall shell integration for PowerShell (ADR-0011 section 3.2).
+/// The PowerShell integration (`heimdall shell init powershell`): a template whose one
+/// [`PROGRAM_SLOT`] is filled with this program's path as an ASCII PowerShell expression
+/// (module docs, [`render_hook`]).
+pub(crate) const POWERSHELL_TEMPLATE: &str = r#"# Heimdall shell integration for PowerShell (ADR-0011 section 3.2).
 # Enable it in $PROFILE with: Invoke-Expression ((& heimdall shell init powershell) -join "`n")
 # The hook runs when the prompt sees a new directory or access is due again.
+# It runs only the heimdall that printed this text, named by its absolute path below,
+# never one found on PATH; if that file is gone, the hook does nothing.
 # The Rust hook has a 1 s budget; this wrapper gives the child and stdout 1500 ms total.
 
 if (-not (Test-Path Function:__heimdall_original_prompt)) {
@@ -739,12 +765,12 @@ if (-not (Test-Path Function:__heimdall_original_prompt)) {
             if ($seq -isnot [string] -or $seq -cnotmatch $numberPattern) { $seq = '0' }
             if ($last -isnot [string] -or $last -cnotmatch $statePattern) { $last = 'none' }
 
-            $app = Get-Command -Name heimdall -CommandType Application -ErrorAction Ignore | Select-Object -First 1
-            if ($null -eq $app) { return $promptText }
+            $program = @HEIMDALL_PROGRAM@
+            if (-not [IO.File]::Exists($program)) { return $promptText }
             $global:__heimdall_pwd = $cwd
             if (-not $validDue) { $global:__heimdall_due = '0' }
             $launch = [Diagnostics.ProcessStartInfo]::new()
-            $launch.FileName = $app.Source
+            $launch.FileName = $program
             $launch.UseShellExecute = $false
             $launch.RedirectStandardInput = $true
             $launch.RedirectStandardOutput = $true
@@ -807,12 +833,163 @@ if (-not (Test-Path Function:__heimdall_original_prompt)) {
 }
 "#;
 
-/// Handle `shell init`: print the static script (`--json`: in the envelope).
+/// The one place in each template where [`render_hook`] writes the program's quoted path.
+pub(crate) const PROGRAM_SLOT: &str = "@HEIMDALL_PROGRAM@";
+
+/// Why a hook cannot be printed (`shell init` refuses; module docs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HookRefusal {
+    /// This executable's own path could not be read or canonicalized.
+    Unlocated,
+    /// The path is not absolute UTF-8 text free of control characters.
+    Unrepresentable,
+}
+
+/// The shells [`render_hook`] writes for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HookShell {
+    Zsh,
+    Bash,
+    PowerShell,
+}
+
+impl HookShell {
+    fn template(self) -> &'static str {
+        match self {
+            HookShell::Zsh => ZSH_TEMPLATE,
+            HookShell::Bash => BASH_TEMPLATE,
+            HookShell::PowerShell => POWERSHELL_TEMPLATE,
+        }
+    }
+}
+
+/// `path` as one POSIX shell word: single-quoted, each `'` written as `'\''`. Inside single
+/// quotes zsh and Bash give no other byte a meaning.
+fn posix_quoted(path: &str) -> String {
+    format!("'{}'", path.replace('\'', r"'\''"))
+}
+
+/// `path` as one ASCII PowerShell expression: printable ASCII runs in single-quoted literals
+/// (`'` doubled), every other UTF-16 unit as `[char]0xXXXX`, joined with `+` after a leading
+/// literal so the result is a string. PowerShell also closes a single-quoted string at
+/// U+2018–U+201B, and a code page can decode a UTF-8 continuation byte as one of them
+/// (cp1252 0x82, 0x91, 0x92), so no non-ASCII character is ever written literally.
+fn powershell_quoted(path: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let mut literal = String::new();
+    for c in path.chars() {
+        if c.is_ascii() {
+            if c == '\'' {
+                literal.push('\'');
+            }
+            literal.push(c);
+            continue;
+        }
+        if !literal.is_empty() || parts.is_empty() {
+            parts.push(format!("'{literal}'"));
+            literal.clear();
+        }
+        let mut units = [0u16; 2];
+        for unit in c.encode_utf16(&mut units) {
+            parts.push(format!("[char]0x{unit:04X}"));
+        }
+    }
+    if parts.is_empty() {
+        return format!("'{literal}'");
+    }
+    if !literal.is_empty() {
+        parts.push(format!("'{literal}'"));
+    }
+    format!("({})", parts.join(" + "))
+}
+
+/// A verbatim Windows path (`\\?\C:\…`, `\\?\UNC\server\share\…`, what `canonicalize`
+/// returns there) in the form a person types and every PowerShell edition starts, when that
+/// form names the same file: a drive or UNC path with no component that Win32 path
+/// normalization would change (a trailing `.` or space) and within `MAX_PATH`. Any other
+/// verbatim path is kept as it is; a path without the prefix is returned unchanged.
+fn plain_windows_path(path: &str) -> String {
+    let (plain, rest) = if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        (format!(r"\\{rest}"), rest)
+    } else if let Some(rest) = path.strip_prefix(r"\\?\") {
+        let b = rest.as_bytes();
+        if !(b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\') {
+            return path.to_owned();
+        }
+        (rest.to_owned(), &rest[3..])
+    } else {
+        return path.to_owned();
+    };
+    let normal = rest
+        .split('\\')
+        .all(|c| !c.is_empty() && c != "." && c != ".." && !c.ends_with(['.', ' ']));
+    if normal && plain.len() < 260 {
+        plain
+    } else {
+        path.to_owned()
+    }
+}
+
+/// This executable's absolute, canonical path as the hook names it.
+fn installed_program() -> Result<String, HookRefusal> {
+    let exe = std::env::current_exe().map_err(|_| HookRefusal::Unlocated)?;
+    let exe = std::fs::canonicalize(exe).map_err(|_| HookRefusal::Unlocated)?;
+    let text = exe
+        .into_os_string()
+        .into_string()
+        .map_err(|_| HookRefusal::Unrepresentable)?;
+    if cfg!(windows) {
+        Ok(plain_windows_path(&text))
+    } else {
+        Ok(text)
+    }
+}
+
+/// The hook for `shell`, running only `program` (module docs).
+///
+/// # Errors
+/// [`HookRefusal::Unrepresentable`] when `program` is not absolute or holds a control
+/// character (a line break among them): nothing is rendered.
+pub(crate) fn render_hook(shell: HookShell, program: &str) -> Result<String, HookRefusal> {
+    if !std::path::Path::new(program).is_absolute() || program.chars().any(char::is_control) {
+        return Err(HookRefusal::Unrepresentable);
+    }
+    let quoted = match shell {
+        HookShell::Zsh | HookShell::Bash => posix_quoted(program),
+        HookShell::PowerShell => powershell_quoted(program),
+    };
+    Ok(shell.template().replacen(PROGRAM_SLOT, &quoted, 1))
+}
+
+/// Handle `shell init`: print the hook for this executable (`--json`: in the envelope), or
+/// refuse with no script when this executable's path cannot be written safely (module docs).
 pub(crate) fn shell_init(ctx: &Ctx, shell: ShellArg) -> ExitCode {
-    let (name, script) = match shell {
-        ShellArg::Zsh => ("zsh", ZSH_SCRIPT),
-        ShellArg::Bash => ("bash", BASH_SCRIPT),
-        ShellArg::Powershell => ("powershell", POWERSHELL_SCRIPT),
+    let (name, which) = match shell {
+        ShellArg::Zsh => ("zsh", HookShell::Zsh),
+        ShellArg::Bash => ("bash", HookShell::Bash),
+        ShellArg::Powershell => ("powershell", HookShell::PowerShell),
+    };
+    let script = match installed_program().and_then(|program| render_hook(which, &program)) {
+        Ok(script) => script,
+        Err(refusal) => {
+            let message = match refusal {
+                HookRefusal::Unlocated => {
+                    "cannot locate this heimdall executable, so no shell hook was printed"
+                }
+                HookRefusal::Unrepresentable => {
+                    "this heimdall executable's path cannot be written safely into a shell hook \
+                     (it is not UTF-8 text, or it holds a line break or another control \
+                     character), so no shell hook was printed; install Heimdall at a path \
+                     without one and run shell init again"
+                }
+            };
+            return crate::setup_cmd::Outcome::of(crate::setup_cmd::failure(
+                Code::CapabilityUnavailable,
+                message,
+                None,
+            ))
+            .emit(ctx);
+        }
     };
     if ctx.json {
         output::emit(
@@ -1167,11 +1344,27 @@ mod tests {
         }
     }
 
-    /// The scripts are static: no `eval`, no unquoted `$PWD`, and Heimdall's answer is only
-    /// ever compared with fixed patterns before use.
+    /// The hook for `shell` running `program`, which must render.
+    fn rendered(shell: HookShell, program: &str) -> String {
+        render_hook(shell, program).unwrap_or_else(|e| panic!("{shell:?}: {e:?}"))
+    }
+
+    /// A program path for the template checks (any absolute path on this platform).
+    fn sample_program() -> &'static str {
+        if cfg!(windows) {
+            r"C:\Program Files\Heimdall\heimdall.exe"
+        } else {
+            "/opt/heimdall/bin/heimdall"
+        }
+    }
+
+    /// The scripts evaluate nothing: no `eval`, no unquoted `$PWD`, and Heimdall's answer is
+    /// only ever compared with fixed patterns before use. ⟨S4-02⟩ Each runs only the embedded
+    /// program: no `PATH` lookup and no bare `heimdall` command anywhere in its code.
     #[test]
     fn the_scripts_never_evaluate_what_they_read() {
-        for script in [ZSH_SCRIPT, BASH_SCRIPT] {
+        for shell in [HookShell::Zsh, HookShell::Bash] {
+            let script = rendered(shell, sample_program());
             let code: Vec<&str> = script
                 .lines()
                 .filter(|l| !l.trim_start().starts_with('#'))
@@ -1182,11 +1375,23 @@ mod tests {
                 if line.contains("PWD") {
                     assert!(!line.contains(" $PWD") && !line.contains("=$PWD"), "{line}");
                 }
+                assert!(!line.contains("command"), "{line}");
+                assert!(!line.contains("heimdall activate"), "{line}");
+                assert!(!line.contains("type heimdall"), "{line}");
+                assert!(!line.contains("which"), "{line}");
+                assert!(!line.contains("hash"), "{line}");
             }
             assert!(script.contains(r#"--cwd "$PWD""#));
             assert!(script.contains("</dev/null"));
+            assert!(script.contains(&format!(
+                "  local program={}\n",
+                posix_quoted(sample_program())
+            )));
+            assert!(script.contains(r#"  [ -f "$program" ] && [ -x "$program" ] || return 0"#));
+            assert!(script.contains(r#"out="$("$program" activate --hook --cwd "$PWD""#));
+            assert_eq!(script.matches("$program").count(), 3, "{script}");
         }
-        let code = POWERSHELL_SCRIPT
+        let code = rendered(HookShell::PowerShell, sample_program())
             .lines()
             .filter(|l| !l.trim_start().starts_with('#'))
             .collect::<Vec<_>>()
@@ -1210,7 +1415,14 @@ mod tests {
         assert!(code.contains("$launch.useshellexecute = $false"));
         assert!(code.contains("$launch.redirectstandardinput = $true"));
         assert!(code.contains("$child.standardinput.close()"));
-        assert!(code.contains("-commandtype application -erroraction ignore"));
+        assert!(!code.contains("get-command"));
+        assert!(!code.contains("$app"));
+        assert!(code.contains(&format!(
+            "$program = {}\n",
+            powershell_quoted(sample_program()).to_ascii_lowercase()
+        )));
+        assert!(code.contains("if (-not [io.file]::exists($program)) { return $prompttext }"));
+        assert!(code.contains("$launch.filename = $program\n"));
         assert_eq!(
             code.matches("1500 - [int]$timer.elapsedmilliseconds")
                 .count(),
@@ -1225,5 +1437,107 @@ mod tests {
         assert!(code.contains("$read.wait($remaining)"));
         assert!(code.contains("if (-not $child.hasexited) { $child.kill() }"));
         assert!(code.contains("$state, $next, $recheck = $answer -csplit ' ', 3"));
+    }
+
+    /// Each template has exactly one program slot, and no rendered hook keeps one.
+    #[test]
+    fn each_template_has_one_slot_that_rendering_fills() {
+        for shell in [HookShell::Zsh, HookShell::Bash, HookShell::PowerShell] {
+            assert_eq!(shell.template().matches(PROGRAM_SLOT).count(), 1);
+            // A path that itself spells the slot is data, filled once and never again.
+            let program = if cfg!(windows) {
+                r"C:\@HEIMDALL_PROGRAM@\heimdall.exe"
+            } else {
+                "/@HEIMDALL_PROGRAM@/heimdall"
+            };
+            let script = rendered(shell, program);
+            assert_eq!(script.matches(PROGRAM_SLOT).count(), 1, "{shell:?}");
+            assert!(!script.contains(&format!("={PROGRAM_SLOT}")), "{shell:?}");
+        }
+    }
+
+    /// ⟨S4-02⟩ A path with a line break, any other control character, or that is not
+    /// absolute is refused for every shell; nothing is rendered.
+    #[test]
+    fn a_path_the_shells_cannot_carry_is_refused() {
+        let base = if cfg!(windows) { r"C:\x" } else { "/x" };
+        for bad in ["\n", "\r", "\t", "\u{1b}", "\u{7f}", "\u{85}", "\u{0}"] {
+            let program = format!("{base}{bad}y/heimdall");
+            for shell in [HookShell::Zsh, HookShell::Bash, HookShell::PowerShell] {
+                assert_eq!(
+                    render_hook(shell, &program),
+                    Err(HookRefusal::Unrepresentable),
+                    "{shell:?} {bad:?}"
+                );
+            }
+        }
+        for shell in [HookShell::Zsh, HookShell::Bash, HookShell::PowerShell] {
+            assert_eq!(
+                render_hook(shell, "heimdall"),
+                Err(HookRefusal::Unrepresentable)
+            );
+            assert_eq!(
+                render_hook(shell, "./bin/heimdall"),
+                Err(HookRefusal::Unrepresentable)
+            );
+        }
+    }
+
+    /// POSIX quoting: one single-quoted word, `'` closed, escaped and reopened.
+    #[test]
+    fn posix_quoting_keeps_every_byte_literal() {
+        assert_eq!(posix_quoted("/a b/heimdall"), "'/a b/heimdall'");
+        assert_eq!(
+            posix_quoted("/it's/$(x)`y`\\/heimdall'"),
+            r"'/it'\''s/$(x)`y`\/heimdall'\'''"
+        );
+        assert_eq!(posix_quoted("/caf\u{e9}/\u{2019}"), "'/caf\u{e9}/\u{2019}'");
+    }
+
+    /// PowerShell quoting: ASCII only, `'` doubled, every non-ASCII UTF-16 unit as a
+    /// `[char]` (smart quotes and characters outside the BMP included).
+    #[test]
+    fn powershell_quoting_is_ascii_and_closes_no_string() {
+        assert_eq!(powershell_quoted(r"C:\a b\h.exe"), r"'C:\a b\h.exe'");
+        assert_eq!(powershell_quoted(r"C:\it's\h.exe"), r"'C:\it''s\h.exe'");
+        assert_eq!(
+            powershell_quoted("C:\\Jos\u{e9}\u{2019}x\\h.exe"),
+            r"('C:\Jos' + [char]0x00E9 + [char]0x2019 + 'x\h.exe')"
+        );
+        assert_eq!(
+            powershell_quoted("\u{2018}\u{1F600}"),
+            "('' + [char]0x2018 + [char]0xD83D + [char]0xDE00)"
+        );
+        assert_eq!(powershell_quoted("$(x)`y\""), "'$(x)`y\"'");
+        let script = rendered(
+            HookShell::PowerShell,
+            &format!("{}\u{201a}\u{201b}\u{e9}", sample_program()),
+        );
+        assert!(script.is_ascii());
+    }
+
+    /// The verbatim prefix `canonicalize` gives on Windows is dropped only when the plain
+    /// form names the same file.
+    #[test]
+    fn a_verbatim_windows_path_is_shown_plain_when_that_is_the_same_file() {
+        assert_eq!(
+            plain_windows_path(r"\\?\C:\Program Files\h.exe"),
+            r"C:\Program Files\h.exe"
+        );
+        assert_eq!(
+            plain_windows_path(r"\\?\UNC\server\share\h.exe"),
+            r"\\server\share\h.exe"
+        );
+        assert_eq!(plain_windows_path(r"C:\h.exe"), r"C:\h.exe");
+        for kept in [
+            r"\\?\C:\dir.\h.exe",
+            r"\\?\C:\dir \h.exe",
+            r"\\?\Volume{0}\h.exe",
+            r"\\?\C:\a\..\h.exe",
+        ] {
+            assert_eq!(plain_windows_path(kept), kept);
+        }
+        let long = format!(r"\\?\C:\{}\h.exe", "d".repeat(300));
+        assert_eq!(plain_windows_path(&long), long);
     }
 }

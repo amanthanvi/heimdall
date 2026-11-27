@@ -1616,6 +1616,10 @@ pub struct ActivateArgs {
 #[derive(Debug, Subcommand)]
 pub enum ShellCommand {
     /// Print the shell integration script for `zsh`, `bash` or `powershell`.
+    ///
+    /// The script runs the `heimdall` that printed it, by its full path. If you move or
+    /// reinstall `heimdall` to another path, run `heimdall shell init` again; the old hook
+    /// stays silent.
     Init {
         /// The shell.
         #[arg(value_enum)]
