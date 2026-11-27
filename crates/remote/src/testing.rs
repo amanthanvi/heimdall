@@ -148,6 +148,32 @@ impl MemoryWidening {
 }
 
 impl WideningRecords for MemoryWidening {
+    fn pending_counts(
+        &self,
+        client: &ClientId,
+        now: Timestamp,
+    ) -> Result<(usize, usize), LedgerError> {
+        let map = lock(&self.records);
+        let pending = map
+            .values()
+            .filter(|r| {
+                !r.key.submitter.is_local()
+                    && r.state == DecisionState::Pending
+                    && now < r.expires_at
+            })
+            .collect::<Vec<_>>();
+        let mine = pending
+            .iter()
+            .filter(|r| r.key.submitter.client() == Some(client))
+            .count();
+        Ok((mine, pending.len()))
+    }
+
+    fn expired_marker(&self, _key: &WideningKey, _now: Timestamp) -> Result<bool, LedgerError> {
+        // Nothing is purged from memory.
+        Ok(false)
+    }
+
     fn by_key(&self, key: &WideningKey) -> Result<Option<WideningRecord>, LedgerError> {
         if key.submitter.is_local() {
             return Ok(None);

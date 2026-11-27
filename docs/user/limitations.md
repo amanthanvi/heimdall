@@ -96,6 +96,30 @@ Short, and meant to be read once.
   paired runner's answers to each field's grammar and replaces free text, but a value that fits
   its field's grammar (for example a token-shaped string or a path-shaped string) is relayed as
   reported.
+- **A remote runner's authority report has a size limit (768 KiB), and no paging in this
+  release.** The runner keeps its revocations, delivered pauses and cutoffs, and requests for
+  approval only as long as they matter, then prunes them (`retention.operations`; 30 days more
+  for a revoke of a grant ID it never held), and it limits what has no effect on it: 256 such
+  revokes per controller and 1,024 in all, 256 pauses or cutoffs per controller of scopes that
+  match nothing on it, and 32 pending approval requests per controller and 128 in all. A revoke
+  of a grant the runner holds, and a pause or cutoff of its own policies, are never refused. The
+  report is proved within its limit for this envelope: up to 1,024 revokes of grant IDs it never
+  held; up to 500 grants revoked within their window plus the retention, each with up to 2
+  delegated grants; up to 400 delivered pauses and cutoffs of every controller together (in
+  force, or lifted and not yet pruned); up to 64 standing policies; up to 96 installed
+  certificates; up to 16 grants waiting for their issuer, of up to 8 destination accounts each;
+  and up to 128 pending approval requests (these are not in the report). Past the limit the
+  runner refuses the report whole and every controller's remote issuance for it stays closed;
+  `heimdall environment status` and `heimdall doctor` say the runner's authority report is over
+  its size limit and that remote issuance stays closed until history ages out. It reopens by
+  itself at the first resynchronization under the limit. To reopen sooner, revoke the controller
+  that flooded the runner (`heimdall environment revoke-client`), then lift its pauses and
+  cutoffs at the runner. A revoke delivered for a grant that had already ended before it is not
+  pruned (its record is not a revocation's).
+- **The Iroh serve child does not limit its connections.** Like the rest of the Iroh transport it
+  is a preview (above): it admits only the clients on its allowlist, but an enrolled client can
+  hold many connections open, each with its own connection to the local SSH server, and the
+  serve child has no cap or idle timeout for them. Revoking the client ends them.
 - **A Windows computer can control runners only as their owner,** not as a limited (viewer or
   requester) client. Limited roles also need a runner whose SSH server settings Heimdall can
   verify; anywhere else the runner stays owner-only.

@@ -1033,6 +1033,176 @@ impl Txn<'_> {
     }
 }
 
+// --- ⟨M08 W4 SEC-3b⟩ R4: the widening records are bounded --------------------------------
+//
+// ADR-0006 §7.4 and ADR-0012 §7.4 as amended 2026-11-27 (ruling of 2026-11-26, R4). A paired
+// client's pending widening records are capped (`BACKPRESSURE`); a pending record past its
+// deadline is settled `expired` by the retention pass; a settled record is purged
+// `retention.operations` after its decision, leaving a 30-day expired-key marker so a replay of
+// its key answers `REQUEST_EXPIRED`. An approved record with no recorded result
+// (`OUTCOME_UNKNOWN`) is never purged.
+
+/// ⟨M08 W4 SEC-3b, R4⟩ The most pending (not yet expired) widening records one paired client
+/// may have; past it a new submission is refused `BACKPRESSURE`.
+pub const PENDING_WIDENING_PER_CLIENT: usize = 32;
+
+/// ⟨M08 W4 SEC-3b, R4⟩ The most pending widening records of every paired client together
+/// (below ADR-0013 §5.5's 256 pending decisions of an event snapshot).
+pub const PENDING_WIDENING_TOTAL: usize = 128;
+
+/// ⟨M08 W4 SEC-3b, R4⟩ The expired-key marker key (`idempotency_markers.key_hash`) of a widening
+/// record's key: SHA-256 (hex) over the canonical JSON of its origin, client, request kind and
+/// request ID, in its own domain, so it never equals an operation key's hash.
+///
+/// # Errors
+/// When the key cannot be encoded (it always can).
+pub fn widening_marker_key(
+    client: Option<&ClientId>,
+    request_kind: &str,
+    request_id: &RequestId,
+) -> Result<String> {
+    let value = serde_json::json!({
+        "origin": if client.is_some() { "paired" } else { "local" },
+        "client": client,
+        "kind": request_kind,
+        "request_id": request_id,
+    });
+    heimdall_contract::canonical::request_hash("remote-widening-marker", &value)
+        .map(|h| h.to_hex())
+        .map_err(|_| codec::doc_error("a widening record's key cannot be encoded"))
+}
+
+impl Txn<'_> {
+    /// ⟨M08 W4 SEC-3b, R4⟩ The pending paired widening records still before their deadline at
+    /// `now`: `client`'s, and every client's.
+    pub fn pending_paired_widening_counts(
+        &mut self,
+        client: &ClientId,
+        now: Timestamp,
+    ) -> Result<(usize, usize)> {
+        let pending = codec::enum_str(&DecisionState::Pending)?;
+        let base = "SELECT count(*) FROM remote_widening w JOIN decisions d ON d.id = w.decision_id
+                    WHERE w.origin = 'paired' AND d.state = ?1 AND d.expires_at > ?2";
+        let mine: i64 = self.tx.query_row(
+            &format!("{base} AND w.client_id = ?3"),
+            rusqlite::params![pending, codec::ts(now), client.as_str()],
+            |r| r.get(0),
+        )?;
+        let all: i64 =
+            self.tx
+                .query_row(base, rusqlite::params![pending, codec::ts(now)], |r| {
+                    r.get(0)
+                })?;
+        Ok((
+            usize::try_from(mine).unwrap_or(usize::MAX),
+            usize::try_from(all).unwrap_or(usize::MAX),
+        ))
+    }
+
+    /// ⟨M08 W4 SEC-3b, R4⟩ Whether the expired-key marker `key` ([`widening_marker_key`]) is
+    /// still live at `now`: a record of that key was purged within the marker window.
+    pub fn widening_marker_live(&mut self, key: &str, now: Timestamp) -> Result<bool> {
+        let n: i64 = self.tx.query_row(
+            "SELECT count(*) FROM idempotency_markers WHERE key_hash = ?1 AND marker_until > ?2",
+            rusqlite::params![key, codec::ts(now)],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    }
+
+    /// ⟨M08 W4 SEC-3b, R4⟩ The pending paired widening records whose deadline is at or before
+    /// `now` (the retention pass settles them `expired`).
+    pub fn expired_paired_widening(&mut self, now: Timestamp) -> Result<Vec<DecisionRecord>> {
+        self.docs(
+            "SELECT d.record_json FROM remote_widening w JOIN decisions d ON d.id = w.decision_id
+             WHERE w.origin = 'paired' AND d.state = ?1 AND d.expires_at <= ?2
+             ORDER BY d.expires_at, d.id",
+            rusqlite::params![codec::enum_str(&DecisionState::Pending)?, codec::ts(now)],
+        )
+    }
+
+    /// ⟨M08 W4 SEC-3b, R4⟩ Purge every settled widening record decided at or before `now` −
+    /// `retention` (the time the retention pass's time gate accepted): its side row, then its
+    /// decision, leaving an expired-key marker of its key until 30 days after its retention
+    /// ended (`heimdall_domain::idempotency::marker_until`). A pending record, and an approved
+    /// one with no recorded result (`OUTCOME_UNKNOWN`), are never purged. The number purged.
+    pub fn purge_settled_widening(&mut self, now: Timestamp, retention: Duration) -> Result<usize> {
+        type Row = (
+            String,
+            Option<String>,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+        );
+        let rows: Vec<Row> = {
+            let mut stmt = self.tx.prepare(
+                "SELECT w.decision_id, w.client_id, w.request_kind, w.request_id, w.result_json,
+                        d.state, d.decided_at
+                 FROM remote_widening w JOIN decisions d ON d.id = w.decision_id
+                 WHERE d.state <> ?1 AND d.decided_at IS NOT NULL",
+            )?;
+            let rows = stmt.query_map([codec::enum_str(&DecisionState::Pending)?], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                ))
+            })?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        let approved = codec::enum_str(&DecisionState::Approved)?;
+        let span = jiff::SignedDuration::try_from(retention)
+            .map_err(|_| codec::doc_error("the retention does not fit a duration"))?;
+        let mut purged = 0usize;
+        for (decision, client, kind, request_id, result, state, decided_at) in rows {
+            // `OUTCOME_UNKNOWN`: approved, and no result recorded. Never purged.
+            if state == approved && result.is_none() {
+                continue;
+            }
+            let expired_at = codec::parse_ts(&decided_at)?
+                .checked_add(span)
+                .unwrap_or(Timestamp::MAX);
+            if expired_at > now {
+                continue;
+            }
+            let client = client
+                .map(|c| {
+                    ClientId::parse(&c).map_err(|_| {
+                        StoreError::Corrupt("a widening record's client is malformed".into())
+                    })
+                })
+                .transpose()?;
+            let request_id = RequestId::parse(&request_id).map_err(|_| {
+                StoreError::Corrupt("a widening record's request ID is malformed".into())
+            })?;
+            let key = widening_marker_key(client.as_ref(), &kind, &request_id)?;
+            let until = heimdall_domain::idempotency::marker_until(expired_at);
+            self.tx.execute(
+                "INSERT INTO idempotency_markers (key_hash, expired_at, marker_until)
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT(key_hash) DO UPDATE SET
+                     expired_at = max(expired_at, excluded.expired_at),
+                     marker_until = max(marker_until, excluded.marker_until)",
+                rusqlite::params![key, codec::ts(expired_at), codec::ts(until)],
+            )?;
+            self.tx.execute(
+                "DELETE FROM remote_widening WHERE decision_id = ?1",
+                [decision.as_str()],
+            )?;
+            purged += self
+                .tx
+                .execute("DELETE FROM decisions WHERE id = ?1", [decision.as_str()])?;
+        }
+        Ok(purged)
+    }
+}
+
 // --- ⟨M06 U2⟩ the controller's environment records and the bootstrap owner -------------
 
 /// The largest controller pin document accepted (a record names one route and at most 16

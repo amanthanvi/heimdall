@@ -256,6 +256,26 @@ pub trait WideningRecords: Send + Sync {
         id: &DecisionId,
         result: Envelope<serde_json::Value>,
     ) -> Result<WideningRecord, LedgerError>;
+
+    /// ⟨M08 W4 SEC-3b, R4⟩ The pending paired records still before their deadline at `now`:
+    /// `client`'s, and every client's.
+    ///
+    /// # Errors
+    ///
+    /// [`LedgerError::Store`].
+    fn pending_counts(
+        &self,
+        client: &ClientId,
+        now: Timestamp,
+    ) -> Result<(usize, usize), LedgerError>;
+
+    /// ⟨M08 W4 SEC-3b, R4⟩ Whether `key`'s record was purged within its 30-day expired-key
+    /// marker (`REQUEST_EXPIRED` for a replay of it).
+    ///
+    /// # Errors
+    ///
+    /// [`LedgerError::Store`].
+    fn expired_marker(&self, key: &WideningKey, now: Timestamp) -> Result<bool, LedgerError>;
 }
 
 /// ⟨M06 W2⟩ The durable [`WideningRecords`] (module docs, "Persistence"): ADR-0006 §3.1
@@ -456,6 +476,28 @@ impl WideningRecords for StoreWidening {
             .map_err(ledger_err)?;
         to_record(d, row)
     }
+
+    fn pending_counts(
+        &self,
+        client: &ClientId,
+        now: Timestamp,
+    ) -> Result<(usize, usize), LedgerError> {
+        self.store
+            .transaction(|tx| tx.pending_paired_widening_counts(client, now))
+            .map_err(|_| LedgerError::Store)
+    }
+
+    fn expired_marker(&self, key: &WideningKey, now: Timestamp) -> Result<bool, LedgerError> {
+        let marker = heimdall_store::ext_m06::widening_marker_key(
+            key.submitter.client(),
+            &key.kind,
+            &key.request_id,
+        )
+        .map_err(|_| LedgerError::Store)?;
+        self.store
+            .transaction(|tx| tx.widening_marker_live(&marker, now))
+            .map_err(|_| LedgerError::Store)
+    }
 }
 
 /// The request ID of a revision-6 widening form, `None` for any other request.
@@ -586,6 +628,19 @@ pub fn submit_bound(
         }
         let answer = replay_answer(&rec, now);
         return Ok((Submitted::Replayed(rec.decision), answer));
+    }
+    // ⟨M08 W4 SEC-3b, R4; ADR-0006 §7.4⟩ A key whose settled record was purged after its
+    // retention is answered `REQUEST_EXPIRED` for 30 days, never given a new record.
+    if records.expired_marker(&key, now).map_err(store_err)? {
+        return Err(Refusal::RequestExpired);
+    }
+    // ⟨M08 W4 SEC-3b, R4⟩ Pending records are capped, per client and in total: a widening
+    // submission has no authority effect until the runner's owner decides it.
+    let (mine, all) = records.pending_counts(client, now).map_err(store_err)?;
+    if mine >= heimdall_store::ext_m06::PENDING_WIDENING_PER_CLIENT
+        || all >= heimdall_store::ext_m06::PENDING_WIDENING_TOTAL
+    {
+        return Err(Refusal::Backpressure);
     }
     let decision = heimdall_app::ids::new_decision_id().map_err(|_| Refusal::State)?;
     let span =

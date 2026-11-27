@@ -300,6 +300,16 @@ path = "../../tests/model/remote_sync.rs"
 name = "integration_runner_effects_m06"
 path = "../../tests/integration/runner_effects_m06.rs"
 
+# ⟨M08 W4 SEC-3b⟩ (ADR-0006 §7.4, ADR-0012 §7.4 as amended 2026-11-27; S2-05): the runner's
+# authority history and its report are bounded. The override (an effective revoke or cutoff
+# lands at every cap), the caps, the retention pass's pruning on safe time only (R1-R4), the
+# over-budget report refused whole and the barrier reopened after pruning (R5), the report at
+# the envelope's maximum, and the history-growth workload (its short form; the full one is
+# ignored and run by `tools/benchmarks/m08/run-soak.sh --authority-history-growth`).
+[[test]]
+name = "integration_runner_history_m08"
+path = "../../tests/integration/runner_history_m08.rs"
+
 # ⟨M06 W3 `driver`⟩ The controller's sync and issuance driver against the runner fixture: the
 # per-session issuance gate, remote issuance behind the barrier, and the 2026-11-21 rulings.
 [[test]]

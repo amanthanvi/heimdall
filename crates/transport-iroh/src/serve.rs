@@ -432,6 +432,8 @@ pub struct Server<A: AdmissionAuthority> {
     endpoint_id: IrohEndpointId,
     shared: Arc<Shared<A>>,
     shutdown: Arc<Notify>,
+    /// ⟨M08 W4 SEC-3b, S2-03⟩ The allowlist entries that are not endpoint keys, skipped.
+    skipped: Vec<IrohEndpointId>,
 }
 
 impl<A: AdmissionAuthority> std::fmt::Debug for Server<A> {
@@ -446,9 +448,14 @@ impl<A: AdmissionAuthority> Server<A> {
     /// Validates the configuration, reads the lease, loads K_iroh and binds the endpoint
     /// built from the policy alone.
     ///
+    /// ⟨M08 W4 SEC-3b, S2-03⟩ An allowlist entry that is not an endpoint key (64 hex
+    /// characters whose 32 bytes are not an Ed25519 public key) is **skipped and reported**
+    /// ([`Self::skipped_allowlist_entries`]), never admitted: one enrolled client's bad entry
+    /// does not stop the server for every other client.
+    ///
     /// # Errors
     ///
-    /// [`ServeError`], in this order: an allowlist entry that is not an endpoint key; the
+    /// [`ServeError`], in this order: an allowlist with no entry that is an endpoint key; the
     /// policy; a lost lease (`transport_authority_lost`: nothing binds); the key; the bind.
     pub async fn bind(
         config: ServeConfig,
@@ -456,10 +463,17 @@ impl<A: AdmissionAuthority> Server<A> {
         authority: Arc<A>,
     ) -> Result<Self, ServeError> {
         let mut allowlist = BTreeMap::new();
+        let mut skipped = Vec::new();
         for id in config.allowlist.iter() {
-            let key =
-                iroh_id(id).ok_or(ServeError::Config(ServeConfigError::InvalidAllowlistEntry))?;
-            allowlist.insert(key, id.clone());
+            match iroh_id(id) {
+                Some(key) => {
+                    allowlist.insert(key, id.clone());
+                }
+                None => skipped.push(id.clone()),
+            }
+        }
+        if allowlist.is_empty() {
+            return Err(ServeError::Config(ServeConfigError::InvalidAllowlistEntry));
         }
         let plan = plan_endpoint(&config.policy, Role::Serve).map_err(ServeError::Policy)?;
         let acked = match authority.lease() {
@@ -503,7 +517,15 @@ impl<A: AdmissionAuthority> Server<A> {
             endpoint_id,
             shared,
             shutdown: Arc::new(Notify::new()),
+            skipped,
         })
+    }
+
+    /// ⟨M08 W4 SEC-3b, S2-03⟩ The allowlist entries [`Self::bind`] skipped because they are
+    /// not endpoint keys (none are admitted), in allowlist order: the caller reports them.
+    #[must_use]
+    pub fn skipped_allowlist_entries(&self) -> &[IrohEndpointId] {
+        &self.skipped
     }
 
     /// This endpoint's ID.

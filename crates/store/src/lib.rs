@@ -2388,8 +2388,8 @@ mod tests {
         // ⟨rev7⟩ 0014 adds four defaulted columns, one table and two indexes.
         // M08 GRANT-LIVE: 0015 adds the generated live column and replaces the deadline index.
         // ⟨M08 U2b-3a⟩ 0016 adds one table and two partial indexes.
-        // ⟨M08 U2b-3b⟩ 0017 adds one table.
-        assert_eq!(migrations::SCHEMA_VERSION, 17);
+        // ⟨M08 U2b-3b⟩ 0017 adds one table. ⟨M08 W4 SEC-3b⟩ 0018 adds columns and indexes.
+        assert_eq!(migrations::SCHEMA_VERSION, 18);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"

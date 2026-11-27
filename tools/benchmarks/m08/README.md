@@ -56,6 +56,28 @@ asserts that the row and VM counts stay constant. Timing is reported separately
 because other activity on the machine can affect it. The longer release-build
 lifecycle soak runs separately.
 
+## Authority-history growth preflight
+
+Run `bash tools/benchmarks/m08/run-soak.sh --authority-history-growth` beside the
+grant-history preflight (M08 W4 SEC-3b; ADR-0006 §7.4 and ADR-0012 §7.4 as amended
+2026-11-27). It drives a runner's real store (a disposable file), operations, runner runtime
+and sync service, and a controller's real outbox, resynchronization and issuer barrier, in
+process, with a virtual clock. It needs Cargo and runs locally without SSH or a container.
+The design's paging parts are not in it (no paging in 1.0).
+
+Each simulated day, at a scaled `retention.operations` of one day (the floor): a grant is
+admitted and revoked by a delivered effect; 100 revokes of grant IDs the runner never held are
+delivered (past the cap of 256 per controller they are refused `BACKPRESSURE`, as a
+compromised controller's flood is); a pause the runner's owner lifts and both owners
+acknowledge; four widening requests that lapse; the controller's resynchronization; then the
+retention pass. 120 days, over 12,800 delivered events. It emits one JSON line per day: the
+history's row counts, the report frame's bytes, the database's and its log's bytes, and the
+resynchronization's time. It passes when every report frame is within 768 KiB and, from
+day 40 on (the cap, the 30-day window of a never-held grant's revoke, one retention day and a
+margin), no count passes its earlier peak, the database stays within 1.25× and the median
+resynchronization within 3× its earlier median. A 50-day short form
+(`authority_history_stays_flat_across_retention_cycles`) runs in every test run.
+
 ## Runs so far
 
 | Date | Build | Length | Result |

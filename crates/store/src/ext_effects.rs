@@ -21,9 +21,18 @@
 //!   the recorded acknowledgement.
 //! * **The runner's policy revisions** (`remote_policy_revisions`): one row per
 //!   `(scope, producer, revision)`, ordered by `runner_seq` (the runner's apply order). Two
-//!   controllers' equal revision numbers for one scope are two rows; nothing here replaces or
-//!   deletes a row, so no pause or cutoff disappears. A cutoff row keeps the owner's instant;
-//!   a redelivery of the same key with an earlier instant only shortens it.
+//!   controllers' equal revision numbers for one scope are two rows; nothing here replaces a
+//!   row, so no pause or cutoff disappears while it is in force. A cutoff row keeps the owner's
+//!   instant; a redelivery of the same key with an earlier instant only shortens it.
+//!   ⟨M08 W4 SEC-3b, R2⟩ An in-force row also stands for its producer's later effects of the
+//!   same scope and kind (coalesced: [`RevisionOutcome::Coalesced`], acknowledged against the
+//!   row's `runner_seq`, which is never assigned again after a prune).
+//! * ⟨M08 W4 SEC-3b; ADR-0006 §7.4 and ADR-0012 §7.4 as amended 2026-11-27⟩ **The runner's
+//!   history is bounded** (the section "bounding the runner's authority history" below): what
+//!   has no authority effect is capped ([`BARE_TOMBSTONES_PER_PRODUCER`],
+//!   [`BARE_TOMBSTONES_TOTAL`], [`UNMATCHED_REVISIONS_PER_PRODUCER`]), and the retention pass,
+//!   on safe time only, prunes tombstones, lifted revisions and acknowledgements on their
+//!   conditions ([`Txn::prune_runner_history`]). A revision in force is never pruned.
 //! * ⟨M06 W4; ADR-0012 §7.4 ⟨2026-11-21⟩, M06-W3-R02⟩ **The controller's lift
 //!   acknowledgements** (`remote_lift_acks`): one row per pause or cutoff effect of the
 //!   outbox whose lift the owner confirmed on this controller
@@ -259,6 +268,10 @@ pub enum RevisionOutcome {
     /// The row existed; the redelivered cutoff was earlier and shortened it, or it fired
     /// early under uncertain time and that is now recorded.
     Shortened(PolicyRevisionRecord),
+    /// ⟨M08 W4 SEC-3b, R2⟩ No row of this identity: the producer's in-force row of the same
+    /// scope and kind is its durable record (coalesced per `(producer, scope_key, kind)`;
+    /// [`Txn::record_remote_policy_revision`]). A cutoff earlier than that row's shortened it.
+    Coalesced(PolicyRevisionRecord),
 }
 
 impl RevisionOutcome {
@@ -268,7 +281,8 @@ impl RevisionOutcome {
         match self {
             RevisionOutcome::Recorded(r)
             | RevisionOutcome::Existing(r)
-            | RevisionOutcome::Shortened(r) => r,
+            | RevisionOutcome::Shortened(r)
+            | RevisionOutcome::Coalesced(r) => r,
         }
     }
 }
@@ -301,6 +315,12 @@ pub struct OutboxEffect {
     /// The runner's acknowledgement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ack: Option<EffectAck>,
+    /// ⟨M08 W4 SEC-3b, R2⟩ When a complete authority report of the runner first showed this
+    /// delivered pause or cutoff lifted ([`Txn::note_remote_lift_seen`]). Kept once set: the
+    /// runner may prune its lifted row afterwards (ADR-0012 §7.4 as amended 2026-11-27), and
+    /// the issuer's barrier then counts this instead (`lift_shown`). Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lift_seen_at: Option<Timestamp>,
 }
 
 /// What the controller last saw of a runner (module docs). An observation only.
@@ -626,24 +646,27 @@ impl Txn<'_> {
     ) -> Result<Vec<OutboxEffect>> {
         let mut stmt = self.tx.prepare(
             "SELECT environment, producer, effect_id, target_json, state, created_at,
-                    acknowledged_at, ack_json
+                    acknowledged_at, ack_json, lift_seen_at
              FROM remote_effect_outbox ORDER BY created_at, rowid",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
+                (
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                ),
                 r.get::<_, String>(4)?,
                 r.get::<_, String>(5)?,
                 r.get::<_, Option<String>>(6)?,
                 r.get::<_, Option<String>>(7)?,
+                r.get::<_, Option<String>>(8)?,
             ))
         })?;
         let mut out = Vec::new();
         for row in rows {
-            let (env, producer, effect, target, state, created, acked, ack) = row?;
+            let ((env, producer, effect, target), state, created, acked, ack, seen) = row?;
             let state: OutboxState = codec::enum_parse(&state)?;
             if pending_only && state != OutboxState::Pending {
                 continue;
@@ -666,9 +689,47 @@ impl Txn<'_> {
                 created_at: codec::parse_ts(&created)?,
                 acknowledged_at: acked.as_deref().map(codec::parse_ts).transpose()?,
                 ack: ack.as_deref().map(codec::parse_doc).transpose()?,
+                lift_seen_at: seen.as_deref().map(codec::parse_ts).transpose()?,
             });
         }
         Ok(out)
+    }
+
+    /// ⟨M08 W4 SEC-3b, R2⟩ A complete authority report of `environment`'s runner showed the
+    /// delivered pause or cutoff `key` (an acknowledged row of this controller's outbox)
+    /// lifted at `at`: record it once (module docs of [`OutboxEffect::lift_seen_at`]). Whether
+    /// it was recorded now; `false`, nothing written, for a row that is not an acknowledged
+    /// pause or cutoff of `environment`, or one already recorded.
+    pub fn note_remote_lift_seen(
+        &mut self,
+        environment: &EnvironmentId,
+        key: &EffectKey,
+        at: Timestamp,
+    ) -> Result<bool> {
+        if !matches!(
+            key.target,
+            EffectTarget::PolicyPause { .. } | EffectTarget::PolicyCutoff { .. }
+        ) {
+            return Ok(false);
+        }
+        let (kind, reference, generation) = key.columns()?;
+        let n = self.tx.execute(
+            "UPDATE remote_effect_outbox SET lift_seen_at = ?8
+             WHERE environment = ?1 AND producer = ?2 AND effect_id = ?3 AND target_kind = ?4
+               AND target_ref = ?5 AND target_generation = ?6 AND state = ?7
+               AND lift_seen_at IS NULL",
+            rusqlite::params![
+                environment.as_str(),
+                key.producer.as_str(),
+                key.effect.as_str(),
+                kind,
+                reference,
+                generation,
+                codec::enum_str(&OutboxState::Acknowledged)?,
+                codec::ts(at),
+            ],
+        )?;
+        Ok(n > 0)
     }
 
     /// ⟨M06 U4⟩ Record the runner's acknowledgement of an outbox effect: `pending →
@@ -823,10 +884,36 @@ impl Txn<'_> {
     pub fn record_remote_effect_ack(&mut self, ack: &EffectAck) -> Result<()> {
         let (kind, reference, generation) = ack.key.columns()?;
         let durable = match &ack.key.target {
-            EffectTarget::GrantRevoke { grant, .. } => self.tombstone(grant)?.is_some(),
-            EffectTarget::PolicyPause { .. } | EffectTarget::PolicyCutoff { .. } => self
-                .remote_policy_revision(&reference, &ack.key.producer, ack.key.target.generation())?
-                .is_some_and(|r| r.effect == ack.key.effect),
+            // ⟨M08 W4 SEC-3b, R1⟩ Or the grant's `revoked` row, once the retention pass pruned
+            // its known tombstone: terminal and absorbing, and `denied_ancestor` denies by it,
+            // so a late redelivery converges on it.
+            EffectTarget::GrantRevoke { grant, .. } => {
+                self.tombstone(grant)?.is_some()
+                    || self
+                        .grant(grant)?
+                        .is_some_and(|g| g.state == heimdall_contract::GrantState::Revoked)
+            }
+            EffectTarget::PolicyPause { .. } | EffectTarget::PolicyCutoff { .. } => {
+                match self.remote_policy_revision(
+                    &reference,
+                    &ack.key.producer,
+                    ack.key.target.generation(),
+                )? {
+                    Some(r) => r.effect == ack.key.effect,
+                    // ⟨M08 W4 SEC-3b, R2⟩ Coalesced: the row the acknowledgement names (its
+                    // `runner_seq`), of the same producer, scope and kind.
+                    None => match &ack.record {
+                        AppliedRecord::PolicyRevision { runner_seq, .. } => self
+                            .remote_policy_revision_at(*runner_seq)?
+                            .is_some_and(|r| {
+                                r.producer == ack.key.producer
+                                    && r.scope_key == reference
+                                    && Some(r.kind) == revision_kind(&ack.key.target)
+                            }),
+                        AppliedRecord::GrantTombstone { .. } => false,
+                    },
+                }
+            }
             _ => false,
         };
         if !durable {
@@ -930,13 +1017,56 @@ impl Txn<'_> {
                 _ => Ok(RevisionOutcome::Existing(stored)),
             };
         }
+        // ⟨M08 W4 SEC-3b, R2; ADR-0012 §7.4 as amended 2026-11-27⟩ Coalesced per `(producer,
+        // scope_key, kind)`: the producer's in-force row of the same scope and kind is this
+        // effect's durable record too, so no second row is written. Only ever narrower: a
+        // cutoff earlier than the row's shortens it, and an early fire is kept.
+        if let Some(mut existing) =
+            self.in_force_remote_revision(&row.producer, &row.scope_key, row.kind)?
+        {
+            let cutoff_at = match (existing.cutoff_at, row.cutoff_at) {
+                (Some(old), Some(new)) => Some(old.min(new)),
+                (old, _) => old,
+            };
+            let fired_uncertain_at = match (existing.fired_uncertain_at, row.fired_uncertain_at) {
+                (Some(old), Some(new)) => Some(old.min(new)),
+                (old, new) => old.or(new),
+            };
+            if cutoff_at != existing.cutoff_at || fired_uncertain_at != existing.fired_uncertain_at
+            {
+                existing.cutoff_at = cutoff_at;
+                existing.fired_uncertain_at = fired_uncertain_at;
+                self.tx.execute(
+                    "UPDATE remote_policy_revisions SET record_json = ?4
+                     WHERE scope_key = ?1 AND producer = ?2 AND revision = ?3",
+                    rusqlite::params![
+                        existing.scope_key,
+                        existing.producer.as_str(),
+                        codec::int(existing.revision)?,
+                        codec::doc(&existing)?,
+                    ],
+                )?;
+            }
+            return Ok(RevisionOutcome::Coalesced(existing));
+        }
+        // ⟨M08 W4 SEC-3b⟩ The runner's order never reuses a number: the highest ever assigned
+        // is kept apart from the rows, which the retention pass may prune.
         let last: i64 = self.tx.query_row(
             "SELECT COALESCE(max(runner_seq), 0) FROM remote_policy_revisions",
             [],
             |r| r.get(0),
         )?;
+        let kept = self
+            .meta(META_REMOTE_POLICY_SEQ)?
+            .map(|v| {
+                v.parse::<u64>()
+                    .map_err(|_| corrupt("the policy revision order is malformed"))
+            })
+            .transpose()?
+            .unwrap_or(0);
         let mut stored = row.clone();
-        stored.runner_seq = codec::uint(last)?.saturating_add(1);
+        stored.runner_seq = codec::uint(last)?.max(kept).saturating_add(1);
+        self.set_meta(META_REMOTE_POLICY_SEQ, &stored.runner_seq.to_string())?;
         // A delivered effect is in force from its apply on, whatever the caller's row says.
         stored.in_force = true;
         self.tx.execute(
@@ -1279,6 +1409,517 @@ impl Txn<'_> {
     }
 }
 
+// --- ⟨M08 W4 SEC-3b⟩ bounding the runner's authority history ---------------------------------
+//
+// ADR-0006 §7.4 and ADR-0012 §7.4 as amended 2026-11-27, on the orchestrator's ruling of
+// 2026-11-26 (R1 to R3 and the override). Pruning runs only in the retention pass, on time the
+// time gate accepted (`heimdall_app::Operations::tick`), and only on a runner. The caps hold
+// only what has no authority effect on this runner: a narrowing that has one is never refused.
+
+/// ⟨M08 W4 SEC-3b, R1⟩ The most bare delivered tombstones (a delivered `grant_revoke` naming a
+/// grant this runner does not hold: [`Txn::record_bare_tombstone`]) one producing controller
+/// may have at once. Past it a new one is refused `BACKPRESSURE`: it has no authority effect
+/// here, and the effect stays in that controller's outbox, so its barrier stays closed.
+pub const BARE_TOMBSTONES_PER_PRODUCER: usize = 256;
+
+/// ⟨M08 W4 SEC-3b, R1⟩ The most bare delivered tombstones of every producer together.
+pub const BARE_TOMBSTONES_TOTAL: usize = 1024;
+
+/// ⟨M08 W4 SEC-3b, R2⟩ The most in-force delivered policy revisions of one producer whose
+/// scope matches nothing on this runner ([`Txn::remote_scope_matches`]). Past it a new one is
+/// refused `BACKPRESSURE`; a revision whose scope matches a runner object is never refused.
+pub const UNMATCHED_REVISIONS_PER_PRODUCER: usize = 256;
+
+/// ⟨M08 W4 SEC-3b, R1⟩ The longest window any grant may have, for a bare tombstone's
+/// lifetime (`revoked_at` + this + `retention.operations`). The contract states no absolute
+/// maximum for a grant's window (`session.max_window` has no upper bound, and a runner's own
+/// configured window is not used, by ruling), so this is the design's 30-day fallback.
+pub const GRANT_WINDOW_FALLBACK: std::time::Duration =
+    std::time::Duration::from_secs(30 * 24 * 60 * 60);
+
+/// ⟨M08 W4 SEC-3b⟩ The meta key of the runner's policy-revision order: the highest
+/// `runner_seq` ever assigned, so a pruned row's number is never assigned again.
+pub const META_REMOTE_POLICY_SEQ: &str = "remote_policy_seq";
+
+/// ⟨M08 W4 SEC-3b, R1⟩ The condition (on alias `t`) of a **bare delivered tombstone**: no grant
+/// row for its ID, and an explicit revoke (a delivered `grant_revoke`'s cause; a missing cause
+/// reads `revoke`). Another installation's tombstones (a controller's `authority_withdrawn` ones
+/// for its runners' grants) are never counted or pruned as these.
+const BARE_DELIVERED: &str = "NOT EXISTS (SELECT 1 FROM grants g WHERE g.id = t.grant_id) \
+     AND COALESCE(json_extract(t.record_json, '$.cause'), 'revoke') = 'revoke'";
+
+/// The SQL condition (on `record_json`) of a revision row that is in force (the flag is omitted
+/// when true, so a missing one reads in force: fail closed).
+const IN_FORCE: &str = "COALESCE(json_extract(record_json, '$.in_force'), 1) <> 0";
+
+/// The revision kind a pause or cutoff target delivers.
+fn revision_kind(target: &EffectTarget) -> Option<PolicyRevisionKind> {
+    match target {
+        EffectTarget::PolicyPause { .. } => Some(PolicyRevisionKind::Pause),
+        EffectTarget::PolicyCutoff { .. } => Some(PolicyRevisionKind::Cutoff),
+        _ => None,
+    }
+}
+
+/// What [`Txn::record_bare_tombstone`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BareTombstone {
+    /// A new bare tombstone, attributed to the producer.
+    Recorded(Tombstone),
+    /// The grant was already tombstoned: that tombstone stands, nothing written.
+    Existing(Tombstone),
+    /// The runner holds a grant of that ID: not bare (the caller revokes it), nothing written.
+    Held,
+    /// A cap was reached ([`BARE_TOMBSTONES_PER_PRODUCER`], [`BARE_TOMBSTONES_TOTAL`]): nothing
+    /// written.
+    Capped,
+}
+
+/// What one retention pass over the runner's authority history removed
+/// ([`Txn::prune_runner_history`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HistoryPruned {
+    /// Known-grant tombstones (R1).
+    pub known_tombstones: usize,
+    /// Bare delivered tombstones (R1).
+    pub bare_tombstones: usize,
+    /// Lifted policy revisions (R2).
+    pub policy_revisions: usize,
+    /// Effect acknowledgements (R3).
+    pub effect_acks: usize,
+}
+
+/// `at` moved back by `span` (the Unix epoch when it would go before it).
+fn before(at: Timestamp, span: std::time::Duration) -> Timestamp {
+    jiff::SignedDuration::try_from(span)
+        .ok()
+        .and_then(|d| at.checked_sub(d).ok())
+        .unwrap_or(Timestamp::UNIX_EPOCH)
+}
+
+/// `at` moved forward by `span` (the far future when it would overflow).
+fn after(at: Timestamp, span: std::time::Duration) -> Timestamp {
+    jiff::SignedDuration::try_from(span)
+        .ok()
+        .and_then(|d| at.checked_add(d).ok())
+        .unwrap_or(Timestamp::MAX)
+}
+
+impl Txn<'_> {
+    /// ⟨M08 W4 SEC-3b⟩ The revision row with the runner's order number `runner_seq`.
+    pub fn remote_policy_revision_at(
+        &mut self,
+        runner_seq: u64,
+    ) -> Result<Option<PolicyRevisionRecord>> {
+        self.one_doc(
+            "SELECT record_json FROM remote_policy_revisions WHERE runner_seq = ?1",
+            rusqlite::params![codec::int(runner_seq)?],
+        )
+    }
+
+    /// ⟨M08 W4 SEC-3b, R2⟩ The producer's in-force revision row of `scope_key` and `kind`, if
+    /// any (the first in the runner's order: coalescing keeps one).
+    pub fn in_force_remote_revision(
+        &mut self,
+        producer: &ClientId,
+        scope_key: &str,
+        kind: PolicyRevisionKind,
+    ) -> Result<Option<PolicyRevisionRecord>> {
+        self.one_doc(
+            &format!(
+                "SELECT record_json FROM remote_policy_revisions
+                 WHERE producer = ?1 AND scope_key = ?2 AND kind = ?3 AND {IN_FORCE}
+                 ORDER BY runner_seq LIMIT 1"
+            ),
+            rusqlite::params![producer.as_str(), scope_key, codec::enum_str(&kind)?],
+        )
+    }
+
+    /// ⟨M08 W4 SEC-3b, R1⟩ The bare delivered tombstones of `producer`, and of every producer.
+    pub fn bare_tombstone_counts(&mut self, producer: &ClientId) -> Result<(usize, usize)> {
+        let mine: i64 = self.tx.query_row(
+            &format!(
+                "SELECT count(*) FROM tombstones t WHERE t.producer = ?1 AND {BARE_DELIVERED}"
+            ),
+            [producer.as_str()],
+            |r| r.get(0),
+        )?;
+        let all: i64 = self.tx.query_row(
+            &format!("SELECT count(*) FROM tombstones t WHERE {BARE_DELIVERED}"),
+            [],
+            |r| r.get(0),
+        )?;
+        Ok((
+            usize::try_from(mine).unwrap_or(usize::MAX),
+            usize::try_from(all).unwrap_or(usize::MAX),
+        ))
+    }
+
+    /// ⟨M08 W4 SEC-3b, R1⟩ Record the tombstone a delivered `grant_revoke` of `producer` names,
+    /// for a grant this runner does not hold (a bare tombstone), in this transaction: one
+    /// already there stands ([`BareTombstone::Existing`], always accepted: nothing grows); a
+    /// grant this runner holds is not bare ([`BareTombstone::Held`]: the caller revokes it, and
+    /// that is never capped); otherwise the caps are checked and the tombstone is written with
+    /// its producer, or nothing is ([`BareTombstone::Capped`]).
+    pub fn record_bare_tombstone(
+        &mut self,
+        tombstone: &Tombstone,
+        producer: &ClientId,
+    ) -> Result<BareTombstone> {
+        if let Some(t) = self.tombstone(&tombstone.grant)? {
+            return Ok(BareTombstone::Existing(t));
+        }
+        if self.grant(&tombstone.grant)?.is_some() {
+            return Ok(BareTombstone::Held);
+        }
+        let (mine, all) = self.bare_tombstone_counts(producer)?;
+        if mine >= BARE_TOMBSTONES_PER_PRODUCER || all >= BARE_TOMBSTONES_TOTAL {
+            return Ok(BareTombstone::Capped);
+        }
+        self.insert_tombstone(tombstone)?;
+        self.tx.execute(
+            "UPDATE tombstones SET producer = ?2 WHERE grant_id = ?1",
+            rusqlite::params![tombstone.grant.as_str(), producer.as_str()],
+        )?;
+        self.tombstone(&tombstone.grant)?
+            .map(BareTombstone::Recorded)
+            .ok_or_else(|| corrupt("a tombstone just written is missing"))
+    }
+
+    /// ⟨M08 W4 SEC-3b, R2⟩ Whether a delivered pause's or cutoff's `scope` matches a runner
+    /// object, as the runner applies it: a policy of that ID, a policy of that profile or
+    /// workspace, and `all` always (one coalesced row per producer, never refused). A scope
+    /// this build does not know matches nothing.
+    pub fn remote_scope_matches(&mut self, scope: &PolicyTarget) -> Result<bool> {
+        Ok(match scope {
+            PolicyTarget::Policy { policy_id } => self.policy(policy_id)?.is_some(),
+            PolicyTarget::Profile { profile } => {
+                self.policies()?.iter().any(|p| p.profile == *profile)
+            }
+            PolicyTarget::Workspace { workspace } => self
+                .policies()?
+                .iter()
+                .any(|p| p.workspace.as_ref() == Some(workspace)),
+            PolicyTarget::All => true,
+            _ => false,
+        })
+    }
+
+    /// ⟨M08 W4 SEC-3b, R2⟩ The producer's in-force revision rows whose scope matches nothing on
+    /// this runner now ([`UNMATCHED_REVISIONS_PER_PRODUCER`] caps them).
+    pub fn unmatched_in_force_revisions(&mut self, producer: &ClientId) -> Result<usize> {
+        let rows: Vec<PolicyRevisionRecord> = self.docs(
+            &format!(
+                "SELECT record_json FROM remote_policy_revisions WHERE producer = ?1 AND {IN_FORCE}"
+            ),
+            [producer.as_str()],
+        )?;
+        let mut unmatched = 0usize;
+        for row in rows {
+            if !self.remote_scope_matches(&row.scope)? {
+                unmatched += 1;
+            }
+        }
+        Ok(unmatched)
+    }
+
+    /// ⟨M08 W4 SEC-3b, R2⟩ Whether recording `row` would add a new in-force row whose scope
+    /// matches nothing here while `producer` is at [`UNMATCHED_REVISIONS_PER_PRODUCER`]: the
+    /// only case a delivered pause or cutoff is refused (`BACKPRESSURE`). A redelivery of an
+    /// existing identity, one coalesced into an in-force row, and one whose scope matches a
+    /// runner object never are.
+    pub fn unmatched_revision_capped(&mut self, row: &PolicyRevisionRecord) -> Result<bool> {
+        if self
+            .remote_policy_revision(&row.scope_key, &row.producer, row.revision)?
+            .is_some()
+            || self
+                .in_force_remote_revision(&row.producer, &row.scope_key, row.kind)?
+                .is_some()
+            || self.remote_scope_matches(&row.scope)?
+        {
+            return Ok(false);
+        }
+        Ok(self.unmatched_in_force_revisions(&row.producer)? >= UNMATCHED_REVISIONS_PER_PRODUCER)
+    }
+
+    /// ⟨M08 W4 SEC-3b, R2⟩ The producing controller `producer` went on, in the session it was
+    /// served a complete authority report in, after that report showed its revisions `shown`
+    /// (`(scope_key, revision)`) lifted: the runner's evidence that the controller recorded
+    /// each lift (`remote_effect_outbox.lift_seen_at`). Each row still lifted gets its
+    /// confirmation once, at `at`. The number confirmed now.
+    pub fn confirm_remote_lifts(
+        &mut self,
+        producer: &ClientId,
+        shown: &[(String, u64)],
+        at: Timestamp,
+    ) -> Result<usize> {
+        let mut n = 0usize;
+        for (scope_key, revision) in shown {
+            n += self.tx.execute(
+                &format!(
+                    "UPDATE remote_policy_revisions SET lift_confirmed_at = ?4
+                     WHERE producer = ?1 AND scope_key = ?2 AND revision = ?3
+                       AND lift_confirmed_at IS NULL AND NOT ({IN_FORCE})"
+                ),
+                rusqlite::params![
+                    producer.as_str(),
+                    scope_key,
+                    codec::int(*revision)?,
+                    codec::ts(at)
+                ],
+            )?;
+        }
+        Ok(n)
+    }
+
+    /// ⟨M08 W4 SEC-3b; R1 to R3⟩ One retention pass over the runner's authority history, at
+    /// `now`, the time the caller's time gate accepted (never under `TIME_UNCERTAIN`), with
+    /// `retention` = `retention.operations`. `live`: the grants the runner's memory still holds
+    /// a key or a certificate for; `None` when it cannot say, and then no known-grant tombstone
+    /// is pruned. Only a runner's store is pruned (a store whose own environment is not a remote
+    /// runner is left as it is).
+    ///
+    /// * **R1, a known-grant tombstone** goes only when its grant's row is `revoked` (terminal;
+    ///   `denied_ancestor` denies by it, through every descendant), `now` ≥ the latest deadline
+    ///   of the grant and every descendant plus `retention`, every descendant is terminal, and
+    ///   nothing live remains for any of them: no key or certificate (`live`), no unreleased
+    ///   binding, grant reference, held slot, slot reference or owned connection. The
+    ///   controller's issuance log is another store's and is never touched.
+    /// * **R1, a bare delivered tombstone** goes at `revoked_at` + [`GRANT_WINDOW_FALLBACK`] +
+    ///   `retention`.
+    /// * **R2, a policy revision in force is never pruned.** A lifted one first gets its
+    ///   `lifted_at` (this pass's time), then goes `retention` after its lift was confirmed by
+    ///   its producer ([`Self::confirm_remote_lifts`]), or after its producer was revoked
+    ///   (the later of the lift and the revocation).
+    /// * **R3, acknowledgements:** a `grant_revoke`'s goes `retention` after it was applied, or
+    ///   once its producer is revoked, or once the grant has no tombstone; a pause's or
+    ///   cutoff's never while the row it names is in force, and goes with that row, or
+    ///   `retention` after it was applied once the row is lifted.
+    pub fn prune_runner_history(
+        &mut self,
+        now: Timestamp,
+        retention: std::time::Duration,
+        live: Option<&std::collections::BTreeSet<GrantId>>,
+    ) -> Result<HistoryPruned> {
+        use heimdall_domain::environment::EnvironmentKind;
+        let runner = match self.self_environment()? {
+            Some(id) => self
+                .environment(&id)?
+                .is_some_and(|e| e.kind == EnvironmentKind::RemoteRunner),
+            None => false,
+        };
+        if !runner {
+            return Ok(HistoryPruned::default());
+        }
+        let mut pruned = HistoryPruned::default();
+        let horizon = before(now, retention);
+        // R1: bare delivered tombstones.
+        let bare_horizon = before(horizon, GRANT_WINDOW_FALLBACK);
+        pruned.bare_tombstones = self.tx.execute(
+            &format!("DELETE FROM tombstones AS t WHERE {BARE_DELIVERED} AND t.revoked_at <= ?1"),
+            [codec::ts(bare_horizon)],
+        )?;
+        // R1: known-grant tombstones.
+        if let Some(live) = live {
+            let known: Vec<String> = {
+                let mut stmt = self.tx.prepare(
+                    "SELECT t.grant_id FROM tombstones t
+                     JOIN grants g ON g.id = t.grant_id
+                     WHERE g.state = ?1 ORDER BY t.generation",
+                )?;
+                let rows = stmt.query_map(
+                    [codec::enum_str(&heimdall_contract::GrantState::Revoked)?],
+                    |r| r.get::<_, String>(0),
+                )?;
+                rows.collect::<std::result::Result<_, _>>()?
+            };
+            for id in known {
+                let grant = GrantId::parse(&id)
+                    .map_err(|_| corrupt("a tombstone names a malformed grant"))?;
+                if self.known_tombstone_prunable(&grant, now, retention, live)? {
+                    pruned.known_tombstones += self
+                        .tx
+                        .execute("DELETE FROM tombstones WHERE grant_id = ?1", [id.as_str()])?;
+                }
+            }
+        }
+        // R2: lifted revisions get their lift's time, then go once confirmed or orphaned.
+        self.tx.execute(
+            &format!(
+                "UPDATE remote_policy_revisions SET lifted_at = ?1
+                 WHERE lifted_at IS NULL AND NOT ({IN_FORCE})"
+            ),
+            [codec::ts(now)],
+        )?;
+        let lifted: Vec<(String, String, i64, Option<String>, String)> = {
+            let mut stmt = self.tx.prepare(&format!(
+                "SELECT scope_key, producer, revision, lift_confirmed_at, lifted_at
+                 FROM remote_policy_revisions WHERE NOT ({IN_FORCE}) AND lifted_at IS NOT NULL"
+            ))?;
+            let rows = stmt.query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        for (scope_key, producer, revision, confirmed, lifted_at) in lifted {
+            let lifted_at = codec::parse_ts(&lifted_at)?;
+            let producer_id = ClientId::parse(&producer)
+                .map_err(|_| corrupt("a policy revision names a malformed producer"))?;
+            let due = match self.revoked_since(&producer_id)? {
+                // Revoked (or gone): it can never confirm; the later of the two instants.
+                Some(revoked_at) => lifted_at.max(revoked_at) <= horizon,
+                None => match confirmed {
+                    Some(c) => codec::parse_ts(&c)? <= horizon,
+                    None => false,
+                },
+            };
+            if due {
+                pruned.policy_revisions += self.tx.execute(
+                    "DELETE FROM remote_policy_revisions
+                     WHERE scope_key = ?1 AND producer = ?2 AND revision = ?3",
+                    rusqlite::params![scope_key, producer, revision],
+                )?;
+            }
+        }
+        // R3: acknowledgements.
+        pruned.effect_acks = self.prune_effect_acks(horizon)?;
+        Ok(pruned)
+    }
+
+    /// When `client` was revoked on this runner (its record's last change), or the Unix epoch
+    /// when there is no record of it; `None` while it is not revoked.
+    fn revoked_since(&mut self, client: &ClientId) -> Result<Option<Timestamp>> {
+        Ok(match self.remote_client(client)? {
+            None => Some(Timestamp::UNIX_EPOCH),
+            Some(c) if c.state == crate::ext_m06::ClientState::Revoked => Some(c.updated_at),
+            Some(_) => None,
+        })
+    }
+
+    /// R1's conditions for one known-grant tombstone (doc of [`Self::prune_runner_history`]).
+    fn known_tombstone_prunable(
+        &mut self,
+        grant: &GrantId,
+        now: Timestamp,
+        retention: std::time::Duration,
+        live: &std::collections::BTreeSet<GrantId>,
+    ) -> Result<bool> {
+        let Some(root) = self.grant(grant)? else {
+            return Ok(false);
+        };
+        if root.state != heimdall_contract::GrantState::Revoked {
+            return Ok(false);
+        }
+        let mut family = vec![root.clone()];
+        let mut ids: std::collections::BTreeSet<GrantId> =
+            self.grant_descendants(grant)?.into_iter().collect();
+        if let Some(t) = self.tombstone(grant)? {
+            ids.extend(t.cascade);
+        }
+        for id in &ids {
+            match self.grant(id)? {
+                Some(g) if g.state.is_terminal() => family.push(g),
+                // A descendant that is still live, or one this store cannot read: kept.
+                _ => return Ok(false),
+            }
+        }
+        let latest = family
+            .iter()
+            .map(|g| g.deadline.effective)
+            .max()
+            .unwrap_or(root.deadline.effective);
+        if now < after(latest, retention) {
+            return Ok(false);
+        }
+        for g in &family {
+            if live.contains(&g.id) || self.grant_residue(&g.id)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// Whether anything of `grant` is still live in the store: an unreleased binding, a grant
+    /// reference, a slot held for one of its bindings, a slot reference, or an owned
+    /// connection that is not closed.
+    fn grant_residue(&mut self, grant: &GrantId) -> Result<bool> {
+        let n: i64 = self.tx.query_row(
+            "SELECT
+                 (SELECT count(*) FROM bindings WHERE grant_id = ?1 AND released_at IS NULL)
+               + (SELECT count(*) FROM grant_references WHERE grant_id = ?1)
+               + (SELECT count(*) FROM managed_slots s JOIN bindings b ON b.id = s.binding_id
+                  WHERE b.grant_id = ?1 AND s.state <> 'free')
+               + (SELECT count(*) FROM slot_references r JOIN bindings b ON b.id = r.binding_id
+                  WHERE b.grant_id = ?1)
+               + (SELECT count(*) FROM owned_connections WHERE grant_id = ?1 AND state <> 'closed')",
+            [grant.as_str()],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    }
+
+    /// R3 (doc of [`Self::prune_runner_history`]); `horizon` is `now` − retention.
+    fn prune_effect_acks(&mut self, horizon: Timestamp) -> Result<usize> {
+        let rows: Vec<(String, String, String, String, i64, String, String)> = {
+            let mut stmt = self.tx.prepare(
+                "SELECT producer, effect_id, target_kind, target_ref, target_generation,
+                        applied_at, ack_json
+                 FROM remote_effect_acks",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                ))
+            })?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        let mut n = 0usize;
+        for (producer, effect, kind, reference, generation, applied_at, ack_json) in rows {
+            let applied_due = codec::parse_ts(&applied_at)? <= horizon;
+            let ack: EffectAck = codec::parse_doc(&ack_json)?;
+            let due = match &ack.record {
+                AppliedRecord::GrantTombstone { grant, .. } => {
+                    applied_due
+                        || self.revoked_since(&ack.key.producer)?.is_some()
+                        || self.tombstone(grant)?.is_none()
+                }
+                AppliedRecord::PolicyRevision { runner_seq, .. } => {
+                    // The row the acknowledgement names: its own, else the one it was
+                    // coalesced into.
+                    let row = match self.remote_policy_revision(
+                        &reference,
+                        &ack.key.producer,
+                        ack.key.target.generation(),
+                    )? {
+                        Some(r) if r.effect == ack.key.effect => Some(r),
+                        _ => self.remote_policy_revision_at(*runner_seq)?,
+                    };
+                    match row {
+                        None => true,
+                        Some(r) if r.in_force => false,
+                        Some(_) => applied_due,
+                    }
+                }
+            };
+            if due {
+                n += self.tx.execute(
+                    "DELETE FROM remote_effect_acks
+                     WHERE producer = ?1 AND effect_id = ?2 AND target_kind = ?3
+                       AND target_ref = ?4 AND target_generation = ?5",
+                    rusqlite::params![producer, effect, kind, reference, generation],
+                )?;
+            }
+        }
+        Ok(n)
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -1436,8 +2077,14 @@ mod tests {
             // A policy added to the scope later is not a lift of the delivered effect.
             tx.upsert_policy(&policy("later", false, false), false)?;
             assert_eq!(in_force(tx)?, vec![true]);
-            // A row whose acknowledgement was never recorded stays in force.
-            tx.record_remote_policy_revision(&cutoff_row(1, 2, 2, "2026-11-21T09:00:00Z"))?;
+            // A row whose acknowledgement was never recorded stays in force (another
+            // producer's row: ⟨M08 W4 SEC-3b, R2⟩ the same producer's next delivery of the same
+            // scope and kind, while its first is in force, is coalesced into that row).
+            tx.record_remote_policy_revision(&cutoff_row(2, 2, 2, "2026-11-21T09:00:00Z"))?;
+            assert_eq!(in_force(tx)?, vec![true, true]);
+            let coalesced =
+                tx.record_remote_policy_revision(&cutoff_row(1, 4, 4, "2026-11-21T09:00:00Z"))?;
+            assert!(matches!(coalesced, RevisionOutcome::Coalesced(ref r) if r.runner_seq == 1));
             assert_eq!(in_force(tx)?, vec![true, true]);
             Ok(())
         })

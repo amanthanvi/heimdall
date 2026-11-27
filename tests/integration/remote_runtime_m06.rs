@@ -299,6 +299,11 @@ impl Rig {
     /// Invite a fixture client directly through the invitation service (the executor of a
     /// runner-local decision): pending, with its line written.
     fn invite(&self, n: u8, role: Role) -> Invited {
+        self.invite_admitting(n, role, false)
+    }
+
+    /// [`Self::invite`], ⟨M08 W4 SEC-3b⟩ with the invitation's Iroh admission chosen.
+    fn invite_admitting(&self, n: u8, role: Role, iroh_admission: bool) -> Invited {
         let command = ServeCommand::new(HEIMDALL, HOME).unwrap();
         let (public_key, fp) = key(n);
         let done = self
@@ -309,7 +314,7 @@ impl Rig {
                     public_key: &public_key,
                     key_fingerprint: &fp,
                     lifetime: Duration::from_secs(900),
-                    iroh_admission: false,
+                    iroh_admission,
                 },
                 ManagementPolicy::Verified,
                 &self.now(),
@@ -2370,4 +2375,106 @@ async fn enroll_owner_is_attended_idempotent_and_never_replaces_an_endpoint() {
         heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED
     );
     assert_eq!(endpoints(&rig)[0].1.as_str(), ep_a);
+}
+
+/// ⟨M08 W4 SEC-3b, S2-03; ADR-0012 §2.3 item 1⟩ `join` and `rotate_endpoint` refuse an Iroh
+/// endpoint ID the Iroh library does not accept (64 lowercase hex characters whose 32 bytes
+/// are not an Ed25519 public key): `USAGE_ERROR`, effect none, and nothing is recorded, so no
+/// client (a limited one included) can put an entry in the serve allowlist that would stop
+/// the serve child for every client. A valid endpoint is recorded, and rotated, as before.
+/// Feature `iroh` only: without the Iroh library the contract's parser is all there is.
+#[cfg(feature = "iroh")]
+#[tokio::test]
+async fn join_and_rotate_endpoint_refuse_an_endpoint_iroh_does_not_accept() {
+    use heimdall_contract::ids::IrohEndpointId;
+    let rig = Rig::new(true).await;
+    let not_a_key = (0u8..=255)
+        .map(|b| IrohEndpointId::parse(&format!("{b:02x}").repeat(32)).unwrap())
+        .find(|id| !heimdall_runtime::paired::iroh_endpoint_ok(id))
+        .expect("some repeated-byte string is not a curve point");
+    // Two RFC 8032 test-vector public keys: endpoint IDs the Iroh library accepts.
+    let (ep_a, ep_b) = (
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+    );
+    let endpoints = |rig: &Rig| {
+        rig.store
+            .transaction(|tx| tx.remote_client_endpoints())
+            .unwrap()
+    };
+    let inv = rig.invite_admitting(41, Role::Viewer, true);
+    let join_with = |endpoint: &str| {
+        let mut v = serde_json::to_value(join_request(&inv.join)).unwrap();
+        v["iroh_endpoint"] = endpoint.into();
+        serde_json::from_value::<Request>(v).unwrap()
+    };
+    let mut pending = rig
+        .connect(hello(
+            Some(&inv.client),
+            &[capability::REMOTE_CONTROL_V1],
+            false,
+        ))
+        .await
+        .unwrap();
+    let probe = pending
+        .request(req(&format!(
+            r#"{{"op":"remote_environment","action":"activation_probe","environment":"{}","nonce":"{}"}}"#,
+            rig.environment, inv.nonce
+        )))
+        .await
+        .unwrap();
+    assert_eq!(probe.code, Code::Ok, "{probe:?}");
+    // The join naming an endpoint Iroh refuses: refused, nothing joined or recorded.
+    let env = pending
+        .request(join_with(not_a_key.as_str()))
+        .await
+        .unwrap();
+    assert_eq!(env.code, Code::UsageError, "join: {env:?}");
+    assert!(
+        endpoints(&rig).is_empty(),
+        "join recorded {:?}",
+        endpoints(&rig)
+    );
+    let state = |rig: &Rig| {
+        rig.store
+            .transaction(|tx| tx.remote_client(&inv.client))
+            .unwrap()
+            .unwrap()
+            .state
+    };
+    assert_eq!(state(&rig), ClientState::Pending);
+    // The same join with a valid endpoint: joined and recorded.
+    let env = pending.request(join_with(ep_a)).await.unwrap();
+    assert_eq!(env.code, Code::Ok, "join: {env:?}");
+    assert_eq!(state(&rig), ClientState::Active);
+    assert_eq!(
+        endpoints(&rig),
+        vec![(inv.client.clone(), IrohEndpointId::parse(ep_a).unwrap())]
+    );
+    // A rotation to an endpoint Iroh refuses: refused, the recorded one kept.
+    let mut active = rig
+        .connect(hello(Some(&inv.client), &[], false))
+        .await
+        .unwrap();
+    let rotate = |endpoint: &str| {
+        req(&format!(
+            r#"{{"op":"remote_environment","action":"rotate_endpoint","environment":"{}","endpoint":"{endpoint}"}}"#,
+            rig.environment
+        ))
+    };
+    let env = active.request(rotate(not_a_key.as_str())).await.unwrap();
+    assert_eq!(env.code, Code::UsageError, "rotate: {env:?}");
+    assert_eq!(
+        endpoints(&rig),
+        vec![(inv.client.clone(), IrohEndpointId::parse(ep_a).unwrap())]
+    );
+    // A rotation to a valid endpoint: replaced.
+    let env = active.request(rotate(ep_b)).await.unwrap();
+    assert_eq!(env.code, Code::Ok, "rotate: {env:?}");
+    assert_eq!(env.data["change"], "replaced", "{env:?}");
+    assert_eq!(
+        endpoints(&rig),
+        vec![(inv.client.clone(), IrohEndpointId::parse(ep_b).unwrap())]
+    );
+    rig.stop().await;
 }

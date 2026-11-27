@@ -54,7 +54,12 @@ pub struct Rig {
 }
 
 pub async fn rig() -> Rig {
-    let w = world();
+    rig_with(world(), Limits::default()).await
+}
+
+/// ⟨M08 W4 SEC-3b⟩ [`rig`] over the world `w`, with the runner's operations limits `limits`
+/// (a shorter `operation_retention` for the history-growth workload).
+pub async fn rig_with(w: World, limits: Limits) -> Rig {
     // The runner's own environment permits automatic work under its standing policies (the
     // owner's setup choice on a real runner), so the fixture grant's re-validation holds and
     // a narrowing shows only its own effect.
@@ -78,7 +83,7 @@ pub async fn rig() -> Rig {
         environment: w.env.clone(),
         adapters: Vec::new(),
         stage_hook: Arc::new(NoStageHook),
-        limits: Limits::default(),
+        limits,
         default_window: 12 * HOUR,
         projection: None,
     })
