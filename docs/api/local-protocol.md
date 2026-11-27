@@ -111,6 +111,15 @@ server offers. Require only what the client needs, put every required
 capability in its offer, and check all required capabilities were negotiated.
 An optionally offered unknown capability can be left out of the intersection.
 A missing required capability or unsupported version is `SCHEMA_UNSUPPORTED`.
+After the hello, a request or subscription that needs a capability the session
+did not negotiate is refused `SCHEMA_UNSUPPORTED` with effect `none` and never
+runs. `inspect capabilities` needs `schema-discovery/1`. `subscribe` and
+`observe` of `events` need `events/1`. The `pause`, `resume`, `cutoff` and
+`clear_cutoff` policy actions need `owner-policy/1`. Offer each capability your
+client uses. A paired session whose role cannot hold the capability gets
+`CAPABILITY_UNAVAILABLE` with reason `role_insufficient` (`invitation_pending`
+while its invitation is pending) instead. See
+[ADR-0006 §2.4 and §19.10][baseline].
 A malformed hello can receive `USAGE_ERROR`. A rejected hello has
 `type: "reject"` and the error envelope fields **at the top level**, followed by
 connection closure. A `goodbye` frame has `code` and `message` and ends the

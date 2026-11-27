@@ -19,9 +19,13 @@
 //!   not dispatched. At most `max_subscriptions` subscriptions exist; the excess
 //!   subscribe is answered `BACKPRESSURE`.
 //! * A request that needs a capability beyond `operations/1`
-//!   (`Request::required_capability`: `Shutdown` needs `service-control/1`) is
+//!   (`Request::required_capabilities`: `Shutdown` needs `service-control/1`) is
 //!   answered `SCHEMA_UNSUPPORTED` and never dispatched unless the session
-//!   negotiated that capability (ADR-0006 §2.4, §13.6 item 8). After each
+//!   negotiated that capability (ADR-0006 §2.4, §13.6 item 8); so is a `Subscribe`
+//!   without `events/1` (⟨M07 W10 S2-08⟩). Authorization comes first (ADR-0006 §19.10):
+//!   a capability the session's role or pending invitation cannot hold at all is refused
+//!   `CAPABILITY_UNAVAILABLE` with reason `role_insufficient` or `invitation_pending`
+//!   instead, never dispatched either. After each
 //!   dispatched request's response is written, [`Dispatcher::replied`] runs (the
 //!   runtime starts a requested drain there).
 //! * ⟨M08 U2b-2; ADR-0014 H13⟩ A request frame's `request_epoch` is accepted only on a
@@ -103,7 +107,7 @@ use heimdall_contract::envelope::{
     EffectStatus, Envelope, ErrorData, ErrorDetail, NextAction, reason,
 };
 use heimdall_contract::event::{Cursor, Event, EventFilter, EventType, MAX_CURSOR_LEN, Snapshot};
-use heimdall_contract::ids::{EnvironmentId, EventId};
+use heimdall_contract::ids::{EnvironmentId, EventId, RequestId};
 use heimdall_contract::ipc::{
     ClientHello, ClientMessage, EVENT_BUFFER_PER_SUBSCRIPTION, HELLO_TIMEOUT_MS,
     MAX_CONTROL_FRAME_BYTES, MAX_HELLO_FRAME_BYTES, MAX_SUBSCRIPTIONS_PER_CONNECTION, PeerInfo,
@@ -763,6 +767,84 @@ fn selects_unnegotiated(filter: &EventFilter, negotiated: &BTreeSet<String>) -> 
         .any(|c| !negotiated.contains(c))
 }
 
+/// ⟨M07 W10 S2-08; ADR-0006 §2.4, §19.10⟩ The answer to a request or subscription that needs
+/// a capability (`needed`) the session did not negotiate, or `None` when it negotiated every
+/// one. Authorization comes before capability, as at the hello ([`negotiate_session`]): when
+/// the session's role ([`capability::for_role`]; the local owner holds every capability) or
+/// its pending invitation ([`PENDING_CAPABILITIES`]) cannot hold a missing capability at all,
+/// the answer is ADR-0012's refusal, as the dispatcher's role check words it:
+/// `CAPABILITY_UNAVAILABLE` with reason `role_insufficient` (§3.8, T-RA4) or
+/// `invitation_pending` (§3.9 item 3). Only a capability the role holds and the session did
+/// not negotiate is `SCHEMA_UNSUPPORTED`. Either way, effect `none` and never dispatched.
+///
+/// `stamp` is what the dispatcher's request fence reports on every answer to a mutating
+/// request, its role refusals included (`heimdall_runtime::request_fence::RequestFence::
+/// binding`): the request ID, and the frame's epoch or else the runtime's. The role refusal
+/// carries it as the dispatcher's does.
+fn unnegotiated(
+    seq: u64,
+    needed: impl Iterator<Item = &'static str>,
+    negotiated: &BTreeSet<String>,
+    paired: Option<PairedBinding>,
+    stamp: Option<(Option<RequestId>, RestoreEpoch)>,
+) -> Option<ServerMessage> {
+    let missing: Vec<&str> = needed.filter(|c| !negotiated.contains(*c)).collect();
+    if missing.is_empty() {
+        return None;
+    }
+    let pending = paired.is_some_and(|p| p.pending);
+    let allowed: &[&str] = if pending {
+        &PENDING_CAPABILITIES
+    } else {
+        capability::for_role(paired.map_or(Role::Owner, |p| p.role))
+    };
+    if missing.iter().all(|c| allowed.contains(c)) {
+        return Some(response(
+            seq,
+            Code::SchemaUnsupported,
+            "this request needs a capability the session did not negotiate",
+        ));
+    }
+    // The wording of `heimdall_remote::roles::Refusal`, which the dispatcher answers.
+    let (message, why) = if pending {
+        (
+            "the client's invitation is pending: only the activation probe and join are accepted",
+            reason::INVITATION_PENDING,
+        )
+    } else {
+        (
+            "the client's role does not permit this request",
+            reason::ROLE_INSUFFICIENT,
+        )
+    };
+    let mut env = error_envelope(Code::CapabilityUnavailable, EffectStatus::None, message);
+    env.data.error.reason = Some(why.to_owned());
+    env.next = Some(env.data.error.next.clone());
+    if let Some((request_id, epoch)) = stamp {
+        env.request_id = request_id;
+        env.request_epoch = Some(epoch);
+    }
+    Some(ServerMessage::Response {
+        in_reply_to: seq,
+        envelope: to_value_envelope(env),
+    })
+}
+
+/// The request fence's stamp for `request` ([`unnegotiated`]): for a mutating request on a
+/// dispatcher that checks the epoch ([`Dispatcher::restore_epoch`]), its request ID and the
+/// frame's epoch, or else the runtime's.
+fn fence_stamp<D: Dispatcher + ?Sized>(
+    request: &Request,
+    frame_epoch: Option<RestoreEpoch>,
+    dispatcher: &D,
+) -> Option<(Option<RequestId>, RestoreEpoch)> {
+    if !request.is_effectful() {
+        return None;
+    }
+    let fenced = dispatcher.restore_epoch()?;
+    Some((request.request_id().cloned(), frame_epoch.unwrap_or(fenced)))
+}
+
 const UNNEGOTIATED_SELECTOR: &str =
     "an event type in the filter needs a capability the session did not negotiate";
 
@@ -1208,10 +1290,11 @@ where
                                 // ⟨M08 U2b-2; ADR-0014 H13⟩ An epoch on a session that did not
                                 // negotiate it is never dropped silently: refused, not dispatched.
                                 Some(response(seq, Code::SchemaUnsupported, "this request carries a restore epoch, which the session did not negotiate (request-epoch/1)"))
-                            } else if request.required_capabilities().any(|c| !negotiated.contains(c)) {
+                            } else if let Some(refused) = unnegotiated(seq, request.required_capabilities(), &negotiated, paired, fence_stamp(&request, request_epoch, dispatcher)) {
                                 // ADR-0006 §2.4, §13.6 item 8: a request outside the
-                                // negotiated capabilities is never dispatched.
-                                Some(response(seq, Code::SchemaUnsupported, "this request needs a capability the session did not negotiate"))
+                                // negotiated capabilities is never dispatched. ⟨M07 W10
+                                // S2-08; §19.10⟩ Refused by role first.
+                                Some(refused)
                             } else if let Request::Observe(ObserveRequest::Events { filter, .. }) = &request
                                 && selects_unnegotiated(filter, &negotiated)
                             {
@@ -1254,7 +1337,11 @@ where
                             }
                         }
                         ClientMessage::Subscribe { seq, filter, from_cursor } => {
-                            if from_cursor.as_ref().is_some_and(|c| c.0.len() > MAX_CURSOR_LEN) {
+                            if let Some(refused) = unnegotiated(seq, [capability::EVENTS_V1].into_iter(), &negotiated, paired, None) {
+                                // ⟨M07 W10 S2-08; ADR-0006 §2.4⟩ Subscriptions are `events/1`'s:
+                                // without it the subscribe is refused (by role first), never served.
+                                Some(refused)
+                            } else if from_cursor.as_ref().is_some_and(|c| c.0.len() > MAX_CURSOR_LEN) {
                                 Some(response(seq, Code::UsageError, "cursor exceeds the maximum length"))
                             } else if selects_unnegotiated(&filter, &negotiated) {
                                 // ⟨M06-W0-R10⟩
@@ -2533,6 +2620,286 @@ mod tests {
         let earlier =
             serde_json::json!({"type": "request", "seq": 1, "request": sent[0]["request"]});
         assert_eq!(sent[0], earlier);
+    }
+
+    // --- ⟨M07 W10 S2-08; ADR-0006 §2.4, §19.10⟩ the base capabilities, role first --------
+
+    /// What a dispatcher was asked: request kinds and subscribe count.
+    type Asked = Arc<std::sync::Mutex<(Vec<&'static str>, usize)>>;
+
+    /// A dispatcher that records every request it is handed and serves every subscription
+    /// from an empty snapshot. With `binding` it is a runner's (its offer adds
+    /// `remote-control/1`) that binds the hello's paired client to it.
+    struct Recorder {
+        asked: Asked,
+        live: broadcast::Sender<Arc<LiveEvent>>,
+        binding: Option<PairedBinding>,
+    }
+
+    #[async_trait::async_trait]
+    impl Dispatcher for Recorder {
+        async fn dispatch(&self, _: &SessionInfo, r: Request) -> Envelope<serde_json::Value> {
+            self.asked.lock().unwrap().0.push(r.kind());
+            Envelope::ok(serde_json::json!({}))
+        }
+        async fn subscribe(
+            &self,
+            _: &SessionInfo,
+            _: EventFilter,
+            _: Option<Cursor>,
+        ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>> {
+            self.asked.lock().unwrap().1 += 1;
+            Ok(SubscriptionStart {
+                cursor: Cursor("c0".into()),
+                boundary_seq: 0,
+                snapshot: None,
+                backlog: Vec::new(),
+                live: self.live.subscribe(),
+                cursor_for: Arc::new(|seq| Cursor(format!("c{seq}"))),
+            })
+        }
+        fn offered_capabilities(&self) -> BTreeSet<String> {
+            let mut offer = server_capabilities();
+            if self.binding.is_some() {
+                offer.insert(capability::REMOTE_CONTROL_V1.to_owned());
+            }
+            offer
+        }
+        fn bind_paired(
+            &mut self,
+            _: &ClientHello,
+        ) -> Result<PairedBinding, Box<Envelope<ErrorData>>> {
+            Ok(self.binding.unwrap())
+        }
+    }
+
+    /// A served session whose client offers exactly `offer`: the local owner's, or with
+    /// `binding` a paired client's.
+    async fn offering(
+        offer: BTreeSet<String>,
+        binding: Option<PairedBinding>,
+    ) -> (ControlClient<tokio::io::DuplexStream>, Asked) {
+        let (client_end, server_end) = tokio::io::duplex(1 << 20);
+        let asked: Asked = Arc::default();
+        let dispatcher = Recorder {
+            asked: Arc::clone(&asked),
+            live: broadcast::channel(4).0,
+            binding,
+        };
+        tokio::spawn(
+            ControlConnection::new(server_end, ConnectionLimits::default())
+                .with_server_identity(env(), srv())
+                .serve(
+                    PrincipalInfo::OsUserUnix { uid: 501 },
+                    dispatcher,
+                    CancellationToken::new(),
+                ),
+        );
+        let client = ControlClient::handshake_hello(
+            client_end,
+            ClientHello {
+                protocol: PROTOCOL_VERSION,
+                schema_version: SchemaVersion::current(),
+                client: srv(),
+                capabilities: offer,
+                required: BTreeSet::new(),
+                interaction: InteractionMode::NonInteractive,
+                remote_client: binding
+                    .map(|_| heimdall_contract::ids::ClientId::from_random_bytes([4; 16])),
+            },
+        )
+        .await
+        .unwrap();
+        (client, asked)
+    }
+
+    fn wire(v: &str) -> Request {
+        serde_json::from_str(v).unwrap()
+    }
+
+    /// The requests each base capability covers: the four policy actions ADR-0006 §2.4 names
+    /// (and a targeted one) for `owner-policy/1`; a snapshot and an event page for
+    /// `events/1`; `inspect capabilities` for `schema-discovery/1`.
+    fn covered(capability: &str) -> Vec<Request> {
+        let forms: &[&str] = match capability {
+            capability::OWNER_POLICY_V1 => &[
+                r#"{"op":"policy","action":"pause","policy_id":"p"}"#,
+                r#"{"op":"policy","action":"resume","policy_id":"p"}"#,
+                r#"{"op":"policy","action":"cutoff","policy_id":"p","at":"2026-10-02T10:00:00Z"}"#,
+                r#"{"op":"policy","action":"clear_cutoff","policy_id":"p"}"#,
+                r#"{"op":"policy","action":"clear_cutoff","target":{"kind":"policy","policy_id":"p"}}"#,
+            ],
+            capability::EVENTS_V1 => &[
+                r#"{"op":"observe","kind":"events","filter":{}}"#,
+                r#"{"op":"observe","kind":"events","filter":{},"cursor":"c1","limit":10}"#,
+            ],
+            _ => &[r#"{"op":"inspect","subject":"capabilities"}"#],
+        };
+        forms.iter().map(|f| wire(f)).collect()
+    }
+
+    const BASE: [&str; 3] = [
+        capability::OWNER_POLICY_V1,
+        capability::EVENTS_V1,
+        capability::SCHEMA_DISCOVERY_V1,
+    ];
+
+    fn refusal(env: &Envelope<serde_json::Value>) -> (Code, Option<String>, EffectStatus) {
+        let e: ErrorData = serde_json::from_value(env.data.clone()).unwrap();
+        (env.code.clone(), e.error.reason, e.error.effect_status)
+    }
+
+    fn subscribe_refusal(outcome: SubscribeOutcome) -> (Code, Option<String>, EffectStatus) {
+        match outcome {
+            SubscribeOutcome::Refused(env) => refusal(&env),
+            SubscribeOutcome::Subscribed { .. } => panic!("subscribed"),
+        }
+    }
+
+    /// S2-08: a session whose role holds `owner-policy/1`, `events/1` or `schema-discovery/1`
+    /// but which did not negotiate it is refused the requests it covers, and without
+    /// `events/1` its subscriptions, `SCHEMA_UNSUPPORTED` with effect `none`; nothing reaches
+    /// the dispatcher. The same session is still served what it negotiated, and with every
+    /// capability it is served as before. A `policy` action other than the four is not
+    /// gated on `owner-policy/1`.
+    #[tokio::test]
+    async fn a_base_capability_not_negotiated_refuses_its_requests_and_subscriptions() {
+        let unsupported = (Code::SchemaUnsupported, None, EffectStatus::None);
+        for missing in BASE {
+            let mut offer = server_capabilities();
+            assert!(offer.remove(missing), "{missing}");
+            let (mut c, asked) = offering(offer, None).await;
+            assert!(!c.server().capabilities.contains(missing));
+            for request in covered(missing) {
+                let kind = request.kind();
+                let env = c.request(request).await.unwrap();
+                assert_eq!(refusal(&env), unsupported, "{missing} {kind}");
+            }
+            let subscribed = c.subscribe(EventFilter::default(), None).await.unwrap();
+            if missing == capability::EVENTS_V1 {
+                assert_eq!(subscribe_refusal(subscribed), unsupported);
+                assert_eq!(asked.lock().unwrap().1, 0, "never subscribed");
+            } else {
+                assert!(matches!(subscribed, SubscribeOutcome::Subscribed { .. }));
+            }
+            assert!(
+                asked.lock().unwrap().0.is_empty(),
+                "{missing}: never dispatched"
+            );
+            // What the session did negotiate is still served.
+            let read = wire(r#"{"op":"inspect","subject":"destinations"}"#);
+            assert_eq!(c.request(read).await.unwrap().code, Code::Ok);
+            let lock = wire(
+                r#"{"op":"policy","action":"set_lock_behavior","policy_id":"p","behavior":"revoke_on_lock"}"#,
+            );
+            assert_eq!(c.request(lock).await.unwrap().code, Code::Ok);
+            assert_eq!(asked.lock().unwrap().0, ["inspect", "policy"]);
+        }
+        // With every capability: served as today.
+        let (mut c, asked) = offering(server_capabilities(), None).await;
+        let mut want = Vec::new();
+        for request in BASE.into_iter().flat_map(covered) {
+            want.push(request.kind());
+            assert_eq!(c.request(request).await.unwrap().code, Code::Ok);
+        }
+        assert!(matches!(
+            c.subscribe(EventFilter::default(), None).await.unwrap(),
+            SubscribeOutcome::Subscribed { .. }
+        ));
+        assert_eq!(asked.lock().unwrap().0, want);
+        assert_eq!(asked.lock().unwrap().1, 1);
+    }
+
+    /// S2-08, ruled 2026-11-26 (ADR-0006 §19.10): authorization comes before capability. A
+    /// paired session whose role cannot hold a capability (a viewer's `owner-policy/1`) is
+    /// refused its forms `CAPABILITY_UNAVAILABLE` / `role_insufficient`, and a pending one
+    /// everything beyond its path `invitation_pending` (subscriptions included), never
+    /// `SCHEMA_UNSUPPORTED` and never dispatched. A capability the role holds but the session
+    /// did not negotiate is still `SCHEMA_UNSUPPORTED`.
+    #[tokio::test]
+    async fn a_capability_the_role_cannot_hold_is_refused_by_role_first() {
+        let viewer = PairedBinding {
+            role: Role::Viewer,
+            pending: false,
+        };
+        let by_role = (
+            Code::CapabilityUnavailable,
+            Some(reason::ROLE_INSUFFICIENT.to_owned()),
+            EffectStatus::None,
+        );
+        // The viewer offers everything: owner-policy/1 is outside its role.
+        let (mut v, asked) = offering(server_capabilities(), Some(viewer)).await;
+        assert!(
+            !v.server()
+                .capabilities
+                .contains(capability::OWNER_POLICY_V1)
+        );
+        for request in covered(capability::OWNER_POLICY_V1) {
+            let kind = request.kind();
+            let env = v.request(request).await.unwrap();
+            assert_eq!(refusal(&env), by_role, "{kind}");
+            assert_eq!(
+                env.next.as_ref().map(|n| n.action.as_str()),
+                Some("narrow_request")
+            );
+        }
+        assert!(asked.lock().unwrap().0.is_empty(), "never dispatched");
+        // What the role holds is served.
+        let mut want = Vec::new();
+        for request in [capability::EVENTS_V1, capability::SCHEMA_DISCOVERY_V1]
+            .into_iter()
+            .flat_map(covered)
+        {
+            want.push(request.kind());
+            assert_eq!(v.request(request).await.unwrap().code, Code::Ok);
+        }
+        assert!(matches!(
+            v.subscribe(EventFilter::default(), None).await.unwrap(),
+            SubscribeOutcome::Subscribed { .. }
+        ));
+        assert_eq!(asked.lock().unwrap().0, want);
+
+        // A viewer that did not offer events/1, which its role holds: SCHEMA_UNSUPPORTED.
+        let mut offer = server_capabilities();
+        offer.remove(capability::EVENTS_V1);
+        let (mut v, asked) = offering(offer, Some(viewer)).await;
+        let unsupported = (Code::SchemaUnsupported, None, EffectStatus::None);
+        for request in covered(capability::EVENTS_V1) {
+            assert_eq!(refusal(&v.request(request).await.unwrap()), unsupported);
+        }
+        let outcome = v.subscribe(EventFilter::default(), None).await.unwrap();
+        assert_eq!(subscribe_refusal(outcome), unsupported);
+        // Its policy pause is still refused by role.
+        let pause = covered(capability::OWNER_POLICY_V1).remove(0);
+        assert_eq!(refusal(&v.request(pause).await.unwrap()), by_role);
+        assert_eq!(*asked.lock().unwrap(), (Vec::new(), 0), "never dispatched");
+
+        // A pending client: only its path; everything else by its invitation.
+        let pending = PairedBinding {
+            role: Role::Requester,
+            pending: true,
+        };
+        let mut offer = server_capabilities();
+        offer.insert(capability::REMOTE_CONTROL_V1.to_owned());
+        let (mut p, asked) = offering(offer, Some(pending)).await;
+        let want: BTreeSet<String> = [capability::REMOTE_CONTROL_V1.to_owned()].into();
+        assert_eq!(p.server().capabilities, want);
+        let by_invitation = (
+            Code::CapabilityUnavailable,
+            Some(reason::INVITATION_PENDING.to_owned()),
+            EffectStatus::None,
+        );
+        for request in BASE.into_iter().flat_map(covered) {
+            let kind = request.kind();
+            assert_eq!(
+                refusal(&p.request(request).await.unwrap()),
+                by_invitation,
+                "{kind}"
+            );
+        }
+        let outcome = p.subscribe(EventFilter::default(), None).await.unwrap();
+        assert_eq!(subscribe_refusal(outcome), by_invitation);
+        assert_eq!(*asked.lock().unwrap(), (Vec::new(), 0), "never dispatched");
     }
 
     #[test]

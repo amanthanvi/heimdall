@@ -714,7 +714,8 @@ async fn pending_sessions_reach_only_the_probe_and_join() {
             .state;
         assert_eq!(state, ClientState::Active);
         // Its next session is an ordinary one for its role: no remote-control/1, so neither
-        // join nor the probe is negotiated.
+        // join nor the probe is negotiated, and the role cannot hold it: refused by role
+        // before dispatch (⟨M07 W10 S2-08⟩ ADR-0006 §19.10).
         let mut next = rig
             .connect(hello(Some(&inv.client), &[], false))
             .await
@@ -726,10 +727,9 @@ async fn pending_sessions_reach_only_the_probe_and_join() {
                 .capabilities
                 .contains(capability::REMOTE_CONTROL_V1)
         );
-        assert_eq!(
-            next.request(join_request(&inv.join)).await.unwrap().code,
-            Code::SchemaUnsupported
-        );
+        let env = next.request(join_request(&inv.join)).await.unwrap();
+        assert_eq!(env.code, Code::CapabilityUnavailable, "{env:?}");
+        assert_eq!(reason_of(&env).as_deref(), Some(reason::ROLE_INSUFFICIENT));
         assert_eq!(
             next.request(req(r#"{"op":"inspect","subject":"capabilities"}"#))
                 .await
@@ -819,7 +819,8 @@ async fn paired_widening_is_confirmed_runner_locally_and_replays_its_result() {
     );
     // T-RA4: a viewer's widening request is role_insufficient, with no record: it cannot
     // negotiate `remote-control/1` (role_insufficient at the hello), its session refuses the
-    // form before dispatch, and past the gate the runtime's check refuses it by role.
+    // form before dispatch by role (⟨M07 W10 S2-08⟩ role first, ADR-0006 §19.10), and past
+    // the gate the runtime's check refuses it by role.
     let env = rejected(
         rig.connect(hello(
             Some(&viewer),
@@ -831,10 +832,9 @@ async fn paired_widening_is_confirmed_runner_locally_and_replays_its_result() {
     assert_eq!(reason_of(&env).as_deref(), Some(reason::ROLE_INSUFFICIENT));
     let mut v = rig.connect(hello(Some(&viewer), &[], false)).await.unwrap();
     let viewer_invite = req(&invite.replace("inv-1", "inv-v"));
-    assert_eq!(
-        v.request(viewer_invite.clone()).await.unwrap().code,
-        Code::SchemaUnsupported
-    );
+    let env = v.request(viewer_invite.clone()).await.unwrap();
+    assert_eq!(env.code, Code::CapabilityUnavailable, "{env:?}");
+    assert_eq!(reason_of(&env).as_deref(), Some(reason::ROLE_INSUFFICIENT));
     let mut bound_viewer = rig.dispatcher.clone();
     Dispatcher::bind_paired(&mut bound_viewer, &hello(Some(&viewer), &[], false)).unwrap();
     let env = bound_viewer.handle(&paired_session(), viewer_invite).await;
@@ -1532,14 +1532,15 @@ async fn the_owner_only_downgrade_lifts_only_on_fresh_agreeing_evidence_attended
     assert_eq!(downgrade().unwrap().epoch, 1);
 
     // A limited client cannot leave evidence: its session never negotiates
-    // `remote-control/1`, so the form is refused before dispatch (the role table itself
-    // answers `role_insufficient`: `roles::tests`).
+    // `remote-control/1`, which its role cannot hold, so the form is refused by role before
+    // dispatch (⟨M07 W10 S2-08⟩ ADR-0006 §19.10; the role table answers the same: `roles::tests`).
     let mut limited = rig.connect(hello(Some(&viewer), &[], false)).await.unwrap();
     let env = limited
         .request(recheck_request(&rig.environment, &PROBES_AGREE))
         .await
         .unwrap();
-    assert_eq!(env.code, Code::SchemaUnsupported, "{env:?}");
+    assert_eq!(env.code, Code::CapabilityUnavailable, "{env:?}");
+    assert_eq!(reason_of(&env).as_deref(), Some(reason::ROLE_INSUFFICIENT));
     assert_eq!(evidence(), None);
 
     // A paired owner cannot lift: the form has no remote decision path.
@@ -2116,15 +2117,15 @@ async fn paired_runner_forms_reach_the_runner_runtime_and_other_runtimes_refuse_
             "{refused:?}"
         );
     }
-    // Without negotiating it, the form never dispatches.
+    // Without negotiating it, the form never dispatches: refused by role, which cannot hold
+    // runner/1 (⟨M07 W10 S2-08⟩ ADR-0006 §19.10).
     let mut r = rig
         .connect(hello(Some(&requester), &[], false))
         .await
         .unwrap();
-    assert_eq!(
-        r.request(challenge.clone()).await.unwrap().code,
-        Code::SchemaUnsupported
-    );
+    let env = r.request(challenge.clone()).await.unwrap();
+    assert_eq!(env.code, Code::CapabilityUnavailable, "{env:?}");
+    assert_eq!(reason_of(&env).as_deref(), Some(reason::ROLE_INSUFFICIENT));
     // The local owner is not a controller: the runtime refuses it.
     let mut l = rig
         .connect(hello(None, &[capability::RUNNER_V1], false))

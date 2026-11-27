@@ -66,6 +66,8 @@ pub struct Group {
 const OPS: &[&str] = &[capability::OPERATIONS_V1];
 const OPS_EVENTS: &[&str] = &[capability::OPERATIONS_V1, capability::EVENTS_V1];
 const OPS_PAGES: &[&str] = &[capability::OPERATIONS_V1, capability::PAGES_V1];
+/// ⟨M07 W10 S2-08⟩ `inspect capabilities` (ADR-0006 §2.4: `schema-discovery/1`).
+const OPS_DISCOVERY: &[&str] = &[capability::OPERATIONS_V1, capability::SCHEMA_DISCOVERY_V1];
 
 /// The codes every form can answer whatever it asks (a refused or failed exchange).
 const COMMON: &[Code] = &[
@@ -86,6 +88,14 @@ pub const GROUPS: &[Group] = &[
                 wire: "inspect",
                 cli: "heimdall --json inspect <subject> [--preview <profile> [--environment E] [--until T | --for D] [--require-* …]]",
                 capabilities: OPS,
+                request_id: RequestIdUse::None,
+            },
+            // ⟨M07 W10 S2-08; ADR-0006 §2.4⟩ The `capabilities` subject also needs
+            // `schema-discovery/1`, as the session gate checks (`Request::required_capabilities`).
+            Form {
+                wire: "inspect",
+                cli: "heimdall --json inspect capabilities",
+                capabilities: OPS_DISCOVERY,
                 request_id: RequestIdUse::None,
             },
             Form {

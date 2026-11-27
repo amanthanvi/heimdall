@@ -2986,6 +2986,20 @@ these readings landed in U3-1a; the contract owner ruled them on 2026-11-25:
   agreed schema (`OperationState` is exhaustive: a new state would have raised the major), so it
   answers the incompatible-peer refusal with its default next action, never an empty count and
   never `INTERNAL_ERROR` (§9: an older client never reads a newer peer's data as empty).
+- **Authorization comes before capability at the session gate** (M07 W10 S2-08; ruled
+  2026-11-26). §2.4's base capabilities are enforced: `owner-policy/1` for exactly the four
+  actions it names (`pause`, `resume`, `cutoff`, `clear_cutoff`, plain or targeted; every other
+  `policy` action keeps only its own gate), `events/1` for `Subscribe` and `observe` of
+  `events`, and `schema-discovery/1` for `inspect capabilities` (the primitive index lists it
+  as its own form). When a request or `Subscribe` needs a capability the session did not
+  negotiate, the gate consults the session's role first: if the role (`capability::for_role`;
+  the local owner holds every capability) or its pending invitation cannot hold that capability
+  at all, the answer is ADR-0012's refusal, `CAPABILITY_UNAVAILABLE` with reason
+  `role_insufficient` (§3.8, T-RA4) or `invitation_pending` (§3.9 item 3), as the dispatcher's
+  role check answers it. `SCHEMA_UNSUPPORTED` is only for a session whose role holds the
+  capability but which did not negotiate it. Either answer has effect `none` and is never
+  dispatched. So a viewer's `invite` (`remote-control/1`) is `role_insufficient`, not
+  `SCHEMA_UNSUPPORTED`.
 
 U3-1b also adds `inspect`'s `select` and `page` forms to the primitive index (D7; wire only,
 `operations/1` and `pages/1`, answering `selection` and `page`), and reads the page tokens' key

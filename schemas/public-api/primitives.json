@@ -74,6 +74,15 @@
         {
           "capabilities": [
             "operations/1",
+            "schema-discovery/1"
+          ],
+          "cli": "heimdall --json inspect capabilities",
+          "request_id": "none",
+          "wire": "inspect"
+        },
+        {
+          "capabilities": [
+            "operations/1",
             "pages/1"
           ],
           "cli": "(wire only: select {ids, aliases}, a point lookup of a list subject)",

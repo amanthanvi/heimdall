@@ -1694,14 +1694,46 @@ impl Request {
     /// `trusted-work/1` is refused the revision-5 subject paged exactly as it is refused it
     /// whole (`SCHEMA_UNSUPPORTED`), so a page never serves a form the session did not
     /// negotiate.
+    ///
+    /// ⟨M07 W10 S2-08; ADR-0006 §2.4⟩ Also the base capabilities beyond `operations/1`, listed
+    /// here rather than in [`Request::required_capability`], whose single answer stays the
+    /// form's own track capability:
+    /// * `owner-policy/1` for exactly the four actions §2.4 names, `pause`, `resume`, `cutoff`
+    ///   and `clear_cutoff`, plain or targeted (a targeted one needs `trusted-work/1` as
+    ///   well). Every other `policy` action keeps only its own gate.
+    /// * `events/1` for `observe` of `events`, a snapshot or an event page.
+    /// * `schema-discovery/1` for `inspect capabilities`, whatever else the form needs.
+    ///
+    /// The session gate consults the session's role first: a capability the role (or a
+    /// pending invitation) cannot hold is refused by role, never `SCHEMA_UNSUPPORTED`
+    /// (ADR-0006 §19.10).
     pub fn required_capabilities(&self) -> impl Iterator<Item = &'static str> {
-        let also = match self {
+        use crate::ipc::capability::{
+            EVENTS_V1, OWNER_POLICY_V1, SCHEMA_DISCOVERY_V1, TRUSTED_WORK_V1,
+        };
+        let paged_m05 = match self {
             Request::Inspect(r) if r.uses_pages_form() && r.uses_m05_form() => {
-                Some(crate::ipc::capability::TRUSTED_WORK_V1)
+                Some(TRUSTED_WORK_V1)
             }
             _ => None,
         };
-        self.required_capability().into_iter().chain(also)
+        let base = match self {
+            Request::Policy(
+                PolicyAction::Pause { .. }
+                | PolicyAction::Resume { .. }
+                | PolicyAction::Cutoff { .. }
+                | PolicyAction::ClearCutoff { .. },
+            ) => Some(OWNER_POLICY_V1),
+            Request::Observe(ObserveRequest::Events { .. }) => Some(EVENTS_V1),
+            Request::Inspect(r) if r.subject == InspectSubject::Capabilities => {
+                Some(SCHEMA_DISCOVERY_V1)
+            }
+            _ => None,
+        };
+        self.required_capability()
+            .into_iter()
+            .chain(paged_m05)
+            .chain(base)
     }
 
     /// Whether the request may only be served on an attended session and is

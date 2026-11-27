@@ -412,3 +412,465 @@ fn maximal_destination_item_fits_with_room_to_spare() {
         item_bytes(&routes)
     );
 }
+
+// --- ⟨M07 W10 S2-08⟩ every request form's required capabilities ----------------------------
+
+/// What a form needs beyond `operations/1`, as slices whose union is the form's set.
+type Needs = &'static [&'static [&'static str]];
+
+const NONE: Needs = &[];
+const SERVICE: &[&str] = &[capability::SERVICE_CONTROL_V1];
+const SETUP: &[&str] = &[capability::SETUP_V1];
+const ISSUER: &[&str] = &[capability::ISSUER_V1];
+const ENROLLMENT: &[&str] = &[capability::ENROLLMENT_V1];
+const CONNECTIONS: &[&str] = &[capability::CONNECTIONS_V1];
+const ENVIRONMENTS: &[&str] = &[capability::ENVIRONMENTS_V1];
+const TRUSTED: &[&str] = &[capability::TRUSTED_WORK_V1];
+const PAGES: &[&str] = &[capability::PAGES_V1];
+const REMOTE: &[&str] = &[capability::REMOTE_CONTROL_V1];
+const ROUTES: &[&str] = &[capability::ROUTES_V1];
+const IROH: &[&str] = &[capability::TRANSPORT_IROH_V1];
+const RUNNER: &[&str] = &[capability::RUNNER_V1];
+/// S2-08 (ADR-0006 §2.4; ruled 2026-11-26): `owner-policy/1` gates exactly the four actions
+/// §2.4 names (`pause`, `resume`, `cutoff`, `clear_cutoff`), plain or targeted; every other
+/// `policy` action keeps only its own gate. `events/1` covers `observe` of `events` (and
+/// `Subscribe`, which is a frame, not a request: `heimdall_ipc::session`'s tests).
+const POLICY: &[&str] = &[capability::OWNER_POLICY_V1];
+const EVENTS: &[&str] = &[capability::EVENTS_V1];
+/// S2-08 (ADR-0006 §2.4; ruled 2026-11-26): `inspect capabilities` needs
+/// `schema-discovery/1`, whatever else its form needs; the published primitive index lists it
+/// as its own form (ADR-0013 §9).
+const DISCOVERY: &[&str] = &[capability::SCHEMA_DISCOVERY_V1];
+
+/// One request of every form the generated request schema admits, with what it needs.
+/// Inline forms, then the request examples by file, then the revision-6 golden by kind.
+const INLINE: &[(&str, Needs)] = &[
+    // inspect: every subject whole, and the revision-7 and revision-5 variations.
+    (r#"{"op":"inspect","subject":"capabilities"}"#, &[DISCOVERY]),
+    (r#"{"op":"inspect","subject":"environments"}"#, NONE),
+    (r#"{"op":"inspect","subject":"profiles"}"#, NONE),
+    (r#"{"op":"inspect","subject":"destinations"}"#, NONE),
+    (r#"{"op":"inspect","subject":"bindings"}"#, NONE),
+    (r#"{"op":"inspect","subject":"grants"}"#, NONE),
+    (r#"{"op":"inspect","subject":"operations"}"#, NONE),
+    (r#"{"op":"inspect","subject":"decisions"}"#, NONE),
+    (r#"{"op":"inspect","subject":"identities"}"#, NONE),
+    (r#"{"op":"inspect","subject":"projections"}"#, NONE),
+    (r#"{"op":"inspect","subject":"enrollments"}"#, NONE),
+    (r#"{"op":"inspect","subject":"issuer"}"#, NONE),
+    (r#"{"op":"inspect","subject":"connections"}"#, NONE),
+    (
+        r#"{"op":"inspect","subject":"workspace","cwd":"/w"}"#,
+        &[TRUSTED],
+    ),
+    (r#"{"op":"inspect","subject":"policies"}"#, &[TRUSTED]),
+    (
+        r#"{"op":"inspect","subject":"export","redact":true}"#,
+        &[TRUSTED],
+    ),
+    (
+        r#"{"op":"inspect","subject":"capabilities","cwd":"/w"}"#,
+        &[TRUSTED, DISCOVERY],
+    ),
+    (
+        r#"{"op":"inspect","subject":"destinations","page":{"limit":10}}"#,
+        &[PAGES],
+    ),
+    (
+        r#"{"op":"inspect","subject":"profiles","select":{"ids":["dev"]}}"#,
+        &[PAGES],
+    ),
+    (
+        r#"{"op":"inspect","subject":"policies","page":{}}"#,
+        &[PAGES, TRUSTED],
+    ),
+    // the primitives
+    (
+        r#"{"op":"delegate","parent_binding_id":"binding_0123456789abcdef0123456789abcdef","scope":[{"destination":"dest-1","account":"deploy"}],"work_id":"work-43","request_id":"req-0401"}"#,
+        NONE,
+    ),
+    (
+        r#"{"op":"observe","kind":"operation","operation_id":"op_00112233445566778899aabbccddeeff"}"#,
+        NONE,
+    ),
+    (r#"{"op":"observe","kind":"events","filter":{}}"#, &[EVENTS]),
+    (
+        r#"{"op":"observe","kind":"events","filter":{},"cursor":"c1","limit":10}"#,
+        &[EVENTS],
+    ),
+    (
+        r#"{"op":"cancel","operation_id":"op_00112233445566778899aabbccddeeff"}"#,
+        NONE,
+    ),
+    (
+        r#"{"op":"release","binding_id":"binding_0123456789abcdef0123456789abcdef"}"#,
+        NONE,
+    ),
+    // policy: the M01 actions, the M03 actions, then revision 5's forms and actions.
+    (
+        r#"{"op":"policy","action":"pause","policy_id":"p"}"#,
+        &[POLICY],
+    ),
+    (
+        r#"{"op":"policy","action":"resume","policy_id":"p"}"#,
+        &[POLICY],
+    ),
+    (
+        r#"{"op":"policy","action":"cutoff","policy_id":"p","at":"2026-10-02T10:00:00Z"}"#,
+        &[POLICY],
+    ),
+    (
+        r#"{"op":"policy","action":"clear_cutoff","policy_id":"p"}"#,
+        &[POLICY],
+    ),
+    (
+        r#"{"op":"policy","action":"set_lock_behavior","policy_id":"p","behavior":"continue"}"#,
+        NONE,
+    ),
+    (
+        r#"{"op":"policy","action":"set_connection_policy","policy_id":"p","existing":"strict"}"#,
+        NONE,
+    ),
+    (
+        r#"{"op":"policy","action":"resume","target":{"kind":"all"}}"#,
+        &[TRUSTED, POLICY],
+    ),
+    (
+        r#"{"op":"policy","action":"clear_cutoff","target":{"kind":"policy","policy_id":"p"}}"#,
+        &[TRUSTED, POLICY],
+    ),
+    (
+        r#"{"op":"policy","action":"create","profile":"dev","environments":[]}"#,
+        &[TRUSTED],
+    ),
+    (
+        r#"{"op":"policy","action":"extend_scope","policy_id":"p","background_work":true}"#,
+        &[TRUSTED],
+    ),
+    (
+        r#"{"op":"policy","action":"narrow_scope","policy_id":"p","pairs":[{"destination":"dest-1","account":"deploy"}]}"#,
+        &[TRUSTED],
+    ),
+    (
+        r#"{"op":"policy","action":"set_max_window","policy_id":"p","max_window":"12h"}"#,
+        &[TRUSTED],
+    ),
+    (
+        r#"{"op":"policy","action":"remove","policy_id":"p"}"#,
+        &[TRUSTED],
+    ),
+    (
+        r#"{"op":"policy","action":"reconcile_workspace","workspace":"ws_00112233445566778899aabbccddeeff","cwd":"/w"}"#,
+        &[TRUSTED],
+    ),
+    (
+        r#"{"op":"policy","action":"stop","target":{"kind":"profile","profile":"dev"}}"#,
+        &[TRUSTED],
+    ),
+    // the rest without an example
+    (
+        r#"{"op":"catalog","action":"set_preference","destination":"dest-lab","account":"deploy","mechanism":"managed_certificate","request_id":"req-0209"}"#,
+        &[SETUP],
+    ),
+    (
+        r#"{"op":"connections","action":"close","connection_id":"conn_00112233445566778899aabbccddeeff"}"#,
+        &[CONNECTIONS],
+    ),
+    (
+        r#"{"op":"connections","action":"register","binding_id":"binding_0123456789abcdef0123456789abcdef","pid":4242,"created_at":"2026-11-10T14:05:00Z","image":"/usr/bin/ssh"}"#,
+        &[CONNECTIONS],
+    ),
+    (r#"{"op":"uninstall_fence","action":"acquire"}"#, &[SERVICE]),
+    (r#"{"op":"uninstall_fence","action":"release"}"#, &[SERVICE]),
+    (
+        r#"{"op":"uninstall_fence","action":"retry_remote_revocations"}"#,
+        &[SERVICE],
+    ),
+];
+
+/// Every `schemas/examples/request.*.json`, by file name.
+const EXAMPLES: &[(&str, Needs)] = &[
+    ("request.bind-launch.json", NONE),
+    ("request.catalog.adopt-identity-onepassword.json", &[SETUP]),
+    ("request.catalog.adopt-identity.json", &[SETUP]),
+    ("request.catalog.apply-import.dry-run.json", &[TRUSTED]),
+    ("request.catalog.apply-import.json", &[TRUSTED]),
+    ("request.catalog.declare-interaction.json", &[SETUP]),
+    ("request.catalog.remove-destination.json", &[SETUP]),
+    ("request.catalog.remove-identity.json", &[SETUP]),
+    ("request.catalog.remove-profile.json", &[SETUP]),
+    ("request.catalog.set-default-profile.json", &[TRUSTED]),
+    ("request.catalog.upsert-destination-observed.json", &[SETUP]),
+    ("request.catalog.upsert-destination.json", &[SETUP]),
+    ("request.catalog.upsert-profile.json", &[SETUP]),
+    ("request.catalog.withdraw-declaration.json", &[SETUP]),
+    ("request.confirm-time.json", NONE),
+    ("request.decide.json", NONE),
+    ("request.enrollment.abandon.json", &[ENROLLMENT]),
+    ("request.enrollment.apply.json", &[ENROLLMENT]),
+    ("request.enrollment.preview.json", &[ENROLLMENT]),
+    ("request.enrollment.reconcile.json", &[ENROLLMENT]),
+    ("request.enrollment.remove-foreign.json", &[ENROLLMENT]),
+    ("request.enrollment.remove.json", &[ENROLLMENT]),
+    ("request.enrollment.step-result.json", &[ENROLLMENT]),
+    ("request.enrollment.step.json", &[ENROLLMENT]),
+    ("request.enrollment.verify.json", &[ENROLLMENT]),
+    ("request.ensure.context.json", &[TRUSTED]),
+    ("request.ensure.json", NONE),
+    ("request.environment.container-add.json", &[ENVIRONMENTS]),
+    ("request.environment.container-remove.json", &[ENVIRONMENTS]),
+    ("request.environment.wsl-disable.json", &[ENVIRONMENTS]),
+    ("request.environment.wsl-enable.json", &[ENVIRONMENTS]),
+    ("request.inspect.page.json", &[PAGES]),
+    ("request.inspect.select.json", &[PAGES]),
+    ("request.inspect.workspace.json", &[TRUSTED]),
+    ("request.issuer.bundle-written.json", &[ISSUER]),
+    ("request.issuer.bundle.json", &[ISSUER]),
+    ("request.issuer.register-report.json", &[ISSUER]),
+    ("request.issuer.register-restore.json", &[ISSUER]),
+    ("request.issuer.register-rotation.json", &[ISSUER]),
+    ("request.issuer.register.json", &[ISSUER]),
+    ("request.issuer.retire-confirm.json", &[ISSUER]),
+    ("request.issuer.retire.json", &[ISSUER]),
+    ("request.issuer.status.json", &[ISSUER]),
+    ("request.issuer.unlock.json", &[ISSUER]),
+    ("request.observe-events.json", &[EVENTS]),
+    ("request.policy-cutoff.json", &[POLICY]),
+    ("request.policy.pause-target.json", &[TRUSTED, POLICY]),
+    ("request.policy.trust-workspace.json", &[TRUSTED]),
+    ("request.revoke.json", NONE),
+    ("request.revoke.work.json", &[TRUSTED]),
+    ("request.setup.apply.json", &[SETUP]),
+    ("request.setup.preview-apply.json", &[SETUP]),
+    ("request.setup.preview-repair.json", &[SETUP]),
+    ("request.setup.preview-rollback.json", &[SETUP]),
+    ("request.setup.repair.json", &[SETUP]),
+    ("request.setup.rollback.json", &[SETUP]),
+    ("request.shutdown.json", &[SERVICE]),
+];
+
+/// Every form of `tests/contracts/golden/rev6-requests.golden.json`, by kind.
+const REVISION_6: &[(&str, Needs)] = &[
+    ("device.retire", &[REMOTE]),
+    ("remote_environment.activation_probe", &[REMOTE]),
+    ("remote_environment.add", &[REMOTE]),
+    ("remote_environment.invite", &[REMOTE]),
+    ("remote_environment.join", &[REMOTE]),
+    ("remote_environment.remove", &[REMOTE]),
+    ("remote_environment.revoke_client", &[REMOTE]),
+    // ⟨rev6.5; ADR-0006 §18.9 item 5⟩ every role announces its own client's endpoint.
+    ("remote_environment.rotate_endpoint", NONE),
+    ("remote_environment.runner_policy_recheck", &[REMOTE]),
+    ("remote_environment.status", &[REMOTE]),
+    ("remote_environment.update", &[REMOTE]),
+    ("route.add", &[ROUTES]),
+    ("route.prefer", &[ROUTES]),
+    ("route.record_health", &[ROUTES]),
+    ("route.remove", &[ROUTES]),
+    ("route.resolve_binding", &[ROUTES]),
+    ("runner.authority_report", &[RUNNER]),
+    ("runner.deliver_effect", &[RUNNER]),
+    ("runner.install_certificate", &[RUNNER]),
+    ("runner.prepare_remote_grant", &[RUNNER]),
+    ("runner.time_challenge", &[RUNNER]),
+    ("runner.time_response", &[RUNNER]),
+    ("runner_local.clear_time_source", &[REMOTE]),
+    ("runner_local.designate_time_source", &[REMOTE]),
+    ("runner_local.distrust_issuer", &[REMOTE]),
+    ("runner_local.enroll_owner", &[REMOTE]),
+    ("runner_local.policy_recheck", &[REMOTE]),
+    ("runner_local.trust_issuer", &[REMOTE]),
+    ("transport.adopt_roost", &[IROH]),
+    ("transport.disable", &[IROH]),
+    ("transport.enable", &[IROH]),
+    ("transport.rotate", &[IROH]),
+    // ⟨rev6.3⟩ the controller's own records: served to the local owner only.
+    ("controller_record.put_environment", NONE),
+    ("controller_record.remove_environment", NONE),
+    ("controller_record.resume_issuance", NONE),
+];
+
+/// A request's form: its `op` and the tag that selects its variant (`action`; `kind` for
+/// `observe`; `subject` for `inspect`), or none.
+fn form_of(v: &serde_json::Value) -> (String, Option<String>) {
+    let op = v["op"].as_str().unwrap().to_owned();
+    let tag = match op.as_str() {
+        "inspect" => "subject",
+        "observe" => "kind",
+        _ => "action",
+    };
+    (op, v[tag].as_str().map(str::to_owned))
+}
+
+/// Every form the generated request schema admits, so a new `Request` variant, action,
+/// observe kind or inspect subject has no row until one is added.
+fn schema_forms() -> BTreeSet<(String, Option<String>)> {
+    let doc = serde_json::to_value(
+        public_schemas()
+            .into_iter()
+            .find(|s| s.name == "request")
+            .unwrap()
+            .schema,
+    )
+    .unwrap();
+    let consts = |alts: &serde_json::Value, tag: &str| -> Vec<String> {
+        alts.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|a| {
+                a["properties"][tag]["const"]
+                    .as_str()
+                    .or_else(|| a["const"].as_str())
+            })
+            .map(str::to_owned)
+            .collect()
+    };
+    let mut out = BTreeSet::new();
+    for alt in doc["oneOf"].as_array().unwrap() {
+        let op = alt["properties"]["op"]["const"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let def = alt["$ref"]
+            .as_str()
+            .and_then(|r| doc.pointer(r.trim_start_matches('#')))
+            .unwrap();
+        let tags = match op.as_str() {
+            "inspect" => consts(&doc["$defs"]["InspectSubject"]["oneOf"], "subject"),
+            "observe" => consts(&def["oneOf"], "kind"),
+            _ => consts(&def["oneOf"], "action"),
+        };
+        if tags.is_empty() {
+            out.insert((op, None));
+        } else {
+            out.extend(tags.into_iter().map(|t| (op.clone(), Some(t))));
+        }
+    }
+    out
+}
+
+/// ⟨M07 W10 S2-08⟩ Every request form states the capabilities a session must have negotiated
+/// to send it (ADR-0006 §2.4), and `Request::required_capabilities` names exactly those, each
+/// once: a gated form that declares nothing, or the wrong capability, fails here. The table
+/// covers every form of the generated request schema (every variant, action, observe kind and
+/// inspect subject), so a new form fails until it is given a row. `required_capability` is
+/// one of them whenever it answers.
+#[test]
+fn every_request_form_declares_its_required_capabilities() {
+    use heimdall_contract::request::Request;
+    let mut rows: Vec<(String, serde_json::Value, Needs)> = INLINE
+        .iter()
+        .map(|(json, needs)| {
+            (
+                (*json).to_owned(),
+                serde_json::from_str(json).unwrap(),
+                *needs,
+            )
+        })
+        .collect();
+    let examples = crate::repo_root().join("schemas/examples");
+    let mut on_disk: Vec<String> = std::fs::read_dir(&examples)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| n.starts_with("request.") && n.ends_with(".json"))
+        .collect();
+    on_disk.sort();
+    let listed: Vec<String> = EXAMPLES.iter().map(|(f, _)| (*f).to_owned()).collect();
+    assert_eq!(on_disk, listed, "every request example has a row, in order");
+    for (file, needs) in EXAMPLES {
+        let text = std::fs::read_to_string(examples.join(file)).unwrap();
+        crate::assert_clean(file, &text);
+        rows.push((
+            (*file).to_owned(),
+            serde_json::from_str(&text).unwrap(),
+            *needs,
+        ));
+    }
+    let golden: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            crate::repo_root().join("tests/contracts/golden/rev6-requests.golden.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut kinds = BTreeSet::new();
+    for row in ["requests", "no_capability_requests"]
+        .iter()
+        .flat_map(|k| golden[*k].as_array().unwrap())
+    {
+        let kind = row["kind"].as_str().unwrap();
+        let needs = REVISION_6
+            .iter()
+            .find(|(k, _)| *k == kind)
+            .unwrap_or_else(|| panic!("{kind}: no row"))
+            .1;
+        kinds.insert(kind);
+        rows.push((kind.to_owned(), row["json"].clone(), needs));
+    }
+    let stated: BTreeSet<&str> = REVISION_6.iter().map(|(k, _)| *k).collect();
+    assert_eq!(kinds, stated, "every revision-6 row is in the golden");
+
+    let mut covered = BTreeSet::new();
+    for (what, v, needs) in &rows {
+        let r: Request =
+            serde_json::from_value(v.clone()).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let got: Vec<&str> = r.required_capabilities().collect();
+        let set: BTreeSet<&str> = got.iter().copied().collect();
+        assert_eq!(
+            set.len(),
+            got.len(),
+            "{what}: each capability once: {got:?}"
+        );
+        let want: BTreeSet<&str> = needs.iter().flat_map(|n| n.iter().copied()).collect();
+        assert_eq!(set, want, "{what}");
+        if let Some(c) = r.required_capability() {
+            assert!(set.contains(c), "{what}");
+        }
+        covered.insert(form_of(v));
+    }
+    let forms = schema_forms();
+    let missing: Vec<_> = forms.difference(&covered).collect();
+    assert!(missing.is_empty(), "forms with no row: {missing:?}");
+    let unknown: Vec<_> = covered.difference(&forms).collect();
+    assert!(unknown.is_empty(), "rows for no schema form: {unknown:?}");
+    assert_eq!(forms.len(), 114, "the request schema's forms");
+}
+
+/// ⟨M07 W10 S2-08⟩ The primitive index (ADR-0013 §9) states the capabilities the session gate
+/// checks: each CLI form below lists `operations/1` and exactly what
+/// `Request::required_capabilities` names for its request, so `inspect capabilities` lists
+/// `schema-discovery/1` (ADR-0006 §2.4) and an event page `events/1`.
+#[test]
+fn the_primitive_index_lists_what_the_gate_checks() {
+    use heimdall_contract::request::Request;
+    let cases = [
+        (
+            "heimdall --json inspect <subject>",
+            r#"{"op":"inspect","subject":"destinations"}"#,
+        ),
+        (
+            "heimdall --json inspect capabilities",
+            r#"{"op":"inspect","subject":"capabilities"}"#,
+        ),
+        (
+            "heimdall --json operation show|wait",
+            r#"{"op":"observe","kind":"operation","operation_id":"op_00112233445566778899aabbccddeeff"}"#,
+        ),
+        (
+            "heimdall --json operation events [",
+            r#"{"op":"observe","kind":"events","filter":{},"cursor":"c1","limit":10}"#,
+        ),
+    ];
+    for (cli, json) in cases {
+        let form = primitives::GROUPS
+            .iter()
+            .flat_map(|g| g.forms)
+            .find(|f| f.cli.starts_with(cli))
+            .unwrap_or_else(|| panic!("{cli}: no form"));
+        let r: Request = serde_json::from_str(json).unwrap();
+        let mut gate: BTreeSet<&str> = r.required_capabilities().collect();
+        gate.insert(capability::OPERATIONS_V1);
+        let listed: BTreeSet<&str> = form.capabilities.iter().copied().collect();
+        assert_eq!(listed, gate, "{cli}");
+    }
+}
