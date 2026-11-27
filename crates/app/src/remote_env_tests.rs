@@ -206,8 +206,13 @@ struct FakeSessions {
     /// The environment ID each session's hello reports.
     hello: EnvironmentId,
     role: Option<Role>,
-    /// The client each session's hello reports.
+    /// The client each session's hello reports. ⟨M08 W4 SEC-3b, S2-09⟩ `None`: a recorded
+    /// environment's session reports the client `record(n)` names for it
+    /// ([`client_for_env`]), as the runner reports the client it bound the session to; a
+    /// bootstrap session reports none.
     client: Option<ClientId>,
+    /// ⟨M08 W4 SEC-3b, S2-09⟩ The hello names no client at all (a runner that omits it).
+    omit_client: bool,
     responder: Arc<Responder>,
     sent: Arc<Mutex<Vec<(SessionName, Request)>>>,
     opened: Arc<Mutex<Vec<SessionTarget>>>,
@@ -242,6 +247,7 @@ impl FakeSessions {
             hello,
             role: Some(Role::Owner),
             client: None,
+            omit_client: false,
             responder: Arc::new(responder),
             sent: Arc::default(),
             opened: Arc::default(),
@@ -312,9 +318,16 @@ impl ManagementSessions for FakeSessions {
         Ok(Box::new(FakeSession {
             name: target.name.clone(),
             hello: SessionHello {
+                client: match (&target.name, &self.client, self.omit_client) {
+                    (_, _, true) => None,
+                    (_, Some(c), false) => Some(c.clone()),
+                    (SessionName::Environment(_), None, false) => {
+                        Some(client_for_env(&environment))
+                    }
+                    (_, None, false) => None,
+                },
                 environment,
                 role: self.role,
-                client: self.client.clone(),
             },
             responder,
             sent: self.sent.clone(),
@@ -1209,6 +1222,77 @@ async fn a_changed_environment_id_is_held() {
     w.controller().update(&env_id(1)).await.unwrap();
 }
 
+/// ⟨M08 W4 SEC-3b, S2-09; ADR-0012 §7.4 step 1, §7.5⟩ A runner's hello that **names no
+/// client** is not taken as naming the pinned one, and one that names **no role** at `add`
+/// is not taken as owner: each fails closed before anything is sent or recorded. A
+/// recorded environment's session (`update`, through `open_recorded`) and a join are held
+/// (`environment_identity_mismatch`); `add` is refused `role_insufficient`.
+#[tokio::test]
+async fn a_hello_that_names_no_client_or_no_role_fails_closed() {
+    // A recorded environment.
+    let mut sessions = FakeSessions::new(env_id(1), always_ok());
+    sessions.omit_client = true;
+    let w = World {
+        key: FakeKey::existing(),
+        registry: FakeRegistry::with(&[record(1)]),
+        catalog: FakeCatalog(None),
+        bootstrap: FakeBootstrap::default(),
+        sessions,
+        confirm: FakeConfirm::yes(),
+    };
+    let err = w.controller().update(&env_id(1)).await.unwrap_err();
+    assert_eq!(
+        err.reason.as_deref(),
+        Some(reason::ENVIRONMENT_IDENTITY_MISMATCH),
+        "open_recorded: {err:?}"
+    );
+    assert!(w.sessions.sent().is_empty());
+    // A join.
+    let bundle = InvitationBundle {
+        environment: env_id(4),
+        route: route(&[HOST]),
+        destination: dest("lab4"),
+        invitation: heimdall_contract::ids::InvitationId::parse("inv_4").unwrap(),
+        client: ClientId::from_random_bytes([4; 16]),
+        role: Role::Viewer,
+        generation: 2,
+        key_fingerprint: fp('K'),
+        nonce: Some("abc".into()),
+        iroh_admission: false,
+    };
+    let mut sessions = FakeSessions::new(env_id(4), always_ok());
+    sessions.omit_client = true;
+    let w = World {
+        sessions,
+        registry: FakeRegistry::default(),
+        ..w
+    };
+    let err = w.controller().join(&bundle).await.unwrap_err();
+    assert_eq!(
+        err.reason.as_deref(),
+        Some(reason::ENVIRONMENT_IDENTITY_MISMATCH),
+        "join: {err:?}"
+    );
+    assert!(w.sessions.sent().is_empty());
+    assert!(w.registry.ids().is_empty());
+    // `add`: the runner's hello names no role.
+    let mut sessions = FakeSessions::new(env_id(7), always_ok());
+    sessions.role = None;
+    let w = World {
+        sessions,
+        registry: FakeRegistry::default(),
+        catalog: FakeCatalog(Some(access(&[HOST]))),
+        ..w
+    };
+    let err = w.controller().add(&add_input()).await.unwrap_err();
+    assert_eq!(
+        err.reason.as_deref(),
+        Some(reason::ROLE_INSUFFICIENT),
+        "add: {err:?}"
+    );
+    assert!(w.registry.ids().is_empty());
+}
+
 #[test]
 fn runner_errors_pass_through_and_bundles_round_trip() {
     let detail = ErrorDetail {
@@ -1827,6 +1911,8 @@ async fn iroh_admission_reaches_the_invite_and_the_join_carries_the_endpoint() {
     ] {
         let mut sessions = FakeSessions::new(env_id(1), always_ok());
         sessions.echo_name = true;
+        // The runner binds the joining session to the invitation's client.
+        sessions.client = Some(bundle.client.clone());
         let w = World {
             key: FakeKey::existing(),
             registry: FakeRegistry::default(),

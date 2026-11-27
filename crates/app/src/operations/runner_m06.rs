@@ -65,6 +65,13 @@ pub trait RunnerGrants: Send + Sync {
         Vec::new()
     }
 
+    /// ⟨M08 W4 SEC-3b, R1⟩ Every grant the runner's signer holds a key or a certificate for
+    /// now: the retention pass never prunes the known tombstone of one of them. `None` when it
+    /// cannot say; then no known tombstone is pruned.
+    fn live_grants(&self) -> Option<BTreeSet<GrantId>> {
+        None
+    }
+
     /// ⟨M06 W4⟩ Realize `binding`, a further binding on the issued grant `grant`, from
     /// the runner's signer: its own endpoint and files, listing that grant's certificates
     /// for `pairs` only, the binding's own subset of the grant's pairs, never the whole

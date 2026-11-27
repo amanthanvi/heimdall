@@ -393,6 +393,9 @@ pub const META_RECOVERY: &[(&str, Option<&str>)] = &[
     // ⟨ADR-0008 §17.32 item 7⟩ An unfinished security action on a remote system.
     ("remote_revocation:", None),
     ("remote_revocation_claim_seq", Some("a local counter")),
+    // ⟨M08 W4 SEC-3b⟩ `crate::ext_effects`: the runner's policy-revision order, so a pruned
+    // row's `runner_seq` is never assigned again.
+    ("remote_policy_seq", Some("a local counter")),
     (
         "cleanup_intent:",
         Some("an access grant's local cleanup (ADR-0008 §17.32 item 6: out)"),

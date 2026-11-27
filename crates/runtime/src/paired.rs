@@ -475,9 +475,10 @@ pub fn state_db_of_home(home: &Path) -> heimdall_store::Result<PathBuf> {
 /// the switch. In the second case the pointer no longer names the generation the bridge opened,
 /// and this fails ([`StoreError::Corrupt`]), so the caller queues the event in the fail-closed
 /// marker and the runtime records it in the generation it serves. A reset is the same switch.
-/// **Stated limit:** that late write lands in the replaced generation, which is residue; the
-/// refusal inside the bridge's own transaction, before it writes, is the store's
-/// (`ext_runner::bridge_record_with`, SEC-3b's file), not made here.
+/// ⟨M08 W4 SEC-3b⟩ The bridge's own transaction also reads the pointer again under its write
+/// lock and refuses before it writes (`ext_runner::bridge_record_runner_downgrade`, "Why the
+/// pointer is read inside the transaction"), so that late write no longer lands in the
+/// replaced generation as residue; this check after it stays, as the caller's own.
 pub fn record_owner_only_in_home(
     home: &Path,
     cause: OwnerOnlyCause,
@@ -1375,6 +1376,25 @@ pub fn iroh_endpoint_ok(id: &IrohEndpointId) -> bool {
     }
 }
 
+/// ⟨M08 W4 SEC-3b, S2-03; ADR-0012 §2.3 item 1⟩ The refusal of a `join` or a
+/// `rotate_endpoint` whose Iroh endpoint ID the Iroh library does not accept
+/// ([`iroh_endpoint_ok`]): `USAGE_ERROR`, effect none, before anything is read or written. Such
+/// an ID never reaches `remote_client_endpoints`, so no client, a limited one included, can put
+/// an entry in the serve allowlist that is not an endpoint key. `None` when there is no
+/// endpoint or it is accepted.
+fn endpoint_refusal(endpoint: Option<&IrohEndpointId>) -> Option<Envelope<serde_json::Value>> {
+    endpoint.filter(|e| !iroh_endpoint_ok(e)).map(|_| {
+        value_of(
+            OpError::new(
+                Code::UsageError,
+                "the Iroh endpoint ID is not a valid endpoint ID: nothing was recorded",
+            )
+            .with_effect(EffectStatus::None)
+            .into_envelope(),
+        )
+    })
+}
+
 /// What `heimdall remote init` enrolls (ADR-0012 §3.3 step 3; ADR-0006 §18.7 item 8).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnerEnrollment {
@@ -2105,6 +2125,10 @@ impl PairedRunner {
         let Some(join) = JoinRequest::from_request(request) else {
             return refused(Refusal::NotAvailableRemotely);
         };
+        // ⟨M08 W4 SEC-3b, S2-03⟩ Before anything is read or written.
+        if let Some(refusal) = endpoint_refusal(join.iroh_endpoint.as_ref()) {
+            return refusal;
+        }
         let now = self.time_reading().await;
         // ⟨§18.7 item 16; ADR-0012 §3.2 "How the downgrade is kept"⟩ The policy check runs
         // before the commit, for an activation only, inside the commit's transaction: the
@@ -2407,6 +2431,10 @@ impl PairedRunner {
         else {
             return refused(Refusal::NotAvailableRemotely);
         };
+        // ⟨M08 W4 SEC-3b, S2-03⟩ Before anything is read or written.
+        if let Some(refusal) = endpoint_refusal(Some(&rotate.endpoint)) {
+            return refusal;
+        }
         let rotated = match heimdall_remote::invitations::rotate_endpoint(
             &self.store,
             self.environment(),
@@ -3745,6 +3773,74 @@ mod restore_window_tests {
                 );
                 assert_eq!(policy.current(), ManagementPolicy::OwnerOnly);
             }
+        }
+    }
+
+    /// ⟨M08 W4 SEC-3b; U2b-3b open item 1⟩
+    /// `the_bridges_own_transaction_refuses_after_a_restore_or_reset_switch_and_leaves_no_residue`:
+    /// the same window, at the store's write itself (no caller's re-check after it). The
+    /// bridge opened the database the pointer named; a restore or a reset switched the pointer
+    /// before the bridge's `BEGIN IMMEDIATE` began. The bridge's transaction must find that the
+    /// pointer no longer names the generation it opened and refuse **before** its upsert, so
+    /// the replaced generation holds no downgrade row (no residue): the event reaches the
+    /// served generation only through the caller's marker.
+    #[test]
+    fn the_bridges_own_transaction_refuses_after_a_restore_or_reset_switch_and_leaves_no_residue() {
+        let at: Timestamp = "2026-11-27T09:00:00Z".parse().unwrap();
+        let cause = OwnerOnlyCause::SessionPty;
+        for reset in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let home = dir.path().canonicalize().unwrap();
+            let paths = crate::Paths::under(&home);
+            paths.ensure().unwrap();
+            let opened =
+                crate::state_store::open_locked(&paths.state_dir, Arc::new(NoFaults), at).unwrap();
+            init_runner(&opened.store).unwrap();
+            drop(opened);
+            let backup = dir.path().join("backup.db");
+            let replaced_db = layout::db_path(&paths.state_dir).unwrap();
+            Store::open_read_only(&replaced_db, Arc::new(NoFaults))
+                .unwrap()
+                .vacuum_into(&backup)
+                .unwrap();
+            let _lock = crate::InstanceLock::try_acquire(&paths.state_dir).unwrap();
+            let hook = Arc::new(SwitchInTheWindow {
+                state_dir: paths.state_dir.clone(),
+                switch: if reset {
+                    Switch::Reset
+                } else {
+                    Switch::Restore(backup)
+                },
+                now: at,
+                done: Mutex::new(None),
+            });
+            // The store's write alone, on the database the bridge resolved before the switch.
+            let recorded = heimdall_store::ext_runner::bridge_record_runner_downgrade_with_faults(
+                &replaced_db,
+                cause.token(),
+                at,
+                hook.clone(),
+            );
+            assert!(
+                hook.done.lock().unwrap().is_some(),
+                "reset {reset}: the switch ran in the window"
+            );
+            assert_ne!(
+                layout::db_path(&paths.state_dir).unwrap(),
+                replaced_db,
+                "reset {reset}: another generation is current"
+            );
+            let replaced = Store::open_read_only(&replaced_db, Arc::new(NoFaults)).unwrap();
+            assert_eq!(
+                downgrade(&replaced),
+                None,
+                "reset {reset}: the bridge's write landed in the replaced generation (residue); \
+                 its result was {recorded:?}"
+            );
+            assert!(
+                matches!(recorded, Err(heimdall_store::StoreError::Corrupt(_))),
+                "reset {reset}: the bridge's transaction did not refuse: {recorded:?}"
+            );
         }
     }
 }

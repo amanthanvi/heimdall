@@ -905,7 +905,14 @@ impl Txn<'_> {
     /// tombstone; the walk continues past ancestors without one (whatever their
     /// state) and stops at a grant with no parent or with no grant row. A cycle in
     /// the parent chain is [`StoreError::Corrupt`].
+    ///
+    /// ⟨M08 W4 SEC-3b, R1; ADR-0006 §7.4 as amended 2026-11-27⟩ A grant whose row is
+    /// `revoked` denies exactly as its tombstone does, for itself and through every
+    /// descendant: `revoked` is terminal and absorbing, and a runner's retention pass prunes
+    /// a known-grant tombstone only once its row is `revoked`
+    /// (`Txn::prune_runner_history`).
     pub fn denied_ancestor(&mut self, grant: &GrantId) -> Result<Option<GrantId>> {
+        let revoked = codec::enum_str(&heimdall_contract::GrantState::Revoked)?;
         let mut current = grant.clone();
         let mut seen = BTreeSet::new();
         loop {
@@ -920,15 +927,21 @@ impl Txn<'_> {
             if tombstoned {
                 return Ok(Some(current));
             }
-            let parent: Option<Option<String>> = self
+            let row: Option<(Option<String>, String)> = self
                 .tx
                 .query_row(
-                    "SELECT parent FROM grants WHERE id = ?1",
+                    "SELECT parent, state FROM grants WHERE id = ?1",
                     [current.as_str()],
-                    |r| r.get(0),
+                    |r| Ok((r.get(0)?, r.get(1)?)),
                 )
                 .optional()?;
-            match parent.flatten() {
+            let Some((parent, state)) = row else {
+                return Ok(None);
+            };
+            if state == revoked {
+                return Ok(Some(current));
+            }
+            match parent {
                 Some(p) => current = parse_grant_id(&p)?,
                 None => return Ok(None),
             }

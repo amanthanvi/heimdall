@@ -436,6 +436,48 @@ classify(record, marker, hash, now)`).
   request; the runtime cannot distinguish a 38-day-old retry from new work.
 * Purge never touches tombstones, policies, decisions, issuance entries, grant
   anchors, environment identity, or any unresolved operation and its receipts.
+* ⟨2026-11-27, M08 W4 SEC-3b; the orchestrator's ruling of 2026-11-26, R1 to R4 and the
+  override⟩ **Amended for a runner's authority history** (S2-05; ADR-0012 §7 item 4 has the
+  same amendment). The retention pass (`Operations::tick`) also prunes a runner's history, on
+  time the time gate accepted only (never under `TIME_UNCERTAIN`) and only on a runner's store
+  (`Txn::prune_runner_history`); every other store is untouched, as above:
+  - **R1, tombstones.** A known-grant tombstone goes only when its grant's row is `revoked`
+    (terminal; `denied_ancestor` denies by that state, through every descendant), every
+    descendant is terminal, `now ≥ max(the grant's deadline, the latest descendant's) +
+    retention.operations`, and nothing live remains (no key or certificate in the runner's
+    signer, no unreleased binding, grant reference, held slot, slot reference or open owned
+    connection). The controller's `issuance_log` is never touched. A late redelivery of the
+    revoke converges on the `revoked` row. A **bare tombstone** (a delivered `grant_revoke` for
+    a grant ID the runner does not hold) goes at `revoked_at` + the contract's absolute maximum
+    window + `retention.operations`. The contract states no absolute maximum
+    (`session.max_window` is unbounded, and a runner's own configured window is not used), so
+    the design's 30-day fallback applies (`GRANT_WINDOW_FALLBACK`).
+  - **R2, policy revisions.** A revision in force is never pruned. A lifted one goes
+    `retention.operations` after its producing controller confirmed the lift (a complete
+    authority report served to that controller showed it lifted, and that controller's session
+    then went on: its resynchronization records the lift in the same commit before its time
+    sample; `heimdall_runtime::runner`, "Lift confirmation"), or after the later of the lift and
+    the producer's revocation.
+  - **R3, effect acknowledgements.** A `grant_revoke`'s goes `retention.operations` after it
+    was applied, once its producer is revoked, or once its grant has no tombstone; a pause's or
+    cutoff's never while the revision it names is in force, and goes with that revision or
+    `retention.operations` after it was applied once the revision is lifted.
+  - **R4, widening records.** A pending paired record past its deadline is settled `expired`
+    by the pass (with its lapse answer, `DECISION_STALE` / `approval_lapsed`); before this it
+    stayed `pending`. A settled record (approved with its result, denied, expired, stale,
+    withdrawn) is purged `retention.operations` after its decision, side row then decision,
+    leaving an expired-key marker of its caller-namespaced key until `marker_until`: a replay
+    of the key is `REQUEST_EXPIRED` until then (`Txn::purge_settled_widening`,
+    `widening::submit_bound`). An approved record with no result (`OUTCOME_UNKNOWN`) is never
+    purged.
+  - **The caps, and the override.** What has no authority effect on the runner is capped,
+    with `BACKPRESSURE` and nothing recorded past a cap: bare tombstones (256 per producer, 1,024
+    in total), in-force revisions whose scope matches nothing on the runner (256 per producer),
+    and pending paired widening records (32 per client, 128 in total). **A narrowing with an
+    authority effect is never refused**: a revoke of a grant the runner holds, and a pause or
+    cutoff whose scope matches a runner object, always land; in-force revisions are coalesced
+    per `(producer, scope_key, kind)` (one row, a cutoff only shortening it). A refused effect
+    stays in the controller's outbox, so its issuer barrier stays closed (fail closed).
 
 ## 8. Events and cursors (spec §11.5, §11.2; `contract::event`, `app::events`)
 

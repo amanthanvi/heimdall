@@ -10,6 +10,10 @@
 //!   never under the Heimdall home, so the home's length cannot push the socket past
 //!   `sun_path`. A start failure is classed by [`AgentFailure`] for the opener's reason.
 //!   Windows is unchanged by this: a pipe name is not a path and has no such limit.
+//!   ⟨M08 W4 SEC-3b, S2-06⟩ Bounded as the pipe agent is: at most
+//!   [`MAX_SESSION_CONNECTIONS`] connections at once (a client beyond it is closed without an
+//!   answer), each one the accept task's own, so stopping ends every one before the signer
+//!   is dropped.
 //! * **Windows** (ADR-0012 §2.6, the 2026-11-22 paragraph): a named pipe for the in-box
 //!   OpenSSH ([`SessionAgent::start_pipe`]).
 //!   - **Name:** `\\.\pipe\heimdall-<32 hex>` ([`session_pipe_name`]): the prefix and a
@@ -58,8 +62,8 @@ pub const SESSION_PIPE_PREFIX: &str = r"\\.\pipe\heimdall-";
 /// The random bytes in a session agent's pipe name (written as lowercase hex).
 pub const SESSION_PIPE_TOKEN_BYTES: usize = 16;
 
-/// Connections one session agent serves at once. One `ssh` authentication uses one; the
-/// rest are refused by closing them.
+/// Connections one session agent serves at once, on Windows and ⟨M08 W4 SEC-3b, S2-06⟩ on
+/// Unix. One `ssh` authentication uses one; the rest are refused by closing them.
 pub const MAX_SESSION_CONNECTIONS: usize = 8;
 
 /// A new session-agent pipe name: [`SESSION_PIPE_PREFIX`] and
@@ -154,25 +158,37 @@ impl SessionAgent {
         };
         let owner = AgentOwner::Uid(heimdall_ipc::unix::current_uid());
         let token = stop.clone();
+        // ⟨M08 W4 SEC-3b, S2-06⟩ As the pipe agent: the served connections are this task's
+        // own (a `JoinSet`, reaped as they end), at most [`MAX_SESSION_CONNECTIONS`] at once
+        // (a client beyond it is closed without an answer), and all of them end before the
+        // listener closes and the signer is dropped.
         let task = tokio::spawn(async move {
+            let mut connections = tokio::task::JoinSet::new();
             loop {
                 tokio::select! {
+                    biased;
                     () = token.cancelled() => break,
+                    Some(_) = connections.join_next(), if !connections.is_empty() => {}
                     accepted = listener.accept() => {
                         let Ok((stream, peer)) = accepted else { break };
-                        if !peer_admitted(&peer, &owner) {
+                        if !peer_admitted(&peer, &owner)
+                            || connections.len() >= MAX_SESSION_CONNECTIONS
+                        {
+                            drop(stream);
                             continue;
                         }
                         let signer = signer.clone();
                         let endpoint = endpoint.clone();
                         let token = token.clone();
-                        tokio::spawn(async move {
+                        connections.spawn(async move {
                             let _ = serve(stream, peer, endpoint, signer, token).await;
                         });
                     }
                 }
             }
+            connections.shutdown().await;
             drop(listener);
+            drop(signer);
         });
         Ok(SessionAgent {
             path: path.to_path_buf(),
@@ -1052,6 +1068,60 @@ mod unix_tests {
         drop(client);
         agent.stop().await;
         assert!(!path.exists(), "the socket is unlinked");
+    }
+
+    /// ⟨M08 W4 SEC-3b, S2-06⟩ The Unix agent's connections are bounded as the Windows
+    /// pipe agent's are: beyond [`MAX_SESSION_CONNECTIONS`] connections held open at once,
+    /// a client is closed without an answer, and a served one keeps working. `stop` ends
+    /// every served connection (they are the agent's tasks, not detached ones) before it
+    /// returns, and only then is the signer, so the key, dropped.
+    #[tokio::test]
+    async fn unix_connections_beyond_the_bound_are_closed_and_stop_ends_every_one() {
+        let settle = std::time::Duration::from_secs(5);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a").join("agent.sock");
+        let key = MgmtKey::generate().unwrap();
+        let blob = key.public().unwrap().blob;
+        let agent = SessionAgent::start(&path, MgmtSigner::new(key, ["u".to_owned()], []).unwrap())
+            .unwrap();
+        let mut open = Vec::new();
+        for _ in 0..MAX_SESSION_CONNECTIONS {
+            let mut client = tokio::net::UnixStream::connect(agent.path()).await.unwrap();
+            let list = wire::exchange(&mut client, &[wire::REQUEST_IDENTITIES])
+                .await
+                .unwrap();
+            assert_eq!(wire::listed(&list), vec![blob.clone()]);
+            open.push(client);
+        }
+        let mut extra = tokio::net::UnixStream::connect(agent.path()).await.unwrap();
+        let answer = tokio::time::timeout(
+            settle,
+            wire::exchange(&mut extra, &[wire::REQUEST_IDENTITIES]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(answer, None, "a connection beyond the bound was served");
+        let list = wire::exchange(&mut open[0], &[wire::REQUEST_IDENTITIES])
+            .await
+            .unwrap();
+        assert_eq!(wire::listed(&list), vec![blob]);
+        // Stopping ends every served connection and then drops the signer.
+        let weak = agent.signer.clone();
+        tokio::time::timeout(settle, agent.stop()).await.unwrap();
+        assert!(
+            weak.upgrade().is_none(),
+            "the signer outlived the agent's stop"
+        );
+        for client in &mut open {
+            let answer =
+                tokio::time::timeout(settle, wire::exchange(client, &[wire::REQUEST_IDENTITIES]))
+                    .await
+                    .unwrap();
+            assert_eq!(
+                answer, None,
+                "a served connection outlived the agent's stop"
+            );
+        }
     }
 
     use std::os::unix::fs::PermissionsExt as _;

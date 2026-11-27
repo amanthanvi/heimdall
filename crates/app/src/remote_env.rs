@@ -1203,12 +1203,9 @@ impl<'a> RemoteEnvController<'a> {
                 reason::ENVIRONMENT_IDENTITY_MISMATCH,
             ));
         }
-        if session
-            .hello()
-            .client
-            .as_ref()
-            .is_some_and(|c| *c != record.client)
-        {
+        // ⟨M08 W4 SEC-3b, S2-09⟩ A hello that names no client does not name the recorded
+        // one: held, as another client is.
+        if session.hello().client.as_ref() != Some(&record.client) {
             return Err(refuse(
                 Code::CapabilityUnavailable,
                 "the runner bound this session to another client than this controller's \
@@ -1318,7 +1315,9 @@ impl<'a> RemoteEnvController<'a> {
             .map_err(after_bootstrap)?;
         let hello = session.hello().clone();
         drop(session);
-        if hello.role.is_some_and(|r| r != Role::Owner) {
+        // ⟨M08 W4 SEC-3b, S2-09⟩ A hello that names no role did not enroll this device as
+        // owner either.
+        if hello.role != Some(Role::Owner) {
             return Err(refuse(
                 Code::CapabilityUnavailable,
                 "the runner did not enroll this device as owner",
@@ -1513,11 +1512,9 @@ impl<'a> RemoteEnvController<'a> {
                 standing: SessionStanding::Joining,
             })
             .await?;
-        let mismatched_client = session
-            .hello()
-            .client
-            .as_ref()
-            .is_some_and(|c| *c != bundle.client);
+        // ⟨M08 W4 SEC-3b, S2-09⟩ A hello that names no client does not name the
+        // invitation's.
+        let mismatched_client = session.hello().client.as_ref() != Some(&bundle.client);
         if session.hello().environment != bundle.environment || mismatched_client {
             return Err(refuse(
                 Code::CapabilityUnavailable,

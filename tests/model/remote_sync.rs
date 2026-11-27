@@ -619,7 +619,14 @@ async fn a_future_cutoff_delivered_early_then_replayed_under_uncertainty() {
         r.w.store
             .transaction(|tx| tx.remote_policy_revisions())
             .unwrap();
-    assert_eq!(rows.len(), 2);
+    // ⟨M08 W4 SEC-3b, R2⟩ The later cutoff of the same producer and scope, delivered while the
+    // first is in force, was coalesced into its row: one row, the later effect acknowledged
+    // against it.
+    assert_eq!(rows.len(), 1);
+    assert!(matches!(
+        later.record,
+        heimdall_store::ext_effects::AppliedRecord::PolicyRevision { runner_seq: 1, .. }
+    ));
     assert_eq!(
         rows[0].cutoff_at,
         Some(at),

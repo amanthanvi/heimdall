@@ -120,6 +120,14 @@ pub enum Refusal {
     /// effect `none`, until the contract owner rules (DONE question M06-W3-runner-Q1).
     #[error("the request is not admitted by the client's invitation")]
     InvalidRequest,
+    /// ⟨M08 W4 SEC-3b, R4⟩ A widening key whose record was purged after its retention, within
+    /// its 30-day expired-key marker (`REQUEST_EXPIRED`): never a new record (ADR-0006 §7.4).
+    #[error("the request ID's record has expired; use a new request ID")]
+    RequestExpired,
+    /// ⟨M08 W4 SEC-3b, R4⟩ The paired client's pending widening records, or every client's, are
+    /// at their limit (`BACKPRESSURE`): nothing was recorded.
+    #[error("too many widening requests are pending on this runner; retry after some are decided")]
+    Backpressure,
 }
 
 impl Refusal {
@@ -135,6 +143,8 @@ impl Refusal {
             Self::OutcomeUnknown => Code::OutcomeUnknown,
             Self::NotARunner => Code::SchemaUnsupported,
             Self::InvalidRequest => Code::UsageError,
+            Self::RequestExpired => Code::RequestExpired,
+            Self::Backpressure => Code::Backpressure,
             _ => Code::CapabilityUnavailable,
         }
     }
@@ -161,7 +171,9 @@ impl Refusal {
             | Self::DecisionStale
             | Self::OutcomeUnknown
             | Self::NotARunner
-            | Self::InvalidRequest => return None,
+            | Self::InvalidRequest
+            | Self::RequestExpired
+            | Self::Backpressure => return None,
         })
     }
 

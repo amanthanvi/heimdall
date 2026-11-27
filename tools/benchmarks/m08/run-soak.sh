@@ -4,6 +4,7 @@
 # Usage: bash tools/benchmarks/m08/run-soak.sh --stage <staged archive dir> --seconds <n>
 #            [--tick <s>] [--seed <n>] [--id <name>] [--lanes SL|S|L] [--block]
 #        bash tools/benchmarks/m08/run-soak.sh --grant-history-growth
+#        bash tools/benchmarks/m08/run-soak.sh --authority-history-growth
 #   --stage    a directory holding the Linux `heimdall` for this machine's container
 #              architecture (target/release-artifacts/heimdall-<version>-<target>/)
 #   --block    wait for the run, print the analysis, remove the container. Use it for a
@@ -23,6 +24,15 @@ if [ "$#" -eq 1 ] && [ "$1" = --grant-history-growth ]; then
     unset CARGO_TARGET_DIR
     exec env CARGO_BUILD_JOBS=4 cargo test --locked -p heimdall-store --lib \
         grant_live_tests::grant_history_growth -- --exact --ignored --nocapture
+fi
+# M08 W4 SEC-3b: the runner's authority history (tombstones, delivered pauses and cutoffs,
+# their acknowledgements, widening records) and its report, across retention cycles.
+if [ "$#" -eq 1 ] && [ "$1" = --authority-history-growth ]; then
+    cd "$repo"
+    unset CARGO_TARGET_DIR
+    exec env CARGO_BUILD_JOBS=4 cargo test --locked -p heimdall-runtime \
+        --test integration_runner_history_m08 authority_history_growth -- --exact --ignored \
+        --nocapture
 fi
 image=hm-m08-soak:1
 stage=""; seconds=""; tick=60; seed=1; id=""; block=no; lanes=SL

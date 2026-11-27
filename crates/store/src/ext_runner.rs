@@ -444,10 +444,22 @@ pub const BRIDGE_BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_s
 /// ([`StoreError::AdoptionFenced`]). A fence that starts later waits for this commit, so
 /// the row is in the family before the fence and therefore in the adoption's copy.
 ///
+/// ⟨M08 W4 SEC-3b; U2b-3b open item 1⟩ **Why the pointer is read inside the transaction.**
+/// A restore or a reset (`crate::restore`) makes another generation current by the pointer
+/// switch, under the instance lock the bridge does not hold. It reads the replaced
+/// generation inside a `BEGIN IMMEDIATE` transaction that it holds until after the switch, so
+/// a bridge transaction either commits before that read (the row is carried forward) or
+/// begins after the switch. In the second case the database at `path` is the replaced
+/// generation, residue. So when `path` is a generation's database, the transaction reads the
+/// pointer again under its write lock and refuses ([`StoreError::Corrupt`]) when it no longer
+/// names that generation: nothing is written there, and the caller queues the event in its
+/// fail-closed marker, which the runtime records in the generation it serves.
+///
 /// # Errors
 ///
 /// No such database, another schema (a family fenced for adoption included), not a
-/// runner's, a write lock not obtained in time, or SQLite's failure: nothing was recorded.
+/// runner's, a generation that is no longer current, a write lock not obtained in time, or
+/// SQLite's failure: nothing was recorded.
 /// The caller refuses its session all the same and queues the event in its fail-closed
 /// marker (`heimdall_runtime::paired::note_unrecorded_downgrade`).
 pub fn bridge_record_runner_downgrade(
@@ -516,6 +528,8 @@ fn bridge_record_with(
         faults,
         read_only: false,
     };
+    // ⟨M08 W4 SEC-3b; U2b-3b open item 1⟩ The generation this database is, when it is one.
+    let opened = generation_of(path);
     // `Store::transaction` on a writable store is `BEGIN IMMEDIATE` (`read_only` is false
     // here): the write lock is taken at `BEGIN`, so no other writer can commit between the
     // version read and the upsert below. A deferred transaction would read first and take
@@ -523,6 +537,17 @@ fn bridge_record_with(
     store.transaction(|tx| {
         // ⟨W3-R01⟩ The schema again, under the write lock (doc above).
         at_this_builds_schema(&tx.tx)?;
+        // ⟨M08 W4 SEC-3b; U2b-3b open item 1⟩ The pointer again, under the same write lock
+        // (doc above, "Why the pointer is read inside the transaction").
+        if let Some((state_dir, name)) = &opened {
+            let pointed = crate::layout::pointed_generation(state_dir)?;
+            if pointed.as_deref().and_then(std::path::Path::file_name) != Some(name.as_os_str()) {
+                return Err(corrupt(
+                    "a restore or a reset made another store generation current before the \
+                     bridge's write: nothing was written",
+                ));
+            }
+        }
         let runner = match tx.self_environment()? {
             Some(id) => tx
                 .environment(&id)?
@@ -534,6 +559,23 @@ fn bridge_record_with(
         }
         tx.record_runner_downgrade(cause, now)
     })
+}
+
+/// ⟨M08 W4 SEC-3b; U2b-3b open item 1⟩ When `path` is the database of a store generation
+/// (`<state>/generations/<name>/<file>`, `heimdall_stategen::generations::GENERATIONS`), the
+/// state directory whose pointer must still name it and the generation's name. `None` for
+/// any other path (the flat family of a build before generations: the adoption's fence
+/// guards it, W3-R01).
+fn generation_of(path: &std::path::Path) -> Option<(std::path::PathBuf, std::ffi::OsString)> {
+    let generation = path.parent()?;
+    let generations = generation.parent()?;
+    if generations.file_name()? != heimdall_stategen::generations::GENERATIONS {
+        return None;
+    }
+    Some((
+        generations.parent()?.to_path_buf(),
+        generation.file_name()?.to_os_string(),
+    ))
 }
 
 /// The database is at exactly this build's schema. An older one (an empty file included)

@@ -424,17 +424,44 @@ pub fn lift_shown(report: &AuthorityReport, effect: &OutboxEffect) -> bool {
 }
 
 /// [`lift_shown`] over a report's delivered revisions alone.
+///
+/// ⟨M08 W4 SEC-3b, R2; ADR-0012 §7.4 as amended 2026-11-27⟩ When the report carries the
+/// effect's own row, that row decides, as before. When it does not, because the runner
+/// coalesced the effect into its producer's in-force row of the same scope and kind, or
+/// pruned the lifted row after this controller recorded the lift, the rows of the same
+/// producer, scope and kind decide: any of them in force shows no lift (a runner restored
+/// from before the lift blocks again); otherwise one of them lifted, or this controller's
+/// own record that a complete report showed the lift ([`OutboxEffect::lift_seen_at`]), shows
+/// it. With none of these, nothing shows a lift (fail closed).
 #[must_use]
 pub fn lift_shown_among(revisions: &[PolicyRevisionRecord], effect: &OutboxEffect) -> bool {
-    matches!(
+    if !matches!(
         effect.ack.as_ref().map(|a| &a.record),
         Some(AppliedRecord::PolicyRevision { .. })
-    ) && matches!(
-        effect.key.target,
-        EffectTarget::PolicyPause { .. } | EffectTarget::PolicyCutoff { .. }
-    ) && revisions
-        .iter()
-        .any(|r| revision_of(r, effect) && !r.in_force)
+    ) {
+        return false;
+    }
+    let kind = match effect.key.target {
+        EffectTarget::PolicyPause { .. } => PolicyRevisionKind::Pause,
+        EffectTarget::PolicyCutoff { .. } => PolicyRevisionKind::Cutoff,
+        _ => return false,
+    };
+    if let Some(own) = revisions.iter().find(|r| revision_of(r, effect)) {
+        return !own.in_force;
+    }
+    let scope = heimdall_store::ext_effects::target_ref(&effect.key.target);
+    let mut lifted = false;
+    for row in revisions.iter().filter(|r| {
+        r.producer == effect.key.producer
+            && r.kind == kind
+            && scope.as_deref() == Some(r.scope_key.as_str())
+    }) {
+        if row.in_force {
+            return false;
+        }
+        lifted = true;
+    }
+    lifted || effect.lift_seen_at.is_some()
 }
 
 /// Whether the report's delivered revision `row` is the durable record of the outbox

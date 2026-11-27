@@ -244,6 +244,65 @@ async fn loopback_round_trip_and_every_bound_socket_is_loopback() {
     assert_eq!(stop(server).await, ServeExit::Shutdown);
 }
 
+/// ⟨M08 W4 SEC-3b, S2-03⟩ One allowlist entry that is not an endpoint key (64 hex
+/// characters whose 32 bytes are not an Ed25519 public key) is skipped and reported
+/// ([`Server::skipped_allowlist_entries`]); it never stops the server for every other
+/// client: the valid client is admitted and served. An allowlist with no valid entry is
+/// still refused.
+#[tokio::test]
+async fn an_invalid_allowlist_entry_is_skipped_and_reported_and_the_rest_are_served() {
+    let not_a_key = (0u8..=255)
+        .map(|b| IrohEndpointId::parse(&format!("{b:02x}").repeat(32)).unwrap())
+        .find(|id| crate::endpoint::iroh_id(id).is_none())
+        .expect("some repeated-byte string is not a curve point");
+    let echo = Echo::start().await;
+    let a = client();
+    let (authority, _handle) =
+        ChannelAuthority::new(AuthorityGeneration(1), [a.id.clone(), not_a_key.clone()]);
+    let config = ServeConfig {
+        policy: ExposurePolicy::default(),
+        allowlist: Allowlist::new([a.id.clone(), not_a_key.clone()]).unwrap(),
+        target: LoopbackTarget::new(echo.addr).unwrap(),
+    };
+    let server = match Server::bind(config, &InMemoryKeySource::generate(), authority).await {
+        Ok(s) => s,
+        Err(e) => panic!("one invalid entry stopped the server for every client: {e}"),
+    };
+    assert_eq!(
+        server.skipped_allowlist_entries(),
+        std::slice::from_ref(&not_a_key)
+    );
+    let bound = server.bound_sockets();
+    let running = Running {
+        target: Target {
+            id: server.endpoint_id().clone(),
+            addr: *bound.iter().find(|addr| addr.is_ipv4()).unwrap(),
+        },
+        bound,
+        shutdown: server.shutdown_handle(),
+        run: tokio::spawn(server.run()),
+    };
+    let mut stream = dial_to(&running.target, &a, STEP).await.unwrap();
+    assert_eq!(
+        round_trip(&mut stream, b"still served").await.unwrap(),
+        b"still served"
+    );
+    assert!(stream.close().await);
+    assert_eq!(stop(running).await, ServeExit::Shutdown);
+    // No valid entry at all: refused, as before.
+    let (authority, _handle) = ChannelAuthority::new(AuthorityGeneration(1), [not_a_key.clone()]);
+    let config = ServeConfig {
+        policy: ExposurePolicy::default(),
+        allowlist: Allowlist::new([not_a_key]).unwrap(),
+        target: LoopbackTarget::new(echo.addr).unwrap(),
+    };
+    assert!(
+        Server::bind(config, &InMemoryKeySource::generate(), authority)
+            .await
+            .is_err()
+    );
+}
+
 /// ADR-0012 §2.3 item 1: a dialer not on the allowlist, and an allowlisted dialer the
 /// authority does not admit (tombstoned), are refused before any byte reaches the target:
 /// the echo target sees no connection.

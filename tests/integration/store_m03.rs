@@ -2529,7 +2529,7 @@ fn migration_0005_to_0006_keeps_m01_m02_rows_byte_identical() {
 
     let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
     assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 17); // 0015: the live column; 0016: the terminal records; 0017: the restore holds.
+    assert_eq!(SCHEMA_VERSION, 18); // 0015: the live column; 0016: the terminal records; 0017: the restore holds; 0018: the history bounds.
     let mut backup = db.as_os_str().to_owned();
     backup.push(".v5.backup");
     assert!(PathBuf::from(backup).exists(), "v5 file backed up first");

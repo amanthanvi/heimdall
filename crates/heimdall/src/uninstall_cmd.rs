@@ -6504,11 +6504,15 @@ mod tests {
             "remote_policy_revisions" => vec![
                 case("record a delivered cutoff", nothing, seed_policy_revision),
                 case(
-                    "another effect's revision of the same scope",
+                    "another producer's revision of the same scope",
                     seed_policy_revision,
                     |tx| {
+                        // ⟨M08 W4 SEC-3b, R2⟩ Another producer's row: the same producer's next
+                        // in-force revision of the same scope and kind is coalesced into its row
+                        // (a shortening one changes it: the redelivery case below).
                         let mut row = effect_revision(2, "2026-12-01T00:00:00Z");
-                        row.revision = 2;
+                        row.producer =
+                            heimdall_contract::ids::ClientId::from_random_bytes([0x5c; 16]);
                         tx.record_remote_policy_revision(&row).map(drop)
                     },
                 ),

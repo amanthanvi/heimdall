@@ -85,4 +85,5 @@ and it counts these rows as stored, not read. ⟨M08 U2b-2⟩ `request_fences` a
 
 - `meta` key `remote_revocation_claim_seq`: no reader: only `next_remote_claim_seq`, which reads it to advance it (a writer).
 - `meta` key `cleanup_intent_version`: no reader: only `record_cleanup_intent`, which reads it to advance it (a writer).
+- `meta` key `remote_policy_seq` (⟨M08 W4 SEC-3b⟩): no reader: only `record_remote_policy_revision`, which reads it to advance it (a writer).
 

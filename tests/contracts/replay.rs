@@ -62,6 +62,10 @@ const META_NOT_READ: &[(&str, &str)] = &[
         "cleanup_intent_version",
         "no reader: only `record_cleanup_intent`, which reads it to advance it (a writer)",
     ),
+    (
+        "remote_policy_seq",
+        "no reader: only `record_remote_policy_revision`, which reads it to advance it (a writer)",
+    ),
 ];
 
 /// Per table, the key columns (as text) its reader is called with: one row per stored row,

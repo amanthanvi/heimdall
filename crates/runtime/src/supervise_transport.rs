@@ -222,6 +222,42 @@ where
     writer.flush().await.map_err(|_| LineError::Io)
 }
 
+/// ⟨M08 W4 SEC-3b, S2-06⟩ How many supervision messages one side holds unread: the runtime's
+/// queue of the child's messages, and the child's queue of messages to the runtime.
+const CHILD_MESSAGES: usize = 64;
+
+/// ⟨M08 W4 SEC-3b, S2-06⟩ How many admission signals (suspends, a lease loss) the serve
+/// child's authority holds for its server.
+const ADMISSION_SIGNALS: usize = 16;
+
+/// ⟨M08 W4 SEC-3b, S2-06⟩ How many chunks of standard input the serve child's reading thread
+/// holds for it.
+const STDIN_CHUNKS: usize = 8;
+
+/// ⟨M08 W4 SEC-3b, S2-06⟩ How many stopped children whose exit is not confirmed the supervisor
+/// keeps retrying at once. At the bound no new child is started (fail closed: not serving)
+/// until the watchdog confirms one gone.
+pub const MAX_UNCONFIRMED_CHILDREN: usize = 4;
+
+/// The serve child's supervision messages read from `stdout` into a queue. ⟨M08 W4 SEC-3b,
+/// S2-06⟩ The queue holds at most [`CHILD_MESSAGES`]: while it is full the reader waits, so a
+/// child that writes faster than the runtime reads is held back by its pipe.
+fn child_messages<R>(stdout: R) -> mpsc::Receiver<FromChild>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel(CHILD_MESSAGES);
+    tokio::spawn(async move {
+        let mut reader = tokio::io::BufReader::new(stdout);
+        while let Ok(m) = read_message::<_, FromChild>(&mut reader).await {
+            if tx.send(m).await.is_err() {
+                break;
+            }
+        }
+    });
+    rx
+}
+
 // --- the child's admission authority ------------------------------------------------------
 
 #[derive(Debug)]
@@ -240,15 +276,17 @@ struct ChildView {
 #[derive(Debug)]
 pub struct ChildAuthority {
     view: Mutex<ChildView>,
-    signals: tokio::sync::Mutex<mpsc::UnboundedReceiver<AdmissionSignal>>,
-    tx: mpsc::UnboundedSender<AdmissionSignal>,
+    signals: tokio::sync::Mutex<mpsc::Receiver<AdmissionSignal>>,
+    tx: mpsc::Sender<AdmissionSignal>,
 }
 
 impl ChildAuthority {
     /// An authority holding a lease for `generation` that admits `admitted`.
     #[must_use]
     pub fn new(generation: u64, admitted: impl IntoIterator<Item = IrohEndpointId>) -> Arc<Self> {
-        let (tx, rx) = mpsc::unbounded_channel();
+        // ⟨M08 W4 SEC-3b, S2-06⟩ Bounded: a suspend waits for room; a lease loss that finds
+        // the queue full is still in the view, which the server's lease poll reads.
+        let (tx, rx) = mpsc::channel(ADMISSION_SIGNALS);
         Arc::new(Self {
             view: Mutex::new(ChildView {
                 committed: AuthorityGeneration(generation),
@@ -290,6 +328,7 @@ impl ChildAuthority {
                 endpoints,
                 ack,
             }))
+            .await
             .ok()?;
         let report = rx.await.ok()?;
         let mut v = self.view();
@@ -302,7 +341,7 @@ impl ChildAuthority {
     /// The lease is lost for good (channel EOF or a protocol violation).
     pub fn lose(&self, loss: LeaseLoss) {
         self.view().lost = Some(loss);
-        let _ = self.tx.send(AdmissionSignal::LeaseLost(loss));
+        let _ = self.tx.try_send(AdmissionSignal::LeaseLost(loss));
     }
 }
 
@@ -615,7 +654,7 @@ struct Running {
     process: tokio::process::Child,
     pid: Option<u32>,
     stdin: Option<tokio::process::ChildStdin>,
-    messages: mpsc::UnboundedReceiver<FromChild>,
+    messages: mpsc::Receiver<FromChild>,
     generation: u64,
     admitted: BTreeSet<IrohEndpointId>,
     plan: ServePlan,
@@ -684,6 +723,21 @@ struct Inner {
     /// Children stopped by their exact PID whose exit is not confirmed yet: admission stays
     /// `remote_pending` (`iroh_admission_closing`) until each is gone (the watchdog retries).
     unconfirmed: Vec<Running>,
+}
+
+/// ⟨M08 W4 SEC-3b, S2-06⟩ Whether a new serve child may start: not while
+/// [`MAX_UNCONFIRMED_CHILDREN`] stopped children are still unconfirmed, so that list stays
+/// bounded (fail closed: `transport_unavailable`, not serving, until the watchdog confirms
+/// one gone).
+fn launch_gate(inner: &Inner) -> Result<(), OpError> {
+    if inner.unconfirmed.len() >= MAX_UNCONFIRMED_CHILDREN {
+        return Err(refusal(
+            reason::TRANSPORT_UNAVAILABLE,
+            "earlier serve children are not confirmed stopped; no new one is started until \
+             they are",
+        ));
+    }
+    Ok(())
 }
 
 /// The serve child's supervisor (module docs). One per runtime.
@@ -792,6 +846,7 @@ impl TransportSupervisor {
         if inner.child.is_some() {
             return Ok(());
         }
+        launch_gate(&inner)?;
         let snapshot = read_authority(&self.store, self.peers.as_ref()).map_err(|_| {
             refusal(
                 reason::TRANSPORT_AUTHORITY_LOST,
@@ -842,15 +897,7 @@ impl TransportSupervisor {
                 "the serve child has no supervision channel",
             ));
         };
-        let (tx, mut messages) = mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            let mut reader = tokio::io::BufReader::new(stdout);
-            while let Ok(m) = read_message::<_, FromChild>(&mut reader).await {
-                if tx.send(m).is_err() {
-                    break;
-                }
-            }
-        });
+        let mut messages = child_messages(stdout);
         let start = ToChild::Start {
             protocol: PROTOCOL.to_owned(),
             generation: snapshot.generation,
@@ -980,6 +1027,7 @@ impl TransportSupervisor {
             None => {
                 self.set_pid(None);
                 if report == AdmissionReport::Applied
+                    && launch_gate(&inner).is_ok()
                     && let Ok(snapshot) = read_authority(&self.store, self.peers.as_ref())
                     && let Ok(fresh) = self.launch(&snapshot).await
                 {
@@ -2098,6 +2146,15 @@ where
             return ChildExit::Refused(token);
         }
     };
+    // ⟨M08 W4 SEC-3b, S2-03⟩ Entries that are not endpoint keys were skipped, never admitted
+    // (`Server::bind`): reported here by count, and every other client is still served.
+    let skipped = server.skipped_allowlist_entries().len();
+    if skipped > 0 {
+        tracing::warn!(
+            skipped,
+            "serve allowlist entries that are not endpoint keys were skipped"
+        );
+    }
     if server.endpoint_id() != &key.endpoint {
         // The store's key is not the one the runtime recorded: never serve as another
         // endpoint.
@@ -2110,8 +2167,9 @@ where
         let _ = server.run().await;
         return ChildExit::Refused(reason::TRANSPORT_KEY_STORE_UNAVAILABLE);
     }
-    // The writer task: every message to the runtime goes through it, in order.
-    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<FromChild>();
+    // The writer task: every message to the runtime goes through it, in order. ⟨M08 W4
+    // SEC-3b, S2-06⟩ Its queue is bounded: a sender waits while the runtime is not reading.
+    let (out_tx, mut out_rx) = mpsc::channel::<FromChild>(CHILD_MESSAGES);
     let writer = tokio::spawn(async move {
         while let Some(m) = out_rx.recv().await {
             if write_message(&mut output, &m).await.is_err() {
@@ -2119,15 +2177,17 @@ where
             }
         }
     });
-    let _ = out_tx.send(FromChild::Ready {
-        endpoint: server.endpoint_id().clone(),
-        generation,
-        addresses: server
-            .bound_sockets()
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
-    });
+    let _ = out_tx
+        .send(FromChild::Ready {
+            endpoint: server.endpoint_id().clone(),
+            generation,
+            addresses: server
+                .bound_sockets()
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+        })
+        .await;
     // The reader task: suspends are applied in order; EOF or garbage loses the lease.
     let reader_authority = Arc::clone(&authority);
     let reader_out = out_tx.clone();
@@ -2141,11 +2201,13 @@ where
                     let Some(report) = reader_authority.suspend(generation, endpoints).await else {
                         break;
                     };
-                    let _ = reader_out.send(FromChild::Suspended {
-                        generation: report.generation.0,
-                        closed: report.closed,
-                        complete: report.complete,
-                    });
+                    let _ = reader_out
+                        .send(FromChild::Suspended {
+                            generation: report.generation.0,
+                            closed: report.closed,
+                            complete: report.complete,
+                        })
+                        .await;
                 }
                 Ok(ToChild::Start { .. }) | Err(LineError::Malformed) => {
                     reader_authority.lose(LeaseLoss::AuthorityUnreadable);
@@ -2166,9 +2228,11 @@ where
             (ChildExit::EndpointClosed, reason::TRANSPORT_UNAVAILABLE)
         }
     };
-    let _ = out_tx.send(FromChild::Exiting {
-        reason: token.to_owned(),
-    });
+    let _ = out_tx
+        .send(FromChild::Exiting {
+            reason: token.to_owned(),
+        })
+        .await;
     drop(out_tx);
     let _ = tokio::time::timeout(Duration::from_secs(1), writer).await;
     exit
@@ -2178,7 +2242,7 @@ where
 /// (tokio's `io-std` is not enabled, and a blocking reader must never hold the runtime's
 /// exit: the thread is detached).
 struct ThreadReader {
-    rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    rx: mpsc::Receiver<Vec<u8>>,
     pending: Vec<u8>,
 }
 
@@ -2215,7 +2279,9 @@ pub fn serve_child_stdio(keys: KeySourceFactory<'_>) -> i32 {
     else {
         return 2;
     };
-    let (tx, rx) = mpsc::unbounded_channel();
+    // ⟨M08 W4 SEC-3b, S2-06⟩ Bounded: the reading thread waits while the child is not
+    // reading what it already has.
+    let (tx, rx) = mpsc::channel(STDIN_CHUNKS);
     let spawned = std::thread::Builder::new()
         .name("hm-serve-stdin".into())
         .spawn(move || {
@@ -2225,7 +2291,7 @@ pub fn serve_child_stdio(keys: KeySourceFactory<'_>) -> i32 {
                 match stdin.read(&mut chunk) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        if tx.send(chunk[..n].to_vec()).is_err() {
+                        if tx.blocking_send(chunk[..n].to_vec()).is_err() {
                             break;
                         }
                     }
@@ -2410,6 +2476,66 @@ mod tests {
 
     fn id(c: char) -> IrohEndpointId {
         IrohEndpointId::parse(&c.to_string().repeat(64)).unwrap()
+    }
+
+    /// ⟨M08 W4 SEC-3b, S2-06⟩ The runtime's queue of the serve child's supervision messages
+    /// is bounded: a child that writes messages nobody reads fills the queue, then the
+    /// reader stops reading (the pipe holds the child back), instead of the runtime's memory
+    /// growing with every line.
+    #[tokio::test]
+    async fn the_serve_childs_message_queue_is_bounded() {
+        /// An endless stream of one valid supervision line. Every other read is pending
+        /// (woken at once), so a reader that never waits still yields to the runtime.
+        struct Endless {
+            line: Vec<u8>,
+            at: usize,
+            pause: bool,
+        }
+        impl AsyncRead for Endless {
+            fn poll_read(
+                mut self: std::pin::Pin<&mut Self>,
+                cx: &mut std::task::Context<'_>,
+                buf: &mut tokio::io::ReadBuf<'_>,
+            ) -> std::task::Poll<std::io::Result<()>> {
+                self.pause = !self.pause;
+                if self.pause {
+                    cx.waker().wake_by_ref();
+                    return std::task::Poll::Pending;
+                }
+                while buf.remaining() > 0 {
+                    let at = self.at;
+                    let n = (self.line.len() - at).min(buf.remaining());
+                    buf.put_slice(&self.line[at..at + n]);
+                    self.at = (at + n) % self.line.len();
+                }
+                std::task::Poll::Ready(Ok(()))
+            }
+        }
+        let mut line = serde_json::to_vec(&FromChild::Suspended {
+            generation: 1,
+            closed: 0,
+            complete: true,
+        })
+        .unwrap();
+        line.push(b'\n');
+        let mut queue = child_messages(Endless {
+            line,
+            at: 0,
+            pause: false,
+        });
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let mut held = 0usize;
+        while queue.try_recv().is_ok() {
+            held += 1;
+            if held > 100_000 {
+                break;
+            }
+        }
+        assert!(held > 0, "the reader delivered nothing");
+        assert!(
+            held <= CHILD_MESSAGES + 1,
+            "{held} unread messages were queued (bound {CHILD_MESSAGES})"
+        );
     }
 
     /// ⟨M06 W5; ADR-0006 §18.9 item 1; ADR-0012 §2.3 item 2⟩ The serve target is

@@ -1179,7 +1179,8 @@ impl ControllerSync {
             .await?;
         let hello = session.hello();
         if hello.environment != pin.environment
-            || hello.client.as_ref().is_some_and(|c| *c != pin.client)
+            // ⟨M08 W4 SEC-3b, S2-09⟩ No client named is not the pinned one.
+            || hello.client.as_ref() != Some(&pin.client)
         {
             return Err(OpError::new(
                 Code::CapabilityUnavailable,
@@ -2301,6 +2302,143 @@ mod tests {
 
     fn at(text: &str) -> Timestamp {
         text.parse().unwrap()
+    }
+
+    // --- ⟨M08 W4 SEC-3b, S2-09⟩ a hello that names no client fails closed -----------------
+
+    /// A session whose hello names the pinned environment and a role, and **no client**.
+    struct Clientless {
+        hello: crate::remote_env::SessionHello,
+        sent: Arc<std::sync::Mutex<Vec<&'static str>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ManagementSession for Clientless {
+        fn hello(&self) -> &crate::remote_env::SessionHello {
+            &self.hello
+        }
+        fn runner_negotiated(&self) -> bool {
+            true
+        }
+        async fn call(
+            &mut self,
+            call: ManagementCall,
+        ) -> Result<heimdall_contract::envelope::Envelope<serde_json::Value>, OpError> {
+            self.sent.lock().unwrap().push(call.into_request().kind());
+            Ok(heimdall_contract::envelope::Envelope::ok(
+                serde_json::json!({}),
+            ))
+        }
+    }
+
+    struct ClientlessSessions {
+        environment: EnvironmentId,
+        role: Role,
+        sent: Arc<std::sync::Mutex<Vec<&'static str>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ManagementSessions for ClientlessSessions {
+        async fn open(
+            &self,
+            _target: &SessionTarget,
+        ) -> Result<Box<dyn ManagementSession>, OpError> {
+            Ok(Box::new(Clientless {
+                hello: crate::remote_env::SessionHello {
+                    environment: self.environment.clone(),
+                    role: Some(self.role),
+                    client: None,
+                },
+                sent: self.sent.clone(),
+            }))
+        }
+    }
+
+    /// ⟨M08 W4 SEC-3b, S2-09; ADR-0012 §7.4 step 1, §7.5⟩ A runner whose hello names the
+    /// pinned environment but **no client** is held (`environment_identity_mismatch`) by
+    /// the resynchronization (`resync`, through `on_session`) and by a forwarded `ensure`
+    /// (`submit_ensure`), and nothing is sent to it: the client it bound the session to must
+    /// be the pinned one, and an absent one is not.
+    #[tokio::test]
+    async fn a_session_whose_hello_names_no_client_is_held_and_nothing_is_sent() {
+        let l = lifts();
+        let recorded = pins_for_test(&l.store).into_iter().next().unwrap();
+        let pin_of_role = |role: Role| RemoteEnvironmentPin {
+            role,
+            ..recorded.clone()
+        };
+        let store = Arc::new(l.store);
+        let clock: Arc<dyn Clock> = heimdall_testkit::VirtualClock::at(at("2026-11-27T09:00:00Z"));
+        let sync = ControllerSync::new(store.clone(), clock);
+        let sent = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sessions = ClientlessSessions {
+            environment: l.env.clone(),
+            role: Role::Owner,
+            sent: sent.clone(),
+        };
+        // The resynchronization.
+        let owner = pin_of_role(Role::Owner);
+        let mut session = sessions
+            .open(&SessionTarget {
+                name: SessionName::Environment(l.env.clone()),
+                route: owner.route.clone(),
+                standing: crate::remote_env::SessionStanding::of_record(Role::Owner),
+            })
+            .await
+            .unwrap();
+        let err = sync.on_session(&owner, session.as_mut()).await.unwrap_err();
+        assert_eq!(
+            err.reason.as_deref(),
+            Some(reason::ENVIRONMENT_IDENTITY_MISMATCH),
+            "resync: {err:?}"
+        );
+        assert!(sync.barrier().reconciliation(&l.env).is_none());
+        assert!(
+            sent.lock().unwrap().is_empty(),
+            "resync sent {:?}",
+            sent.lock().unwrap()
+        );
+        // A forwarded `ensure` from a role that only requests there.
+        let requester = pin_of_role(Role::Requester);
+        let sessions = ClientlessSessions {
+            role: Role::Requester,
+            ..sessions
+        };
+        let request = heimdall_contract::request::EnsureRequest {
+            profile: Some(heimdall_contract::ids::ProfileId::parse("prof").unwrap()),
+            profile_revision: None,
+            scope: std::collections::BTreeSet::new(),
+            environment: Some(l.env.clone()),
+            work_id: heimdall_contract::ids::WorkId::parse("job-1").unwrap(),
+            until: None,
+            required_capabilities: Default::default(),
+            request_id: heimdall_contract::ids::RequestId::parse("req-1").unwrap(),
+            interaction: heimdall_contract::request::InteractionMode::NonInteractive,
+            wait: heimdall_contract::request::WaitMode::default(),
+            connection: None,
+            context: None,
+            covered_only: false,
+            pair_issuers: Vec::new(),
+        };
+        let err = sync
+            .submit_ensure(&sessions, &requester, &request)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err.reason.as_deref(),
+            Some(reason::ENVIRONMENT_IDENTITY_MISMATCH),
+            "submit_ensure: {err:?}"
+        );
+        assert!(
+            sent.lock().unwrap().is_empty(),
+            "submit_ensure sent {:?}",
+            sent.lock().unwrap()
+        );
+    }
+
+    /// The pins `store` records (test reader).
+    fn pins_for_test(store: &Store) -> Vec<RemoteEnvironmentPin> {
+        store.transaction(pins).unwrap()
     }
 
     // --- ⟨M06 W4 `w4c`⟩ the lift acknowledgement names its effect ------------------------

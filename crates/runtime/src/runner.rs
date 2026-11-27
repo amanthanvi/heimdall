@@ -34,6 +34,16 @@
 //! report (§7.4's order: effects, then the report). The gate only ever refuses: every
 //! issuance check that follows it is unchanged.
 //!
+//! ⟨M08 W4 SEC-3b, R2; ADR-0012 §7.4 as amended 2026-11-27⟩ **Lift confirmation.** A lifted
+//! delivered revision is pruned only once its producing controller recorded the lift
+//! (`heimdall_store::ext_effects::Txn::prune_runner_history`). No request carries that, so
+//! the runner takes the controller's own order as the evidence: when a complete authority
+//! report served to a session showed that controller's own revisions lifted
+//! ([`RunnerRuntime::note_lifts_shown`]), the next request of that session (the time
+//! challenge of the controller's resynchronization, sent only after its reconciliation,
+//! which records each lift it saw, committed) confirms them. A session that ends first, or a
+//! delivered effect in between, confirms nothing: nothing is then pruned for it.
+//!
 //! **Runner-local decisions** (⟨M06 W3; ADR-0006 §18.7 item 7⟩, [`runner_local`]): the
 //! runner's own `issuer_trust` and time-source designation, the `meta` keys
 //! `runner_issuer_trust:<fp>` and `runner_time_source` (§18.6 reading (b): authority-bearing,
@@ -85,6 +95,10 @@ pub struct RunnerRuntime {
     /// The sessions served the authority report since their last delivered effect (module
     /// docs, "The per-session issuance gate").
     resynced: std::sync::Mutex<std::collections::BTreeSet<(u64, ClientId)>>,
+    /// ⟨M08 W4 SEC-3b, R2⟩ Per session, the producer's own lifted revisions (`(scope_key,
+    /// revision)`) the last complete report served to it showed (module docs, "Lift
+    /// confirmation").
+    lifts_shown: std::sync::Mutex<LiftsShown>,
     /// ⟨M06 W3 grant-path⟩ Called when an install completed a grant's certificates
     /// ([`Self::on_issued`]).
     issued: std::sync::Mutex<Option<IssuedHook>>,
@@ -114,6 +128,11 @@ pub type IssuedHook = Arc<dyn Fn(&GrantId) + Send + Sync>;
 /// The most sessions the issuance gate remembers; past it the oldest connection is forgotten
 /// (it is then gated again: fail closed).
 const RESYNCED_SESSIONS: usize = 256;
+
+/// ⟨M08 W4 SEC-3b, R2⟩ Per `(connection, controller)`, the producer's own lifted revisions a
+/// complete report showed it (at most [`RESYNCED_SESSIONS`] sessions: a forgotten one is
+/// simply not confirmed, which prunes nothing).
+type LiftsShown = std::collections::BTreeMap<(u64, ClientId), Vec<(String, u64)>>;
 
 impl std::fmt::Debug for RunnerRuntime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -152,6 +171,7 @@ impl RunnerRuntime {
             clock,
             lifetime,
             resynced: std::sync::Mutex::default(),
+            lifts_shown: std::sync::Mutex::default(),
             issued: std::sync::Mutex::default(),
             binder: std::sync::Mutex::default(),
         }
@@ -217,6 +237,46 @@ impl RunnerRuntime {
     /// it reads a fresh report.
     pub fn note_effect_delivered(&self, controller: &ClientId, connection: u64) {
         self.resynced().remove(&(connection, controller.clone()));
+        self.lifts().remove(&(connection, controller.clone()));
+    }
+
+    fn lifts(&self) -> std::sync::MutexGuard<'_, LiftsShown> {
+        self.lifts_shown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// ⟨M08 W4 SEC-3b, R2⟩ The complete report just served to the session `(controller,
+    /// connection)` showed these of the controller's own revisions lifted (module docs, "Lift
+    /// confirmation"). Replaces what an earlier report of the session showed.
+    pub fn note_lifts_shown(
+        &self,
+        controller: &ClientId,
+        connection: u64,
+        shown: Vec<(String, u64)>,
+    ) {
+        let mut lifts = self.lifts();
+        if shown.is_empty() {
+            lifts.remove(&(connection, controller.clone()));
+            return;
+        }
+        lifts.insert((connection, controller.clone()), shown);
+        while lifts.len() > RESYNCED_SESSIONS {
+            lifts.pop_first();
+        }
+    }
+
+    /// ⟨M08 W4 SEC-3b, R2⟩ The session `(controller, connection)` sent a request after its
+    /// report: the lifts that report showed it are confirmed (module docs, "Lift
+    /// confirmation"). A store failure confirms nothing (nothing is then pruned for it).
+    fn confirm_lifts(&self, controller: &ClientId, connection: u64) {
+        let Some(shown) = self.lifts().remove(&(connection, controller.clone())) else {
+            return;
+        };
+        let at = self.clock.wall();
+        let _ = self
+            .store
+            .transaction(|tx| tx.confirm_remote_lifts(controller, &shown, at));
     }
 
     /// Whether the session `(controller, connection)` may prepare and install now.
@@ -279,6 +339,10 @@ impl RunnerRuntime {
             client: controller.clone(),
             connection,
         };
+        // ⟨M08 W4 SEC-3b, R2⟩ A request after a complete report (the controller's time sample
+        // comes after its reconciliation committed): the lifts that report showed are
+        // recorded on the controller.
+        self.confirm_lifts(&controller, connection);
         match request {
             RunnerRequest::PrepareRemoteGrant {
                 grant,

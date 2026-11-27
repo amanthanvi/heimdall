@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 17;
+pub const SCHEMA_VERSION: u32 = 18;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -127,6 +127,14 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 17,
         name: "restore_holds",
         sql: include_str!("../migrations/0017_restore_holds.sql"),
+    },
+    // ⟨M08 W4 SEC-3b⟩ (ADR-0006 §7.4, ADR-0012 §7.4 as amended 2026-11-27): the runner's
+    // authority history is bounded: a bare tombstone's producer, a revision's lift and its
+    // confirmation, and the controller's record that a report showed a lift.
+    Migration {
+        version: 18,
+        name: "history_bounds",
+        sql: include_str!("../migrations/0018_history_bounds.sql"),
     },
 ];
 

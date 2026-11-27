@@ -170,7 +170,12 @@ pub fn world() -> World {
 }
 
 pub fn world_with_faults(faults: Arc<dyn FaultHook>) -> World {
-    let store = Arc::new(Store::open_in_memory(faults).unwrap());
+    world_in(Arc::new(Store::open_in_memory(faults).unwrap()))
+}
+
+/// ⟨M08 W4 SEC-3b⟩ The runner world over `store` (an empty store: a file-backed one for the
+/// history-growth workload, which measures the database's size).
+pub fn world_in(store: Arc<Store>) -> World {
     let clock = VirtualClock::at(t0());
     clock.advance_continuous_only(Duration::from_secs(1000));
     let env = heimdall_runtime::paired::init_runner(&store).unwrap();

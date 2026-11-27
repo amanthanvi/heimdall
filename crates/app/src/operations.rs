@@ -5990,16 +5990,7 @@ fn lapse_local_widening(
     if w.origin != heimdall_domain::decision::WideningOrigin::Local || now < d.expires_at {
         return Ok(None);
     }
-    let answer = OpError::new(
-        Code::DecisionStale,
-        "the decision reached its deadline before it was approved; nothing was changed. Run \
-         the command again for a new one",
-    )
-    .with_reason(heimdall_contract::envelope::reason::APPROVAL_LAPSED)
-    .with_effect(EffectStatus::None)
-    .with_resource("decision", Some(d.id.to_string()))
-    .into_envelope();
-    let answer = serde_json::to_value(answer).unwrap_or_default();
+    let answer = lapse_answer(&d.id);
     let (settled, _) =
         tx.settle_remote_widening(&d.id, DecisionState::Expired, now, Some(&answer))?;
     emit.decision(tx, &settled, None)?;
@@ -6011,6 +6002,40 @@ fn lapse_local_widening(
         );
     }
     Ok(Some(view))
+}
+
+/// The answer a widening record that reached its deadline undecided records:
+/// `DECISION_STALE` / `approval_lapsed`, effect none.
+fn lapse_answer(decision: &heimdall_contract::ids::DecisionId) -> serde_json::Value {
+    let answer = OpError::new(
+        Code::DecisionStale,
+        "the decision reached its deadline before it was approved; nothing was changed. Run \
+         the command again for a new one",
+    )
+    .with_reason(heimdall_contract::envelope::reason::APPROVAL_LAPSED)
+    .with_effect(EffectStatus::None)
+    .with_resource("decision", Some(decision.to_string()))
+    .into_envelope();
+    serde_json::to_value(answer).unwrap_or_default()
+}
+
+/// ⟨M08 W4 SEC-3b, R4⟩ The retention pass's sweep: every pending **paired** widening record
+/// whose deadline has passed settles `expired` with its lapse answer ([`lapse_answer`]), and
+/// its decision event is recorded. Before this a paired record lapsed only for its replay's
+/// answer and stayed `pending`; its retention now starts at the sweep. The number lapsed.
+fn lapse_expired_paired_widening_in(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    now: Timestamp,
+) -> heimdall_store::Result<usize> {
+    let expired = tx.expired_paired_widening(now)?;
+    for d in &expired {
+        let answer = lapse_answer(&d.id);
+        let (settled, _) =
+            tx.settle_remote_widening(&d.id, DecisionState::Expired, now, Some(&answer))?;
+        emit.decision(tx, &settled, None)?;
+    }
+    Ok(expired.len())
 }
 
 /// ⟨M05⟩ Revision 5.2 (§17.10 item 22; review M05-W3-R01): the scope a pending
@@ -13160,6 +13185,21 @@ impl Operations {
                 tx.purge_operations_before(now)?;
                 tx.purge_markers_before(now)?;
                 tx.trim_events(&env, keep_after, EVENT_ROW_CAP)?;
+                Ok(())
+            })
+            .await?;
+            // ⟨M08 W4 SEC-3b; ADR-0006 §7.4 and ADR-0012 §7.4 as amended 2026-11-27, R1 to
+            // R4⟩ On the same accepted time: a pending paired widening record past its deadline
+            // lapses, a settled one past its retention is purged into its marker, and a
+            // runner's authority history is pruned (`Txn::prune_runner_history`: only a
+            // runner's store, and no known tombstone of a grant whose key or certificate the
+            // runner's signer still holds, nor any when it cannot say).
+            let retention = self.retention();
+            let live = self.runner_grants().and_then(|r| r.live_grants());
+            self.write(move |tx, emit| {
+                lapse_expired_paired_widening_in(tx, emit, now)?;
+                tx.purge_settled_widening(now, retention)?;
+                tx.prune_runner_history(now, retention, live.as_ref())?;
                 Ok(())
             })
             .await?;

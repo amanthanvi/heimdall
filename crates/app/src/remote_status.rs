@@ -63,6 +63,51 @@ use crate::remote_status_barrier::{IssuerBarrier, RevokedByReport, reconcile_in}
 /// The reason recorded for a runner this controller has never reached.
 pub const NEVER_CONNECTED: &str = "never_connected";
 
+/// ⟨M08 W4 SEC-3b, R5; ADR-0012 §7.4 as amended 2026-11-27⟩ What `environment status` and
+/// `doctor` say for a runner whose last resynchronization was refused because its authority
+/// report is over its size limit (`USAGE_ERROR` / `response_too_large`; nothing was
+/// reconciled and the issuer's barrier stays closed).
+pub const REPORT_OVER_LIMIT: &str = "the runner's authority report is over its size limit; \
+     remote issuance stays closed until history ages out (retention)";
+
+/// ⟨M08 W4 SEC-3b, R5⟩ The owner's next action with [`REPORT_OVER_LIMIT`].
+pub const REPORT_OVER_LIMIT_NEXT: &str = "nothing is needed for history that ages out: issuance \
+     reopens by itself at the first resynchronization whose report is under the limit \
+     (`retention.operations` on the runner, and 30 days more for revokes of grant IDs it never \
+     held). To reopen sooner, revoke a controller that flooded the runner (`heimdall \
+     environment revoke-client`), then lift its delivered pauses and cutoffs at the runner";
+
+/// ⟨M08 W4 SEC-3b, R5⟩ [`REPORT_OVER_LIMIT`] and [`REPORT_OVER_LIMIT_NEXT`] for a runner whose
+/// last attempt failed that way (its contact record's reason is `response_too_large`); `None`
+/// otherwise.
+#[must_use]
+pub fn report_over_limit(contact: &RemoteContact) -> Option<(&'static str, &'static str)> {
+    contact
+        .last_failure
+        .as_ref()
+        .is_some_and(|f| f.reason == reason::RESPONSE_TOO_LARGE)
+        .then_some((REPORT_OVER_LIMIT, REPORT_OVER_LIMIT_NEXT))
+}
+
+/// ⟨M08 W4 SEC-3b, R5⟩ Every runner this controller records whose last attempt found its
+/// authority report over the size limit ([`report_over_limit`]), for `doctor`: the
+/// environment, the statement and the owner's next action.
+///
+/// # Errors
+///
+/// The store's.
+pub fn reports_over_limit(
+    tx: &mut Txn<'_>,
+) -> heimdall_store::Result<Vec<(EnvironmentId, &'static str, &'static str)>> {
+    let mut out = Vec::new();
+    for pin in crate::remote_status_driver::pins(tx)? {
+        if let Some((statement, next)) = report_over_limit(&tx.remote_contact(&pin.environment)?) {
+            out.push((pin.environment, statement, next));
+        }
+    }
+    Ok(out)
+}
+
 /// A runner's connectivity as this controller sees it (ADR-0012 §7.1): `connected` while a
 /// management session is open; else `unreachable` with the last failure's reason when the
 /// last attempt failed (or the runner was never reached); else `disconnected` since the last
@@ -703,7 +748,8 @@ pub async fn resync(
             "the runner's environment ID does not match this controller's pin",
         ));
     }
-    if channel.client().is_some_and(|c| *c != pin.client) {
+    // ⟨M08 W4 SEC-3b, S2-09⟩ A hello that names no client does not name the pinned one.
+    if channel.client() != Some(&pin.client) {
         return Err(hold(
             "the runner bound this session to another client than this controller's record",
         ));
@@ -755,6 +801,20 @@ pub async fn resync(
         let r = reconcile_in(tx, environment, read, at)?;
         if let Some(r) = &r {
             tx.note_remote_report(environment, at, &r.report)?;
+            // ⟨M08 W4 SEC-3b, R2; ADR-0012 §7.4 as amended 2026-11-27⟩ Each delivered pause or
+            // cutoff of this controller that this complete report shows lifted is recorded,
+            // in the same commit: the runner may prune its lifted row once this session goes
+            // on (its time sample, step 5), and the barrier then counts this record instead.
+            for row in tx.remote_effect_outbox(Some(environment), false)? {
+                if row.lift_seen_at.is_none()
+                    && crate::remote_status_barrier::lift_shown_among(
+                        &r.report.policy_revisions,
+                        &row,
+                    )
+                {
+                    tx.note_remote_lift_seen(environment, &row.key, at)?;
+                }
+            }
         }
         Ok(r)
     })?

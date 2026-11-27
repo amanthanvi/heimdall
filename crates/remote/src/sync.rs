@@ -14,7 +14,15 @@
 //!   dedicated sessions and masters closed at once, admissions refused. Then K_env of the
 //!   grant and of every descendant is zeroized ([`RunnerSide::destroy_keys`]). A grant ID the
 //!   runner does not hold still gets its tombstone, so the ID can never be used later.
+//!   ⟨M08 W4 SEC-3b, R1⟩ Such a bare tombstone has no authority effect here: it is attributed
+//!   to its producer and capped (`heimdall_store::ext_effects::BARE_TOMBSTONES_PER_PRODUCER`,
+//!   `BARE_TOMBSTONES_TOTAL`; `BACKPRESSURE` past them, nothing recorded). A revoke of a grant
+//!   the runner holds is never capped, and one of a grant already `revoked` (its known
+//!   tombstone perhaps pruned since) converges on that row without revoking again.
 //! * `policy_pause` → `policy pause`: running grants continue, new activations are refused.
+//!   ⟨M08 W4 SEC-3b, R2⟩ A pause or cutoff whose scope matches nothing on this runner, that would
+//!   add a new in-force row past `UNMATCHED_REVISIONS_PER_PRODUCER`, is refused `BACKPRESSURE`
+//!   (nothing recorded); one whose scope matches a runner object never is.
 //! * `policy_cutoff` → `policy cutoff` on every policy of the scope whose cutoff it shortens:
 //!   the effective cutoff is `min(existing, at)`; a delivered or replayed cutoff never moves
 //!   one later (that is a widening, decided at the runner). With trusted time an `at` at or
@@ -75,8 +83,9 @@ use heimdall_domain::policy::{AuthorityGeneration, StandingPolicy};
 use heimdall_domain::revocation::{RevocationCause, Tombstone};
 use heimdall_domain::time::Clock;
 use heimdall_store::ext_effects::{
-    AppliedRecord, AuthorityReport, EffectAck, EffectKey, PolicyRevisionKind, PolicyRevisionRecord,
-    ReportedCertificate, policy_scope_key, scope_key, target_kind, target_ref,
+    AppliedRecord, AuthorityReport, BareTombstone, EffectAck, EffectKey, PolicyRevisionKind,
+    PolicyRevisionRecord, ReportedCertificate, policy_scope_key, scope_key, target_kind,
+    target_ref,
 };
 use heimdall_store::ext_m06::ClientState;
 use heimdall_store::{Store, Txn};
@@ -202,6 +211,27 @@ fn refused(code: Code, message: &str) -> OpError {
     OpError::new(code, message).with_effect(EffectStatus::None)
 }
 
+/// ⟨M08 W4 SEC-3b; ADR-0012 §7.4 as amended 2026-11-27 (the override)⟩ A delivered effect
+/// that would add history with no authority effect on this runner, past its cap: refused
+/// `BACKPRESSURE`, nothing applied or recorded. It stays in the controller's outbox, so that
+/// controller's issuer barrier stays closed (`OutboxPending`): fail closed.
+fn backpressure(message: &str) -> OpError {
+    refused(Code::Backpressure, message)
+}
+
+/// Where the tombstone a `grant_revoke` names stands after its apply.
+enum RevokeRecord {
+    /// The grant's tombstone (known, or bare).
+    Tombstone(Tombstone),
+    /// ⟨M08 W4 SEC-3b, R1⟩ The grant's `revoked` row, its known tombstone pruned since; with
+    /// its descendants.
+    RevokedRow(Vec<GrantId>),
+    /// Held but not tombstoned: the revoke did not cover it.
+    NotTombstoned,
+    /// ⟨M08 W4 SEC-3b, R1⟩ A bare tombstone past its cap: nothing written.
+    Capped,
+}
+
 fn not_owner() -> OpError {
     refused(
         Code::CapabilityUnavailable,
@@ -230,6 +260,22 @@ fn revoke_request_id(key: &EffectKey) -> Result<RequestId, OpError> {
         id.push_str(&format!("{b:02x}"));
     }
     RequestId::parse(&id).map_err(|_| OpError::new(Code::InternalError, "request ID encoding"))
+}
+
+/// ⟨M08 W4 SEC-3b, R2⟩ A pause's or cutoff's acknowledgement, or `BACKPRESSURE` when its
+/// transaction found the unmatched cap reached (`capped`) and wrote nothing.
+fn unmatched_capped(
+    capped: &std::sync::atomic::AtomicBool,
+    acked: Result<EffectAck, OpError>,
+) -> Result<EffectAck, OpError> {
+    if capped.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err(backpressure(
+            "the scope of this pause or cutoff matches nothing on this runner, and this \
+             controller's in-force revisions of such scopes are at their limit; nothing was \
+             recorded (the effect stays pending)",
+        ));
+    }
+    acked
 }
 
 /// The runner's policies a cutoff scope names (as the local targeted forms resolve it).
@@ -432,9 +478,14 @@ impl RunnerSync {
         grant: &GrantId,
     ) -> Result<EffectAck, OpError> {
         let g = grant.clone();
-        let held = self.read(move |tx| Ok(tx.grant(&g)?.is_some())).await?;
-        let mut known = held;
-        if held {
+        let state = self
+            .read(move |tx| Ok(tx.grant(&g)?.map(|s| s.state)))
+            .await?;
+        let mut known = state.is_some();
+        // ⟨M08 W4 SEC-3b, R1⟩ A grant already `revoked` is not revoked again: its revoke
+        // applied before (its request may be past its retention, `REQUEST_EXPIRED`, and the
+        // known tombstone pruned since), so a late redelivery converges on the record below.
+        if state.is_some() && state != Some(heimdall_contract::GrantState::Revoked) {
             let request = RevokeRequest {
                 grant_id: Some(grant.clone()),
                 request_id: revoke_request_id(key)?,
@@ -454,39 +505,61 @@ impl RunnerSync {
             }
         }
         let now = self.clock.wall();
-        let g = grant.clone();
+        let (g, producer) = (grant.clone(), key.producer.clone());
         // The tombstone the effect names: the revoke's, or a bare one for an ID this runner
-        // does not hold (`insert_tombstone` keeps a first tombstone unchanged).
-        let tombstone = self
+        // does not hold (`insert_tombstone` keeps a first tombstone unchanged). ⟨M08 W4 SEC-3b,
+        // R1⟩ A bare one is attributed to its producer and capped (it has no authority effect
+        // here); a held grant's revoke never is.
+        let record = self
             .read(move |tx| {
                 if let Some(t) = tx.tombstone(&g)? {
-                    return Ok(Some(t));
+                    return Ok(RevokeRecord::Tombstone(t));
                 }
-                if tx.grant(&g)?.is_some() {
+                if let Some(held) = tx.grant(&g)? {
+                    if held.state == heimdall_contract::GrantState::Revoked {
+                        return Ok(RevokeRecord::RevokedRow(tx.grant_descendants(&g)?));
+                    }
                     // Held but not tombstoned: the revoke above did not cover it.
-                    return Ok(None);
+                    return Ok(RevokeRecord::NotTombstoned);
                 }
-                tx.insert_tombstone(&Tombstone {
+                let bare = Tombstone {
                     grant: g.clone(),
                     cascade: Vec::new(),
                     generation: AuthorityGeneration(0),
                     revoked_at: now,
                     remote_pending: Vec::new(),
                     cause: RevocationCause::Revoke,
-                })?;
-                tx.tombstone(&g)
+                };
+                Ok(match tx.record_bare_tombstone(&bare, &producer)? {
+                    BareTombstone::Recorded(t) | BareTombstone::Existing(t) => {
+                        RevokeRecord::Tombstone(t)
+                    }
+                    BareTombstone::Held => RevokeRecord::NotTombstoned,
+                    BareTombstone::Capped => RevokeRecord::Capped,
+                })
             })
             .await?;
-        let Some(tombstone) = tombstone else {
-            return Err(OpError::new(
-                Code::OutcomeUnknown,
-                "the grant is not tombstoned after the revoke; redeliver the effect",
-            ));
+        let cascade = match record {
+            RevokeRecord::Tombstone(t) => t.cascade,
+            RevokeRecord::RevokedRow(descendants) => descendants,
+            RevokeRecord::NotTombstoned => {
+                return Err(OpError::new(
+                    Code::OutcomeUnknown,
+                    "the grant is not tombstoned after the revoke; redeliver the effect",
+                ));
+            }
+            RevokeRecord::Capped => {
+                return Err(backpressure(
+                    "this runner holds no grant of that ID, and the revokes of grant IDs it does \
+                     not hold are at their limit; nothing was recorded (the effect stays pending \
+                     until older ones age out)",
+                ));
+            }
         };
         // K_env of the grant and of every descendant: zeroized now, and again on every
         // redelivery (idempotent).
         side.destroy_keys(grant);
-        for d in &tombstone.cascade {
+        for d in &cascade {
             side.destroy_keys(d);
         }
         let ack = EffectAck {
@@ -495,7 +568,7 @@ impl RunnerSync {
             record: AppliedRecord::GrantTombstone {
                 grant: grant.clone(),
                 known,
-                cascade: tombstone.cascade.clone(),
+                cascade,
                 key_destroyed: true,
                 owned_dedicated_sessions: ComponentResidual::Closed,
                 owned_admissions: ComponentResidual::Closed,
@@ -548,14 +621,26 @@ impl RunnerSync {
                 fired: false,
             },
         };
-        self.acknowledge(ack, move |tx, ack| {
-            let stored = tx.record_remote_policy_revision(&row)?;
-            if let AppliedRecord::PolicyRevision { runner_seq, .. } = &mut ack.record {
-                *runner_seq = stored.record().runner_seq;
-            }
-            Ok(())
-        })
-        .await
+        let capped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = Arc::clone(&capped);
+        let acked = self
+            .acknowledge(ack, move |tx, ack| {
+                // ⟨M08 W4 SEC-3b, R2⟩ Only a new in-force row whose scope matches nothing
+                // here is capped; in the acknowledgement's own transaction.
+                if tx.unmatched_revision_capped(&row)? {
+                    flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                    return Err(heimdall_store::StoreError::GenerationConflict(
+                        "unmatched revisions at their limit".to_owned(),
+                    ));
+                }
+                let stored = tx.record_remote_policy_revision(&row)?;
+                if let AppliedRecord::PolicyRevision { runner_seq, .. } = &mut ack.record {
+                    *runner_seq = stored.record().runner_seq;
+                }
+                Ok(())
+            })
+            .await;
+        unmatched_capped(&capped, acked)
     }
 
     async fn apply_cutoff(
@@ -654,7 +739,16 @@ impl RunnerSync {
                 fired: apply.fired,
             },
         };
-        self.acknowledge(ack, move |tx, ack| {
+        let capped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = Arc::clone(&capped);
+        let acked = self.acknowledge(ack, move |tx, ack| {
+            // ⟨M08 W4 SEC-3b, R2⟩ As for a pause.
+            if tx.unmatched_revision_capped(&row)? {
+                flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                return Err(heimdall_store::StoreError::GenerationConflict(
+                    "unmatched revisions at their limit".to_owned(),
+                ));
+            }
             let stored = tx.record_remote_policy_revision(&row)?;
             let was_fired = tx.remote_effect_ack(&ack.key)?.is_some_and(|a| {
                 matches!(a.record, AppliedRecord::PolicyRevision { fired: true, .. })
@@ -672,8 +766,8 @@ impl RunnerSync {
                 *fired = *fired || was_fired;
             }
             Ok(())
-        })
-        .await
+        });
+        unmatched_capped(&capped, acked.await)
     }
 
     /// The runner's authority report (ADR-0012 §7.4 step 3) for a paired owner controller.

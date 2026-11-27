@@ -19,10 +19,12 @@
 use heimdall_app::context::Caller;
 use heimdall_app::{OpError, OpResult};
 use heimdall_contract::Timestamp;
+use heimdall_contract::code::Code;
+use heimdall_contract::envelope::{EffectStatus, reason};
 use heimdall_contract::ids::GrantId;
 use heimdall_contract::remote::RunnerRequest;
 use heimdall_remote::sync::{RunnerSide, RunnerSync};
-use heimdall_store::ext_effects::ReportedCertificate;
+use heimdall_store::ext_effects::{AuthorityReport, ReportedCertificate};
 
 use super::RunnerRuntime;
 
@@ -76,6 +78,42 @@ impl RunnerSide for RunnerRuntime {
             })
             .collect()
     }
+}
+
+/// ⟨M08 W4 SEC-3b, R5; ADR-0012 §7.4 as amended 2026-11-27⟩ The serialized budget of one
+/// authority report: the page budget, 256 KiB below one control frame
+/// (`heimdall_contract::page::PAGE_BUDGET_BYTES`).
+pub const REPORT_BUDGET_BYTES: usize = heimdall_contract::page::PAGE_BUDGET_BYTES;
+
+/// ⟨M08 W4 SEC-3b, R5⟩ A report whose serialized form is over [`REPORT_BUDGET_BYTES`] is
+/// refused whole, `USAGE_ERROR` / `response_too_large`, effect none: never paged, never
+/// truncated (a truncated report would hide tombstones and in-force revisions). The pruning
+/// of the runner's history brings it back under the budget.
+///
+/// # Errors
+/// The refusal.
+pub fn report_within_budget(report: &AuthorityReport) -> Result<(), OpError> {
+    let size = serde_json::to_vec(report)
+        .map_err(|_| {
+            OpError::new(
+                Code::InternalError,
+                "the authority report cannot be encoded",
+            )
+        })?
+        .len();
+    if size > REPORT_BUDGET_BYTES {
+        return Err(OpError::new(
+            Code::UsageError,
+            format!(
+                "the runner's authority report is over its size limit ({size} bytes, limit \
+                 {REPORT_BUDGET_BYTES}); remote issuance stays closed until history ages out \
+                 (retention)"
+            ),
+        )
+        .with_reason(reason::RESPONSE_TOO_LARGE)
+        .with_effect(EffectStatus::None));
+    }
+    Ok(())
 }
 
 impl RunnerRuntime {
@@ -170,8 +208,21 @@ impl RunnerRuntime {
                 let mut report = sync.authority_report(self, caller).await?;
                 // ⟨M06 W4⟩ The grants that wait for their issuer (condition 8 (b)).
                 report.pending_grants = self.pending_grants();
+                // ⟨M08 W4 SEC-3b, R5⟩ No paging and no truncation: a report over its budget is
+                // refused whole, and the session is not resynchronized (its issuance gate
+                // stays closed, and the controller's barrier with it).
+                report_within_budget(&report)?;
                 if let Some(c) = &controller {
                     self.note_report_served(c, connection);
+                    // ⟨M08 W4 SEC-3b, R2⟩ What this complete report showed the controller of
+                    // its own lifted revisions (`super`, "Lift confirmation").
+                    let shown = report
+                        .policy_revisions
+                        .iter()
+                        .filter(|r| !r.in_force && r.producer == *c)
+                        .map(|r| (r.scope_key.clone(), r.revision))
+                        .collect();
+                    self.note_lifts_shown(c, connection, shown);
                 }
                 super::ok(report)
             }

@@ -334,6 +334,12 @@ impl RunnerGrants for RunnerRuntime {
         all
     }
 
+    /// ⟨M08 W4 SEC-3b, R1⟩ Every grant the signer holds K_env for (its installed certificates
+    /// live with it).
+    fn live_grants(&self) -> Option<std::collections::BTreeSet<GrantId>> {
+        Some(self.issuance().keys().grants().into_iter().collect())
+    }
+
     /// A further binding on an issued grant, for its own `pairs`, through the runner's
     /// adapter (bound at the runtime's start); refused before then.
     fn attach(
