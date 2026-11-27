@@ -569,7 +569,130 @@ async fn tombstones_are_pruned_on_safe_time_only_and_their_rows_still_deny() {
     );
 }
 
+/// ⟨SEC-3b-F, R1⟩ Revokes delivered after expiry are retained through the original
+/// deadline's retention window and pruned on safe time. Expiry still bars issuance.
+#[tokio::test]
+async fn tombstones_for_already_expired_grants_are_pruned() {
+    let r = managed_rig().await;
+    let a = controller_a();
+    let grants: Vec<_> = (0..64)
+        .map(|n| GrantId::from_random_bytes(tag(0x72, n)))
+        .collect();
+    for grant in &grants {
+        add_grant(&r, grant, deadline());
+    }
+    r.w.clock.advance(2 * HOUR + Duration::from_secs(1));
+    tick(&r).await;
+    let assert_expired = |grant: &GrantId| {
+        let state =
+            r.w.store
+                .transaction(|tx| tx.grant(grant))
+                .unwrap()
+                .unwrap()
+                .state;
+        assert_eq!(state, GrantState::Expired);
+    };
+    for (n, grant) in (0..).zip(&grants) {
+        assert_expired(grant);
+        r.deliver(&a, &eff(7, n), &revoke(grant)).await.unwrap();
+    }
+    r.w.clock.advance(RETENTION - Duration::from_secs(2));
+    tick(&r).await;
+    assert_eq!(
+        tombstones(&r).len(),
+        grants.len(),
+        "pruned before retention"
+    );
+    r.w.clock.advance(Duration::from_secs(1));
+    r.make_time_uncertain().await;
+    tick(&r).await;
+    assert_eq!(
+        tombstones(&r).len(),
+        grants.len(),
+        "pruned under uncertain time"
+    );
+    r.w.clock.set_wall(plus(r.w.clock.wall(), HOUR));
+    assert!(
+        r.ops.timegate().check().await.is_ok(),
+        "time is not safe again"
+    );
+    tick(&r).await;
+    assert!(
+        tombstones(&r).is_empty(),
+        "expired grants' tombstones were not pruned"
+    );
+    for grant in &grants {
+        assert_expired(grant);
+        let err =
+            r.w.runner
+                .issuance()
+                .prepare(&a, grant, r.w.generation())
+                .unwrap_err();
+        assert!(matches!(
+            err,
+            heimdall_runtime::runner::issuance::IssuanceFailure::Refused(
+                heimdall_domain::issuance::IssuanceRefusal::GrantNotIssuable(GrantState::Expired)
+            )
+        ));
+    }
+}
+
 // --- R2 and R3: revisions and acknowledgements ---------------------------------------------
+
+/// The runner reports only the first pause's row when two delivered pauses coalesce. Both
+/// effects still require their controller's acknowledgement before reserve or publish proceeds.
+#[tokio::test]
+async fn coalesced_lift_requires_both_acknowledgements_for_reserve_and_publish() {
+    use heimdall_domain::issuance::IssuanceState;
+
+    let r = managed_rig().await;
+    let a = controller_a();
+    r.w.designate(&a);
+    let c = controller(&r, &a, Role::Owner);
+    let policy = policy_id();
+    let pause = Narrowing::PausePolicy {
+        policy: policy.clone(),
+    };
+    let first = c.produce(&pause).unwrap();
+    let coalesced = c.produce(&pause).unwrap();
+    let mut session = r.session(&a);
+    c.resync(&mut session).await.unwrap();
+    assert_eq!(c.pending(), 0);
+    let rows = report(&r, &a).await.unwrap().policy_revisions;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].effect, first.effect);
+    assert!(rows[0].in_force);
+
+    lift_at_runner(&r, &a, first.target.generation());
+    let acknowledge = |effect| {
+        c.store
+            .transaction(|tx| tx.acknowledge_remote_lift(&r.w.env, effect, c.now()))
+            .unwrap();
+    };
+    acknowledge(&first);
+    session.connection += 1;
+    c.resync(&mut session).await.unwrap();
+    let valid_before = plus(c.now(), HOUR / 2);
+    assert_eq!(
+        c.reserve(&r.w.grant, Some(&policy), valid_before),
+        Err(BarrierRefusal::PolicyPaused)
+    );
+    let earlier = c.reserved_earlier(&r.w.grant, valid_before, false);
+    assert_eq!(
+        c.publish(&earlier, Some(&policy)).unwrap_err(),
+        BarrierRefusal::PolicyPaused
+    );
+    assert_eq!(c.entry_state(&earlier), IssuanceState::Voided);
+
+    acknowledge(&coalesced);
+    let earlier = c.reserved_earlier(&r.w.grant, valid_before, false);
+    let reserved = c.reserve(&r.w.grant, Some(&policy), valid_before);
+    let published = c.publish(&earlier, Some(&policy)).map(|entry| entry.state);
+    assert!(
+        reserved.is_ok() && published == Ok(IssuanceState::Published),
+        "the acknowledged coalesced lift should reopen reserve and publish: {reserved:?}, {published:?}"
+    );
+}
 
 /// ⟨R2, R3⟩ A delivered pause is never pruned while in force, nor its acknowledgement. Lifted
 /// at the runner, it is kept until its producer confirmed the lift (a complete report, then the

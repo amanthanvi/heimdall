@@ -1953,6 +1953,7 @@ fn setup_result(
                     remaining.push(RemainingArtifact {
                         kind: RemainingArtifactKind::ConflictFile,
                         path_display: h.path_display.clone(),
+                        sensitivity: None,
                     });
                 }
                 (state, h.path_display.clone())
@@ -2014,6 +2015,7 @@ fn setup_result(
             remaining.push(RemainingArtifact {
                 kind: RemainingArtifactKind::Quarantine,
                 path_display: d,
+                sensitivity: None,
             });
         }
     }

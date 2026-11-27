@@ -3716,6 +3716,16 @@ fn remote_lines(v: &heimdall_app::remote_status::RemoteStatus) -> String {
             output::sanitize_for_terminal(&f.reason)
         ));
     }
+    // ⟨M08 W4 SEC-3b, R5⟩ The runner refused its authority report as over its size limit.
+    if let Connectivity::Unreachable { reason } = &v.connectivity
+        && reason == heimdall_contract::envelope::reason::RESPONSE_TOO_LARGE
+    {
+        out.push_str(&format!(
+            "\n    {}\n    next: {}",
+            heimdall_app::remote_status::REPORT_OVER_LIMIT,
+            heimdall_app::remote_status::REPORT_OVER_LIMIT_NEXT
+        ));
+    }
     out
 }
 

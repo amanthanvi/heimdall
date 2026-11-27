@@ -74,7 +74,7 @@ use std::path::PathBuf;
 use heimdall_contract::Timestamp;
 use heimdall_contract::catalog::{CatalogRequest, WithdrawReason};
 use heimdall_contract::doctor::{AliasDefinition, DoctorReport, Finding, FindingSeverity, finding};
-use heimdall_contract::envelope::{Envelope, NextAction, ResourceRef, Warning};
+use heimdall_contract::envelope::{Envelope, NextAction, ResourceRef, Warning, reason};
 use heimdall_contract::ids::IdentityId;
 use heimdall_contract::provider::{InteractionKind, ProbeLevel};
 use heimdall_contract::request::Request;
@@ -213,6 +213,7 @@ pub(crate) async fn doctor<P: Prompter>(
     // ⟨M06 W3; ADR-0012 §7.4 ⟨2026-11-21⟩⟩ A delivered cutoff that fired early because the
     // runner's time was uncertain stays fired; say so (read-only, from the store).
     report.findings.extend(early_cutoff_findings(ctx));
+    report.findings.extend(report_over_limit_findings(ctx));
     // ⟨ADR-0006 §18.7 "Also ruled", 2026-11-21⟩ A runner whose home, `~/.ssh` or
     // authorized_keys would fail sshd's `StrictModes`: reported, never fixed.
     if let Some(f) = runner_strict_modes_finding(ctx) {
@@ -1072,6 +1073,43 @@ fn early_cutoff_findings(ctx: &Ctx) -> Vec<Finding> {
         .unwrap_or_default()
         .iter()
         .map(|(environment, cutoff)| early_cutoff_finding_of(environment.as_ref(), cutoff))
+        .collect()
+}
+
+/// ⟨M08 W4 SEC-3b, R5⟩ The finding code for a runner whose authority report is over its size
+/// limit (proposed for `heimdall_contract::doctor::finding`).
+pub(crate) const RUNNER_REPORT_OVER_LIMIT: &str = "runner_report_over_limit";
+
+/// One finding per runner this controller records whose last resynchronization was refused
+/// because its authority report is over its size limit
+/// (`heimdall_app::remote_status::reports_over_limit`); none when the store cannot be read.
+fn report_over_limit_findings(ctx: &Ctx) -> Vec<Finding> {
+    let Ok(store) = open_store(ctx) else {
+        return Vec::new();
+    };
+    store
+        .transaction(heimdall_app::remote_status::reports_over_limit)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(environment, statement, next)| Finding {
+            code: RUNNER_REPORT_OVER_LIMIT.to_owned(),
+            severity: FindingSeverity::Warning,
+            subject: ResourceRef {
+                kind: "environment".to_owned(),
+                id: Some(environment.as_str().to_owned()),
+            },
+            level: ProbeLevel::Static,
+            provenance: None,
+            message: format!(
+                "on runner {}: {statement}. Next: {next}",
+                environment.as_str()
+            ),
+            next: NextAction {
+                action: "owner_decision".to_owned(),
+                ..NextAction::default()
+            },
+            reason: Some(reason::RESPONSE_TOO_LARGE.to_owned()),
+        })
         .collect()
 }
 

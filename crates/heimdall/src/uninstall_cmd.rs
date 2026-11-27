@@ -84,7 +84,9 @@ use heimdall_contract::envelope::{EffectStatus, Envelope, reason};
 use heimdall_contract::ids::CaFingerprint;
 use heimdall_contract::issuer::{CaState, RECOVERY_BUNDLE_SCHEMA, RecoveryBundle, StoreKind};
 use heimdall_contract::request::{InspectSubject, Request, ShutdownRequest, UninstallFenceRequest};
-use heimdall_contract::setup::{RemainingArtifact, RemainingArtifactKind};
+use heimdall_contract::setup::{
+    RemainingArtifact, RemainingArtifactKind, RemainingArtifactSensitivity,
+};
 use heimdall_contract::{Code, ExitCode};
 use heimdall_domain::enrollment::{EnrollmentRecord, ForeignRemovalRecord};
 use heimdall_issuer::retire::{KeepReason, StoreFate, uninstall_store_plan};
@@ -2010,42 +2012,74 @@ pub(crate) fn quarantine_listing(dirs: &[PathBuf], remove_empty: bool) -> Vec<se
     out
 }
 
-/// ⟨M08 U2b-4; ADR-0014 §3.4⟩ Sensitivity and disposal guidance for each remaining artifact
-/// kind in uninstall's report.
-fn residue_sensitivity(kind: RemainingArtifactKind) -> &'static str {
-    match kind {
-        RemainingArtifactKind::MigrationBackup => {
-            "old state with public metadata (no private keys); removed by `heimdall uninstall --purge-state` or by hand"
-        }
-        RemainingArtifactKind::EarlierStoreGeneration => {
-            "full earlier state generation with its operation record (public metadata and history; no private keys); removed by `heimdall uninstall --purge-state` or by hand"
-        }
-        RemainingArtifactKind::PreviousBinary => {
-            "previous executable kept by an update (no secrets or user data); removed by the next update or by hand"
-        }
-        RemainingArtifactKind::GitBlockMoved => {
-            "Heimdall Git include block moved to the other global Git file (path reference only; no secrets); remove by hand"
-        }
-        RemainingArtifactKind::StateStore => {
-            "state database with public metadata, catalog and history (no private keys); removed by `heimdall uninstall --purge-state`"
-        }
-        RemainingArtifactKind::Backup => {
-            "snapshot of your original SSH or Git configuration file; removed by `heimdall uninstall --purge-state` or by hand"
-        }
-        RemainingArtifactKind::ConflictFile => {
-            "preserved copy of an edited configuration file; remove by hand"
-        }
-        RemainingArtifactKind::Quarantine => {
-            "preserved copies moved aside during setup; inspect and remove by hand"
-        }
-        RemainingArtifactKind::ManualBlock => {
-            "Heimdall include block remaining in your SSH configuration (path reference only); remove by hand"
-        }
-        RemainingArtifactKind::RecoveryRecord => {
-            "recovery records kept in the state database because uninstall did not finish"
-        }
-        _ => "local artifact left for review",
-    }
+/// ⟨M08 U2b-4 and SEC-3b-F; ADR-0014 §3.4⟩ The class and human disposal guidance for each
+/// kind uninstall reports. Preserved configuration may contain user-supplied secrets.
+const RESIDUE: &[(RemainingArtifactKind, RemainingArtifactSensitivity, &str)] = {
+    use RemainingArtifactKind::*;
+    use RemainingArtifactSensitivity::{AuthorityRecords, Identifiers, Public, SecretMaterial};
+
+    &[
+        (
+            MigrationBackup,
+            AuthorityRecords,
+            "old state with public metadata (no private keys); removed by `heimdall uninstall --purge-state` or by hand",
+        ),
+        (
+            EarlierStoreGeneration,
+            AuthorityRecords,
+            "full earlier state generation with its operation record (public metadata and history; no private keys); removed by `heimdall uninstall --purge-state` or by hand",
+        ),
+        (
+            PreviousBinary,
+            Public,
+            "previous executable kept by an update (no secrets or user data); removed by the next update or by hand",
+        ),
+        (
+            GitBlockMoved,
+            Identifiers,
+            "Heimdall Git include block moved to the other global Git file (path reference only; no secrets); remove by hand",
+        ),
+        (
+            StateStore,
+            AuthorityRecords,
+            "state database with public metadata, catalog and history (no private keys); removed by `heimdall uninstall --purge-state`",
+        ),
+        (
+            Backup,
+            SecretMaterial,
+            "snapshot of your original SSH or Git configuration file; removed by `heimdall uninstall --purge-state` or by hand",
+        ),
+        (
+            ConflictFile,
+            SecretMaterial,
+            "preserved copy of an edited configuration file; remove by hand",
+        ),
+        (
+            Quarantine,
+            SecretMaterial,
+            "preserved copies moved aside during setup; inspect and remove by hand",
+        ),
+        (
+            ManualBlock,
+            Identifiers,
+            "Heimdall include block remaining in your SSH configuration (path reference only); remove by hand",
+        ),
+        (
+            RecoveryRecord,
+            AuthorityRecords,
+            "recovery records kept in the state database because uninstall did not finish",
+        ),
+    ]
+};
+
+fn residue_description(artifact: &RemainingArtifact) -> &'static str {
+    RESIDUE
+        .iter()
+        .find_map(|&(kind, sensitivity, description)| {
+            (artifact.sensitivity == Some(sensitivity) && artifact.kind == kind)
+                .then_some(description)
+        })
+        .unwrap_or("local artifact left for review")
 }
 
 /// Previous executable files (and Windows WSL helper backup directory) beside `exe_dir`, as
@@ -2109,6 +2143,7 @@ fn remaining(ctx: &Ctx, dirs: &[PathBuf], purged: bool) -> Vec<RemainingArtifact
         out.push(RemainingArtifact {
             kind,
             path_display: shown(p, &home),
+            sensitivity: None,
         });
     };
     for dir in dirs {
@@ -3088,6 +3123,7 @@ async fn uninstall_after_recovery<P: Prompter>(
         left.push(RemainingArtifact {
             kind: RemainingArtifactKind::RecoveryRecord,
             path_display: shown(&db, &home()),
+            sensitivity: None,
         });
     }
     let mut out = report(
@@ -3389,7 +3425,7 @@ fn report(
     stopped: bool,
     purged: bool,
     rollback: Option<serde_json::Value>,
-    left: Vec<RemainingArtifact>,
+    mut left: Vec<RemainingArtifact>,
     quarantine: Vec<serde_json::Value>,
 ) -> Outcome {
     let mut human = String::new();
@@ -3401,7 +3437,10 @@ fn report(
     ));
     if !left.is_empty() {
         human.push_str("Remaining:\n");
-        for r in &left {
+        for r in &mut left {
+            r.sensitivity = RESIDUE
+                .iter()
+                .find_map(|&(kind, sensitivity, _)| (r.kind == kind).then_some(sensitivity));
             human.push_str(&format!(
                 "    {} {} — {}\n",
                 serde_json::to_value(r.kind)
@@ -3409,25 +3448,15 @@ fn report(
                     .and_then(|v| v.as_str().map(str::to_owned))
                     .unwrap_or_default(),
                 r.path_display,
-                residue_sensitivity(r.kind),
+                residue_description(r),
             ));
         }
     }
-    let remaining_json: Vec<serde_json::Value> = left
-        .iter()
-        .map(|r| {
-            serde_json::json!({
-                "kind": r.kind,
-                "path_display": r.path_display,
-                "sensitivity": residue_sensitivity(r.kind),
-            })
-        })
-        .collect();
     let env = Envelope::ok(serde_json::json!({
         "rollback": rollback,
         "runtime_stopped": stopped,
         "purged": purged,
-        "remaining": remaining_json,
+        "remaining": left,
         "quarantine": quarantine,
     }));
     Outcome::of(env).with_human(human)
@@ -9551,11 +9580,66 @@ mod tests {
         }
     }
 
-    /// ⟨M08 U2b-4; ADR-0014 §3.4, H6⟩ Every residue kind carries its sensitivity description,
-    /// `previous_binaries_in` finds the platform's `.previous` executable beside the binary,
+    /// Pin U2b-4's exact human report for all residue kinds.
+    #[test]
+    fn uninstall_residue_human_output_matches_u2b4() {
+        let left = serde_json::from_value(serde_json::json!([
+            {"kind": "migration_backup", "path_display": "migration.db"},
+            {"kind": "earlier_store_generation", "path_display": "earlier/"},
+            {"kind": "previous_binary", "path_display": "heimdall.previous"},
+            {"kind": "git_block_moved", "path_display": "gitconfig"},
+            {"kind": "state_store", "path_display": "state.db"},
+            {"kind": "backup", "path_display": "config.backup"},
+            {"kind": "conflict_file", "path_display": "config.conflict"},
+            {"kind": "quarantine", "path_display": "quarantine/"},
+            {"kind": "manual_block", "path_display": "config"},
+            {"kind": "recovery_record", "path_display": "state.db"},
+        ]))
+        .unwrap_or_else(|e| panic!("{e}"));
+        let out = report(true, true, false, None, left, Vec::new());
+        assert_eq!(
+            out.human,
+            concat!(
+                "Runtime stopped: true\nState purged: false\nRemaining:\n",
+                "    migration_backup migration.db — old state with public metadata (no private keys); removed by `heimdall uninstall --purge-state` or by hand\n",
+                "    earlier_store_generation earlier/ — full earlier state generation with its operation record (public metadata and history; no private keys); removed by `heimdall uninstall --purge-state` or by hand\n",
+                "    previous_binary heimdall.previous — previous executable kept by an update (no secrets or user data); removed by the next update or by hand\n",
+                "    git_block_moved gitconfig — Heimdall Git include block moved to the other global Git file (path reference only; no secrets); remove by hand\n",
+                "    state_store state.db — state database with public metadata, catalog and history (no private keys); removed by `heimdall uninstall --purge-state`\n",
+                "    backup config.backup — snapshot of your original SSH or Git configuration file; removed by `heimdall uninstall --purge-state` or by hand\n",
+                "    conflict_file config.conflict — preserved copy of an edited configuration file; remove by hand\n",
+                "    quarantine quarantine/ — preserved copies moved aside during setup; inspect and remove by hand\n",
+                "    manual_block config — Heimdall include block remaining in your SSH configuration (path reference only); remove by hand\n",
+                "    recovery_record state.db — recovery records kept in the state database because uninstall did not finish\n",
+            )
+        );
+        let tokens: Vec<_> = out.env.data["remaining"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|item| item["sensitivity"].as_str())
+            .collect();
+        assert_eq!(
+            tokens,
+            [
+                "authority_records",
+                "authority_records",
+                "public",
+                "identifiers",
+                "authority_records",
+                "secret_material",
+                "secret_material",
+                "secret_material",
+                "identifiers",
+                "authority_records",
+            ]
+        );
+    }
+
+    /// ⟨M08 U2b-4; ADR-0014 §3.4, H6⟩ `previous_binaries_in` finds the platform's `.previous` executable beside the binary,
     /// and `Inventory` lists M06 remote pairings (controller environments and runner clients).
     #[test]
-    fn residue_sensitivity_previous_binary_and_remote_pairings_are_reported() {
+    fn previous_binary_and_remote_pairings_are_reported() {
         use heimdall_contract::ids::{
             AccountName, ClientId, DestinationId, DeviceId, EnvironmentId, KeyFingerprint,
         };
@@ -9564,21 +9648,6 @@ mod tests {
             EnvironmentKind, EnvironmentPermissions, EnvironmentRecord,
         };
         use heimdall_store::ext_m06::{AppliedLine, ClientState, RemoteClientRecord};
-
-        for kind in [
-            RemainingArtifactKind::MigrationBackup,
-            RemainingArtifactKind::EarlierStoreGeneration,
-            RemainingArtifactKind::PreviousBinary,
-            RemainingArtifactKind::GitBlockMoved,
-            RemainingArtifactKind::StateStore,
-            RemainingArtifactKind::Backup,
-            RemainingArtifactKind::ConflictFile,
-            RemainingArtifactKind::Quarantine,
-            RemainingArtifactKind::ManualBlock,
-            RemainingArtifactKind::RecoveryRecord,
-        ] {
-            assert!(!residue_sensitivity(kind).is_empty(), "{kind:?}");
-        }
 
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
         assert!(previous_binaries_in(dir.path()).is_empty());

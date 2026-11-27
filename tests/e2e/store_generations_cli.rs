@@ -1007,11 +1007,59 @@ fn uninstall_lists_backups_earlier_generations_previous_binary_and_remote_pairin
     let env = envelope(&json_out);
     assert_eq!(env["code"], "OK", "{env}");
     let remaining = env["data"]["remaining"].as_array().unwrap();
-    for expected_kind in [
-        residue_kind::MIGRATION_BACKUP,
-        residue_kind::EARLIER_STORE_GENERATION,
-        residue_kind::PREVIOUS_BINARY,
-        residue_kind::GIT_BLOCK_MOVED,
+    let schema: serde_json::Value = serde_json::from_str(include_str!(
+        "../../schemas/public-api/setup-result.schema.json"
+    ))
+    .unwrap();
+    let artifact_schema = &schema["$defs"]["RemainingArtifact"];
+    let properties = artifact_schema["properties"].as_object().unwrap();
+    assert!(
+        properties.contains_key("sensitivity"),
+        "the published RemainingArtifact schema omits sensitivity"
+    );
+    let required = artifact_schema["required"].as_array().unwrap();
+    assert!(!required.iter().any(|key| key == "sensitivity"));
+    let sensitivity_ref = properties["sensitivity"]["anyOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find_map(|branch| branch["$ref"].as_str())
+        .unwrap();
+    let sensitivity = schema
+        .pointer(sensitivity_ref.strip_prefix('#').unwrap())
+        .unwrap();
+    let tokens = sensitivity["oneOf"].as_array().unwrap();
+    for item in remaining {
+        assert!(
+            item.as_object()
+                .unwrap()
+                .keys()
+                .all(|key| properties.contains_key(key))
+        );
+        assert!(
+            required
+                .iter()
+                .all(|key| item.get(key.as_str().unwrap()).is_some())
+        );
+        assert!(
+            tokens
+                .iter()
+                .any(|variant| variant["const"] == item["sensitivity"]),
+            "uninstall emitted a sensitivity outside the published schema"
+        );
+        let typed: heimdall_contract::setup::RemainingArtifact =
+            serde_json::from_value(item.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(typed).unwrap(),
+            *item,
+            "uninstall residue must round-trip through the contract"
+        );
+    }
+    for (expected_kind, expected_sensitivity) in [
+        (residue_kind::MIGRATION_BACKUP, "authority_records"),
+        (residue_kind::EARLIER_STORE_GENERATION, "authority_records"),
+        (residue_kind::PREVIOUS_BINARY, "public"),
+        (residue_kind::GIT_BLOCK_MOVED, "identifiers"),
     ] {
         let item = remaining
             .iter()
@@ -1019,11 +1067,7 @@ fn uninstall_lists_backups_earlier_generations_previous_binary_and_remote_pairin
             .unwrap_or_else(|| {
                 panic!("missing residue kind `{expected_kind}` in remaining: {remaining:?}")
             });
-        let sensitivity = item["sensitivity"].as_str().unwrap_or_default();
-        assert!(
-            !sensitivity.is_empty(),
-            "missing sensitivity for `{expected_kind}`: {item}"
-        );
+        assert_eq!(item["sensitivity"], expected_sensitivity, "{expected_kind}");
     }
 
     let pairings = &env["data"]["remote_pairings"];
