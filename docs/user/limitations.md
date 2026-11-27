@@ -72,6 +72,15 @@ Short, and meant to be read once.
 - **A remote runner you cannot reach hears about a revoke, pause or cutoff when it reconnects.**
   Until then its certificates already issued stay valid until they expire; the status view
   shows the latest such expiry.
+- **A cutoff on a profile or workspace scope, fired from another controller, blocks all of the
+  runner's remote issuance until the attended lift.** Because a runner's authority report does not
+  carry per-policy profile or workspace membership in 1.0, this controller fails closed for every
+  policy on that runner until an attended lift clears the cutoff at the runner. Post-1.0,
+  `ReportedPolicy` membership will narrow this.
+- **A runner value that fits its field's grammar is relayed as reported.** Heimdall screens a
+  paired runner's answers to each field's grammar and replaces free text, but a value that fits
+  its field's grammar (for example a token-shaped string or a path-shaped string) is relayed as
+  reported.
 - **A Windows computer can control runners only as their owner,** not as a limited (viewer or
   requester) client. Limited roles also need a runner whose SSH server settings Heimdall can
   verify; anywhere else the runner stays owner-only.

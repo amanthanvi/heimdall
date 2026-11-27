@@ -1,4 +1,4 @@
-Revoke this device on a runner, then forget the runner. The management key is kept
+Attempt to revoke this device on a runner, then forget it locally. The management key is kept
 
 Usage: heimdall environment remove [OPTIONS] <ENVIRONMENT>
 

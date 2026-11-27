@@ -2384,6 +2384,8 @@ async fn a_limited_record_reads_the_runners_view_and_forgets_locally() {
                 client: limited.client.clone(),
                 role,
                 revoked_on_runner: false,
+                remote_outcome: RemoteRemoveOutcome::Pending,
+                effect_status: heimdall_contract::envelope::EffectStatus::Partial,
             }
         );
         assert_eq!(w.registry.ids(), vec![env_id(1)]);
@@ -2391,7 +2393,7 @@ async fn a_limited_record_reads_the_runners_view_and_forgets_locally() {
         assert_eq!(w.sessions.sent().len(), 1, "{role:?}");
     }
 
-    // An owner record's `remove` is unchanged: the revoke first, then the record.
+    // An owner record's `remove` is unchanged on the happy path: the revoke first, then the record.
     let mut sessions = FakeSessions::new(env_id(1), always_ok());
     sessions.echo_name = true;
     let w = World {
@@ -2404,6 +2406,11 @@ async fn a_limited_record_reads_the_runners_view_and_forgets_locally() {
     };
     let removed = w.controller().remove(&env_id(1)).await.unwrap();
     assert!(removed.revoked_on_runner);
+    assert_eq!(removed.remote_outcome, RemoteRemoveOutcome::Revoked);
+    assert_eq!(
+        removed.effect_status,
+        heimdall_contract::envelope::EffectStatus::Applied
+    );
     let sent = w.sessions.sent();
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].1.kind(), "remote_environment.revoke_client");
@@ -2931,4 +2938,55 @@ async fn runner_success_data_is_screened_at_remote_ingress() {
         wrong.is_empty(),
         "the runner's success data was relayed: {wrong:#?}"
     );
+}
+
+#[tokio::test]
+async fn environment_remove_forgets_locally_whatever_the_runner_answers() {
+    let unreadable = ok(serde_json::json!({
+        "environment": env_id(1),
+        "client": record(1).client,
+        "state": "revoked",
+        "iroh_admission": { "state": "future_state" },
+        "line_removed": true,
+    }));
+    let refusal = OpError::new(Code::CapabilityUnavailable, "refused")
+        .with_effect(EffectStatus::None)
+        .into_envelope()
+        .map(|data| serde_json::to_value(data).unwrap());
+    for (case, reply, unreachable, remote_outcome, effect_status) in [
+        ("unreadable", unreadable, false, "unknown", "unknown"),
+        (
+            "unreachable",
+            ok(serde_json::Value::Null),
+            true,
+            "pending",
+            "partial",
+        ),
+        ("refused", refusal, false, "pending", "partial"),
+    ] {
+        let mut sessions = FakeSessions::new(env_id(1), Box::new(move |_| reply.clone()));
+        if unreachable {
+            sessions.unreachable.push(env_id(1));
+        }
+        let w = World {
+            key: FakeKey::existing(),
+            registry: FakeRegistry::with(&[record(1), record(2)]),
+            catalog: FakeCatalog(None),
+            bootstrap: FakeBootstrap::default(),
+            sessions,
+            confirm: FakeConfirm::yes(),
+        };
+        let removed = w.controller().remove(&env_id(1)).await;
+        assert_eq!(
+            w.registry.ids(),
+            vec![env_id(2)],
+            "{case}: local forget must complete (call error: {:?})",
+            removed.as_ref().err().map(|error| &error.code)
+        );
+        let removed = serde_json::to_value(removed.unwrap()).unwrap();
+        assert_eq!(removed["revoked_on_runner"], false, "{case}");
+        assert_eq!(removed["remote_outcome"], remote_outcome, "{case}");
+        assert_eq!(removed["effect_status"], effect_status, "{case}");
+        assert_eq!(w.key.destroyed(), 0, "{case}: K_mgmt is kept");
+    }
 }

@@ -5458,6 +5458,112 @@ mod sec5_ensure_ingress {
         }
     }
 
+    /// ⟨M08 W4 SEC-5F, ruling 7 extended⟩ A limited role's `submit_ensure` refuses a
+    /// runner-named grant ID matching a local grant of this installation before anything is
+    /// relayed, with the same `CAPABILITY_UNAVAILABLE` (effect `none`) that `forward_ensure`
+    /// uses.
+    #[tokio::test]
+    async fn submit_ensure_refuses_a_runner_grant_id_matching_a_local_grant() {
+        let r = rig().await;
+        let q = controller(&r, &controller_b(), Role::Requester);
+        record_pin(&q);
+        let dq = driver(&q);
+        // Seed a local grant on this requester controller's own store.
+        let local_grant = GrantId::from_random_bytes([0x94; 16]);
+        let mut snapshot =
+            r.w.store
+                .transaction(|tx| tx.grant(&r.w.grant))
+                .unwrap()
+                .unwrap();
+        q.store
+            .transaction(|tx| {
+                snapshot.id = local_grant.clone();
+                snapshot.environment = tx.self_environment()?.unwrap();
+                tx.insert_grant(&snapshot)
+            })
+            .unwrap();
+        let req = forward_request(&r.w.env, "submit-local-collision");
+
+        let accepted = Envelope {
+            state: OperationState::Running,
+            code: Code::Accepted,
+            operation_id: Some(OperationId::from_random_bytes([0x95; 16])),
+            ..Envelope::ok(
+                serde_json::to_value(ErrorData {
+                    error: ErrorDetail {
+                        code: Code::Accepted,
+                        effect_status: EffectStatus::None,
+                        retryable: true,
+                        resource: Some(heimdall_contract::envelope::ResourceRef {
+                            kind: "grant".into(),
+                            id: Some(local_grant.as_str().to_owned()),
+                        }),
+                        next: NextAction::default(),
+                        message: "pending".into(),
+                        reason: None,
+                        entries: Vec::new(),
+                    },
+                    setup: None,
+                })
+                .unwrap(),
+            )
+        };
+        let access_ready = Envelope {
+            state: OperationState::Succeeded,
+            code: Code::AccessReady,
+            operation_id: Some(OperationId::from_random_bytes([0x96; 16])),
+            ..Envelope::ok(valid_ensure_data(&r.w.env, &local_grant))
+        };
+        let ok_ready = Envelope {
+            state: OperationState::Succeeded,
+            code: Code::Ok,
+            operation_id: Some(OperationId::from_random_bytes([0x97; 16])),
+            ..Envelope::ok(valid_ensure_data(&r.w.env, &local_grant))
+        };
+
+        let mut relayed = Vec::new();
+        for (label, reply) in [
+            ("accepted", accepted),
+            ("access_ready", access_ready),
+            ("ok", ok_ready),
+        ] {
+            let sessions = CannedSessions {
+                hello: SessionHello {
+                    environment: r.w.env.clone(),
+                    role: Some(Role::Requester),
+                    client: Some(controller_b()),
+                },
+                reply: Arc::new(Mutex::new(Some(reply))),
+            };
+            let err = match dq.submit_ensure(&sessions, &q.pin, &req).await {
+                Ok(_) => {
+                    relayed.push(label);
+                    continue;
+                }
+                Err(err) => err,
+            };
+            assert_eq!(err.code, Code::CapabilityUnavailable, "{label}: {err:?}");
+            assert_eq!(err.effect_status, EffectStatus::None, "{label}: {err:?}");
+            let envelope_json = serde_json::to_string(&err.into_envelope()).unwrap();
+            assert!(
+                !envelope_json.contains(local_grant.as_str()),
+                "{label}: refusal must not relay the local grant ID: {envelope_json}"
+            );
+            let delivered = q
+                .store
+                .transaction(|tx| tx.delivered_grant(&r.w.env, &local_grant))
+                .unwrap();
+            assert!(
+                delivered.is_none(),
+                "{label}: submit_ensure must write no delivered-grant record"
+            );
+        }
+        assert!(
+            relayed.is_empty(),
+            "submit_ensure relayed a local grant ID for: {relayed:?}"
+        );
+    }
+
     #[tokio::test]
     async fn a_runners_ensure_data_is_screened_at_remote_ingress() {
         let canary = format!(

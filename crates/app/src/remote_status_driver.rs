@@ -1138,6 +1138,9 @@ impl ControllerSync {
     ///   (`environment_identity_mismatch`), nothing sent;
     /// * the runner's refusal, unchanged (`APPROVAL_REQUIRED` with the runner-local
     ///   `decision_ref`, `role_insufficient`, …);
+    /// * `CAPABILITY_UNAVAILABLE`, effect `none` ⟨M08 W4 SEC-5F, item 1; SEC-5 ruling 7⟩:
+    ///   the runner's answer names a grant ID held by this installation as a local grant
+    ///   (refused before anything is relayed);
     /// * `OUTCOME_UNKNOWN` for an answer that names no grant, or ⟨M08 W4 SEC-5, item 1⟩ one
     ///   whose data fails its grammar ([`crate::remote_ingress::screen_ensure_data`]).
     pub async fn submit_ensure(
@@ -1194,6 +1197,17 @@ impl ControllerSync {
             crate::remote_ingress::screen_peer_operation_id(answer.operation_id.clone());
         match answer.code {
             Code::Ok | Code::AccessReady => {
+                // ⟨M08 W4 SEC-5F, item 1; SEC-5 ruling 7⟩ Refuse a runner-named grant ID
+                // matching a local grant outright, before anything is relayed, with the same
+                // `CAPABILITY_UNAVAILABLE` (effect `none`) that `forward_ensure` uses.
+                if let Some(grant) = answer
+                    .data
+                    .get("grant_id")
+                    .and_then(|g| serde_json::from_value::<GrantId>(g.clone()).ok())
+                    && self.store.transaction(|tx| tx.grant(&grant))?.is_some()
+                {
+                    return Err(local_grant_refusal());
+                }
                 // ⟨M08 W4 SEC-5, item 1⟩ Screen `EnsureData` at the remote ingress.
                 let (grant, data) =
                     crate::remote_ingress::screen_ensure_data(answer.data, &pin.environment)?;
@@ -1207,10 +1221,15 @@ impl ControllerSync {
                         .filter(|r| r.kind == "grant")
                         .and_then(|r| r.id)
                         .and_then(|id| GrantId::parse(&id).ok())
-                        .filter(|g| {
-                            crate::remote_ingress::is_generated_id(g.as_str(), GrantId::PREFIX)
-                        })
                         .ok_or_else(unreadable_answer)?;
+                // ⟨M08 W4 SEC-5F, item 1; SEC-5 ruling 7⟩ Same local-grant check before
+                // relaying `Forwarded::Submitted`.
+                if self.store.transaction(|tx| tx.grant(&grant))?.is_some() {
+                    return Err(local_grant_refusal());
+                }
+                if !crate::remote_ingress::is_generated_id(grant.as_str(), GrantId::PREFIX) {
+                    return Err(unreadable_answer());
+                }
                 Ok(Forwarded::Submitted { grant, operation })
             }
             _ => Err(runner_result(answer)

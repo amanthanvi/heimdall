@@ -917,6 +917,23 @@ pub struct StatusReport {
     pub environments: Vec<EnvironmentStatus>,
 }
 
+/// ⟨M08 W4 SEC-5F, item 2⟩ What happened on the runner during `environment remove`: the
+/// controller always completes its local forget, whatever the runner answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteRemoveOutcome {
+    /// The runner confirmed this device's client was revoked.
+    Revoked,
+    /// No revocation ran on the runner (a limited record that cannot revoke a client, a
+    /// runner that could not be reached, or a refusal with `effect_status: none`): this
+    /// device's client may still be enrolled on the runner.
+    Pending,
+    /// The revoke request was sent and the runner's answer was lost or unreadable (or
+    /// reported an unconfirmed effect): this device's client may or may not have been
+    /// revoked on the runner.
+    Unknown,
+}
+
 /// `remove`'s outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RemoveOutcome {
@@ -926,10 +943,18 @@ pub struct RemoveOutcome {
     pub client: ClientId,
     /// The role the record held.
     pub role: Role,
-    /// Whether this device's client was revoked on the runner first. `false` for a
-    /// limited record: it is forgotten here only, and an owner must still revoke that
-    /// client on the runner.
+    /// Whether this device's client was confirmed revoked on the runner first. `false` for
+    /// a limited record (forgotten here only) or ⟨M08 W4 SEC-5F, item 2⟩ when an owner
+    /// record's remote revoke was not confirmed (`remote_outcome` is `pending` or `unknown`).
     pub revoked_on_runner: bool,
+    /// ⟨M08 W4 SEC-5F, item 2⟩ Outcome of the remote revocation step (`revoked`, `pending`,
+    /// or `unknown`).
+    pub remote_outcome: RemoteRemoveOutcome,
+    /// ⟨M08 W4 SEC-5F, item 2⟩ Overall effect status: `applied` when both remote revoke and
+    /// local forget succeeded; `partial` when local forget succeeded and the remote revoke
+    /// did not run (`pending`); `unknown` when local forget succeeded and the remote
+    /// revoke's outcome could not be confirmed (`unknown`).
+    pub effect_status: heimdall_contract::envelope::EffectStatus,
 }
 
 /// `retire`'s outcome.
@@ -1243,6 +1268,24 @@ impl<'a> RemoteEnvController<'a> {
             .with_effect(heimdall_contract::envelope::EffectStatus::None));
         }
         Ok(record)
+    }
+
+    async fn revoke_on_session(
+        session: &mut dyn ManagementSession,
+        environment: &EnvironmentId,
+        client: &ClientId,
+    ) -> Result<serde_json::Value, OpError> {
+        let raw = runner_result(
+            session
+                .call(ManagementCall::Environment(
+                    RemoteEnvironmentRequest::RevokeClient {
+                        environment: environment.clone(),
+                        client: client.clone(),
+                    },
+                ))
+                .await?,
+        )?;
+        crate::remote_ingress::screen_revoke_client_answer(raw, environment, client)
     }
 
     async fn call_recorded(
@@ -1598,17 +1641,10 @@ impl<'a> RemoteEnvController<'a> {
         environment: &EnvironmentId,
         client: &ClientId,
     ) -> Result<serde_json::Value, OpError> {
-        self.owner_record(environment, "revoking a client")?;
-        let raw = self
-            .call_recorded(
-                environment,
-                ManagementCall::Environment(RemoteEnvironmentRequest::RevokeClient {
-                    environment: environment.clone(),
-                    client: client.clone(),
-                }),
-            )
-            .await?;
-        crate::remote_ingress::screen_revoke_client_answer(raw, environment, client)
+        let record = self.owner_record(environment, "revoking a client")?;
+        self.key_ready().await?;
+        let mut session = self.open_recorded(&record).await?;
+        Self::revoke_on_session(session.as_mut(), environment, client).await
     }
 
     /// ⟨rev6.3; ADR-0006 §18.7 item 4⟩ `transport rotate`'s announcement: send this
@@ -1720,29 +1756,67 @@ impl<'a> RemoteEnvController<'a> {
         crate::remote_ingress::screen_recheck_answer(raw, environment, &record.client)
     }
 
-    /// `environment remove`: revoke this device's client on that runner, then forget the
-    /// record (pins included). K_mgmt is kept: it may serve other runners.
+    /// `environment remove`: attempt to revoke this device's client on that runner, then
+    /// forget the record (pins included). K_mgmt is kept: it may serve other runners.
     ///
     /// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ A record whose role is limited is forgotten
     /// **locally, without the revoke**: revoking a client is an owner's form, so this
     /// device cannot remove its own line. No session is opened and K_mgmt is not needed;
     /// the outcome says the client is still enrolled on the runner
-    /// ([`RemoveOutcome::revoked_on_runner`] is `false`), and an owner must revoke it there.
+    /// ([`RemoveOutcome::revoked_on_runner`] is `false`, [`RemoveOutcome::remote_outcome`]
+    /// is [`RemoteRemoveOutcome::Pending`], [`RemoveOutcome::effect_status`] is `partial`),
+    /// and an owner must revoke it there.
+    ///
+    /// ⟨M08 W4 SEC-5F, item 2⟩ For an owner record, once K_mgmt is ready, the local forget
+    /// **always completes whatever the runner answers**: an unreadable, unknown, or lost
+    /// runner reply never traps a controller with a stale record. When the runner confirms
+    /// the revocation, `remote_outcome` is `revoked` (`effect_status: applied`). When no
+    /// revocation ran (the runner could not be reached, rejected the hello, or refused with
+    /// `effect_status: none`), `remote_outcome` is `pending` (`effect_status: partial`).
+    /// When the revoke was sent and its answer was unreadable, lost, or unconfirmed,
+    /// `remote_outcome` is `unknown` (`effect_status: unknown`).
     ///
     /// # Errors
-    /// [`OpError`]: the revocation failed (nothing is forgotten, so it can be retried).
+    /// [`OpError`]: no such record, a locked or unavailable K_mgmt store (for an owner
+    /// record, before any session opens), or a local registry write failure.
     pub async fn remove(&self, environment: &EnvironmentId) -> Result<RemoveOutcome, OpError> {
+        use heimdall_contract::envelope::EffectStatus;
         let record = self.record(environment)?;
-        let revoked_on_runner = record.role == Role::Owner;
-        if revoked_on_runner {
-            self.revoke_client(environment, &record.client).await?;
-        }
+        let remote_outcome = if record.role != Role::Owner {
+            RemoteRemoveOutcome::Pending
+        } else {
+            self.key_ready().await?;
+            match self.open_recorded(&record).await {
+                Err(_) => RemoteRemoveOutcome::Pending,
+                Ok(mut session) => {
+                    match Self::revoke_on_session(session.as_mut(), environment, &record.client)
+                        .await
+                    {
+                        Ok(_) => RemoteRemoveOutcome::Revoked,
+                        Err(error)
+                            if error.code != Code::OutcomeUnknown
+                                && error.effect_status == EffectStatus::None =>
+                        {
+                            RemoteRemoveOutcome::Pending
+                        }
+                        Err(_) => RemoteRemoveOutcome::Unknown,
+                    }
+                }
+            }
+        };
         self.ports.registry.remove(environment).await?;
+        let effect_status = match remote_outcome {
+            RemoteRemoveOutcome::Revoked => EffectStatus::Applied,
+            RemoteRemoveOutcome::Pending => EffectStatus::Partial,
+            RemoteRemoveOutcome::Unknown => EffectStatus::Unknown,
+        };
         Ok(RemoveOutcome {
             environment: environment.clone(),
             client: record.client,
             role: record.role,
-            revoked_on_runner,
+            revoked_on_runner: remote_outcome == RemoteRemoveOutcome::Revoked,
+            remote_outcome,
+            effect_status,
         })
     }
 
@@ -1885,21 +1959,7 @@ impl<'a> RemoteEnvController<'a> {
             }
             let outcome = async {
                 let mut session = self.open_recorded(record).await?;
-                let raw = runner_result(
-                    session
-                        .call(ManagementCall::Environment(
-                            RemoteEnvironmentRequest::RevokeClient {
-                                environment: record.environment.clone(),
-                                client: record.client.clone(),
-                            },
-                        ))
-                        .await?,
-                )?;
-                crate::remote_ingress::screen_revoke_client_answer(
-                    raw,
-                    &record.environment,
-                    &record.client,
-                )
+                Self::revoke_on_session(session.as_mut(), &record.environment, &record.client).await
             }
             .await;
             match outcome {

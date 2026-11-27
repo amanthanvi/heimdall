@@ -2836,6 +2836,22 @@ that names another binding releases that binding, with no `REQUEST_CONFLICT` (a 
 of an already-released binding answers `already_released`). The CLI mints no request ID when
 `--request-id` is not given. Journaling `access release` is post-1.0, if it is ever wanted.
 
+**`credential_lifecycle.cause` values for cutoffs (contract-owner ruling, 2026-11-26; M08 W4
+SEC-5, SEC-5F).** `policy_cutoff` and `cutoff_fired_while_time_uncertain` are approved additive
+values of `CredentialLifecycle.cause` (an existing optional `Option<String>` key on
+`credential_lifecycle`, D5), emitted on `expired` events when a grant ends at a policy cutoff or
+at a cutoff that fired under uncertain time. `crates/contract/src/event_payload.rs` and
+`schemas/public-api/declared/event-payload.schema.json` document them; no published live schema
+changes.
+
+**Fail-closed `profile:` and `workspace:` cutoffs from another controller (orchestrator ruling,
+2026-11-26; M08 W4 SEC-5, SEC-5F).** An in-force `profile:`- or `workspace:`-scoped cutoff
+delivered by another controller (including one fired under uncertain time) blocks all of the
+runner's remote issuance on this controller — for every policy, including policies created after
+the cutoff fired — until the attended lift at the runner, because `ReportedPolicy` carries no
+profile or workspace membership in 1.0. Carrying `ReportedPolicy` membership to narrow the block
+to covered policies is the post-1.0 path.
+
 ### 19.4 The restore rule is an authority rule of this contract (H3)
 
 ADR-0014 §3.6 is adopted as written, as part of this contract: a restore recovers identity and
