@@ -83,12 +83,11 @@ pub const REQUEST_STALE_NEXT: &str = "new_request_id";
 
 /// ⟨H5⟩ The doctor finding for an integration entry (login entry, shell hook, route helper,
 /// WSL helper) that names an executable path which no longer holds this executable, with
-/// its repair command (ADR-0014 §3.2 item 12). Declared; `doctor` produces it in U2b.
+/// its repair command (ADR-0014 §3.2 item 12). Emitted by `doctor` (`crate::doctor::finding::EXECUTABLE_MOVED`).
 pub const EXECUTABLE_MOVED: &str = "executable_moved";
 
-/// ⟨H6⟩ The residue kinds a lifecycle step leaves for the owner (ADR-0014 §3.4). Declared;
-/// `RemainingArtifactKind` gains them with their emitters (U2b), so `setup-result`'s
-/// published schema is unchanged now.
+/// ⟨H6⟩ The residue kinds a lifecycle step leaves for the owner (ADR-0014 §3.4), matching
+/// `crate::setup::RemainingArtifactKind`'s M08 variants.
 pub mod residue_kind {
     /// A migration backup, `<store>.v<N>.backup*`.
     pub const MIGRATION_BACKUP: &str = "migration_backup";

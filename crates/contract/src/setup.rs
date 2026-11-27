@@ -754,6 +754,15 @@ pub enum RemainingArtifactKind {
     RecoveryRecord,
     /// The quarantine directory.
     Quarantine,
+    /// A pre-migration backup (`<store>.v<N>.backup*`): old state with public metadata.
+    MigrationBackup,
+    /// An earlier store generation kept by a restore or reset: the old state in full,
+    /// with its operation record.
+    EarlierStoreGeneration,
+    /// The previous binary kept by an update (`heimdall.previous`).
+    PreviousBinary,
+    /// A Heimdall Git include block the owner moved to the other global Git file.
+    GitBlockMoved,
 }
 
 /// An artifact left for the owner.
@@ -834,5 +843,34 @@ mod tests {
             distribution: None,
         };
         assert_eq!(empty.validate(), Err(PreviewIntentError::NoItems));
+    }
+
+    #[test]
+    fn remaining_artifact_kind_includes_lifecycle_residue_kinds() {
+        let pairs = [
+            (
+                RemainingArtifactKind::MigrationBackup,
+                crate::lifecycle::residue_kind::MIGRATION_BACKUP,
+            ),
+            (
+                RemainingArtifactKind::EarlierStoreGeneration,
+                crate::lifecycle::residue_kind::EARLIER_STORE_GENERATION,
+            ),
+            (
+                RemainingArtifactKind::PreviousBinary,
+                crate::lifecycle::residue_kind::PREVIOUS_BINARY,
+            ),
+            (
+                RemainingArtifactKind::GitBlockMoved,
+                crate::lifecycle::residue_kind::GIT_BLOCK_MOVED,
+            ),
+        ];
+        for (kind, wire) in pairs {
+            assert_eq!(serde_json::to_value(kind).unwrap(), wire);
+            assert_eq!(
+                serde_json::from_value::<RemainingArtifactKind>(wire.into()).unwrap(),
+                kind
+            );
+        }
     }
 }

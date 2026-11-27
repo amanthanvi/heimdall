@@ -1,8 +1,8 @@
 //! ⟨rev7⟩ The skeletons of the commands revision 7 declares before their units land
 //! (ADR-0013 §1.3; ADR-0014 §7 H1–H3; the contract owner's rulings on U0-Q7, Q8 and ASK-H3):
-//! `support bundle` (H1), `service stop --preview` (H2), `state status` (H3) and `inspect
-//! request <REQUEST_ID>` (Q7). ⟨M08 U2b-3b⟩ `state restore`, `state reset` and `state repair`
-//! have landed (`crate::state_cmd`).
+//! `support bundle` (H1) and `inspect request <REQUEST_ID>` (Q7). ⟨M08 U2b-3b⟩ `state
+//! status`, `state restore`, `state reset` and `state repair` have landed (`crate::state_cmd`).
+//! ⟨M08 U2b-4⟩ `service stop --preview` (H2) has landed (`crate::service_cmd::stop_preview`).
 //!
 //! Each answers one envelope, whatever flags it is given: `USAGE_ERROR` (exit 2), effect
 //! `none`, next `fix_request`, "this command is not available in this build". It answers
@@ -57,7 +57,6 @@ mod tests {
                 "@OUT",
                 "--include-identifiers",
             ],
-            &["service", "stop", "--preview"],
             &["inspect", "request", "req-0123456789abcdef"],
         ];
         let env = envelope();

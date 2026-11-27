@@ -486,6 +486,131 @@ pub fn current_thread() -> Result<tokio::runtime::Runtime, Envelope<ErrorData>> 
         })
 }
 
+/// `service stop --preview` (ADR-0014 §3.2 item 2, §3.3, §3.4, H2): strictly read-only,
+/// never starts a runtime, changes nothing on disk, and leaves any running runtime running.
+pub fn stop_preview(ctx: &Ctx) -> ExitCode {
+    let paths = match ctx.paths() {
+        Ok(p) => p,
+        Err(e) => return fail(ctx, *e),
+    };
+    let preview = match heimdall_runtime::stop_preview::collect(&paths) {
+        Ok(preview) => preview,
+        Err(heimdall_runtime::stop_preview::StopPreviewError::UntrustedAdvertisement(kind)) => {
+            return fail(
+                ctx,
+                error(
+                    Code::ServiceUnavailable,
+                    &format!("the runtime advertisement is not trusted: {kind:?}"),
+                ),
+            );
+        }
+    };
+    let human = stop_preview_lines(&preview);
+    let data = match serde_json::to_value(&preview) {
+        Ok(v) => v,
+        Err(_) => {
+            return fail(
+                ctx,
+                error(
+                    Code::InternalError,
+                    "the stop preview could not be rendered",
+                ),
+            );
+        }
+    };
+    let env = Envelope::ok(data);
+    output::emit_rendered(&env, ctx.json, &human);
+    ExitCode::Success
+}
+
+/// Human summary of a [`heimdall_contract::lifecycle::StopPreview`].
+fn stop_preview_lines(p: &heimdall_contract::lifecycle::StopPreview) -> String {
+    let mut out = String::new();
+    if !p.running {
+        out.push_str("No runtime is running; stopping interrupts nothing.\n");
+    } else {
+        out.push_str("Stopping the runtime would interrupt:\n");
+        out.push_str(
+            "  New connections and signatures through Heimdall endpoints stop until the runtime starts again.\n",
+        );
+        out.push_str(&format!(
+            "  Open operations: {} (in-flight operations settle or are recovered/reported after restart)\n",
+            p.open_operations
+        ));
+        out.push_str(&format!(
+            "  Held bindings: {} (children keep running; their endpoints are gone until restart)\n",
+            p.held_bindings
+        ));
+        out.push_str(&format!(
+            "  In-memory working keys: {} (zeroized on stop; re-issued within unchanged terms after restart)\n",
+            p.in_memory_keys
+        ));
+        if p.owned_connections.is_empty() {
+            out.push_str("  Owned connections: none\n");
+        } else {
+            out.push_str(&format!(
+                "  Owned connections ({}):\n",
+                p.owned_connections.len()
+            ));
+            for item in &p.owned_connections {
+                out.push_str(&format!(
+                    "    {} {} ({})\n",
+                    item.kind, item.id, item.effect
+                ));
+            }
+        }
+        if p.environment_endpoints.is_empty() {
+            out.push_str("  Environment endpoints: none\n");
+        } else {
+            out.push_str(&format!(
+                "  Environment endpoints ({}):\n",
+                p.environment_endpoints.len()
+            ));
+            for item in &p.environment_endpoints {
+                out.push_str(&format!(
+                    "    {} {} ({})\n",
+                    item.kind, item.id, item.effect
+                ));
+            }
+        }
+        if p.remote.is_empty() {
+            out.push_str("  Remote transport and runner: none\n");
+        } else {
+            out.push_str(&format!(
+                "  Remote transport and runner ({}):\n",
+                p.remote.len()
+            ));
+            for item in &p.remote {
+                out.push_str(&format!(
+                    "    {} {} ({})\n",
+                    item.kind, item.id, item.effect
+                ));
+            }
+        }
+    }
+    if p.migration_backups > 0 {
+        out.push_str(&format!(
+            "Migration backups present (residue): {}\n",
+            p.migration_backups
+        ));
+    }
+    if let Some(note) = &p.issuer_key_access {
+        let access = if note.may_lose_access {
+            "without a Developer ID signature on macOS, updating the binary may deny the issuer access to its CA key"
+        } else {
+            "this macOS build carries a Developer ID signature"
+        };
+        let backup = if note.offline_backup_recorded {
+            "an offline backup is recorded"
+        } else {
+            "no offline backup is recorded"
+        };
+        out.push_str(&format!("macOS issuer key access: {access}; {backup}.\n"));
+    }
+    out.push_str("Nothing was changed.\n");
+    out
+}
+
 /// `service stop`.
 pub fn stop(ctx: &Ctx) -> ExitCode {
     let paths = match ctx.paths() {
@@ -705,7 +830,7 @@ pub const LOGIN_ROOT_ENV: &str = "HEIMDALL_TEST_LOGIN_ROOT";
 /// # Errors
 /// A release build with the variable set, or a value that is not an absolute directory
 /// (a `Software\HeimdallTest\…` subkey on Windows).
-fn login_root() -> Result<Option<std::path::PathBuf>, String> {
+pub(crate) fn login_root() -> Result<Option<std::path::PathBuf>, String> {
     let Some(value) = std::env::var_os(LOGIN_ROOT_ENV) else {
         return Ok(None);
     };

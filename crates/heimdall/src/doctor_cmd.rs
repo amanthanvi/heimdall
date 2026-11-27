@@ -228,6 +228,11 @@ pub(crate) async fn doctor<P: Prompter>(
     if let Some(f) = runner_downgrade_unrecorded_finding(ctx) {
         report.findings.push(f);
     }
+    // ⟨M08 U2b-4; ADR-0014 §3.2 item 12, §3.4, H5⟩ Any owned integration entry left at an
+    // old executable path is reported with its repair command, never silently rewritten.
+    report
+        .findings
+        .extend(executable_moved_findings(ctx, local, request.redact));
     let value = serde_json::to_value(&report).unwrap_or_default();
     let human = output::render_doctor(&value);
     let mut env = Envelope::ok(value);
@@ -1299,6 +1304,415 @@ fn runner_downgrade_unrecorded_finding_of(
     }
 }
 
+/// ⟨M08 U2b-4; ADR-0014 §3.2 item 12, §3.4, H5⟩ Check integration entries that name the
+/// executable path (login entry, route helper `ProxyCommand` in P, Windows WSL helper, and
+/// runner forced command in `authorized_keys`) strictly read-only. Every owned entry left at
+/// an old path becomes an `executable_moved` finding with its repair command; foreign entries
+/// and files are never modified.
+fn executable_moved_findings(ctx: &Ctx, local: &LocalContext, redact: bool) -> Vec<Finding> {
+    let Ok(current_exe) = std::env::current_exe() else {
+        return Vec::new();
+    };
+    let Ok(paths) = ctx.paths() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    if let Some(f) =
+        login_entry_moved_finding(ctx, &paths, &local.paths.account_home, &current_exe, redact)
+    {
+        out.push(f);
+    }
+    out.extend(route_helper_moved_findings(
+        &paths.config_dir.join("ssh_config"),
+        &local.paths.account_home,
+        &current_exe,
+        redact,
+    ));
+    #[cfg(windows)]
+    if let Some(f) = wsl_helper_moved_finding(ctx, &local.paths.account_home, &current_exe, redact)
+    {
+        out.push(f);
+    }
+    if open_store(ctx)
+        .and_then(|s| {
+            s.transaction(heimdall_runtime::paired::is_runner)
+                .map_err(|e| e.to_string())
+        })
+        .unwrap_or(false)
+    {
+        out.extend(runner_forced_command_moved_findings(
+            &local.paths.user_dir.join("authorized_keys"),
+            &local.paths.account_home,
+            &current_exe,
+            redact,
+        ));
+    }
+    out
+}
+
+/// Whether `recorded` names the same live executable as `current`. A path that no longer
+/// exists on disk is never the same executable.
+fn same_executable(recorded: &std::path::Path, current: &std::path::Path) -> bool {
+    if recorded == current {
+        return true;
+    }
+    match (
+        std::fs::canonicalize(recorded),
+        std::fs::canonicalize(current),
+    ) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+fn display_or_redact(home: &std::path::Path, path: &std::path::Path, redact: bool) -> String {
+    if redact {
+        "<redacted>".to_owned()
+    } else {
+        heimdall_localenv::paths::display_path(home, path)
+    }
+}
+
+fn login_kind_word(kind: heimdall_runtime::autostart::LoginKind) -> &'static str {
+    use heimdall_runtime::autostart::LoginKind as K;
+    match kind {
+        K::RunValue => "run_value",
+        K::LaunchAgent => "launch_agent",
+        K::SystemdUser => "systemd_user",
+        K::None => "none",
+    }
+}
+
+/// Check Heimdall's own login entry (read-only). A foreign entry is never reported as moved
+/// and never rewritten.
+fn login_entry_moved_finding(
+    ctx: &Ctx,
+    paths: &heimdall_runtime::Paths,
+    account_home: &std::path::Path,
+    current_exe: &std::path::Path,
+    redact: bool,
+) -> Option<Finding> {
+    let root = crate::service_cmd::login_root().ok()?;
+    if root.is_none() && ctx.home.is_some() {
+        return None;
+    }
+    let token = heimdall_runtime::autostart::installation_token(&paths.state_dir);
+    let host = heimdall_runtime::autostart::system_host(&token, root.as_deref());
+    login_entry_moved_finding_on(&*host, account_home, current_exe, redact)
+}
+
+fn login_entry_moved_finding_on(
+    host: &dyn heimdall_runtime::autostart::LoginHost,
+    account_home: &std::path::Path,
+    current_exe: &std::path::Path,
+    redact: bool,
+) -> Option<Finding> {
+    use heimdall_runtime::autostart::EntryState;
+    let Ok(EntryState::Owned(cmd)) = host.observe() else {
+        return None;
+    };
+    if same_executable(&cmd.exe, current_exe) {
+        return None;
+    }
+    let old = display_or_redact(account_home, &cmd.exe, redact);
+    let now = display_or_redact(account_home, current_exe, redact);
+    let loc = if redact {
+        "<redacted>".to_owned()
+    } else {
+        host.location()
+    };
+    Some(Finding {
+        code: finding::EXECUTABLE_MOVED.to_owned(),
+        severity: FindingSeverity::Problem,
+        subject: ResourceRef {
+            kind: "login_entry".to_owned(),
+            id: Some(login_kind_word(host.kind()).to_owned()),
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!(
+            "the login entry at {loc} points to {old}, which is not this executable ({now}); \
+             Heimdall left the entry untouched. Update it with `heimdall service autostart enable`"
+        ),
+        next: NextAction {
+            action: "owner_decision".to_owned(),
+            ..NextAction::default()
+        },
+        reason: None,
+    })
+}
+
+/// Parse a Heimdall route-helper `ProxyCommand` line (`ProxyCommand "<abs>" route connect …`)
+/// and return the executable path when it is absolute.
+fn extract_route_helper_exe(line: &str) -> Option<PathBuf> {
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    let kw_len = "proxycommand".len();
+    if trimmed.len() <= kw_len || !trimmed[..kw_len].eq_ignore_ascii_case("proxycommand") {
+        return None;
+    }
+    let after_kw = &trimmed[kw_len..];
+    let first_ch = after_kw.chars().next()?;
+    if !first_ch.is_ascii_whitespace() && first_ch != '=' {
+        return None;
+    }
+    let mut rest = after_kw.trim_start();
+    if let Some(stripped) = rest.strip_prefix('=') {
+        rest = stripped.trim_start();
+    }
+    let (exe, tail) = if let Some(quoted) = rest.strip_prefix('"') {
+        let end = quoted.find('"')?;
+        (&quoted[..end], &quoted[end + 1..])
+    } else {
+        let end = rest.find(char::is_whitespace)?;
+        (&rest[..end], &rest[end..])
+    };
+    let mut words = tail.split_whitespace();
+    if words.next() != Some("route") || words.next() != Some("connect") {
+        return None;
+    }
+    let path = PathBuf::from(exe);
+    path.is_absolute().then_some(path)
+}
+
+/// Read a bounded regular file (at most 1 MiB) as UTF-8 text; returns `None` if absent,
+/// not a regular file, unreadable, or larger than the bound.
+fn read_bounded_text(path: &std::path::Path) -> Option<String> {
+    use std::io::Read as _;
+    const MAX: u64 = 1 << 20;
+    let file = crate::input_file::open_regular(path).ok()?;
+    let mut buf = Vec::new();
+    file.take(MAX + 1).read_to_end(&mut buf).ok()?;
+    if buf.len() as u64 > MAX {
+        return None;
+    }
+    String::from_utf8(buf).ok()
+}
+
+/// Check Heimdall's managed SSH configuration file `p_path` for route-helper `ProxyCommand`
+/// lines whose executable moved.
+fn route_helper_moved_findings(
+    p_path: &std::path::Path,
+    account_home: &std::path::Path,
+    current_exe: &std::path::Path,
+    redact: bool,
+) -> Vec<Finding> {
+    let Some(text) = read_bounded_text(p_path) else {
+        return Vec::new();
+    };
+    let p_display = display_or_redact(account_home, p_path, redact);
+    let now = display_or_redact(account_home, current_exe, redact);
+    let mut seen: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut out = Vec::new();
+    for (idx, line) in text.lines().enumerate() {
+        let Some(exe) = extract_route_helper_exe(line) else {
+            continue;
+        };
+        if same_executable(&exe, current_exe) || !seen.insert(exe.clone()) {
+            continue;
+        }
+        let old = display_or_redact(account_home, &exe, redact);
+        out.push(Finding {
+            code: finding::EXECUTABLE_MOVED.to_owned(),
+            severity: FindingSeverity::Problem,
+            subject: ResourceRef {
+                kind: "projection".to_owned(),
+                id: Some("route_helper".to_owned()),
+            },
+            level: ProbeLevel::Static,
+            provenance: Some(heimdall_contract::doctor::ConfigProvenance {
+                path_display: p_display.clone(),
+                line: u32::try_from(idx + 1).unwrap_or(u32::MAX),
+            }),
+            message: format!(
+                "the route helper in {p_display} points to {old}, which is not this executable \
+                 ({now}); Heimdall left the file untouched. Re-render it with `heimdall setup apply`"
+            ),
+            next: NextAction {
+                action: "owner_decision".to_owned(),
+                ..NextAction::default()
+            },
+            reason: None,
+        });
+    }
+    out
+}
+
+/// Parse a Heimdall runner forced-command line in `authorized_keys`
+/// (`restrict,command="exec \"<exe>\" remote serve …" … heimdall-mgmt:<cid>`) and return
+/// the executable path when the line carries Heimdall's management marker and an absolute
+/// executable path. Lines without the `heimdall-mgmt:` marker are left alone.
+fn extract_runner_forced_exe(line: &str) -> Option<PathBuf> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    let has_marker = trimmed
+        .split_whitespace()
+        .last()
+        .is_some_and(|tok| tok.starts_with("heimdall-mgmt:"));
+    if !has_marker {
+        return None;
+    }
+    let start = trimmed.find("command=\"")? + "command=\"".len();
+    let mut command = String::new();
+    let mut chars = trimmed[start..].chars();
+    let mut closed = false;
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => command.push(chars.next()?),
+            '"' => {
+                closed = true;
+                break;
+            }
+            other => command.push(other),
+        }
+    }
+    if !closed {
+        return None;
+    }
+    let rest = command.trim_start();
+    let rest = rest
+        .strip_prefix("exec")
+        .filter(|s| s.starts_with(char::is_whitespace))
+        .map_or(rest, str::trim_start);
+    let (exe, tail) = if let Some(quoted) = rest.strip_prefix('"') {
+        let end = quoted.find('"')?;
+        (&quoted[..end], &quoted[end + 1..])
+    } else {
+        let end = rest.find(char::is_whitespace)?;
+        (&rest[..end], &rest[end..])
+    };
+    let mut words = tail.split_whitespace();
+    if words.next() != Some("remote") || words.next() != Some("serve") {
+        return None;
+    }
+    let path = PathBuf::from(exe);
+    path.is_absolute().then_some(path)
+}
+
+/// Check a runner's `authorized_keys` for Heimdall management lines whose forced command
+/// points to an old executable path. Never modifies `authorized_keys`.
+fn runner_forced_command_moved_findings(
+    ak_path: &std::path::Path,
+    account_home: &std::path::Path,
+    current_exe: &std::path::Path,
+    redact: bool,
+) -> Vec<Finding> {
+    let Some(text) = read_bounded_text(ak_path) else {
+        return Vec::new();
+    };
+    let ak_display = display_or_redact(account_home, ak_path, redact);
+    let now = display_or_redact(account_home, current_exe, redact);
+    let mut seen: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut out = Vec::new();
+    for (idx, line) in text.lines().enumerate() {
+        let Some(exe) = extract_runner_forced_exe(line) else {
+            continue;
+        };
+        if same_executable(&exe, current_exe) || !seen.insert(exe.clone()) {
+            continue;
+        }
+        let old = display_or_redact(account_home, &exe, redact);
+        out.push(Finding {
+            code: finding::EXECUTABLE_MOVED.to_owned(),
+            severity: FindingSeverity::Problem,
+            subject: ResourceRef {
+                kind: "environment".to_owned(),
+                id: Some("runner_forced_command".to_owned()),
+            },
+            level: ProbeLevel::Static,
+            provenance: Some(heimdall_contract::doctor::ConfigProvenance {
+                path_display: ak_display.clone(),
+                line: u32::try_from(idx + 1).unwrap_or(u32::MAX),
+            }),
+            message: format!(
+                "a runner management line in {ak_display} points to {old}, which is not this \
+                 executable ({now}); Heimdall left authorized_keys untouched. Update the runner's \
+                 management entry with `heimdall remote init`"
+            ),
+            next: NextAction {
+                action: "owner_decision".to_owned(),
+                ..NextAction::default()
+            },
+            reason: None,
+        });
+    }
+    out
+}
+
+#[cfg(windows)]
+fn wsl_helper_moved_finding(
+    ctx: &Ctx,
+    account_home: &std::path::Path,
+    current_exe: &std::path::Path,
+    redact: bool,
+) -> Option<Finding> {
+    let has_wsl = open_store(ctx)
+        .and_then(|s| {
+            s.transaction(|tx| {
+                let mode_a = !tx.wsl_distributions()?.is_empty();
+                let mode_b = tx.managed_environments()?.into_iter().any(|e| {
+                    e.state == heimdall_domain::environment::ManagedState::Active
+                        && matches!(
+                            e.realization,
+                            heimdall_domain::environment::EnvironmentRealization::Wsl { .. }
+                        )
+                });
+                Ok(mode_a || mode_b)
+            })
+            .map_err(|e| e.to_string())
+        })
+        .unwrap_or(false);
+    if !has_wsl {
+        return None;
+    }
+    let helper = {
+        #[cfg(debug_assertions)]
+        {
+            std::env::var_os(crate::testcfg::WSL_HELPER_ENV)
+                .map(PathBuf::from)
+                .or_else(|| {
+                    current_exe
+                        .parent()
+                        .map(|d| d.join("linux-x86_64").join("heimdall"))
+                })
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            current_exe
+                .parent()
+                .map(|d| d.join("linux-x86_64").join("heimdall"))
+        }
+    }?;
+    if helper.is_file() {
+        return None;
+    }
+    let expected = display_or_redact(account_home, &helper, redact);
+    Some(Finding {
+        code: finding::EXECUTABLE_MOVED.to_owned(),
+        severity: FindingSeverity::Problem,
+        subject: ResourceRef {
+            kind: "environment".to_owned(),
+            id: Some("wsl_helper".to_owned()),
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!(
+            "the WSL helper expected beside this executable at {expected} is missing; reinstall \
+             from the Windows archive with `install.ps1` so the executable and WSL helper stay \
+             paired"
+        ),
+        next: NextAction {
+            action: "owner_decision".to_owned(),
+            ..NextAction::default()
+        },
+        reason: None,
+    })
+}
+
 /// Whether an issuer CA is registered: one that is neither `deleted` nor `retired`.
 fn ca_registered_in(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<bool> {
     use heimdall_contract::issuer::CaState;
@@ -2103,6 +2517,127 @@ mod tests {
                 "; pending chore: run `heimdall time confirm` (time_confirmation_after_reboot)"
             ),
             "{message}"
+        );
+    }
+
+    /// ⟨M08 U2b-4; ADR-0014 §3.2 item 12, H5⟩ An owned login entry, route helper or runner
+    /// forced command pointing to an old path is reported as `executable_moved` with its
+    /// repair command and never silently rewritten; a foreign login entry is untouched and
+    /// not reported as owned.
+    #[test]
+    fn executable_moved_reports_owned_entries_and_leaves_foreign_untouched() {
+        use heimdall_runtime::autostart::{
+            EntryState, LoginCommand, LoginError, LoginHost, LoginKind,
+        };
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let current = dir.path().join("bin/heimdall");
+        std::fs::create_dir_all(current.parent().unwrap_or(dir.path()))
+            .unwrap_or_else(|e| panic!("{e}"));
+        std::fs::write(&current, b"current").unwrap_or_else(|e| panic!("{e}"));
+        let old = dir.path().join("old-bin/heimdall");
+
+        #[derive(Debug)]
+        struct StubHost {
+            state: EntryState,
+        }
+        impl LoginHost for StubHost {
+            fn kind(&self) -> LoginKind {
+                LoginKind::LaunchAgent
+            }
+            fn location(&self) -> String {
+                "~/Library/LaunchAgents/io.example.heimdall.test.plist".into()
+            }
+            fn observe(&self) -> Result<EntryState, LoginError> {
+                Ok(self.state.clone())
+            }
+            fn render(&self, _: &LoginCommand) -> Result<String, LoginError> {
+                unreachable!()
+            }
+            fn install(
+                &self,
+                _: &LoginCommand,
+            ) -> Result<heimdall_runtime::autostart::InstallOutcome, LoginError> {
+                unreachable!()
+            }
+            fn remove(&self) -> Result<heimdall_runtime::autostart::RemoveOutcome, LoginError> {
+                unreachable!()
+            }
+        }
+
+        let moved_host = StubHost {
+            state: EntryState::Owned(LoginCommand::new(&old).unwrap_or_else(|e| panic!("{e}"))),
+        };
+        let f = login_entry_moved_finding_on(&moved_host, dir.path(), &current, false)
+            .unwrap_or_else(|| panic!("expected executable_moved finding"));
+        assert_eq!(f.code, finding::EXECUTABLE_MOVED);
+        assert_eq!(f.severity, FindingSeverity::Problem);
+        assert!(
+            f.message.contains("heimdall service autostart enable"),
+            "{}",
+            f.message
+        );
+        let redacted = login_entry_moved_finding_on(&moved_host, dir.path(), &current, true)
+            .unwrap_or_else(|| panic!("expected redacted finding"));
+        assert!(
+            !redacted.message.contains("old-bin") && redacted.message.contains("<redacted>"),
+            "{}",
+            redacted.message
+        );
+
+        let same_host = StubHost {
+            state: EntryState::Owned(LoginCommand::new(&current).unwrap_or_else(|e| panic!("{e}"))),
+        };
+        assert!(login_entry_moved_finding_on(&same_host, dir.path(), &current, false).is_none());
+
+        let foreign_host = StubHost {
+            state: EntryState::Foreign,
+        };
+        assert!(login_entry_moved_finding_on(&foreign_host, dir.path(), &current, false).is_none());
+
+        // Route helper in managed ssh_config.
+        let p = dir.path().join("ssh_config");
+        let p_content = format!(
+            "Host lab\n    ProxyCommand \"{}\" route connect --destination lab --account deploy\n",
+            old.display()
+        );
+        std::fs::write(&p, &p_content).unwrap_or_else(|e| panic!("{e}"));
+        let rf = route_helper_moved_findings(&p, dir.path(), &current, false);
+        assert_eq!(rf.len(), 1);
+        assert_eq!(rf[0].code, finding::EXECUTABLE_MOVED);
+        assert!(
+            rf[0].message.contains("heimdall setup apply"),
+            "{}",
+            rf[0].message
+        );
+        assert_eq!(
+            std::fs::read_to_string(&p).unwrap_or_default(),
+            p_content,
+            "doctor must never rewrite ssh_config"
+        );
+
+        // Runner forced command in authorized_keys (ManagementLine::render format, plus a
+        // foreign line without the `heimdall-mgmt:` marker that must be ignored).
+        let ak = dir.path().join("authorized_keys");
+        let ak_content = format!(
+            "restrict,command=\"exec \\\"{}\\\" remote serve --client cl_1 --home \\\"/tmp/h\\\"\" ssh-ed25519 AAAA test heimdall-mgmt:cl_1\n\
+             restrict,command=\"exec \\\"{}\\\" remote serve --client foreign --home \\\"/tmp/h\\\"\" ssh-ed25519 AAAA foreign-comment\n",
+            old.display(),
+            old.display()
+        );
+        std::fs::write(&ak, &ak_content).unwrap_or_else(|e| panic!("{e}"));
+        let rff = runner_forced_command_moved_findings(&ak, dir.path(), &current, false);
+        assert_eq!(rff.len(), 1);
+        assert_eq!(rff[0].code, finding::EXECUTABLE_MOVED);
+        assert_eq!(rff[0].provenance.as_ref().map(|p| p.line), Some(1));
+        assert!(
+            rff[0].message.contains("heimdall remote init"),
+            "{}",
+            rff[0].message
+        );
+        assert_eq!(
+            std::fs::read_to_string(&ak).unwrap_or_default(),
+            ak_content,
+            "doctor must never rewrite authorized_keys"
         );
     }
 }

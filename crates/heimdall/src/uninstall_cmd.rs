@@ -210,6 +210,16 @@ struct Inventory {
     /// be read). The row itself is in the snapshot (`META_RECOVERY`) and compared; this is
     /// its listing.
     runner_downgrade: Option<(String, Option<Timestamp>)>,
+    /// ⟨M08 U2b-4; ADR-0014 §3.4⟩ Paired remote runner environments recorded on a controller
+    /// (`remote_environment_pins`), with their label if recorded.
+    remote_environments: Vec<(heimdall_contract::ids::EnvironmentId, Option<String>)>,
+    /// ⟨M08 U2b-4; ADR-0014 §3.4⟩ Non-revoked paired remote clients recorded on a runner
+    /// (`remote_clients`).
+    remote_clients: Vec<(
+        heimdall_contract::ids::ClientId,
+        heimdall_contract::remote::Role,
+        heimdall_store::ext_m06::ClientState,
+    )>,
 }
 
 /// ⟨ADR-0008 §17.32 item 1 (W5-D01; audit A2, A4, A5)⟩ Every recovery-relevant record of
@@ -810,6 +820,17 @@ impl Inventory {
                     }
                     locators.push(tx.issuer_store_locator(&i.ca_fingerprint)?);
                 }
+                let mut remote_environments = Vec::new();
+                for (env_id, _pin) in tx.remote_environment_pins()? {
+                    let label = tx.environment(&env_id)?.and_then(|e| e.label);
+                    remote_environments.push((env_id, label));
+                }
+                let remote_clients: Vec<_> = tx
+                    .remote_clients()?
+                    .into_iter()
+                    .filter(|c| c.state != heimdall_store::ext_m06::ClientState::Revoked)
+                    .map(|c| (c.client, c.role, c.state))
+                    .collect();
                 let snapshot = (
                     RecoverySnapshot::read(tx, &outstanding.operations, &unresolved)?,
                     tx.remote_revocations()?,
@@ -818,6 +839,8 @@ impl Inventory {
                         Ok(d) => d.map(|d| (d.cause, Some(d.recorded_at))),
                         Err(_) => Some(("unreadable".to_owned(), None)),
                     },
+                    remote_environments,
+                    remote_clients,
                 );
                 Ok((outstanding, unresolved, all, issuers, locators, snapshot))
             })
@@ -828,7 +851,13 @@ impl Inventory {
                     all,
                     issuers,
                     locators,
-                    (snapshot, remote_revocations, runner_downgrade),
+                    (
+                        snapshot,
+                        remote_revocations,
+                        runner_downgrade,
+                        remote_environments,
+                        remote_clients,
+                    ),
                 )| {
                     let views: Vec<EnrollmentView> = all.iter().map(view).collect();
                     let cas = issuers
@@ -884,6 +913,8 @@ impl Inventory {
                         snapshot,
                         remote_revocations,
                         runner_downgrade,
+                        remote_environments,
+                        remote_clients,
                     }
                 },
             )
@@ -923,6 +954,8 @@ impl Inventory {
             && self.unresolved_steps == now.unresolved_steps
             && self.cas == now.cas
             && self.last_change == now.last_change
+            && self.remote_environments == now.remote_environments
+            && self.remote_clients == now.remote_clients
             && self.snapshot.records() == now.snapshot.records()
     }
 
@@ -942,6 +975,8 @@ impl Inventory {
             && self.unresolved_steps == now.unresolved_steps
             && self.cas == now.cas
             && self.last_change == now.last_change
+            && self.remote_environments == now.remote_environments
+            && self.remote_clients == now.remote_clients
             && self.snapshot.records().without_round_bookkeeping()
                 == now.snapshot.records().without_round_bookkeeping()
     }
@@ -1089,6 +1124,9 @@ impl Inventory {
         if let Some(listing) = self.runner_downgrade_json() {
             map.insert(RUNNER_OWNER_ONLY.to_owned(), listing);
         }
+        if self.has_remote_pairings() && !map.contains_key("remote_pairings") {
+            map.insert("remote_pairings".to_owned(), self.remote_pairings_json());
+        }
         if !self.unresolved_steps.is_empty() {
             map.insert(
                 "unresolved_steps".to_owned(),
@@ -1126,6 +1164,86 @@ impl Inventory {
         self.runner_downgrade
             .as_ref()
             .map(|(cause, at)| serde_json::json!({ "cause": cause, "recorded_at": at }))
+    }
+
+    /// ⟨M08 U2b-4; ADR-0014 §3.4⟩ Whether any M06 remote pairing (a paired runner environment
+    /// on a controller, or a non-revoked paired client on a runner) is recorded.
+    fn has_remote_pairings(&self) -> bool {
+        !self.remote_environments.is_empty() || !self.remote_clients.is_empty()
+    }
+
+    /// ⟨M08 U2b-4; ADR-0014 §3.4⟩ The `remote_pairings` listing (paired runner environments
+    /// and non-revoked paired clients), with the removal command for each and the explicit
+    /// offline-target note.
+    fn remote_pairings_json(&self) -> serde_json::Value {
+        let environments: Vec<serde_json::Value> = self
+            .remote_environments
+            .iter()
+            .map(|(id, label)| {
+                serde_json::json!({
+                    "environment_id": id.as_str(),
+                    "label": label,
+                    "command": format!("heimdall environment remove {}", id.as_str()),
+                })
+            })
+            .collect();
+        let clients: Vec<serde_json::Value> = self
+            .remote_clients
+            .iter()
+            .map(|(id, role, state)| {
+                serde_json::json!({
+                    "client_id": id.as_str(),
+                    "role": role,
+                    "state": state,
+                    "command": format!("heimdall environment revoke-client {}", id.as_str()),
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "environments": environments,
+            "clients": clients,
+            "note": "Remote removal is never promised for an offline target.",
+        })
+    }
+
+    /// Human lines for M06 remote pairings (empty when none).
+    fn remote_pairings_text(&self) -> String {
+        if !self.has_remote_pairings() {
+            return String::new();
+        }
+        let mut out = String::from(
+            "Remote pairings (remove with `heimdall environment remove` / `heimdall environment revoke-client`; removal is never promised for an offline target):\n",
+        );
+        for (id, label) in &self.remote_environments {
+            match label {
+                Some(label) => out.push_str(&format!(
+                    "    environment {} ({label}) — `heimdall environment remove {}`\n",
+                    id.as_str(),
+                    id.as_str()
+                )),
+                None => out.push_str(&format!(
+                    "    environment {} — `heimdall environment remove {}`\n",
+                    id.as_str(),
+                    id.as_str()
+                )),
+            }
+        }
+        for (id, role, state) in &self.remote_clients {
+            let role_str = serde_json::to_value(role)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_default();
+            let state_str = serde_json::to_value(state)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_default();
+            out.push_str(&format!(
+                "    client {} ({role_str}, {state_str}) — `heimdall environment revoke-client {}`\n",
+                id.as_str(),
+                id.as_str()
+            ));
+        }
+        out
     }
 
     /// The human line for the runner's owner-only downgrade (empty when none).
@@ -1368,6 +1486,10 @@ fn annotate(mut out: Outcome, inv: &Inventory, bundle: Option<&str>) -> Outcome 
         ) {
             map.insert(RUNNER_OWNER_ONLY.to_owned(), listing);
             human.push_str(&inv.runner_downgrade_text());
+        }
+        if inv.has_remote_pairings() && !map.contains_key("remote_pairings") {
+            map.insert("remote_pairings".to_owned(), inv.remote_pairings_json());
+            human.push_str(&inv.remote_pairings_text());
         }
         if let Some(b) = bundle {
             map.insert(
@@ -1888,8 +2010,99 @@ pub(crate) fn quarantine_listing(dirs: &[PathBuf], remove_empty: bool) -> Vec<se
     out
 }
 
-/// Every artifact left for the owner (module docs, step 5), shown under `home`.
+/// ⟨M08 U2b-4; ADR-0014 §3.4⟩ Sensitivity and disposal guidance for each remaining artifact
+/// kind in uninstall's report.
+fn residue_sensitivity(kind: RemainingArtifactKind) -> &'static str {
+    match kind {
+        RemainingArtifactKind::MigrationBackup => {
+            "old state with public metadata (no private keys); removed by `heimdall uninstall --purge-state` or by hand"
+        }
+        RemainingArtifactKind::EarlierStoreGeneration => {
+            "full earlier state generation with its operation record (public metadata and history; no private keys); removed by `heimdall uninstall --purge-state` or by hand"
+        }
+        RemainingArtifactKind::PreviousBinary => {
+            "previous executable kept by an update (no secrets or user data); removed by the next update or by hand"
+        }
+        RemainingArtifactKind::GitBlockMoved => {
+            "Heimdall Git include block moved to the other global Git file (path reference only; no secrets); remove by hand"
+        }
+        RemainingArtifactKind::StateStore => {
+            "state database with public metadata, catalog and history (no private keys); removed by `heimdall uninstall --purge-state`"
+        }
+        RemainingArtifactKind::Backup => {
+            "snapshot of your original SSH or Git configuration file; removed by `heimdall uninstall --purge-state` or by hand"
+        }
+        RemainingArtifactKind::ConflictFile => {
+            "preserved copy of an edited configuration file; remove by hand"
+        }
+        RemainingArtifactKind::Quarantine => {
+            "preserved copies moved aside during setup; inspect and remove by hand"
+        }
+        RemainingArtifactKind::ManualBlock => {
+            "Heimdall include block remaining in your SSH configuration (path reference only); remove by hand"
+        }
+        RemainingArtifactKind::RecoveryRecord => {
+            "recovery records kept in the state database because uninstall did not finish"
+        }
+        _ => "local artifact left for review",
+    }
+}
+
+/// Previous executable files (and Windows WSL helper backup directory) beside `exe_dir`, as
+/// `install.sh` and `install.ps1` name them (ADR-0014 §3.4, §4.3). Uses `symlink_metadata` so
+/// links are never followed.
+fn previous_binaries_in(exe_dir: &Path) -> Vec<PathBuf> {
+    #[cfg(windows)]
+    let names: &[&str] = &["heimdall.previous.exe", "linux-x86_64.previous"];
+    #[cfg(not(windows))]
+    let names: &[&str] = &["heimdall.previous"];
+    let mut out = Vec::new();
+    for name in names {
+        let candidate = exe_dir.join(name);
+        if std::fs::symlink_metadata(&candidate).is_ok() {
+            out.push(candidate);
+        }
+    }
+    out
+}
+
+/// Global Git configuration files for this installation (`~/.gitconfig` and
+/// `$XDG_CONFIG_HOME/git/config`), respecting `HEIMDALL_TEST_SSH_HOME` in debug builds.
+fn global_git_files(ctx: &Ctx) -> Vec<PathBuf> {
+    let mut vars: Vec<(String, String)> = Vec::new();
+    if let Ok(hooks) = crate::testcfg::launch_hooks(&|n| std::env::var_os(n))
+        && let Some(h) = hooks.ssh_home
+    {
+        let h_str = h.to_string_lossy().into_owned();
+        vars.push(("HOME".to_owned(), h_str.clone()));
+        vars.push(("USERPROFILE".to_owned(), h_str));
+        if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+            vars.push((
+                "XDG_CONFIG_HOME".to_owned(),
+                xdg.to_string_lossy().into_owned(),
+            ));
+        }
+        let env = heimdall_localenv::env::Env::from_vars(vars);
+        let files = heimdall_localenv::git::global_files(&env);
+        let mut out: Vec<PathBuf> = files.xdg.into_iter().chain(files.home).collect();
+        out.sort();
+        out.dedup();
+        return out;
+    }
+    let _ = ctx;
+    let env = heimdall_localenv::env::Env::capture();
+    let files = heimdall_localenv::git::global_files(&env);
+    let mut out: Vec<PathBuf> = files.xdg.into_iter().chain(files.home).collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Every artifact left for the owner (module docs, step 5; ADR-0014 §3.4, H6), shown under
+/// `home`.
 fn remaining(ctx: &Ctx, dirs: &[PathBuf], purged: bool) -> Vec<RemainingArtifact> {
+    use heimdall_store::layout::stategen::generations::Startup;
+    use heimdall_store::layout::stategen::{RealFs, StateDir};
     let home = home();
     let mut out = Vec::new();
     let push = |out: &mut Vec<RemainingArtifact>, kind, p: &Path| {
@@ -1917,6 +2130,20 @@ fn remaining(ctx: &Ctx, dirs: &[PathBuf], purged: bool) -> Vec<RemainingArtifact
     {
         push(&mut out, RemainingArtifactKind::ManualBlock, &user);
     }
+    // ⟨M08 U2b-4; H6⟩ A Heimdall Git include block still present in a global Git file (for
+    // example moved by the owner to the other global Git file; ADR-0014 §3.4).
+    for git_file in global_git_files(ctx) {
+        if let Ok(file) = crate::input_file::open_regular(&git_file) {
+            use std::io::Read as _;
+            let mut bytes = Vec::new();
+            if file.take((1 << 20) + 1).read_to_end(&mut bytes).is_ok()
+                && bytes.len() <= (1 << 20)
+                && !heimdall_sshconf::gitedit::find_blocks(&bytes).is_empty()
+            {
+                push(&mut out, RemainingArtifactKind::GitBlockMoved, &git_file);
+            }
+        }
+    }
     if let Ok(paths) = ctx.paths()
         && !purged
     {
@@ -1928,6 +2155,54 @@ fn remaining(ctx: &Ctx, dirs: &[PathBuf], purged: bool) -> Vec<RemainingArtifact
             && db.exists()
         {
             push(&mut out, RemainingArtifactKind::StateStore, &db);
+        }
+        // ⟨M08 U2b-4; H6⟩ Pre-migration backups and earlier store generations (ADR-0014 §3.4).
+        if paths.state_dir.is_dir() {
+            let state = StateDir::new(RealFs, &paths.state_dir);
+            let mut backup_dirs = std::collections::BTreeSet::new();
+            backup_dirs.insert(paths.state_dir.clone());
+            if let Ok(Startup::Serving(current)) = state.inspect() {
+                backup_dirs.insert(current.dir);
+            }
+            let mut earlier: Vec<PathBuf> = state
+                .residue()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| paths.state_dir.join("generations").join(&r.name))
+                .collect();
+            earlier.sort();
+            earlier.dedup();
+            for gen_dir in &earlier {
+                backup_dirs.insert(gen_dir.clone());
+                push(
+                    &mut out,
+                    RemainingArtifactKind::EarlierStoreGeneration,
+                    gen_dir,
+                );
+            }
+            let mut migration_backups = Vec::new();
+            for dir in backup_dirs {
+                for entry in entries(&dir) {
+                    if heimdall_store::restore::is_own_backup(&paths.state_dir, &entry) {
+                        migration_backups.push(entry);
+                    }
+                }
+            }
+            migration_backups.sort();
+            migration_backups.dedup();
+            for backup in migration_backups {
+                push(&mut out, RemainingArtifactKind::MigrationBackup, &backup);
+            }
+        }
+    }
+    // ⟨M08 U2b-4; H6⟩ The previous binary kept by an update (`heimdall.previous`), beside the
+    // running executable: sits outside `state_dir`, so it remains listed even after a purge.
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+    {
+        for prev in previous_binaries_in(&exe_dir) {
+            push(&mut out, RemainingArtifactKind::PreviousBinary, &prev);
         }
     }
     out
@@ -2616,7 +2891,9 @@ async fn uninstall_after_recovery<P: Prompter>(
             d.store_items = inv.store_items_text();
             // The runner's owner-only downgrade is discarded with the state too: listed with
             // the other authority records the purge prompt names.
-            d.remote_revocations = inv.remote_revocations_text() + &inv.runner_downgrade_text();
+            d.remote_revocations = inv.remote_revocations_text()
+                + &inv.runner_downgrade_text()
+                + &inv.remote_pairings_text();
             d
         })
         .await
@@ -3126,20 +3403,31 @@ fn report(
         human.push_str("Remaining:\n");
         for r in &left {
             human.push_str(&format!(
-                "    {} {}\n",
+                "    {} {} — {}\n",
                 serde_json::to_value(r.kind)
                     .ok()
                     .and_then(|v| v.as_str().map(str::to_owned))
                     .unwrap_or_default(),
-                r.path_display
+                r.path_display,
+                residue_sensitivity(r.kind),
             ));
         }
     }
+    let remaining_json: Vec<serde_json::Value> = left
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "kind": r.kind,
+                "path_display": r.path_display,
+                "sensitivity": residue_sensitivity(r.kind),
+            })
+        })
+        .collect();
     let env = Envelope::ok(serde_json::json!({
         "rollback": rollback,
         "runtime_stopped": stopped,
         "purged": purged,
-        "remaining": left,
+        "remaining": remaining_json,
         "quarantine": quarantine,
     }));
     Outcome::of(env).with_human(human)
@@ -9257,5 +9545,108 @@ mod tests {
             assert!(crate::purge_sweep::tests::unit_dir(&state).is_none());
             let _ = &bytes;
         }
+    }
+
+    /// ⟨M08 U2b-4; ADR-0014 §3.4, H6⟩ Every residue kind carries its sensitivity description,
+    /// `previous_binaries_in` finds the platform's `.previous` executable beside the binary,
+    /// and `Inventory` lists M06 remote pairings (controller environments and runner clients).
+    #[test]
+    fn residue_sensitivity_previous_binary_and_remote_pairings_are_reported() {
+        use heimdall_contract::ids::{
+            AccountName, ClientId, DestinationId, DeviceId, EnvironmentId, KeyFingerprint,
+        };
+        use heimdall_contract::remote::Role;
+        use heimdall_domain::environment::{
+            EnvironmentKind, EnvironmentPermissions, EnvironmentRecord,
+        };
+        use heimdall_store::ext_m06::{AppliedLine, ClientState, RemoteClientRecord};
+
+        for kind in [
+            RemainingArtifactKind::MigrationBackup,
+            RemainingArtifactKind::EarlierStoreGeneration,
+            RemainingArtifactKind::PreviousBinary,
+            RemainingArtifactKind::GitBlockMoved,
+            RemainingArtifactKind::StateStore,
+            RemainingArtifactKind::Backup,
+            RemainingArtifactKind::ConflictFile,
+            RemainingArtifactKind::Quarantine,
+            RemainingArtifactKind::ManualBlock,
+            RemainingArtifactKind::RecoveryRecord,
+        ] {
+            assert!(!residue_sensitivity(kind).is_empty(), "{kind:?}");
+        }
+
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        assert!(previous_binaries_in(dir.path()).is_empty());
+        #[cfg(windows)]
+        let prev_name = "heimdall.previous.exe";
+        #[cfg(not(windows))]
+        let prev_name = "heimdall.previous";
+        std::fs::write(dir.path().join(prev_name), b"prev").unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            previous_binaries_in(dir.path()),
+            vec![dir.path().join(prev_name)]
+        );
+
+        let db = dir.path().join("state.db");
+        let store = Store::open(&db, Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        let env_id = EnvironmentId::from_random_bytes([51; 16]);
+        let client_id = ClientId::from_random_bytes([52; 16]);
+        let now: Timestamp = "2026-11-27T00:00:00Z"
+            .parse()
+            .unwrap_or_else(|e| panic!("{e}"));
+        store
+            .transaction(|tx| {
+                tx.upsert_environment(&EnvironmentRecord {
+                    id: env_id.clone(),
+                    device: DeviceId::from_random_bytes([53; 16]),
+                    kind: EnvironmentKind::RemoteRunner,
+                    label: Some("lab-runner".into()),
+                    permissions: EnvironmentPermissions::default(),
+                })?;
+                tx.put_remote_environment_pin(
+                    &env_id,
+                    &DestinationId::parse("lab").unwrap_or_else(|e| panic!("{e}")),
+                    &AccountName::parse("dev").unwrap_or_else(|e| panic!("{e}")),
+                    &KeyFingerprint::parse("SHA256:ddddddddddddddddddddddddddddddddddddddddddd")
+                        .unwrap_or_else(|e| panic!("{e}")),
+                    "{}",
+                    now,
+                )?;
+                tx.enroll_bootstrap_owner(
+                    &RemoteClientRecord {
+                        client: client_id.clone(),
+                        role: Role::Owner,
+                        key_fingerprint: KeyFingerprint::parse(
+                            "SHA256:ccccccccccccccccccccccccccccccccccccccccccc",
+                        )
+                        .unwrap_or_else(|e| panic!("{e}")),
+                        public_key: "ssh-ed25519 AAAA test".into(),
+                        state: ClientState::Active,
+                        invitation: None,
+                        revoked_generation: None,
+                        revocation: None,
+                        created_at: now,
+                        updated_at: now,
+                        line: AppliedLine::Absent,
+                    },
+                    now,
+                )?;
+                tx.set_remote_client_line(&client_id, AppliedLine::Active)?;
+                Ok(())
+            })
+            .unwrap_or_else(|e| panic!("{e}"));
+        let inv = Inventory::read_store(&store).unwrap_or_else(|e| panic!("{e}"));
+        assert!(inv.has_remote_pairings());
+        let json = inv.remote_pairings_json();
+        assert_eq!(json["environments"][0]["environment_id"], env_id.as_str());
+        assert_eq!(json["clients"][0]["client_id"], client_id.as_str());
+        let text = inv.remote_pairings_text();
+        assert!(
+            text.contains(env_id.as_str())
+                && text.contains(client_id.as_str())
+                && text.contains("offline target"),
+            "{text}"
+        );
     }
 }

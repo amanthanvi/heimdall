@@ -304,9 +304,14 @@ fn command_tree_matches_its_golden() {
     }
 }
 
-/// ADR-0013 D14: no help text names a milestone, an ADR, a section or test-only wording.
+/// ADR-0013 D14: no help text names a milestone, an ADR, a section or test-only wording,
+/// with an empty exemption list (visible and hidden arguments alike).
 #[test]
 fn help_text_names_no_milestone_adr_or_section() {
+    assert!(
+        HELP_LINT_PENDING.is_empty(),
+        "D14 exemption list must stay empty: {HELP_LINT_PENDING:?}"
+    );
     let mut offenders = Vec::new();
     let mut pending_clean = Vec::new();
     for (path, mut cmd) in every_command() {
@@ -314,6 +319,14 @@ fn help_text_names_no_milestone_adr_or_section() {
         let long = cmd.render_long_help().to_string();
         let mut found = lint(&short);
         found.extend(lint(&long));
+        for arg in cmd.get_arguments() {
+            if let Some(h) = arg.get_help() {
+                found.extend(lint(&h.to_string()));
+            }
+            if let Some(h) = arg.get_long_help() {
+                found.extend(lint(&h.to_string()));
+            }
+        }
         found.sort();
         found.dedup();
         let pending = HELP_LINT_PENDING.iter().any(|(p, _)| *p == path);

@@ -512,6 +512,15 @@ pub mod finding {
         MANAGED_DIR_UNSAFE,
         ISSUER_STORE_ACCESS_DENIED,
     ];
+
+    /// ⟨M08 H5⟩ An integration entry (login entry, route helper, WSL helper, or runner
+    /// forced command) points to an executable path that no longer holds this executable,
+    /// reported with its repair command and never silently rewritten (ADR-0014 §3.2 item 12,
+    /// §3.4).
+    pub const EXECUTABLE_MOVED: &str = crate::lifecycle::EXECUTABLE_MOVED;
+
+    /// ⟨M08⟩ The findings M08 adds (ADR-0014 H5); [`ALL`] stays M02's list.
+    pub const M08: &[&str] = &[EXECUTABLE_MOVED];
 }
 
 /// How a probe level ended.
