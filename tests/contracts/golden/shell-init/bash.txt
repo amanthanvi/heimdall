@@ -9,7 +9,8 @@
 # the state changes (untrusted, paused, needs review). If that program is moved or
 # removed, the hook does nothing until a new shell runs the line below again.
 #
-# Enable it in ~/.bashrc with:  eval "$(heimdall shell init bash)"
+# Enable it in ~/.bashrc with the line `heimdall shell init --help` prints, which names
+# heimdall by its full path:  eval "$(/full/path/to/heimdall shell init bash)"
 
 __heimdall_hook() {
   local program=@HEIMDALL_PROGRAM@

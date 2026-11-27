@@ -613,7 +613,8 @@ pub(crate) const ZSH_TEMPLATE: &str = r#"# Heimdall shell integration for zsh (`
 # the state changes (untrusted, paused, needs review). If that program is moved or
 # removed, the hook does nothing until a new shell runs the line below again.
 #
-# Enable it in ~/.zshrc with:  eval "$(heimdall shell init zsh)"
+# Enable it in ~/.zshrc with the line `heimdall shell init --help` prints, which names
+# heimdall by its full path:  eval "$(/full/path/to/heimdall shell init zsh)"
 
 __heimdall_hook() {
   emulate -L zsh
@@ -673,7 +674,8 @@ pub(crate) const BASH_TEMPLATE: &str = r#"# Heimdall shell integration for bash 
 # the state changes (untrusted, paused, needs review). If that program is moved or
 # removed, the hook does nothing until a new shell runs the line below again.
 #
-# Enable it in ~/.bashrc with:  eval "$(heimdall shell init bash)"
+# Enable it in ~/.bashrc with the line `heimdall shell init --help` prints, which names
+# heimdall by its full path:  eval "$(/full/path/to/heimdall shell init bash)"
 
 __heimdall_hook() {
   local program=@HEIMDALL_PROGRAM@
@@ -726,7 +728,8 @@ esac
 /// [`PROGRAM_SLOT`] is filled with this program's path as an ASCII PowerShell expression
 /// (module docs, [`render_hook`]).
 pub(crate) const POWERSHELL_TEMPLATE: &str = r#"# Heimdall shell integration for PowerShell (ADR-0011 section 3.2).
-# Enable it in $PROFILE with: Invoke-Expression ((& heimdall shell init powershell) -join "`n")
+# Enable it in $PROFILE with the line `heimdall shell init --help` prints, which names
+# heimdall by its full path: Invoke-Expression ((& 'C:\full\path\heimdall.exe' shell init powershell) -join "`n")
 # The hook runs when the prompt sees a new directory or access is due again.
 # It runs only the heimdall that printed this text, named by its absolute path below,
 # never one found on PATH; if that file is gone, the hook does nothing.
@@ -928,6 +931,27 @@ fn plain_windows_path(path: &str) -> String {
     } else {
         path.to_owned()
     }
+}
+
+/// ⟨M09 review S4-02; ruled 2026-11-26⟩ The end of `shell init --help`: the startup-file
+/// lines that load the hook, naming this executable by its absolute path, so no other
+/// `heimdall` on `PATH` runs when a shell starts. `None` when this executable's path cannot
+/// be written safely (the help then names no line; `shell init` itself refuses).
+pub(crate) fn rc_lines_help() -> Option<String> {
+    let program = installed_program().ok()?;
+    if !std::path::Path::new(&program).is_absolute() || program.chars().any(char::is_control) {
+        return None;
+    }
+    let posix = posix_quoted(&program);
+    let pwsh = powershell_quoted(&program);
+    Some(format!(
+        "To load the hook in every new shell, add one line to your shell's startup file. \
+         It names this heimdall by its full path, so no other heimdall found on PATH runs \
+         when the shell starts:\n\n  \
+         zsh (~/.zshrc):          eval \"$({posix} shell init zsh)\"\n  \
+         bash (~/.bashrc):        eval \"$({posix} shell init bash)\"\n  \
+         PowerShell ($PROFILE):   Invoke-Expression ((& {pwsh} shell init powershell) -join \"`n\")"
+    ))
 }
 
 /// This executable's absolute, canonical path as the hook names it.

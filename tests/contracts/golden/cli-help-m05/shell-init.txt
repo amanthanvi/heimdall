@@ -27,3 +27,9 @@ Options:
 
   -h, --help
           Print help (see a summary with '-h')
+
+To load the hook in every new shell, add one line to your shell's startup file. It names this heimdall by its full path, so no other heimdall found on PATH runs when the shell starts:
+
+  zsh (~/.zshrc):          eval "$(@HEIMDALL_PROGRAM@ shell init zsh)"
+  bash (~/.bashrc):        eval "$(@HEIMDALL_PROGRAM@ shell init bash)"
+  PowerShell ($PROFILE):   Invoke-Expression ((& @HEIMDALL_PROGRAM@ shell init powershell) -join "`n")

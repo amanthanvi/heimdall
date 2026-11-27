@@ -67,9 +67,13 @@ Short, and meant to be read once.
 - **The Iroh transport is not in this release.** It is a preview you can build from source
   (`cargo build --features iroh`), with no support claim. Direct and jump routes work without it.
   A route can still list an Iroh leg; this release skips that leg and tries the route's others.
-- **The shell hook runs the `heimdall` that printed it, by its full path.** If you move or
-  reinstall `heimdall` to another path, run `heimdall shell init` again; the old hook stays
-  silent.
+- **The shell hook runs the `heimdall` that printed it, by its full path.** If you move,
+  reinstall or upgrade `heimdall` to another path (a package manager's versioned directory, for
+  example), already-open shells' hooks stay silent; open a new shell, or run `heimdall shell
+  init` again.
+- **A bare `heimdall` in your shell's startup line is found through `PATH` once, when the shell
+  starts.** Use the line `heimdall shell init --help` prints: it names `heimdall` by its full
+  path.
 - **An Iroh endpoint cannot bind a zoned IPv6 address.** An interface bind address takes no
   zone (`%…`), so `fe80::1%2` is refused when you set it. A route's direct addresses can still
   name a link-local address with a numeric zone.

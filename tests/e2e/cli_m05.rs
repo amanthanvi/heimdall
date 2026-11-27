@@ -1512,6 +1512,9 @@ fn m05_help_and_shell_script_goldens() {
     let help_dir = heimdall_testkit::repo::repo_path("tests/contracts/golden/cli-help-m05");
     let mut mismatches = Vec::new();
     let home = rt.home.to_string_lossy().into_owned();
+    // ⟨M09 review S4-02⟩ `shell init --help` names this binary by its full path in the
+    // startup-file lines: the golden holds the slot marker in its place.
+    let program = posix_quoted(&std::fs::canonicalize(bin()).unwrap());
     for (stem, line) in HELP_LINES {
         let mut cmd = rt.command(&bin());
         // `--home`, not `HEIMDALL_HOME`: clap prints an `env` value into the help text.
@@ -1530,6 +1533,7 @@ fn m05_help_and_shell_script_goldens() {
             text.contains(&format!("heimdall {}", line.join(" "))),
             "{line:?}"
         );
+        let text = text.replace(&program, "@HEIMDALL_PROGRAM@");
         golden(&help_dir, &format!("{stem}.txt"), &text, &mut mismatches);
     }
     let shell_dir = heimdall_testkit::repo::repo_path("tests/contracts/golden/shell-init");

@@ -136,17 +136,29 @@ pub(crate) const REQUEST_EPOCH_ARG: &str = "request_epoch";
 ///
 /// # Errors
 /// clap's refusal, as [`Cli::try_parse_from`].
+/// The command line as parsed: `Cli`'s, with ⟨M09 review S4-02⟩ `shell init --help` ending
+/// in the startup-file lines that name this executable by its full path.
+fn command() -> clap::Command {
+    use clap::CommandFactory as _;
+    let cmd = Cli::command();
+    match crate::activate_cmd::rc_lines_help() {
+        Some(lines) => cmd.mut_subcommand("shell", |shell| {
+            shell.mut_subcommand("init", |init| init.after_long_help(lines))
+        }),
+        None => cmd,
+    }
+}
+
 pub fn parse_args<I, T>(argv: I) -> Result<Cli, clap::Error>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    use clap::{CommandFactory as _, FromArgMatches as _};
-    let mut matches = Cli::command().try_get_matches_from(argv)?;
+    use clap::FromArgMatches as _;
+    let mut matches = command().try_get_matches_from(argv)?;
     let epoch = kept_request_epoch(&matches);
     // As `Cli::try_parse_from` does: a matching error is formatted with the command.
-    let mut cli =
-        Cli::from_arg_matches_mut(&mut matches).map_err(|e| e.format(&mut Cli::command()))?;
+    let mut cli = Cli::from_arg_matches_mut(&mut matches).map_err(|e| e.format(&mut command()))?;
     cli.request_epoch = epoch;
     Ok(cli)
 }
