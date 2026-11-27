@@ -28,10 +28,23 @@ try {
         $index = Join-Path $dir "SHA256SUMS"
         $out = & $shell -NoProfile -ExecutionPolicy Bypass -File $packager -LinuxArchive $archive -LinuxIndex $index -CheckWSLHelperOnly | Out-String
         $code = $LASTEXITCODE
-        if ($code -eq $case[1] -and $out.Contains($case[2])) {
+        $missing = @(
+            if (-not $out.Contains($case[2])) { $case[2] }
+            if ($case[0] -eq "good") {
+                $lines = $out -split '\r?\n'
+                $expectedLines = @(
+                    "provenance: WSL helper commit $commit",
+                    "provenance: WSL helper target x86_64-unknown-linux-gnu",
+                    "provenance: WSL helper features --no-default-features"
+                )
+                $expectedLines | Where-Object { $lines -cnotcontains $_ }
+            }
+        )
+        if ($code -eq $case[1] -and $missing.Count -eq 0) {
             Write-Host "ok   $($case[0]) -> exit $code"
         } else {
-            Write-Host "FAIL $($case[0]) -> exit $code, expected $($case[1]) and '$($case[2])'"
+            Write-Host "FAIL $($case[0]) -> exit $code, expected $($case[1])"
+            foreach ($line in $missing) { Write-Host "  missing output '$line'" }
             $fails++
         }
     }

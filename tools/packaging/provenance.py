@@ -257,6 +257,9 @@ def check_wsl_helper(a):
         with open(a["receipt"], "w", encoding="utf-8", newline="\n") as receipt:
             json.dump(checked, receipt, sort_keys=True)
     print(f"provenance: verified Linux x86-64 WSL helper (sha256 {checked['sha256'][:12]}…)")
+    print(f"provenance: WSL helper commit {checked['commit']}")
+    print(f"provenance: WSL helper target {checked['target']}")
+    print(f"provenance: WSL helper features {checked['features']}")
 
 
 def tree(target, features, edges, offline, extra=(), release=True):

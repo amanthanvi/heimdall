@@ -28,7 +28,9 @@ pwsh -NoProfile -File tools/packaging/build-release-wsl-selftest.ps1
 python -I tools/packaging/payload-install-selftest.py --shell pwsh
 ```
 
-On the PC, run the WSL helper and feature self-tests with Windows PowerShell 5.1.
+### PC command list
+
+From the checkout root, run the packaging self-tests with Windows PowerShell 5.1.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\packaging\build-release-wsl-selftest.ps1
@@ -37,8 +39,20 @@ python -I tools\packaging\payload-install-selftest.py --shell powershell
 ```
 
 The Windows packager takes the Linux archive and the external `SHA256SUMS` from the release
-build's trusted index. Use `-CheckWSLHelperOnly` to check the pair without compiling.
+build's trusted index. Use `-CheckWSLHelperOnly` to check the pair without compiling and print
+the helper's digest, commit, target and features.
 Build both from the same frozen commit with the same Cargo feature selection.
+
+Before building the Windows zip, run the pinned SBOM tool setup from the root of each PC checkout
+(both checkouts for the reproducibility run).
+
+```powershell
+cargo install --locked --version =0.5.10 --root target\tools cargo-cyclonedx
+```
+
+Both packagers exit 2 if their checkout's `target/tools/bin` lacks `cargo-cyclonedx` 0.5.10.
+
+### Payload and candidates
 
 `release_payload.py` stages the reference configuration from `tools/packaging/config.toml`
 with its example manifest, the public schemas and payload examples, the release documents,
