@@ -3,14 +3,17 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import runpy
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 
 HERE = Path(__file__).resolve().parent
-DESKTOP_STARTUP_CACHE = "local/Microsoft/Windows/PowerShell/StartupProfileData-NonInteractive"
+DESKTOP_STARTUP_CACHE = "AppData/Local/Microsoft/Windows/PowerShell/StartupProfileData-NonInteractive"
+CORE_STARTUP_CACHE = "AppData/Local/Microsoft/PowerShell/StartupProfileData-NonInteractive"
 
 
 def snapshot(root, optional_file=None):
@@ -55,6 +58,43 @@ def check_tree(failure, tree, root, expected, optional_file=None):
     return not any(differences.values())
 
 
+def print_installer_output(failure, result, paths):
+    # Python and the shell can use different spellings of the same absolute path.
+    replacements = {}
+    for path, label in paths:
+        replacements[str(path)] = label
+        try:
+            replacements[str(path.resolve())] = label
+        except (OSError, RuntimeError):
+            # A redirected profile can be unavailable. Keep its original spelling.
+            pass
+    patterns = []
+    flags = re.IGNORECASE if os.name == "nt" else 0
+    for path in sorted(replacements, key=len, reverse=True):
+        pattern = re.escape(path)
+        if os.name == "nt":
+            pattern = pattern.replace(re.escape(os.sep), r"[\\/]")
+        patterns.append((re.compile(pattern, flags), replacements[path]))
+
+    encoding = sys.stdout.encoding or "utf-8"
+    for stream, data in (("stdout", result.stdout), ("stderr", result.stderr)):
+        if not data:
+            continue
+        try:
+            message = data.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            message = data.decode("oem" if os.name == "nt" else "utf-8", errors="replace")
+        message = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", message)
+        for pattern, label in patterns:
+            message = pattern.sub(label, message)
+        if os.name == "nt":
+            # An unrecognized drive or UNC path can be a short or console-code-page alias.
+            message = re.sub(r"(?:[a-zA-Z]:[\\/]|\\\\)[^\r\n]*", "<path>", message)
+        for line in message.splitlines():
+            safe_line = line.encode(encoding, errors="backslashreplace").decode(encoding)
+            print(f"{failure} installer {stream} | {safe_line}")
+
+
 def check(shell):
     shell_name = Path(shell).stem.lower()
     windows = shell_name in ("powershell", "pwsh")
@@ -73,8 +113,8 @@ def check(shell):
         if windows:
             files = {"heimdall.exe": b"fixture PE", "linux-x86_64/heimdall": b"fixture ELF"}
             installer = "install.ps1"
-            args = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(stage / installer),
-                    "-Prefix", str(prefix), "-AssumeStopped"]
+            args = ["-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-ExecutionPolicy", "Bypass",
+                    "-File", str(stage / installer), "-Prefix", str(prefix), "-AssumeStopped"]
         else:
             files = {"heimdall": b'#!/bin/sh\ntouch "$HOME/unexpected-executable-run"\nexit 1\n'}
             installer = "install.sh"
@@ -95,13 +135,27 @@ def check(shell):
                    HEIMDALL_TEST_MGMT_STORE="fixture-file:" + str(home / "mgmt"),
                    HEIMDALL_TEST_IROH_KEY_STORE=str(home / "iroh"))
         startup_cache = None
-        if desktop:
-            # Windows PowerShell creates this startup cache even with -NoProfile.
-            # Make its parents part of the fixture so every other path is still checked.
-            startup_cache = DESKTOP_STARTUP_CACHE
+        if os.name == "nt" and windows:
+            # Give Windows the usual, existing profile directories, all inside the fixture.
+            local, roaming = home / "AppData" / "Local", home / "AppData" / "Roaming"
+            local.mkdir(parents=True)
+            roaming.mkdir()
+            drive, homepath = os.path.splitdrive(str(home))
+            env.update(LOCALAPPDATA=str(local), APPDATA=str(roaming), HOMEDRIVE=drive, HOMEPATH=homepath)
+            # Both editions can create a startup profile even with -NoProfile, at different paths.
+            # Its parents are part of the fixture, and only the exact regular file may appear.
+            startup_cache = DESKTOP_STARTUP_CACHE if desktop else CORE_STARTUP_CACHE
             (home / startup_cache).parent.mkdir(parents=True)
-            # 5.1 also has a module analysis cache. Disable it through its documented setting.
-            env["PSModuleAnalysisCachePath"] = os.devnull
+        if windows:
+            # Let command discovery cache normally using a writable file in scratch space.
+            env["PSModuleAnalysisCachePath"] = str(root / "ModuleAnalysisCache")
+        diagnostic_paths = [(stage, "<stage>"), (home, "<home>"), (prefix, "<prefix>"), (root, "<scratch>"),
+                            (HERE, "<packaging>"), (Path.home(), "<user-home>")]
+        for name in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"):
+            if value := os.environ.get(name):
+                path = Path(value)
+                if path.is_absolute():
+                    diagnostic_paths.append((path, "<user-home>"))
         expected_stage = snapshot(stage)
         expected_home = snapshot(home)
         expected_prefix = {".": None, **files}
@@ -115,8 +169,10 @@ def check(shell):
                 installer_ok = result.returncode == 0
                 if not installer_ok:
                     print(f"{failure} installer exit: expected 0, got {result.returncode}")
-            except subprocess.TimeoutExpired:
+                    print_installer_output(failure, result, diagnostic_paths)
+            except subprocess.TimeoutExpired as exc:
                 print(f"{failure} installer exit: timed out after 45 seconds")
+                print_installer_output(failure, exc, diagnostic_paths)
             except OSError as exc:
                 print(f"{failure} installer launch: {type(exc).__name__}")
             trees_ok = (
