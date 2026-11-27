@@ -68,7 +68,7 @@ use serde_json::Value;
 use super::m06::{blocked, forwarded_ensure, logs, observe};
 use super::world::{
     ControllerRuntime, HOUR, Journey, empty_controller, envelope, install_issuer, journey as start,
-    listed_identities, onward_login, seed_controller_profile, state_db,
+    listed_identities, onward_login, seed_controller_profile, state_db, wait_settled,
 };
 
 const CASE: &str = "t06";
@@ -95,7 +95,9 @@ fn second_ensure(j: &Journey, b: &ControllerRuntime, work: &str, request: &str) 
             .as_str()
             .unwrap_or_else(|| panic!("the pending answer names no operation: {answer}"))
             .to_owned();
-        answer = b.json(&["operation", "wait", &operation, "--timeout-ms", "60000"]);
+        // ⟨M08 W4 SEC-4, item 5⟩ Until it settles: every step that reaches this wait expects
+        // the request issued, and an answer from a wait that ran out is not the result.
+        answer = wait_settled(|args| b.json(args), &operation);
     }
     answer
 }

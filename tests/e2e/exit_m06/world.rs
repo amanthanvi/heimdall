@@ -1424,3 +1424,58 @@ pub(crate) fn pending_grant(answer: &Value) -> GrantId {
     )
     .unwrap()
 }
+
+/// ⟨M08 W4 SEC-4, item 5⟩ How long a waiting `ensure` may take to settle under repeated
+/// `operation wait`s of at most [`SETTLE_WAIT`] each: headroom for a loaded machine, as for
+/// W4-T1's runner-side wait (`environment_runner_m06::driver_e2e::OPERATION_STOPS`).
+pub(crate) const SETTLE_WITHIN: Duration = Duration::from_secs(600);
+
+/// ⟨M08 W4 SEC-4, item 5⟩ The longest single `operation wait` of [`wait_settled`].
+pub(crate) const SETTLE_WAIT: Duration = Duration::from_secs(120);
+
+/// ⟨M08 W4 SEC-4, item 5⟩ Whether `answer`, to an `ensure` or to an `operation wait` on it,
+/// still shows the operation active: `ACCEPTED` (the pending state; a forwarded `ensure`'s
+/// wait answers it again when the wait runs out), or `OK` with the operation still `queued`,
+/// `running` or `awaiting_approval` (`next: observe`, a wait served from the operation's own
+/// record that ran out). Either is the caller's wait ending, not the operation's result.
+pub(crate) fn still_active(answer: &Value) -> bool {
+    answer["code"] == "ACCEPTED"
+        || matches!(
+            answer["data"]["state"].as_str(),
+            Some("queued" | "running" | "awaiting_approval")
+        )
+}
+
+/// ⟨M08 W4 SEC-4, item 5⟩ `operation wait <operation>` through `json` (one `heimdall --json`
+/// run of the arguments given), repeated until the operation settles, each wait at most
+/// [`SETTLE_WAIT`] and all of them together at most [`SETTLE_WITHIN`]; still active after that
+/// fails the test. Returns the operation's own answer: a wait served from the operation's
+/// record (an operation view: `data.state`, its `code` and its stored `data.result`) becomes
+/// that operation's code with its result as `data`, as a settled operation renders; a
+/// forwarded `ensure`'s wait already answers that way and is returned as it is.
+pub(crate) fn wait_settled(json: impl Fn(&[&str]) -> Value, operation: &str) -> Value {
+    let start = Instant::now();
+    loop {
+        let left = SETTLE_WITHIN.saturating_sub(start.elapsed());
+        let ms = left.min(SETTLE_WAIT).as_millis().max(1).to_string();
+        let answer = json(&["operation", "wait", operation, "--timeout-ms", &ms]);
+        if !still_active(&answer) {
+            let view = &answer["data"];
+            return match (view.get("state"), view.get("result")) {
+                (Some(state), Some(result)) if view.get("operation_id").is_some() => {
+                    serde_json::json!({
+                        "code": view["code"],
+                        "state": state,
+                        "operation_id": view["operation_id"],
+                        "data": result,
+                    })
+                }
+                _ => answer,
+            };
+        }
+        assert!(
+            start.elapsed() < SETTLE_WITHIN,
+            "operation {operation} did not settle within {SETTLE_WITHIN:?}: {answer}"
+        );
+    }
+}

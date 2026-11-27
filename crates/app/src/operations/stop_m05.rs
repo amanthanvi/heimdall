@@ -96,7 +96,7 @@ use super::{
     activation_refusal, ancestry, approval_needed, bound_of, claim_first_round_in,
     complete_round_in, end_in, forget_interrupted, grant_try, internal, managed_driver_m03, op_to,
     plus, put_grant, receipt, render_settled, revoke_locally_in, settle_failed, settle_succeeded,
-    trust_m05,
+    shorten_anchors_in, trust_m05,
 };
 use crate::context::Caller;
 use crate::ensure::EnsureStage;
@@ -897,10 +897,12 @@ impl Operations {
                                 ended.withdrawn.push((root, all));
                             }
                         }
-                        // A grant whose bound the new cutoff has passed ends now, as at
-                        // any detection (uncertain time ends nothing: the next use or
-                        // scheduler pass detects it).
+                        // ⟨M08 W4 SEC-4, S3-03⟩ The anchor of every grant whose bound the
+                        // cutoff lowers is shortened here, on either time. A grant whose bound
+                        // the new cutoff has passed ends now, as at any detection (uncertain
+                        // time ends nothing: the next use or scheduler pass detects it).
                         PolicyAction::Cutoff { .. } => {
+                            shorten_anchors_in(tx, &set)?;
                             if let Ok(safe) = &assessed {
                                 for g in &set {
                                     ended.extend(end_in(

@@ -1665,9 +1665,9 @@ mod driver_e2e {
                 .as_str()
                 .unwrap_or_else(|| panic!("the pending answer names no operation: {answer}"))
                 .to_owned();
-            answer = j
-                .controller
-                .json(&["operation", "wait", &operation, "--timeout-ms", "60000"]);
+            // ⟨M08 W4 SEC-4, item 5⟩ Waited for until it settles: an answer from a wait that
+            // ran out is not the operation's result.
+            answer = wait_settled(|args| j.controller.json(args), &operation);
         }
         assert_eq!(
             answer["code"],
@@ -1677,8 +1677,14 @@ mod driver_e2e {
             std::fs::read_to_string(j.runner.account.join("runtime.stderr")).unwrap_or_default(),
             j.controller.status(&environment)
         );
+        // The settled answer's data is the `ensure`'s own (`wait_settled`).
         let ready = answer["data"].clone();
-        let grant = GrantId::parse(ready["grant_id"].as_str().unwrap()).unwrap();
+        let grant = GrantId::parse(
+            ready["grant_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("the settled answer names no grant: {answer}")),
+        )
+        .unwrap();
         assert_eq!(ready["environment_id"], environment.as_str());
         assert_eq!(ready["credential_mechanism"], "managed_certificate");
         assert_eq!(ready["refresh_dependency"], "controller");

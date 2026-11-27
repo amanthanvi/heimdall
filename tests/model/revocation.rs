@@ -923,9 +923,13 @@ async fn a07_publish_rechecks_every_predicate_and_voids_after_each_change() {
             Between::Revoke,
             IssuanceRefusal::GrantNotIssuable(GrantState::Revoked),
         ),
-        // A cutoff is a policy change: the first failing predicate is the moved
-        // revision (the cutoff itself would refuse next).
-        (Between::Cutoff, IssuanceRefusal::StalePolicyRevision),
+        // ⟨M08 W4 SEC-4, S3-03⟩ A cutoff the grant's bound has reached ends the grant at
+        // its apply, like expiry, so the first failing predicate is the grant's state (the
+        // moved revision and the cutoff itself would refuse next).
+        (
+            Between::Cutoff,
+            IssuanceRefusal::GrantNotIssuable(GrantState::Expired),
+        ),
         (Between::BudgetExpiry, IssuanceRefusal::BudgetExpired),
         (Between::WallDeadline, IssuanceRefusal::BoundPassed),
         (Between::TimeUncertain, IssuanceRefusal::TimeUncertain),
@@ -4568,4 +4572,163 @@ async fn r139_4_an_activated_shared_grant_is_released_when_every_attached_operat
         );
     }
     assert_eq!(w.fake.effect_count(), 1);
+}
+
+// =================================================================================
+// ⟨M08 W4 SEC-4⟩ A cutoff at its own apply (S3-03) and an approval whose widening fails
+// (S3-06). Each case was first run against the base commit (904743a6) and failed there.
+// =================================================================================
+
+/// ⟨S3-03, part 1⟩ A single-policy cutoff that a live grant's bound has already reached ends
+/// the grant at the apply on safe time, as the targeted form does (ADR-0005 §6.1 "Cutoff":
+/// it ends every affected grant like expiry), not at the next scheduler pass.
+#[tokio::test]
+async fn a_single_policy_cutoff_already_reached_ends_the_grant_at_the_apply() {
+    let w = World::new().await;
+    let base = w.ready("req-base", "work-base", &["h1"], None).await;
+    w.clock.advance(MINUTE);
+    w.ops
+        .policy(
+            &owner(501),
+            PolicyAction::Cutoff {
+                policy_id: Some(policy_id()),
+                at: w.clock.wall(),
+                target: None,
+            },
+        )
+        .await
+        .unwrap();
+    // No scheduler pass has run.
+    assert_eq!(w.grant(&base.grant_id).state, GrantState::Expired);
+}
+
+/// ⟨S3-03, part 2⟩ A cutoff shortens the grant's persisted anchor in its own transaction, on
+/// safe and on uncertain time alike, in its single-policy and its targeted form (ADR-0005
+/// §3.6 "an earlier cutoff set later shortens it"; `heimdall_domain::time::shorten` is relative
+/// arithmetic and needs no trusted reading). So while time stays uncertain the grant's
+/// continuous budget ends it once the cutoff has passed on the continuous clock, instead of
+/// running on to the deadline.
+#[tokio::test]
+async fn a_cutoff_shortens_the_grant_anchor_in_its_own_transaction() {
+    for (uncertain, targeted) in [(false, false), (false, true), (true, false), (true, true)] {
+        let case = format!("uncertain={uncertain} targeted={targeted}");
+        let w = World::new().await;
+        let base = w
+            .ready(
+                "req-base",
+                "work-base",
+                &["h1"],
+                Some(DeadlineIntent::Duration("2h".into())),
+            )
+            .await;
+        let anchor = || {
+            w.store
+                .transaction(|tx| tx.grant_anchor(&base.grant_id))
+                .unwrap()
+                .expect("anchored at its activation")
+        };
+        let before = anchor();
+        let cutoff = w
+            .clock
+            .wall()
+            .checked_add(jiff::SignedDuration::from_mins(10))
+            .unwrap();
+        assert!(cutoff < before.bound, "{case}: the cutoff lowers the bound");
+        if uncertain {
+            // The wall clock steps back within the boot, below the high-water mark.
+            w.clock.set_wall(at(-600));
+            assert_eq!(
+                w.ops.timegate().check().await.unwrap_err().code,
+                Code::TimeUncertain,
+                "{case}"
+            );
+        }
+        let action = if targeted {
+            PolicyAction::Cutoff {
+                policy_id: None,
+                at: cutoff,
+                target: Some(heimdall_contract::trust::PolicyTarget::Policy {
+                    policy_id: policy_id(),
+                }),
+            }
+        } else {
+            PolicyAction::Cutoff {
+                policy_id: Some(policy_id()),
+                at: cutoff,
+                target: None,
+            }
+        };
+        w.ops.policy(&owner(501), action).await.unwrap();
+        let after = anchor();
+        assert_eq!(after.bound, cutoff, "{case}");
+        let reduction = Duration::try_from(before.bound.duration_since(cutoff)).unwrap();
+        assert_eq!(
+            after.budget_end,
+            before.budget_end - reduction,
+            "{case}: the budget is cut by the bound's reduction"
+        );
+        if uncertain {
+            // The continuous clock passes the cutoff; the wall clock is still wrong.
+            w.clock.advance_continuous_only(11 * MINUTE);
+            w.ops.tick().await.unwrap();
+            assert_eq!(
+                w.grant(&base.grant_id).state,
+                GrantState::Expired,
+                "{case}: the continuous budget ended it"
+            );
+        }
+    }
+}
+
+/// ⟨S3-06⟩ An approval whose recorded widening cannot be applied is refused and rolled back:
+/// the decision stays pending, not consumed, and no decision event is committed, as for the
+/// M03 and M05 kinds. The failure is injected as a record naming a policy that is gone while
+/// the authority generation did not move (removing a policy moves it, so the stale-generation
+/// refusal usually comes first).
+#[tokio::test]
+async fn an_approval_whose_widening_fails_to_apply_leaves_the_decision_as_it_was() {
+    let w = World::new().await;
+    let id = DecisionId::from_random_bytes([0x5c; 16]);
+    let now = w.clock.wall();
+    w.store
+        .transaction(|tx| {
+            let generation = tx.authority_generation()?;
+            tx.insert_decision(&DecisionRecord {
+                id: id.clone(),
+                kind: DecisionKind::WidenPolicy {
+                    action: PolicyAction::Resume {
+                        policy_id: Some(PolicyId::parse("gone").unwrap()),
+                        target: None,
+                    },
+                },
+                generation,
+                created_at: now,
+                expires_at: now
+                    .checked_add(jiff::SignedDuration::from_mins(15))
+                    .unwrap(),
+                state: DecisionState::Pending,
+                decided_at: None,
+            })
+        })
+        .unwrap();
+    let r = w
+        .ops
+        .decide(
+            &attended(501),
+            DecideRequest {
+                decision_id: id.clone(),
+                verdict: Verdict::Approve,
+            },
+        )
+        .await;
+    assert_eq!(code_of(&r), Code::NotFound, "the widening's own refusal");
+    assert_eq!(
+        decision_state(&w, &id),
+        DecisionState::Pending,
+        "not consumed"
+    );
+    assert!(
+        !decision_ids_announced(&w).contains(id.as_str()),
+        "no decision event was committed"
+    );
 }

@@ -55,6 +55,7 @@ use serde_json::Value;
 use super::super::m06::{observe, runner_stderr};
 use super::super::world::{
     ControllerRuntime, MgmtClient, client_hello, host_key, on_terminal, pending_grant, state_db,
+    wait_settled,
 };
 use super::{CASE, Peer, World, inspect, refusal};
 
@@ -638,19 +639,9 @@ pub(super) async fn journey(
         "yes",
     );
     assert_eq!(allowed["code"], "OK", "exit {code}: {allowed}");
-    let waited = requester_device
-        .command()
-        .args(["--json", "operation", "wait", &operation])
-        .args(["--timeout-ms", "120000"])
-        .output()
-        .unwrap();
-    let waited: Value = serde_json::from_slice(&waited.stdout).unwrap_or_else(|_| {
-        panic!(
-            "{} {}",
-            String::from_utf8_lossy(&waited.stdout),
-            String::from_utf8_lossy(&waited.stderr)
-        )
-    });
+    // ⟨M08 W4 SEC-4, item 5⟩ Waited for until it settles: an answer from a wait that ran out
+    // is not the operation's result.
+    let waited = wait_settled(|args| requester_device.json(args), &operation);
     assert!(
         matches!(waited["code"].as_str(), Some("OK" | "ACCESS_READY")),
         "{waited}\n{}\n{}\n{}",
