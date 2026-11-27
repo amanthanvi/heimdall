@@ -114,8 +114,7 @@ Short, and meant to be read once.
   its size limit and that remote issuance stays closed until history ages out. It reopens by
   itself at the first resynchronization under the limit. To reopen sooner, revoke the controller
   that flooded the runner (`heimdall environment revoke-client`), then lift its pauses and
-  cutoffs at the runner. A revoke delivered for a grant that had already ended before it is not
-  pruned (its record is not a revocation's).
+  cutoffs at the runner.
 - **The Iroh serve child does not limit its connections.** Like the rest of the Iroh transport it
   is a preview (above): it admits only the clients on its allowlist, but an enrolled client can
   hold many connections open, each with its own connection to the local SSH server, and the

@@ -962,6 +962,17 @@
         "path_display": {
           "description": "Display path.",
           "type": "string"
+        },
+        "sensitivity": {
+          "description": "Optional sensitivity class. Heimdall sets this only from its own residue table\n(ADR-0014 §3.4), never from input.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RemainingArtifactSensitivity"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1021,6 +1032,31 @@
           "description": "A Heimdall Git include block the owner moved to the other global Git file.",
           "type": "string",
           "const": "git_block_moved"
+        }
+      ]
+    },
+    "RemainingArtifactSensitivity": {
+      "description": "The kind of information an artifact left by uninstall may contain (ADR-0014 §3.4).",
+      "oneOf": [
+        {
+          "description": "User configuration or preserved copies that may contain secrets.",
+          "type": "string",
+          "const": "secret_material"
+        },
+        {
+          "description": "Current, earlier or recovery state and its authority records or operation history.",
+          "type": "string",
+          "const": "authority_records"
+        },
+        {
+          "description": "Local path references or other identifiers.",
+          "type": "string",
+          "const": "identifiers"
+        },
+        {
+          "description": "A distributed executable without user data.",
+          "type": "string",
+          "const": "public"
         }
       ]
     },

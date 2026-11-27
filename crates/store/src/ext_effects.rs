@@ -1679,8 +1679,8 @@ impl Txn<'_> {
     /// is pruned. Only a runner's store is pruned (a store whose own environment is not a remote
     /// runner is left as it is).
     ///
-    /// * **R1, a known-grant tombstone** goes only when its grant's row is `revoked` (terminal;
-    ///   `denied_ancestor` denies by it, through every descendant), `now` ≥ the latest deadline
+    /// * **R1, a known-grant tombstone** goes only when its grant's row is `revoked` or
+    ///   `expired` (both terminal), `now` ≥ the latest deadline
     ///   of the grant and every descendant plus `retention`, every descendant is terminal, and
     ///   nothing live remains for any of them: no key or certificate (`live`), no unreleased
     ///   binding, grant reference, held slot, slot reference or owned connection. The
@@ -1721,14 +1721,18 @@ impl Txn<'_> {
         )?;
         // R1: known-grant tombstones.
         if let Some(live) = live {
+            use heimdall_contract::GrantState;
             let known: Vec<String> = {
                 let mut stmt = self.tx.prepare(
                     "SELECT t.grant_id FROM tombstones t
                      JOIN grants g ON g.id = t.grant_id
-                     WHERE g.state = ?1 ORDER BY t.generation",
+                     WHERE g.state IN (?1, ?2) ORDER BY t.generation",
                 )?;
                 let rows = stmt.query_map(
-                    [codec::enum_str(&heimdall_contract::GrantState::Revoked)?],
+                    [
+                        codec::enum_str(&GrantState::Revoked)?,
+                        codec::enum_str(&GrantState::Expired)?,
+                    ],
                     |r| r.get::<_, String>(0),
                 )?;
                 rows.collect::<std::result::Result<_, _>>()?
@@ -1807,7 +1811,8 @@ impl Txn<'_> {
         let Some(root) = self.grant(grant)? else {
             return Ok(false);
         };
-        if root.state != heimdall_contract::GrantState::Revoked {
+        use heimdall_contract::GrantState;
+        if !matches!(root.state, GrantState::Revoked | GrantState::Expired) {
             return Ok(false);
         }
         let mut family = vec![root.clone()];

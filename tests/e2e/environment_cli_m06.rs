@@ -97,6 +97,8 @@ impl Rt {
         cmd.env("HEIMDALL_HOME", &self.home)
             .env("HOME", &self.account)
             .env("HEIMDALL_TEST_SSH_HOME", &self.account)
+            .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
+            .env("HEIMDALL_TEST_IROH_KEY_STORE", &self.account)
             .env("HEIMDALL_TEST_TIME_SYNC", "synchronized")
             .env(
                 "HEIMDALL_TEST_MGMT_STORE",
@@ -363,4 +365,77 @@ fn environment_commands_use_the_controller_records_under_the_instance_lock() {
     assert_eq!(env["data"]["error"]["effect_status"], "none");
     // Reads still work beside the runtime.
     assert_eq!(rt.run(&["--json", "environment", "status"]).code, 0);
+}
+
+#[test]
+fn oversized_authority_report_wording_is_shown_by_status_and_doctor() {
+    use std::sync::Arc;
+
+    use heimdall_app::remote_status::{REPORT_OVER_LIMIT, REPORT_OVER_LIMIT_NEXT};
+    use heimdall_contract::Timestamp;
+    use heimdall_contract::controller_record::{
+        ManagementHop, ManagementRoute, RemoteEnvironmentPin,
+    };
+    use heimdall_contract::envelope::reason;
+    use heimdall_contract::ids::{
+        AccountName, ClientId, DestinationId, EnvironmentId, KeyFingerprint,
+    };
+    use heimdall_contract::remote::Role;
+    use heimdall_store::{NoFaults, Store};
+
+    let rt = Rt::new();
+    let state = rt.home.join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let store = Store::open(
+        &heimdall_store::layout::db_path(&state).unwrap(),
+        Arc::new(NoFaults),
+    )
+    .unwrap();
+    let pin = RemoteEnvironmentPin {
+        environment: EnvironmentId::from_random_bytes([3; 16]),
+        destination: DestinationId::parse("lab").unwrap(),
+        route: ManagementRoute {
+            runner: ManagementHop {
+                hostname: "runner.example.invalid".into(),
+                port: None,
+                account: AccountName::parse("runner").unwrap(),
+                host_keys: vec!["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA".into()],
+            },
+            jump: None,
+        },
+        client: ClientId::from_random_bytes([1; 16]),
+        role: Role::Owner,
+        key_fingerprint: KeyFingerprint::parse(&format!("SHA256:{}", "K".repeat(43))).unwrap(),
+        label: None,
+        pinned_at: Timestamp::now(),
+    };
+    store
+        .transaction(|tx| {
+            tx.put_remote_environment_pin(
+                &pin.environment,
+                &pin.destination,
+                &pin.route.runner.account,
+                &pin.key_fingerprint,
+                &serde_json::to_string(&pin).unwrap(),
+                pin.pinned_at,
+            )?;
+            tx.note_remote_failure(&pin.environment, pin.pinned_at, reason::RESPONSE_TOO_LARGE)
+        })
+        .unwrap();
+
+    let mut missing = Vec::new();
+    for args in [
+        &["environment", "status"][..],
+        &["doctor", "--no-local-exec"],
+    ] {
+        let out = rt.run(args);
+        assert_eq!(out.code, 0, "{args:?} did not succeed");
+        if !out.stdout.contains(REPORT_OVER_LIMIT) || !out.stdout.contains(REPORT_OVER_LIMIT_NEXT) {
+            missing.push(args.join(" "));
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "oversized report wording missing from {missing:?}"
+    );
 }

@@ -908,9 +908,9 @@ impl Txn<'_> {
     ///
     /// ⟨M08 W4 SEC-3b, R1; ADR-0006 §7.4 as amended 2026-11-27⟩ A grant whose row is
     /// `revoked` denies exactly as its tombstone does, for itself and through every
-    /// descendant: `revoked` is terminal and absorbing, and a runner's retention pass prunes
-    /// a known-grant tombstone only once its row is `revoked`
-    /// (`Txn::prune_runner_history`).
+    /// descendant. The runner's retention pass can prune known-grant tombstones for
+    /// `revoked` or `expired` rows (`Txn::prune_runner_history`). Both states are terminal;
+    /// an expired grant and its terminal descendants remain unusable after pruning.
     pub fn denied_ancestor(&mut self, grant: &GrantId) -> Result<Option<GrantId>> {
         let revoked = codec::enum_str(&heimdall_contract::GrantState::Revoked)?;
         let mut current = grant.clone();

@@ -765,6 +765,21 @@ pub enum RemainingArtifactKind {
     GitBlockMoved,
 }
 
+/// The kind of information an artifact left by uninstall may contain (ADR-0014 §3.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RemainingArtifactSensitivity {
+    /// User configuration or preserved copies that may contain secrets.
+    SecretMaterial,
+    /// Current, earlier or recovery state and its authority records or operation history.
+    AuthorityRecords,
+    /// Local path references or other identifiers.
+    Identifiers,
+    /// A distributed executable without user data.
+    Public,
+}
+
 /// An artifact left for the owner.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RemainingArtifact {
@@ -772,6 +787,10 @@ pub struct RemainingArtifact {
     pub kind: RemainingArtifactKind,
     /// Display path.
     pub path_display: String,
+    /// Optional sensitivity class. Heimdall sets this only from its own residue table
+    /// (ADR-0014 §3.4), never from input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sensitivity: Option<RemainingArtifactSensitivity>,
 }
 
 /// An apply, rollback or repair result (schema `setup-result`). A held operation's
