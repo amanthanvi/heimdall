@@ -1,0 +1,9 @@
+Comparing files <R>\C1\TARGET\RELEASE-ARTIFACTS\SHA256SUMS and <R>\C2-OTHER-PATH\TARGET\RELEASE-ARTIFACTS\SHA256SUMS
+***** <R>\C1\TARGET\RELEASE-ARTIFACTS\SHA256SUMS
+    1:  2aa5a100eb3db195ff5092e75345b30b7ec57b34e1266655f601e622f6c33a37  heimdall-0.1.0-m01-x86_64-pc-windows-msvc.build-record.json
+    2:  2f36e0dd7720f4388521f09cdc59d439b9f13cd5fd157982bc4083951e1de1e6  heimdall-0.1.0-m01-x86_64-pc-windows-msvc.cdx.json
+***** <R>\C2-OTHER-PATH\TARGET\RELEASE-ARTIFACTS\SHA256SUMS
+    1:  1fde217f5c0d4039e97f50787909ce8ac963461867eaf370ca76a9c396f72ed2  heimdall-0.1.0-m01-x86_64-pc-windows-msvc.build-record.json
+    2:  2f36e0dd7720f4388521f09cdc59d439b9f13cd5fd157982bc4083951e1de1e6  heimdall-0.1.0-m01-x86_64-pc-windows-msvc.cdx.json
+*****
+

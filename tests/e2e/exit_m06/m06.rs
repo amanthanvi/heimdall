@@ -6,7 +6,7 @@ use std::process::Stdio;
 
 use serde_json::Value;
 
-use super::world::{ControllerRuntime, Journey, Runner};
+use super::world::{ControllerRuntime, Journey, Runner, wait_settled};
 
 /// One step's stable result: `m06 observation: <case> <step>: <result>`. The result holds
 /// no identifier, path, port or instant, so two platforms' lines can be compared.
@@ -84,9 +84,7 @@ pub(crate) fn forwarded_ensure(
             .as_str()
             .unwrap_or_else(|| panic!("the pending answer names no operation: {answer}"))
             .to_owned();
-        answer = j
-            .controller
-            .json(&["operation", "wait", &operation, "--timeout-ms", "60000"]);
+        answer = wait_settled(|args| j.controller.json(args), &operation);
     }
     (answer, pending)
 }

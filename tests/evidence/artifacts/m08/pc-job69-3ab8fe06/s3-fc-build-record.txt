@@ -1,0 +1,21 @@
+Comparing files <R>\C1\TARGET\RELEASE-ARTIFACTS\heimdall-0.1.0-m01-x86_64-pc-windows-msvc.build-record.json and <R>\C2-OTHER-PATH\TARGET\RELEASE-ARTIFACTS\HEIMDALL-0.1.0-M01-X86_64-PC-WINDOWS-MSVC.BUILD-RECORD.JSON
+***** <R>\C1\TARGET\RELEASE-ARTIFACTS\heimdall-0.1.0-m01-x86_64-pc-windows-msvc.build-record.json
+    6:   "features": "--no-default-features",
+    7:   "finished_at": "2026-11-27T01:01:12Z",
+    8:   "iroh_transport": "not built (release artifacts ship without the iroh feature; the Iroh transport is a source-build preview)",
+***** <R>\C2-OTHER-PATH\TARGET\RELEASE-ARTIFACTS\HEIMDALL-0.1.0-M01-X86_64-PC-WINDOWS-MSVC.BUILD-RECORD.JSON
+    6:   "features": "--no-default-features",
+    7:   "finished_at": "2026-11-27T01:05:47Z",
+    8:   "iroh_transport": "not built (release artifacts ship without the iroh feature; the Iroh transport is a source-build preview)",
+*****
+
+***** <R>\C1\TARGET\RELEASE-ARTIFACTS\heimdall-0.1.0-m01-x86_64-pc-windows-msvc.build-record.json
+   25:   "signature": "none (unsigned)",
+   26:   "started_at": "2026-11-27T00:56:46Z",
+   27:   "target": "x86_64-pc-windows-msvc",
+***** <R>\C2-OTHER-PATH\TARGET\RELEASE-ARTIFACTS\HEIMDALL-0.1.0-M01-X86_64-PC-WINDOWS-MSVC.BUILD-RECORD.JSON
+   25:   "signature": "none (unsigned)",
+   26:   "started_at": "2026-11-27T01:01:33Z",
+   27:   "target": "x86_64-pc-windows-msvc",
+*****
+

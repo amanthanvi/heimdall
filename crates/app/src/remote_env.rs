@@ -172,6 +172,7 @@ impl MgmtKeyUnavailable {
 
 /// K_mgmt custody, as the controller operations see it (implemented over
 /// `heimdall_credential::mgmt::MgmtKeyStore`).
+#[async_trait::async_trait]
 pub trait MgmtKeyPort: Send + Sync {
     /// Whether K_mgmt can be used now, read without interaction.
     ///
@@ -185,6 +186,18 @@ pub trait MgmtKeyPort: Send + Sync {
     /// # Errors
     /// [`MgmtKeyUnavailable`].
     fn public_key(&self, create: bool) -> Result<MgmtKeyInfo, MgmtKeyUnavailable>;
+
+    /// ⟨M08 W4 SEC-5, ruling 3⟩ Check availability and load the public half of K_mgmt without
+    /// blocking an async executor. Implementations backed by a platform store that may wait
+    /// (such as Linux Secret Service) run both checks off the executor without cloning
+    /// `MgmtKey`.
+    ///
+    /// # Errors
+    /// [`MgmtKeyUnavailable`].
+    async fn ready(&self) -> Result<MgmtKeyInfo, MgmtKeyUnavailable> {
+        self.check()?;
+        self.public_key(false)
+    }
 
     /// Destroy this device's K_mgmt (device retirement only).
     ///
@@ -1077,8 +1090,9 @@ pub fn is_generated_decision_ref(decision_ref: &str) -> bool {
 /// shown or logged. A peer's text is untrusted, and in machine-read output it would be a
 /// prompt-injection channel, so:
 ///
-/// * the code and the effect status are kept (a code this build does not know is
-///   `Code::Unknown`, a bounded token, already);
+/// * the code and the effect status are kept; ⟨M08 W4 SEC-5, ruling 8⟩ a `Code::Unknown`
+///   is kept only when it matches `[A-Z][A-Z0-9_]*` and is at most 64 bytes, and mapped to
+///   `UNKNOWN_CODE` otherwise ([`crate::remote_ingress::screen_peer_code`]);
 /// * the reason is kept only when it is a stable token ([`is_reason_token`]), and dropped
 ///   otherwise;
 /// * the message is this controller's own fixed text for that code and reason;
@@ -1089,7 +1103,7 @@ pub fn peer_refusal(
     detail: heimdall_contract::envelope::ErrorDetail,
     operation_id: Option<heimdall_contract::ids::OperationId>,
 ) -> OpError {
-    let code = detail.code;
+    let code = crate::remote_ingress::screen_peer_code(detail.code);
     let reason = detail.reason.filter(|r| is_reason_token(r));
     let message = match &reason {
         Some(r) => format!(
@@ -1154,15 +1168,13 @@ impl<'a> RemoteEnvController<'a> {
     }
 
     /// K_mgmt must be usable before any session opens; a locked store refuses with
-    /// `mgmt_key_store_locked` and nothing is sent.
-    fn key_ready(&self) -> Result<MgmtKeyInfo, OpError> {
+    /// `mgmt_key_store_locked` and nothing is sent. ⟨M08 W4 SEC-5, ruling 3⟩ Async so a
+    /// platform store check + load never blocks an async service executor.
+    async fn key_ready(&self) -> Result<MgmtKeyInfo, OpError> {
         self.ports
             .key
-            .check()
-            .map_err(MgmtKeyUnavailable::to_error)?;
-        self.ports
-            .key
-            .public_key(false)
+            .ready()
+            .await
             .map_err(MgmtKeyUnavailable::to_error)
     }
 
@@ -1235,7 +1247,7 @@ impl<'a> RemoteEnvController<'a> {
         call: ManagementCall,
     ) -> Result<serde_json::Value, OpError> {
         let record = self.record(environment)?;
-        self.key_ready()?;
+        self.key_ready().await?;
         let mut session = self.open_recorded(&record).await?;
         runner_result(session.call(call).await?)
     }
@@ -1366,7 +1378,7 @@ impl<'a> RemoteEnvController<'a> {
             ));
         }
         // K_mgmt first: a locked store refuses before the owner is asked anything.
-        self.key_ready()?;
+        self.key_ready().await?;
         let confirmed = self.ports.confirm.confirm(&Confirmation::InviteKey {
             environment: input.environment.clone(),
             role: input.role,
@@ -1470,7 +1482,7 @@ impl<'a> RemoteEnvController<'a> {
             .collect::<Result<Vec<_>, _>>()?;
         // K_mgmt first: a locked store, or a bundle for another key, refuses before the user
         // is asked anything.
-        let key = self.key_ready()?;
+        let key = self.key_ready().await?;
         if key.fingerprint != bundle.key_fingerprint {
             return Err(OpError::new(
                 Code::UsageError,
@@ -1583,14 +1595,16 @@ impl<'a> RemoteEnvController<'a> {
         client: &ClientId,
     ) -> Result<serde_json::Value, OpError> {
         self.owner_record(environment, "revoking a client")?;
-        self.call_recorded(
-            environment,
-            ManagementCall::Environment(RemoteEnvironmentRequest::RevokeClient {
-                environment: environment.clone(),
-                client: client.clone(),
-            }),
-        )
-        .await
+        let raw = self
+            .call_recorded(
+                environment,
+                ManagementCall::Environment(RemoteEnvironmentRequest::RevokeClient {
+                    environment: environment.clone(),
+                    client: client.clone(),
+                }),
+            )
+            .await?;
+        crate::remote_ingress::screen_revoke_client_answer(raw, environment, client)
     }
 
     /// ⟨rev6.3; ADR-0006 §18.7 item 4⟩ `transport rotate`'s announcement: send this
@@ -1636,14 +1650,25 @@ impl<'a> RemoteEnvController<'a> {
         environment: &EnvironmentId,
         endpoint: &heimdall_contract::ids::IrohEndpointId,
     ) -> Result<serde_json::Value, OpError> {
-        self.call_recorded(
+        let record = self.record(environment)?;
+        self.key_ready().await?;
+        let mut session = self.open_recorded(&record).await?;
+        let raw = runner_result(
+            session
+                .call(ManagementCall::Environment(
+                    RemoteEnvironmentRequest::RotateEndpoint {
+                        environment: environment.clone(),
+                        endpoint: endpoint.clone(),
+                    },
+                ))
+                .await?,
+        )?;
+        crate::remote_ingress::screen_rotate_endpoint_answer(
+            raw,
             environment,
-            ManagementCall::Environment(RemoteEnvironmentRequest::RotateEndpoint {
-                environment: environment.clone(),
-                endpoint: endpoint.clone(),
-            }),
+            &record.client,
+            endpoint,
         )
-        .await
     }
 
     /// ⟨rev6.3; ADR-0006 §18.7 item 19⟩ `environment recheck`: run the four confirming
@@ -1666,7 +1691,7 @@ impl<'a> RemoteEnvController<'a> {
                 reason::ROLE_INSUFFICIENT,
             ));
         }
-        self.key_ready()?;
+        self.key_ready().await?;
         let mut session = self.open_recorded(&record).await?;
         if let Some(why) = session.probes_unavailable() {
             return Err(probes_unavailable(why, PROBES_UNAVAILABLE_RECHECK));
@@ -1678,7 +1703,7 @@ impl<'a> RemoteEnvController<'a> {
             )
             .with_effect(heimdall_contract::envelope::EffectStatus::None));
         };
-        runner_result(
+        let raw = runner_result(
             session
                 .call(ManagementCall::Environment(
                     RemoteEnvironmentRequest::RunnerPolicyRecheck {
@@ -1687,7 +1712,8 @@ impl<'a> RemoteEnvController<'a> {
                     },
                 ))
                 .await?,
-        )
+        )?;
+        crate::remote_ingress::screen_recheck_answer(raw, environment)
     }
 
     /// `environment remove`: revoke this device's client on that runner, then forget the
@@ -1733,9 +1759,9 @@ impl<'a> RemoteEnvController<'a> {
         if record.role == Role::Owner {
             return Ok(None);
         }
-        self.key_ready()?;
+        self.key_ready().await?;
         let mut session = self.open_recorded(&record).await?;
-        let view = runner_result(
+        let raw = runner_result(
             session
                 .call(ManagementCall::Inspect(Box::new(
                     heimdall_contract::request::InspectRequest {
@@ -1747,6 +1773,7 @@ impl<'a> RemoteEnvController<'a> {
                 )))
                 .await?,
         )?;
+        let view = crate::remote_ingress::screen_runner_view_answer(raw, environment)?;
         Ok(Some(view))
     }
 
@@ -1757,13 +1784,15 @@ impl<'a> RemoteEnvController<'a> {
     /// [`OpError`].
     pub async fn update(&self, environment: &EnvironmentId) -> Result<serde_json::Value, OpError> {
         self.owner_record(environment, "updating the runner")?;
-        self.call_recorded(
-            environment,
-            ManagementCall::Environment(RemoteEnvironmentRequest::Update {
-                environment: environment.clone(),
-            }),
-        )
-        .await
+        let raw = self
+            .call_recorded(
+                environment,
+                ManagementCall::Environment(RemoteEnvironmentRequest::Update {
+                    environment: environment.clone(),
+                }),
+            )
+            .await?;
+        crate::remote_ingress::screen_update_answer(raw, environment)
     }
 
     /// `environment status`: the controller's own view (no session; module docs).
@@ -1813,7 +1842,7 @@ impl<'a> RemoteEnvController<'a> {
     /// kept and the records of the runners already revoked are forgotten, so a retry
     /// continues with the rest).
     pub async fn retire(&self) -> Result<RetireOutcome, OpError> {
-        let key = self.key_ready()?;
+        let key = self.key_ready().await?;
         let mut records = self.ports.registry.list()?;
         records.sort_by(|a, b| a.environment.cmp(&b.environment));
         let confirmed = self.ports.confirm.confirm(&Confirmation::RetireDevice {
@@ -1852,7 +1881,7 @@ impl<'a> RemoteEnvController<'a> {
             }
             let outcome = async {
                 let mut session = self.open_recorded(record).await?;
-                runner_result(
+                let raw = runner_result(
                     session
                         .call(ManagementCall::Environment(
                             RemoteEnvironmentRequest::RevokeClient {
@@ -1861,6 +1890,11 @@ impl<'a> RemoteEnvController<'a> {
                             },
                         ))
                         .await?,
+                )?;
+                crate::remote_ingress::screen_revoke_client_answer(
+                    raw,
+                    &record.environment,
+                    &record.client,
                 )
             }
             .await;

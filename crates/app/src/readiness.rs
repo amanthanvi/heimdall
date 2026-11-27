@@ -205,16 +205,16 @@ pub fn runner_readiness(input: &RunnerReadinessInput<'_>) -> RunnerReadiness {
             OfflineBound::CertificateValidBefore,
         ),
     ];
-    // The earliest; on a tie the first listed (the anchor before the absolute bounds).
+    // The earliest; on a tie, prefer `Cutoff` over `Anchor` (an anchor shortened to a
+    // cutoff reports the cutoff), and `Anchor` before the other absolute bounds.
     let (offline_until, bound_by) = candidates
         .iter()
         .filter_map(|(t, b)| t.map(|t| (t, *b)))
         .fold((input.deadline, OfflineBound::Deadline), |best, c| {
-            if c.0 < best.0 || (c.0 == best.0 && c.1 == OfflineBound::Anchor) {
-                c
-            } else {
-                best
-            }
+            let tie_wins = c.0 == best.0
+                && (c.1 == OfflineBound::Cutoff
+                    || (c.1 == OfflineBound::Anchor && best.1 != OfflineBound::Cutoff));
+            if c.0 < best.0 || tie_wins { c } else { best }
         });
     let mut conditions = RUNNER_CONDITIONS.to_vec();
     conditions.sort();
@@ -448,6 +448,34 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&unknown).unwrap(),
             serde_json::json!({"destination_clock_error": "unmeasured"})
+        );
+    }
+
+    /// ⟨M08 W4 SEC-5, item 7.1⟩ When a grant's anchor was shortened to a cutoff and the
+    /// anchor's remaining budget equals the cutoff instant (tie), `bound_by` is
+    /// `OfflineBound::Cutoff`, not `OfflineBound::Anchor`.
+    #[test]
+    fn cutoff_wins_tie_against_anchor_shortened_to_it() {
+        let n = now();
+        let cutoff = n.wall;
+        let shortened_anchor = GrantAnchor {
+            grant: GrantId::from_random_bytes([1; 16]),
+            anchor: TimeAnchor {
+                boot_id: BootId("boot-a".into()),
+                continuous: Duration::from_secs(900),
+                wall: t("2026-11-21T08:58:20Z"),
+            },
+            bound: cutoff,
+            budget_end: n.continuous,
+        };
+        let mut i = input(&n, Some(&shortened_anchor));
+        i.cutoff = Some(cutoff);
+        let r = runner_readiness(&i);
+        assert_eq!(r.offline_until, cutoff);
+        assert_eq!(
+            r.bound_by,
+            OfflineBound::Cutoff,
+            "an anchor shortened to a cutoff must report OfflineBound::Cutoff on tie"
         );
     }
 }

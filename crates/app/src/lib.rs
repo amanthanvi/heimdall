@@ -47,6 +47,8 @@ pub mod remote_env;
 // ⟨M06 U4b⟩ The second controller: enrolment, narrowing from either owner, issuer standing
 // (ADR-0012 §8).
 pub mod remote_env_second;
+// ⟨M08 W4 SEC-5⟩ Remote-ingress screening of runner success data and unknown error codes.
+pub mod remote_ingress;
 // ⟨M06 U4⟩ The controller's view of its runners, its effect outbox and resynchronization, and
 // the issuer's reconciliation barrier (ADR-0012 §7).
 pub mod remote_status;

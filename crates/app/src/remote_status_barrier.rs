@@ -461,29 +461,33 @@ fn revision_refusal(
     }
 }
 
-/// ⟨M08 W4 SEC-1, S3-02⟩ Whether `report` shows that `row`, a delivered revision whose scope
-/// names no single policy (`profile:`, `workspace:`), did not apply to `policy`. Which
-/// policies such a scope covers is the runner's to say, and its report says it only through
-/// the policy's own state: the runner applies a delivered pause or cutoff to every policy
-/// the scope covers when it applies it. So the report shows the row did not apply when it
-/// lists `policy` and, for a pause, the policy is not paused or, for a cutoff, the policy
-/// has no cutoff at or before the instant the row applied at (the instant it fired at, when
-/// it fired early; else the owner's). Anything else covers the policy: an unlisted policy
-/// (the naming rule refuses it first) or a cutoff row with no instant.
-fn shown_not_to_apply(
-    report: &AuthorityReport,
-    policy: &PolicyId,
-    row: &PolicyRevisionRecord,
-) -> bool {
-    let Some(listed) = report.policies.iter().find(|p| p.policy == *policy) else {
-        return false;
-    };
-    match row.kind {
-        PolicyRevisionKind::Pause => !listed.paused,
-        PolicyRevisionKind::Cutoff => row
-            .fired_uncertain_at
-            .or(row.cutoff_at)
-            .is_some_and(|applied| listed.cutoff_at.is_none_or(|c| c > applied)),
+/// ⟨M08 W4 SEC-5, ruling 4; ADR-0012 §7.4⟩ Whether a delivered revision row whose scope is
+/// `all` or an unknown scope (`unknown`) applies unconditionally to every issuance for this
+/// runner (including a policy created after the row fired, and checks before the runner
+/// named a policy).
+fn revision_applies_unconditionally(row: &PolicyRevisionRecord) -> bool {
+    row.scope_key == "all" || row.scope_key == crate::remote_status::UNKNOWN_SCOPE_KEY
+}
+
+/// ⟨M08 W4 SEC-5, ruling 4; ADR-0012 §7.4⟩ Whether a delivered revision row applies to a
+/// specific named `policy` (after unconditional `all`/`unknown` rows were already judged):
+/// * `policy:P` applies iff `P == policy` (and when the answer names no policy, the naming
+///   rule refuses it as `PolicyUnnamed`);
+/// * `profile:` and `workspace:` apply unless the report shows that `policy` is outside that
+///   scope by membership. Because `AuthorityReport`'s `ReportedPolicy` carries no profile or
+///   workspace membership fields, policy creation time (`!paused` / `cutoff_at: None`) is
+///   never evidence that an in-force revision does not apply, so `profile:`, `workspace:`,
+///   and any other scope fail closed.
+fn revision_covers_policy(row: &PolicyRevisionRecord, policy_key: &str) -> bool {
+    match row.scope_key.as_str() {
+        // Already judged unconditionally before `if answered`.
+        "all" => false,
+        k if k == crate::remote_status::UNKNOWN_SCOPE_KEY => false,
+        k if k == policy_key => true,
+        // Another named policy only: never covers `policy`.
+        k if k.starts_with("policy:") => false,
+        // `profile:`, `workspace:`, or any unrecognized scope: fail closed.
+        _ => true,
     }
 }
 
@@ -685,11 +689,15 @@ impl IssuerBarrier {
             .filter(|r| !lifted.iter().any(|e| revision_of(r, e)))
             .filter(|r| r.in_force || own.iter().any(|e| revision_of(r, e)))
             .collect();
-        // A delivered revision of every policy applies whatever the grant's policy.
-        // ⟨M08 W4 SEC-1, S3-02⟩ Judged as this controller's own rows are: a cutoff that
-        // fired refuses outright, whatever its instant (a future one only bounds a cutoff
-        // that has not fired), also when another controller delivered it.
-        for row in revisions.iter().filter(|r| r.scope_key == "all") {
+        // A delivered revision of every policy (`all`) or an unknown scope (`unknown`)
+        // applies whatever the grant's policy, including a policy created after it fired.
+        // ⟨M08 W4 SEC-1, S3-02; SEC-5, ruling 4⟩ Judged as this controller's own rows are: a
+        // cutoff that fired refuses outright, whatever its instant (a future one only bounds
+        // a cutoff that has not fired), also when another controller delivered it.
+        for row in revisions
+            .iter()
+            .filter(|r| revision_applies_unconditionally(r))
+        {
             if let Some(refusal) = revision_refusal(row, &mut cut) {
                 return Ok(Err(refusal));
             }
@@ -722,22 +730,14 @@ impl IssuerBarrier {
                     return Ok(Err(BarrierRefusal::PolicyCutoff));
                 }
             }
-            // And the delivered revisions naming it, should the runner hold no such policy.
-            // ⟨M08 W4 SEC-1, S3-02⟩ Also every revision of a scope that could cover it: a
-            // `profile:` or `workspace:` scope (or one this build does not know) covers
-            // the policy unless the report shows it does not apply to it
-            // ([`shown_not_to_apply`]).
+            // And the delivered revisions naming it, or covering it by scope (`profile:`,
+            // `workspace:`: fail closed because `ReportedPolicy` carries no membership
+            // fields; policy creation time never exempts a policy from an in-force row).
             let key = heimdall_store::ext_effects::policy_scope_key(policy);
             for row in &revisions {
-                let covers = match row.scope_key.as_str() {
-                    // Judged above.
-                    "all" => false,
-                    k if k == key => true,
-                    // Another policy's.
-                    k if k.starts_with("policy:") => false,
-                    _ => !shown_not_to_apply(report, policy, row),
-                };
-                if covers && let Some(refusal) = revision_refusal(row, &mut cut) {
+                if revision_covers_policy(row, &key)
+                    && let Some(refusal) = revision_refusal(row, &mut cut)
+                {
                     return Ok(Err(refusal));
                 }
             }
@@ -819,5 +819,150 @@ impl IssuerBarrier {
             }
         }
         Ok(Err(refusal))
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use heimdall_contract::ids::{ClientId, EffectId, ProfileId, WorkspaceId};
+    use heimdall_store::ext_effects::{
+        AuthorityReport, PolicyRevisionKind, PolicyRevisionRecord, ReportedPolicy,
+    };
+    use heimdall_store::{NoFaults, Store};
+
+    use super::*;
+
+    /// ⟨M08 W4 SEC-5, ruling 4; ADR-0012 §7.4⟩ While a delivered revision row is in force,
+    /// policy creation time (no `cutoff_at` / not `paused` on the listed policy) is never
+    /// evidence that the row does not apply:
+    /// * `all` always applies;
+    /// * `policy:P` applies iff the answer names `P` or names no policy;
+    /// * `profile:` and `workspace:` fail closed unless membership shows otherwise (the
+    ///   report carries no membership fields);
+    /// * an unknown scope (`unknown`) fails closed.
+    #[test]
+    fn fired_cutoff_scope_rules_do_not_exempt_later_policies_or_unknown_scopes() {
+        let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        let env = EnvironmentId::from_random_bytes([1; 16]);
+        let grant = GrantId::from_random_bytes([2; 16]);
+        let producer = ClientId::from_random_bytes([3; 16]);
+        let new_policy = PolicyId::parse("created_after").unwrap();
+        let other_policy = PolicyId::parse("other_policy").unwrap();
+        let t0: Timestamp = "2026-11-26T12:00:00Z".parse().unwrap();
+        let fired = t0.checked_add(Duration::from_secs(3600)).unwrap();
+        let future_at = t0.checked_add(Duration::from_secs(6 * 3600)).unwrap();
+
+        let cases = [
+            (
+                "all",
+                "all".to_owned(),
+                PolicyTarget::All,
+                Some(&new_policy),
+                Err(BarrierRefusal::PolicyCutoff),
+            ),
+            (
+                "policy:same",
+                format!("policy:{}", new_policy.as_str()),
+                PolicyTarget::Policy {
+                    policy_id: new_policy.clone(),
+                },
+                Some(&new_policy),
+                Err(BarrierRefusal::PolicyCutoff),
+            ),
+            (
+                "policy:other",
+                format!("policy:{}", other_policy.as_str()),
+                PolicyTarget::Policy {
+                    policy_id: other_policy.clone(),
+                },
+                Some(&new_policy),
+                Ok(()),
+            ),
+            (
+                "policy:unnamed",
+                format!("policy:{}", other_policy.as_str()),
+                PolicyTarget::Policy {
+                    policy_id: other_policy.clone(),
+                },
+                None,
+                Err(BarrierRefusal::PolicyUnnamed { paused: false }),
+            ),
+            (
+                "profile:ops",
+                "profile:ops".to_owned(),
+                PolicyTarget::Profile {
+                    profile: ProfileId::parse("ops").unwrap(),
+                },
+                Some(&new_policy),
+                Err(BarrierRefusal::PolicyCutoff),
+            ),
+            (
+                "workspace:ws",
+                format!(
+                    "workspace:{}",
+                    WorkspaceId::from_random_bytes([9; 16]).as_str()
+                ),
+                PolicyTarget::Workspace {
+                    workspace: WorkspaceId::from_random_bytes([9; 16]),
+                },
+                Some(&new_policy),
+                Err(BarrierRefusal::PolicyCutoff),
+            ),
+            (
+                "unknown_scope",
+                crate::remote_status::UNKNOWN_SCOPE_KEY.to_owned(),
+                PolicyTarget::All,
+                Some(&new_policy),
+                Err(BarrierRefusal::PolicyCutoff),
+            ),
+        ];
+
+        for (label, scope_key, scope, answer_policy, wanted) in cases {
+            let barrier = IssuerBarrier::new();
+            let report = AuthorityReport {
+                environment: env.clone(),
+                authority_generation: 1,
+                tombstones: Vec::new(),
+                policy_revisions: vec![PolicyRevisionRecord {
+                    scope_key,
+                    scope,
+                    producer: producer.clone(),
+                    revision: 1,
+                    runner_seq: 1,
+                    kind: PolicyRevisionKind::Cutoff,
+                    effect: EffectId::from_random_bytes([4; 16]),
+                    received_at: t0,
+                    cutoff_at: Some(future_at),
+                    fired_uncertain_at: Some(fired),
+                    in_force: true,
+                }],
+                // `new_policy` was created after the cutoff fired: not paused, no `cutoff_at`.
+                policies: vec![ReportedPolicy {
+                    policy: new_policy.clone(),
+                    revision: 1,
+                    paused: false,
+                    cutoff_at: None,
+                }],
+                certificates: Vec::new(),
+                time_bounded: true,
+                pending_grants: Vec::new(),
+            };
+            barrier.admit(Reconciliation {
+                environment: env.clone(),
+                at: t0,
+                report,
+                revoked: Vec::new(),
+                ignored_tombstones: 0,
+            });
+            let got = store
+                .transaction(|tx| barrier.permit_answer(tx, &env, &grant, answer_policy, t0))
+                .unwrap()
+                .map(|_| ());
+            assert_eq!(got, wanted, "{label}");
+        }
     }
 }

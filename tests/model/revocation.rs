@@ -923,9 +923,13 @@ async fn a07_publish_rechecks_every_predicate_and_voids_after_each_change() {
             Between::Revoke,
             IssuanceRefusal::GrantNotIssuable(GrantState::Revoked),
         ),
-        // A cutoff is a policy change: the first failing predicate is the moved
-        // revision (the cutoff itself would refuse next).
-        (Between::Cutoff, IssuanceRefusal::StalePolicyRevision),
+        // ⟨M08 W4 SEC-4, S3-03⟩ A cutoff the grant's bound has reached ends the grant at
+        // its apply, like expiry, so the first failing predicate is the grant's state (the
+        // moved revision and the cutoff itself would refuse next).
+        (
+            Between::Cutoff,
+            IssuanceRefusal::GrantNotIssuable(GrantState::Expired),
+        ),
         (Between::BudgetExpiry, IssuanceRefusal::BudgetExpired),
         (Between::WallDeadline, IssuanceRefusal::BoundPassed),
         (Between::TimeUncertain, IssuanceRefusal::TimeUncertain),
@@ -4568,4 +4572,446 @@ async fn r139_4_an_activated_shared_grant_is_released_when_every_attached_operat
         );
     }
     assert_eq!(w.fake.effect_count(), 1);
+}
+
+// =================================================================================
+// ⟨M08 W4 SEC-4⟩ A cutoff at its own apply (S3-03) and an approval whose widening fails
+// (S3-06). Each case was first run against the base commit (904743a6) and failed there.
+// =================================================================================
+
+/// ⟨S3-03, part 1⟩ A single-policy cutoff that a live grant's bound has already reached ends
+/// the grant at the apply on safe time, as the targeted form does (ADR-0005 §6.1 "Cutoff":
+/// it ends every affected grant like expiry), not at the next scheduler pass.
+#[tokio::test]
+async fn a_single_policy_cutoff_already_reached_ends_the_grant_at_the_apply() {
+    let w = World::new().await;
+    let base = w.ready("req-base", "work-base", &["h1"], None).await;
+    w.clock.advance(MINUTE);
+    w.ops
+        .policy(
+            &owner(501),
+            PolicyAction::Cutoff {
+                policy_id: Some(policy_id()),
+                at: w.clock.wall(),
+                target: None,
+            },
+        )
+        .await
+        .unwrap();
+    // No scheduler pass has run.
+    assert_eq!(w.grant(&base.grant_id).state, GrantState::Expired);
+}
+
+/// ⟨S3-03, part 2⟩ A cutoff shortens the grant's persisted anchor in its own transaction, on
+/// safe and on uncertain time alike, in its single-policy and its targeted form (ADR-0005
+/// §3.6 "an earlier cutoff set later shortens it"; `heimdall_domain::time::shorten` is relative
+/// arithmetic and needs no trusted reading). So while time stays uncertain the grant's
+/// continuous budget ends it once the cutoff has passed on the continuous clock, instead of
+/// running on to the deadline.
+#[tokio::test]
+async fn a_cutoff_shortens_the_grant_anchor_in_its_own_transaction() {
+    for (uncertain, targeted) in [(false, false), (false, true), (true, false), (true, true)] {
+        let case = format!("uncertain={uncertain} targeted={targeted}");
+        let w = World::new().await;
+        let base = w
+            .ready(
+                "req-base",
+                "work-base",
+                &["h1"],
+                Some(DeadlineIntent::Duration("2h".into())),
+            )
+            .await;
+        let anchor = || {
+            w.store
+                .transaction(|tx| tx.grant_anchor(&base.grant_id))
+                .unwrap()
+                .expect("anchored at its activation")
+        };
+        let before = anchor();
+        let cutoff = w
+            .clock
+            .wall()
+            .checked_add(jiff::SignedDuration::from_mins(10))
+            .unwrap();
+        assert!(cutoff < before.bound, "{case}: the cutoff lowers the bound");
+        if uncertain {
+            // The wall clock steps back within the boot, below the high-water mark.
+            w.clock.set_wall(at(-600));
+            assert_eq!(
+                w.ops.timegate().check().await.unwrap_err().code,
+                Code::TimeUncertain,
+                "{case}"
+            );
+        }
+        let action = if targeted {
+            PolicyAction::Cutoff {
+                policy_id: None,
+                at: cutoff,
+                target: Some(heimdall_contract::trust::PolicyTarget::Policy {
+                    policy_id: policy_id(),
+                }),
+            }
+        } else {
+            PolicyAction::Cutoff {
+                policy_id: Some(policy_id()),
+                at: cutoff,
+                target: None,
+            }
+        };
+        w.ops.policy(&owner(501), action).await.unwrap();
+        let after = anchor();
+        assert_eq!(after.bound, cutoff, "{case}");
+        let reduction = Duration::try_from(before.bound.duration_since(cutoff)).unwrap();
+        assert_eq!(
+            after.budget_end,
+            before.budget_end - reduction,
+            "{case}: the budget is cut by the bound's reduction"
+        );
+        if uncertain {
+            // The continuous clock passes the cutoff; the wall clock is still wrong.
+            w.clock.advance_continuous_only(11 * MINUTE);
+            w.ops.tick().await.unwrap();
+            assert_eq!(
+                w.grant(&base.grant_id).state,
+                GrantState::Expired,
+                "{case}: the continuous budget ended it"
+            );
+        }
+    }
+}
+
+/// ⟨S3-06⟩ An approval whose recorded widening cannot be applied is refused and rolled back:
+/// the decision stays pending, not consumed, and no decision event is committed, as for the
+/// M03 and M05 kinds. The failure is injected as a record naming a policy that is gone while
+/// the authority generation did not move (removing a policy moves it, so the stale-generation
+/// refusal usually comes first).
+#[tokio::test]
+async fn an_approval_whose_widening_fails_to_apply_leaves_the_decision_as_it_was() {
+    let w = World::new().await;
+    let id = DecisionId::from_random_bytes([0x5c; 16]);
+    let now = w.clock.wall();
+    w.store
+        .transaction(|tx| {
+            let generation = tx.authority_generation()?;
+            tx.insert_decision(&DecisionRecord {
+                id: id.clone(),
+                kind: DecisionKind::WidenPolicy {
+                    action: PolicyAction::Resume {
+                        policy_id: Some(PolicyId::parse("gone").unwrap()),
+                        target: None,
+                    },
+                },
+                generation,
+                created_at: now,
+                expires_at: now
+                    .checked_add(jiff::SignedDuration::from_mins(15))
+                    .unwrap(),
+                state: DecisionState::Pending,
+                decided_at: None,
+            })
+        })
+        .unwrap();
+    let r = w
+        .ops
+        .decide(
+            &attended(501),
+            DecideRequest {
+                decision_id: id.clone(),
+                verdict: Verdict::Approve,
+            },
+        )
+        .await;
+    assert_eq!(code_of(&r), Code::NotFound, "the widening's own refusal");
+    assert_eq!(
+        decision_state(&w, &id),
+        DecisionState::Pending,
+        "not consumed"
+    );
+    assert!(
+        !decision_ids_announced(&w).contains(id.as_str()),
+        "no decision event was committed"
+    );
+}
+
+/// ⟨M08 W4 SEC-5, item 7.2 (S3-07)⟩ `confirm_time` runs its decision insert, time-gate
+/// confirmation and decision completion in **one** transaction and handles
+/// `DecisionCompletion::Refused` by rolling everything back:
+/// 1. on acceptance and on skew refusal, exactly one store transaction commits (never 3);
+/// 2. a commit fault leaves no pending decision, no confirmation, no anchor and no event;
+/// 3. when `complete_decision` refuses (here `decision_lifetime == 0` so `now >= expires_at`),
+///    `confirm_time` returns `DECISION_STALE` and rolls back the decision record, the time
+///    confirmation, the runtime anchor and the events.
+#[tokio::test]
+async fn confirm_time_runs_in_one_transaction_and_rolls_back_on_decision_refusal() {
+    use heimdall_contract::request::ConfirmTimeRequest;
+
+    struct CountAndFailCommits {
+        active: AtomicBool,
+        commits: AtomicUsize,
+        fail_on: AtomicUsize,
+    }
+    impl FaultHook for CountAndFailCommits {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            if point == FaultPoint::BeforeCommit && self.active.load(Ordering::SeqCst) {
+                let n = self.commits.fetch_add(1, Ordering::SeqCst) + 1;
+                if n == self.fail_on.load(Ordering::SeqCst) {
+                    return FaultAction::Fail;
+                }
+            }
+            FaultAction::Continue
+        }
+    }
+
+    // 1. Accepted confirmation runs in exactly one transaction; a fault on that single commit
+    // leaves nothing behind (neither a pending decision nor a confirmation).
+    let hook = Arc::new(CountAndFailCommits {
+        active: AtomicBool::new(false),
+        commits: AtomicUsize::new(0),
+        fail_on: AtomicUsize::new(0),
+    });
+    let w = World::with_opts(Opts {
+        faults: hook.clone(),
+        ..Opts::default()
+    })
+    .await;
+    // Fail commit #1: must roll back completely with nothing left behind.
+    hook.commits.store(0, Ordering::SeqCst);
+    hook.fail_on.store(1, Ordering::SeqCst);
+    hook.active.store(true, Ordering::SeqCst);
+    let failed = w
+        .ops
+        .confirm_time(
+            &attended(501),
+            ConfirmTimeRequest {
+                observed_wall: w.clock.wall(),
+            },
+        )
+        .await;
+    hook.active.store(false, Ordering::SeqCst);
+    assert!(failed.is_err(), "injected commit fault must fail");
+    assert_eq!(hook.commits.load(Ordering::SeqCst), 1);
+    assert!(
+        w.store
+            .transaction(|tx| tx.pending_decisions())
+            .unwrap()
+            .is_empty(),
+        "commit fault must leave no pending decision"
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.time_confirmation())
+            .unwrap()
+            .is_none(),
+        "commit fault must leave no time confirmation"
+    );
+
+    // Succeed with fail_on = 2: a 3-transaction implementation commits tx 1 and fails tx 2,
+    // leaving a dangling pending decision; a single-transaction implementation commits once.
+    hook.commits.store(0, Ordering::SeqCst);
+    hook.fail_on.store(2, Ordering::SeqCst);
+    hook.active.store(true, Ordering::SeqCst);
+    let ok = w
+        .ops
+        .confirm_time(
+            &attended(501),
+            ConfirmTimeRequest {
+                observed_wall: w.clock.wall(),
+            },
+        )
+        .await;
+    hook.active.store(false, Ordering::SeqCst);
+    assert!(
+        ok.is_ok(),
+        "single-transaction confirm_time must not open a second transaction: {ok:?}"
+    );
+    assert_eq!(
+        hook.commits.load(Ordering::SeqCst),
+        1,
+        "accepted confirm_time must use exactly one transaction"
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.pending_decisions())
+            .unwrap()
+            .is_empty(),
+        "no pending decision left after acceptance"
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.time_confirmation())
+            .unwrap()
+            .is_some()
+    );
+
+    // Skew-refused confirmation also runs in exactly one transaction.
+    hook.commits.store(0, Ordering::SeqCst);
+    hook.fail_on.store(2, Ordering::SeqCst);
+    hook.active.store(true, Ordering::SeqCst);
+    let skewed = w
+        .ops
+        .confirm_time(
+            &attended(501),
+            ConfirmTimeRequest {
+                observed_wall: at(3600),
+            },
+        )
+        .await;
+    hook.active.store(false, Ordering::SeqCst);
+    assert_eq!(code_of(&skewed), Code::TimeUncertain);
+    assert_eq!(
+        hook.commits.load(Ordering::SeqCst),
+        1,
+        "refused confirm_time must also use exactly one transaction"
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.pending_decisions())
+            .unwrap()
+            .is_empty(),
+        "no pending decision left after skew refusal"
+    );
+
+    // 2. DecisionCompletion::Refused (decision_lifetime == 0 -> already expired when completed):
+    // must return DECISION_STALE and roll back the entire transaction (no decision record, no
+    // confirmation, no runtime anchor, no decision event).
+    let w_refused = World::with_opts(Opts {
+        limits: Limits {
+            decision_lifetime: Duration::ZERO,
+            ..Limits::default()
+        },
+        ..Opts::default()
+    })
+    .await;
+    let res = w_refused
+        .ops
+        .confirm_time(
+            &attended(501),
+            ConfirmTimeRequest {
+                observed_wall: w_refused.clock.wall(),
+            },
+        )
+        .await;
+    assert_eq!(
+        code_of(&res),
+        Code::DecisionStale,
+        "DecisionCompletion::Refused must be returned as DECISION_STALE, not ignored: {res:?}"
+    );
+    assert!(
+        w_refused
+            .store
+            .transaction(|tx| tx.time_confirmation())
+            .unwrap()
+            .is_none(),
+        "refused completion must roll back the time confirmation"
+    );
+    assert!(
+        w_refused
+            .store
+            .transaction(|tx| tx.pending_decisions())
+            .unwrap()
+            .is_empty(),
+        "refused completion must roll back the pending decision record"
+    );
+    assert!(
+        decision_ids_announced(&w_refused).is_empty(),
+        "refused completion must commit no decision event"
+    );
+}
+
+/// ⟨M08 W4 SEC-5, item 7.1⟩ An ordinary trusted-time policy cutoff ending a grant records
+/// `policy_cutoff` as its reason/cause, while a normal deadline expiry omits reason/cause.
+#[tokio::test]
+async fn a_cutoff_ending_a_grant_records_policy_cutoff_reason_and_deadline_expiry_does_not() {
+    use heimdall_contract::event::EventType;
+
+    // Case 1: policy cutoff ends the grant -> records `policy_cutoff`.
+    let w = World::new().await;
+    let base = w.ready("req-cut", "work-cut", &["h1"], None).await;
+    w.clock.advance(MINUTE);
+    w.ops
+        .policy(
+            &owner(501),
+            PolicyAction::Cutoff {
+                policy_id: Some(policy_id()),
+                at: w.clock.wall(),
+                target: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(w.grant(&base.grant_id).state, GrantState::Expired);
+    let events = w
+        .store
+        .transaction(|tx| {
+            tx.events_after(
+                &env_id(),
+                0,
+                &heimdall_contract::event::EventFilter::default(),
+                500,
+            )
+        })
+        .unwrap()
+        .events;
+    let gs = events
+        .iter()
+        .find(|e| {
+            e.event_type == EventType::GrantStateChanged
+                && e.payload["grant_id"] == base.grant_id.as_str()
+                && e.payload["state"] == "expired"
+        })
+        .expect("grant_state_changed(expired)");
+    assert_eq!(gs.payload["reason"], "policy_cutoff", "{}", gs.payload);
+    let cl = events
+        .iter()
+        .find(|e| {
+            e.event_type == EventType::CredentialLifecycle
+                && e.payload["grant_id"] == base.grant_id.as_str()
+                && e.payload["event"] == "expired"
+        })
+        .expect("credential_lifecycle(expired)");
+    assert_eq!(cl.payload["cause"], "policy_cutoff", "{}", cl.payload);
+
+    // Case 2: ordinary deadline expiry (no cutoff) -> omits reason and cause.
+    let w2 = World::new().await;
+    let base2 = w2
+        .ready(
+            "req-exp",
+            "work-exp",
+            &["h1"],
+            Some(DeadlineIntent::Duration("10m".into())),
+        )
+        .await;
+    w2.clock.advance(11 * MINUTE);
+    w2.ops.tick().await.unwrap();
+    assert_eq!(w2.grant(&base2.grant_id).state, GrantState::Expired);
+    let events2 = w2
+        .store
+        .transaction(|tx| {
+            tx.events_after(
+                &env_id(),
+                0,
+                &heimdall_contract::event::EventFilter::default(),
+                500,
+            )
+        })
+        .unwrap()
+        .events;
+    let gs2 = events2
+        .iter()
+        .find(|e| {
+            e.event_type == EventType::GrantStateChanged
+                && e.payload["grant_id"] == base2.grant_id.as_str()
+                && e.payload["state"] == "expired"
+        })
+        .expect("grant_state_changed(expired)");
+    assert!(gs2.payload.get("reason").is_none(), "{}", gs2.payload);
+    let cl2 = events2
+        .iter()
+        .find(|e| {
+            e.event_type == EventType::CredentialLifecycle
+                && e.payload["grant_id"] == base2.grant_id.as_str()
+                && e.payload["event"] == "expired"
+        })
+        .expect("credential_lifecycle(expired)");
+    assert!(cl2.payload.get("cause").is_none(), "{}", cl2.payload);
 }

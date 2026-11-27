@@ -1,0 +1,12 @@
+build-1 exit=0 build-2 exit=0
+c1 heimdall-0.1.0-m01-x86_64-pc-windows-msvc.zip sha256=9bb6bd6ede59f0f8676b5baf0f4de893e6b885a0fbbe27fed48006f8dd786ee0 bytes=23937889
+c2 heimdall-0.1.0-m01-x86_64-pc-windows-msvc.zip sha256=9bb6bd6ede59f0f8676b5baf0f4de893e6b885a0fbbe27fed48006f8dd786ee0 bytes=23937889
+c1 heimdall-0.1.0-m01-x86_64-pc-windows-msvc.build-record.json sha256=2aa5a100eb3db195ff5092e75345b30b7ec57b34e1266655f601e622f6c33a37 bytes=1974
+c2 heimdall-0.1.0-m01-x86_64-pc-windows-msvc.build-record.json sha256=1fde217f5c0d4039e97f50787909ce8ac963461867eaf370ca76a9c396f72ed2 bytes=1974
+c1 heimdall-0.1.0-m01-x86_64-pc-windows-msvc.cdx.json sha256=2f36e0dd7720f4388521f09cdc59d439b9f13cd5fd157982bc4083951e1de1e6 bytes=153793
+c2 heimdall-0.1.0-m01-x86_64-pc-windows-msvc.cdx.json sha256=2f36e0dd7720f4388521f09cdc59d439b9f13cd5fd157982bc4083951e1de1e6 bytes=153793
+c1 SHA256SUMS sha256=0361a8d7c45bae5904511bf750069cf8ff9a071cd81028a9a906dd77a8f86f33 bytes=355
+c2 SHA256SUMS sha256=c7fd2cfc16166d37c65f7c1d43de913da9d34488885e36206b2f0b07cd21e2e8 bytes=355
+fc zip exit=0
+fc build-record exit=1
+fc SHA256SUMS exit=1

@@ -40,8 +40,15 @@
 //! **A cutoff that fired under uncertain time stays fired** (ADR-0012 §7.4, ruling of
 //! 2026-11-21). The instant it fired at is written into the runner's policies, so a later
 //! certain reading, or a redelivery judged with trusted time, finds the policy already cut
-//! off and changes nothing: only a runner-local attended `clear_cutoff` lifts it. The revision
-//! row records the early instant (`fired_uncertain_at`), which the authority report carries.
+//! off and changes nothing: only a runner-local attended `clear_cutoff` lifts it. ⟨M08 W4
+//! SEC-4, S3-01⟩ That instant is never later than the earliest instant a later trusted reading
+//! can show ([`trusted_floor`]): the uncertain wall clock may be fast or have jumped forward,
+//! and a correction (synchronization, or an attended `confirm_time`) must not put the instant
+//! back in the future. Signing, the scheduler's tick, activation and readiness all read the
+//! policy's cutoff, so the latch holds for each of them. Uncertain time still ends nothing at
+//! the apply (signing fails closed on `TIME_UNCERTAIN`); the next pass on trusted time ends the
+//! affected grants. The revision row records the instant (`fired_uncertain_at`) whenever the
+//! cutoff fired under uncertain time, which the authority report carries.
 //!
 //! **A revoke is never defeated by a stale generation** (same ruling). `grant_revoke` names
 //! the grant; the generation it carries is part of the effect's key (idempotency and audit)
@@ -52,6 +59,7 @@
 //! revisions with their generations, and the certificates installed now.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use heimdall_app::context::Caller;
 use heimdall_app::{OpError, Operations};
@@ -79,14 +87,34 @@ use sha2::{Digest as _, Sha256};
 pub enum NowBound {
     /// The shared time gate accepted this observation.
     Trusted(Timestamp),
-    /// Time is uncertain: the wall clock as read, and the latest instant now can be when a
-    /// bound is known (`None`: unbounded).
+    /// Time is uncertain: the wall clock as read, the latest instant now can be when a
+    /// bound is known (`None`: unbounded), and the earliest instant a later trusted reading
+    /// can show.
     Uncertain {
         /// The wall clock as read (not trusted).
         wall: Timestamp,
         /// The upper bound of now, when known.
         upper: Option<Timestamp>,
+        /// No later trusted reading of this runner's time gate is earlier ([`trusted_floor`]).
+        floor: Timestamp,
     },
+}
+
+/// ⟨M08 W4 SEC-4, S3-01⟩ The earliest instant any later trusted reading of the time gate can
+/// show, given its persisted high-water mark `high_water` and its rollback tolerance
+/// `rollback`. The gate accepts no wall reading, and records no attended confirmation, more
+/// than `rollback` below the mark (after a reboot, none below it at all), and the mark only
+/// rises (`heimdall_domain::time::gate`, `next_high_water`). With no mark, no reading was ever
+/// accepted and nothing bounds the first one: the floor is then the Unix epoch.
+#[must_use]
+pub fn trusted_floor(high_water: Option<Timestamp>, rollback: Duration) -> Timestamp {
+    match high_water {
+        Some(mark) => jiff::SignedDuration::try_from(rollback)
+            .ok()
+            .and_then(|r| mark.checked_sub(r).ok())
+            .unwrap_or(Timestamp::MIN),
+        None => Timestamp::UNIX_EPOCH,
+    }
 }
 
 /// How a delivered cutoff applies ([`cutoff_apply`]).
@@ -105,8 +133,9 @@ pub struct CutoffApply {
 /// * trusted time: the instant is `at`; it fired when `at <= now`;
 /// * uncertain time with an upper bound before `at`: the instant is `at`, not fired;
 /// * uncertain time otherwise (`at` may have passed): it fires now, and the instant is the
-///   earlier of `at` and the wall clock, so no later trusted reading can find it in the
-///   future.
+///   earliest of `at`, the wall clock and the trusted floor. ⟨SEC-4, S3-01⟩ The floor is what
+///   keeps it fired: a wall clock that was fast or jumped forward is later corrected, and no
+///   later trusted reading is earlier than the floor, so none finds the instant in the future.
 #[must_use]
 pub fn cutoff_apply(at: Timestamp, now: &NowBound) -> CutoffApply {
     match *now {
@@ -114,7 +143,7 @@ pub fn cutoff_apply(at: Timestamp, now: &NowBound) -> CutoffApply {
             instant: at,
             fired: at <= now,
         },
-        NowBound::Uncertain { wall, upper } => {
+        NowBound::Uncertain { wall, upper, floor } => {
             if upper.is_some_and(|u| at > u) {
                 CutoffApply {
                     instant: at,
@@ -122,7 +151,7 @@ pub fn cutoff_apply(at: Timestamp, now: &NowBound) -> CutoffApply {
                 }
             } else {
                 CutoffApply {
-                    instant: at.min(wall),
+                    instant: at.min(wall).min(floor),
                     fired: true,
                 }
             }
@@ -273,15 +302,23 @@ impl RunnerSync {
         }
     }
 
-    /// What the runner knows about now (module docs).
-    async fn now_bound(&self, side: &dyn RunnerSide) -> NowBound {
-        match self.operations.timegate().check().await {
+    /// What the runner knows about now (module docs). The high-water mark is read after the
+    /// gate's verdict: it only rises, so a mark read now is never above the one any later
+    /// trusted reading is held to, and the floor computed from it stays valid.
+    async fn now_bound(&self, side: &dyn RunnerSide) -> Result<NowBound, OpError> {
+        let gate = self.operations.timegate();
+        Ok(match gate.check().await {
             Ok(safe) => NowBound::Trusted(safe.wall()),
-            Err(_) => NowBound::Uncertain {
-                wall: self.clock.wall(),
-                upper: side.now_upper_bound(),
-            },
-        }
+            Err(_) => {
+                let rollback = gate.policy().max_tolerated_rollback;
+                let mark = self.read(|tx| tx.high_water_mark()).await?;
+                NowBound::Uncertain {
+                    wall: self.clock.wall(),
+                    upper: side.now_upper_bound(),
+                    floor: trusted_floor(mark, rollback),
+                }
+            }
+        })
     }
 
     /// Apply one delivered effect and acknowledge it (module docs). The acknowledgement is
@@ -544,7 +581,7 @@ impl RunnerSync {
             .await?
             .and_then(|r| r.cutoff_at);
         let owner_at = recorded.map_or(at, |r| r.min(at));
-        let now_bound = self.now_bound(side).await;
+        let now_bound = self.now_bound(side).await?;
         let uncertain = matches!(now_bound, NowBound::Uncertain { .. });
         let apply = cutoff_apply(owner_at, &now_bound);
 
@@ -599,11 +636,11 @@ impl RunnerSync {
             effect: key.effect.clone(),
             received_at: now,
             cutoff_at: Some(owner_at),
-            // ⟨ADR-0012 §7.4 ⟨2026-11-21⟩⟩ Fired before the owner's instant because time was
-            // uncertain: recorded with the instant applied, and kept (the store never clears
-            // it), so the report, `environment status` and `doctor` can say so.
-            fired_uncertain_at: (uncertain && apply.fired && apply.instant < owner_at)
-                .then_some(apply.instant),
+            // ⟨ADR-0012 §7.4 ⟨2026-11-21⟩⟩ Fired because time was uncertain: recorded with
+            // the instant applied, and kept (the store never clears it), so the report,
+            // `environment status` and `doctor` can say so. ⟨SEC-4, S3-01⟩ Whenever it fired
+            // under uncertain time, a wall clock already past the owner's instant included.
+            fired_uncertain_at: (uncertain && apply.fired).then_some(apply.instant),
             in_force: true,
         };
         let ack = EffectAck {
@@ -696,6 +733,9 @@ mod tests {
                 }
             );
         }
+        // The last trusted reading was at 09:59:05 or later (a mark of 09:59:10, a 5 s
+        // rollback tolerance).
+        let floor = t("2026-11-21T09:59:05Z");
         // Uncertain, bounded before `at`: it cannot have passed.
         assert_eq!(
             cutoff_apply(
@@ -703,6 +743,7 @@ mod tests {
                 &NowBound::Uncertain {
                     wall: t("2026-11-21T10:00:00Z"),
                     upper: Some(t("2026-11-21T11:59:59Z")),
+                    floor,
                 }
             ),
             CutoffApply {
@@ -712,32 +753,76 @@ mod tests {
         );
         // Uncertain, the bound reaches `at`: it may have passed, so it fires, never later
         // than the wall clock read.
+        let behind = t("2026-11-21T09:00:00Z");
         assert_eq!(
             cutoff_apply(
                 at,
                 &NowBound::Uncertain {
-                    wall: t("2026-11-21T10:00:00Z"),
+                    wall: behind,
                     upper: Some(at),
+                    floor,
                 }
             ),
             CutoffApply {
-                instant: t("2026-11-21T10:00:00Z"),
+                instant: behind,
                 fired: true
             }
         );
-        // Uncertain and unbounded: fires at once; a wall clock ahead of `at` keeps `at`.
+        // ⟨SEC-4, S3-01⟩ Uncertain and unbounded: fires at once, and never later than the
+        // floor, whether the wall clock jumped past `at` (example A) or is only a few minutes
+        // fast (example B): a trusted reading after the correction is not before the floor.
+        for wall in ["2026-11-21T14:00:00Z", "2026-11-21T10:05:00Z"] {
+            assert_eq!(
+                cutoff_apply(
+                    at,
+                    &NowBound::Uncertain {
+                        wall: t(wall),
+                        upper: None,
+                        floor,
+                    }
+                ),
+                CutoffApply {
+                    instant: floor,
+                    fired: true
+                },
+                "{wall}"
+            );
+        }
+        // An owner's instant already before the floor is kept as it is.
+        let past = t("2026-11-21T08:00:00Z");
         assert_eq!(
             cutoff_apply(
-                at,
+                past,
                 &NowBound::Uncertain {
                     wall: t("2026-11-21T14:00:00Z"),
                     upper: None,
+                    floor,
                 }
             ),
             CutoffApply {
-                instant: at,
+                instant: past,
                 fired: true
             }
+        );
+    }
+
+    /// ⟨SEC-4, S3-01⟩ The floor: the mark less the rollback tolerance; the epoch with no mark.
+    #[test]
+    fn the_trusted_floor_is_the_mark_less_the_rollback_tolerance() {
+        let mark = t("2026-11-21T09:59:10Z");
+        assert_eq!(
+            trusted_floor(Some(mark), Duration::from_secs(5)),
+            t("2026-11-21T09:59:05Z")
+        );
+        assert_eq!(trusted_floor(Some(mark), Duration::ZERO), mark);
+        assert_eq!(
+            trusted_floor(None, Duration::from_secs(5)),
+            Timestamp::UNIX_EPOCH
+        );
+        assert_eq!(
+            trusted_floor(Some(mark), Duration::MAX),
+            Timestamp::MIN,
+            "a tolerance too large to subtract bounds nothing"
         );
     }
 

@@ -1,0 +1,19 @@
+ok   powershell.exe -Features default,iroh -> exit 2
+ok   powershell.exe -Features 'default,iroh' -> exit 2
+ok   powershell.exe -Features iroh -> exit 2
+ok   powershell.exe -Features heimdall-runtime/iroh -> exit 2
+ok   powershell.exe -Features default, iroh -> exit 2
+ok   powershell.exe -Features 'iroh iroh' -> exit 2
+ok   powershell.exe -AllFeatures -> exit 2
+ok   powershell.exe (no features) -> exit 0
+ok   powershell.exe -Features default -> exit 2
+ok   pwsh.exe -Features default,iroh -> exit 2
+ok   pwsh.exe -Features 'default,iroh' -> exit 2
+ok   pwsh.exe -Features iroh -> exit 2
+ok   pwsh.exe -Features heimdall-runtime/iroh -> exit 2
+ok   pwsh.exe -Features default, iroh -> exit 2
+ok   pwsh.exe -Features 'iroh iroh' -> exit 2
+ok   pwsh.exe -AllFeatures -> exit 2
+ok   pwsh.exe (no features) -> exit 0
+ok   pwsh.exe -Features default -> exit 2
+build-release-features-selftest: PASS (18 checks)
