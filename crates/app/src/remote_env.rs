@@ -187,10 +187,12 @@ pub trait MgmtKeyPort: Send + Sync {
     /// [`MgmtKeyUnavailable`].
     fn public_key(&self, create: bool) -> Result<MgmtKeyInfo, MgmtKeyUnavailable>;
 
-    /// ⟨M08 W4 SEC-5, ruling 3⟩ Check availability and load the public half of K_mgmt without
-    /// blocking an async executor. Implementations backed by a platform store that may wait
-    /// (such as Linux Secret Service) run both checks off the executor without cloning
-    /// `MgmtKey`.
+    /// ⟨M08 W4 SEC-5, ruling 3⟩ [`Self::check`], then [`Self::public_key`] without `create`:
+    /// whether K_mgmt can be used now, and its public half. Every session-opening operation
+    /// calls this first, on an async executor (the service's, for `transport rotate`'s
+    /// announcement). A port over a store that can wait (the Linux Secret Service, up to 5 s
+    /// for each) runs both off the executor; the default runs them in place, for a port that
+    /// never waits.
     ///
     /// # Errors
     /// [`MgmtKeyUnavailable`].
@@ -1007,7 +1009,8 @@ fn role_name(role: Role) -> String {
 /// unchanged (the controller never decides); any other error is the runner's refusal as
 /// [`peer_refusal`] keeps it. ⟨M08 W4 SEC-1, S1-02⟩ No text of the runner's is kept: a
 /// `decision_ref` only in the form a runtime generates ([`is_generated_decision_ref`]), the
-/// reason only as a stable token, and never its message.
+/// reason only as a stable token, and never its message. ⟨SEC-5⟩ Its operation ID likewise
+/// only in the generated form ([`crate::remote_ingress::screen_peer_operation_id`]).
 ///
 /// # Errors
 /// [`OpError`].
@@ -1033,7 +1036,8 @@ pub fn runner_result(envelope: Envelope<serde_json::Value>) -> Result<serde_json
         )
         .with_decision(decision_ref));
     }
-    let operation_id = envelope.operation_id.clone();
+    let operation_id =
+        crate::remote_ingress::screen_peer_operation_id(envelope.operation_id.clone());
     match serde_json::from_value::<ErrorData>(envelope.data) {
         Ok(data) => Err(peer_refusal(data.error, operation_id)),
         Err(_) => Err(OpError::new(
@@ -1713,7 +1717,7 @@ impl<'a> RemoteEnvController<'a> {
                 ))
                 .await?,
         )?;
-        crate::remote_ingress::screen_recheck_answer(raw, environment)
+        crate::remote_ingress::screen_recheck_answer(raw, environment, &record.client)
     }
 
     /// `environment remove`: revoke this device's client on that runner, then forget the
@@ -1792,7 +1796,7 @@ impl<'a> RemoteEnvController<'a> {
                 }),
             )
             .await?;
-        crate::remote_ingress::screen_update_answer(raw, environment)
+        crate::remote_ingress::screen_update_answer(&raw)
     }
 
     /// `environment status`: the controller's own view (no session; module docs).

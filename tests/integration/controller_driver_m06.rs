@@ -1000,11 +1000,15 @@ async fn a_cutoff_fired_under_uncertain_time_at_the_owners_instant_is_reported()
 }
 
 /// ⟨M08 W4 SEC-5, item 7.1⟩ Under uncertain time, a fired cutoff cuts an anchored grant's
-/// continuous budget to the floor and the next tick (still under uncertain time) ends the
-/// grant. The ended grant records the cutoff as its reason (on both `GrantStateChanged` and
-/// `CredentialLifecycle`), runner readiness names `OfflineBound::Cutoff` at the fired instant
-/// under `RunnerTime::Uncertain`, and controller status reports both the uncertain-time cutoff
-/// and `BoundPassed` (not `WithinBound`) for any still-reported certificate.
+/// continuous budget to the floor, and the next tick (time still uncertain) ends the grant.
+/// Then:
+/// * the ended grant records the cutoff as its cause: `credential_lifecycle`'s `expired`
+///   event says `cutoff_fired_while_time_uncertain` (`grant_state_changed` carries a
+///   `reason` only for a degraded grant);
+/// * the runner's readiness is bound by the cutoff at the instant it fired, on uncertain time;
+/// * status, the runner's and the controller's, reports the cutoff as fired while time was
+///   uncertain, and the controller's last-known readiness of the grant ends at that instant
+///   (`bound_passed` after it), whatever its certificate's `valid_before`.
 #[tokio::test]
 async fn a_cutoff_fired_under_uncertain_time_ends_an_anchored_grant_with_cutoff_reason_status_and_readiness()
  {
@@ -1095,7 +1099,14 @@ async fn a_cutoff_fired_under_uncertain_time_ends_an_anchored_grant_with_cutoff_
     r.ops.tick().await.unwrap();
     assert_eq!(r.grant_state(), GrantState::Expired);
 
-    // 1. Ended grant's recorded reason on both GrantStateChanged and CredentialLifecycle.
+    // What says it, checked as a whole.
+    let mut wrong: Vec<String> = Vec::new();
+    let mut check = |what: &str, ok: bool| {
+        if !ok {
+            wrong.push(what.to_owned());
+        }
+    };
+    // 1. The ended grant's record: the cause of its `expired` event.
     let page =
         r.w.store
             .transaction(|tx| {
@@ -1107,74 +1118,83 @@ async fn a_cutoff_fired_under_uncertain_time_ends_an_anchored_grant_with_cutoff_
                 )
             })
             .unwrap();
-    let state_expired = page
-        .events
-        .iter()
-        .find(|e| {
-            e.event_type == EventType::GrantStateChanged
-                && e.payload["grant_id"] == r.w.grant.as_str()
-                && e.payload["state"] == "expired"
-        })
-        .expect("grant_state_changed(expired) event recorded");
-    assert_eq!(
-        state_expired.payload["reason"], "cutoff_fired_under_uncertain_time",
-        "grant_state_changed must record the cutoff reason: {}",
-        state_expired.payload
+    let expired = |t: EventType, key: &str| {
+        page.events
+            .iter()
+            .find(|e| {
+                e.event_type == t
+                    && e.payload["grant_id"] == r.w.grant.as_str()
+                    && e.payload[key] == "expired"
+            })
+            .map(|e| e.payload.clone())
+    };
+    let state = expired(EventType::GrantStateChanged, "state");
+    let lifecycle = expired(EventType::CredentialLifecycle, "event");
+    check(
+        &format!("grant_state_changed(expired) without a reason: {state:?}"),
+        state.as_ref().is_some_and(|p| p.get("reason").is_none()),
     );
-    let lifecycle_expired = page
-        .events
-        .iter()
-        .find(|e| {
-            e.event_type == EventType::CredentialLifecycle
-                && e.payload["grant_id"] == r.w.grant.as_str()
-                && e.payload["event"] == "expired"
-        })
-        .expect("credential_lifecycle(expired) event recorded");
-    assert_eq!(
-        lifecycle_expired.payload["cause"], "cutoff_fired_under_uncertain_time",
-        "credential_lifecycle must record the cutoff cause: {}",
-        lifecycle_expired.payload
+    check(
+        &format!("credential_lifecycle(expired) names the cutoff as its cause: {lifecycle:?}"),
+        lifecycle
+            .as_ref()
+            .is_some_and(|p| p["cause"] == "cutoff_fired_while_time_uncertain"),
     );
 
-    // 2. Runner readiness: ended at the cutoff under uncertain time.
+    // 2. The runner's readiness: bound by the cutoff, at the instant it fired, time uncertain.
     let readiness =
         r.w.runner
             .readiness(&r.w.grant, DestinationClock::Unmeasured, None)
             .unwrap();
-    assert_eq!(readiness.time, RunnerTime::Uncertain);
-    assert_eq!(readiness.bound_by, OfflineBound::Cutoff);
-    assert_eq!(readiness.offline_until, fired_at);
-    assert_eq!(readiness.usable_until, fired_at);
+    check(
+        &format!("readiness bound by the fired cutoff on uncertain time: {readiness:?}"),
+        readiness.time == RunnerTime::Uncertain
+            && readiness.bound_by == OfflineBound::Cutoff
+            && readiness.offline_until == fired_at
+            && readiness.usable_until == fired_at,
+    );
 
-    // 3. Status on the runner and controller: reports the cutoff that fired while time was
-    // uncertain, and does not claim the grant's last-known readiness is still within bound.
+    // 3. Status: the runner's own (`doctor`), then the controller's after its next report.
     let local = r.w.store.transaction(early_cutoffs).unwrap();
-    assert_eq!(local.len(), 1);
-    assert_eq!(local[0].1.fired_at, fired_at);
-    assert_eq!(local[0].1.at, owner_at);
-    assert_eq!(local[0].1.reason, "time_uncertain");
-    assert!(local[0].1.statement().contains("uncertain"));
-
+    check(
+        &format!("the runner's status reports the cutoff fired on uncertain time: {local:?}"),
+        local.len() == 1
+            && local[0].1.fired_at == fired_at
+            && local[0].1.at == owner_at
+            && local[0].1.reason == "time_uncertain"
+            && local[0].1.statement().contains("uncertain"),
+    );
     let mut s = r.session(&controller_b());
     b.resync(&mut s).await.unwrap();
     let status = b.status(true);
-    assert_eq!(status.cutoffs_fired_early.len(), 1);
-    assert_eq!(status.cutoffs_fired_early[0].fired_at, fired_at);
-    assert_eq!(status.cutoffs_fired_early[0].reason, "time_uncertain");
-    let lkr = status
+    check(
+        &format!(
+            "the controller's status reports the cutoff fired on uncertain time: {:?}",
+            status.cutoffs_fired_early
+        ),
+        status.cutoffs_fired_early.len() == 1
+            && status.cutoffs_fired_early[0].fired_at == fired_at
+            && status.cutoffs_fired_early[0].reason == "time_uncertain",
+    );
+    // Read between the fired instant and the certificate's `valid_before`: the readiness of
+    // the ended grant is over, not `within_bound`.
+    let between = plus(initial, 30 * MINUTE);
+    assert!(fired_at < between && between < cert_valid_before);
+    let seen = b
+        .store
+        .transaction(|tx| {
+            heimdall_app::remote_status::status_of_recorded(tx, &r.w.env, None, between)
+        })
+        .unwrap();
+    let lkr = seen
         .last_known_readiness
         .iter()
-        .find(|l| l.grant == r.w.grant)
-        .expect("installed certificate appears in controller's last_known_readiness");
-    assert!(
-        lkr.offline_until <= fired_at,
-        "last_known_readiness must be capped by the fired cutoff: {lkr:?}"
+        .find(|l| l.grant == r.w.grant);
+    check(
+        &format!("the controller's last-known readiness ends at the fired cutoff: {lkr:?}"),
+        lkr.is_some_and(|l| l.offline_until <= fired_at && l.state == LastKnownState::BoundPassed),
     );
-    assert_eq!(
-        lkr.state,
-        LastKnownState::BoundPassed,
-        "a grant ended by a fired cutoff must not report WithinBound: {lkr:?}"
-    );
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
 /// ⟨M08 W4 SEC-5, item 7.3⟩ `EarlyCutoff::statement` says "fired while time was uncertain"
@@ -4791,9 +4811,11 @@ mod hostile_text {
 /// is created on the runner (so the report lists it with `paused: false, cutoff_at: None`).
 /// Policy creation time is never evidence that an in-force revision row does not apply:
 /// * `all` blocks the new policy;
-/// * `profile:` and `workspace:` fail closed because the report carries no membership fields;
-/// * `policy:new_policy` blocks it, `policy:other_policy` allows it, and an unnamed answer is
-///   refused.
+/// * `profile:` blocks it, the new policy's own profile (`dev`) as another one (`ops`), and so
+///   does `workspace:`: only membership could show a row does not apply, and the report
+///   carries none;
+/// * `policy:created_after` blocks it, `policy:other_policy` does not, and an answer naming
+///   no policy is refused.
 #[tokio::test]
 async fn another_controllers_fired_cutoff_blocks_a_policy_created_after_it() {
     use heimdall_app::remote_status_barrier::BarrierRefusal;
@@ -4809,6 +4831,13 @@ async fn another_controllers_fired_cutoff_blocks_a_policy_created_after_it() {
         (
             "all",
             PolicyTarget::All,
+            Some(created_after.clone()),
+            Err(BarrierRefusal::PolicyCutoff),
+        ),
+        // The case ruling 4 is about: the cutoff of the new policy's own profile.
+        (
+            "profile:dev",
+            PolicyTarget::Profile { profile: profile() },
             Some(created_after.clone()),
             Err(BarrierRefusal::PolicyCutoff),
         ),
@@ -4920,7 +4949,7 @@ mod sec5_ensure_ingress {
     use heimdall_app::remote_env::{
         ManagementCall, ManagementSession, ManagementSessions, SessionHello, SessionTarget,
     };
-    use heimdall_app::remote_status_driver::Forwarded;
+    use heimdall_app::remote_status_driver::{Forwarded, forwarded_pending, submitted_pending};
     use heimdall_contract::OperationState;
     use heimdall_contract::envelope::{EffectStatus, ErrorData, ErrorDetail, NextAction};
     use heimdall_contract::ids::{
@@ -5210,6 +5239,142 @@ mod sec5_ensure_ingress {
         })
     }
 
+    /// The JSON pointer of every leaf of `v` (`leaves`) and of every object in it, itself
+    /// included (`objects`). The keys involved hold no `/` or `~`.
+    fn json_paths(
+        v: &serde_json::Value,
+        at: &str,
+        leaves: &mut Vec<String>,
+        objects: &mut Vec<String>,
+    ) {
+        match v {
+            serde_json::Value::Object(map) => {
+                objects.push(at.to_owned());
+                for (k, x) in map {
+                    json_paths(x, &format!("{at}/{k}"), leaves, objects);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for (i, x) in items.iter().enumerate() {
+                    json_paths(x, &format!("{at}/{i}"), leaves, objects);
+                }
+            }
+            _ => leaves.push(at.to_owned()),
+        }
+    }
+
+    /// ⟨M08 W4 SEC-5, item 1⟩ A runner's operation ID reaches this controller's answers (a
+    /// pending forwarded or submitted `ensure`, which the agent waits on; a refusal) only in
+    /// the form a runtime generates. A canary-shaped one fits the operation ID's token grammar
+    /// (`op_` and a token), so it is dropped: absent, the field's unknown representation.
+    #[tokio::test]
+    async fn a_runners_operation_id_is_relayed_only_in_its_generated_form() {
+        let canary = format!(
+            "{}SEC5_{}",
+            heimdall_testkit::CANARY_PREFIX,
+            heimdall_testkit::agent::random_hex(8)
+        );
+        let hostile_op = OperationId::parse(&format!("op_{canary}")).unwrap();
+        let r = rig().await;
+        let a = controller(&r, &controller_a(), Role::Owner);
+        let q = controller(&r, &controller_b(), Role::Requester);
+        record_pin(&a);
+        record_pin(&q);
+        let ca = r.w.ca_a.fingerprint().unwrap();
+        let req = forward_request(&r.w.env, "screen-operation");
+        let pending = |grant: &GrantId| Envelope {
+            state: OperationState::Running,
+            code: Code::Accepted,
+            operation_id: Some(hostile_op.clone()),
+            ..Envelope::ok(
+                serde_json::to_value(ErrorData {
+                    error: ErrorDetail {
+                        code: Code::Accepted,
+                        effect_status: EffectStatus::None,
+                        retryable: true,
+                        resource: Some(heimdall_contract::envelope::ResourceRef {
+                            kind: "grant".into(),
+                            id: Some(grant.as_str().to_owned()),
+                        }),
+                        next: NextAction::default(),
+                        message: "pending".into(),
+                        reason: None,
+                        entries: Vec::new(),
+                    },
+                    setup: None,
+                })
+                .unwrap(),
+            )
+        };
+        let mut shown = Vec::new();
+        // The owner's forwarded `ensure`, then a limited role's submitted one, both pending.
+        let grant = GrantId::from_random_bytes([0x5a; 16]);
+        let mut s = CannedSession {
+            hello: SessionHello {
+                environment: r.w.env.clone(),
+                role: Some(Role::Owner),
+                client: Some(controller_a()),
+            },
+            reply: Mutex::new(Some(pending(&grant))),
+        };
+        match driver(&a).forward_ensure(&a.pin, &mut s, &req, &ca).await {
+            Ok(Forwarded::Pending {
+                grant, operation, ..
+            }) => shown.push((
+                "forward_ensure",
+                serde_json::to_string(&heimdall_runtime::dispatch::render(Ok(forwarded_pending(
+                    &grant,
+                    operation.as_ref(),
+                ))))
+                .unwrap(),
+            )),
+            other => panic!("forward_ensure: not pending: {other:?}"),
+        }
+        let sessions = CannedSessions {
+            hello: SessionHello {
+                environment: r.w.env.clone(),
+                role: Some(Role::Requester),
+                client: Some(controller_b()),
+            },
+            reply: Arc::new(Mutex::new(Some(pending(&grant)))),
+        };
+        match driver(&q).submit_ensure(&sessions, &q.pin, &req).await {
+            Ok(Forwarded::Submitted { grant, operation }) => shown.push((
+                "submit_ensure",
+                serde_json::to_string(&heimdall_runtime::dispatch::render(Ok(submitted_pending(
+                    &grant,
+                    operation.as_ref(),
+                ))))
+                .unwrap(),
+            )),
+            other => panic!("submit_ensure: not submitted: {other:?}"),
+        }
+        // A runner's refusal carrying it.
+        let mut refusal = serde_json::to_value(
+            OpError::new(Code::CapabilityUnavailable, "placeholder")
+                .with_effect(EffectStatus::None)
+                .into_envelope(),
+        )
+        .unwrap();
+        refusal["operation_id"] = serde_json::json!(hostile_op);
+        let refused =
+            heimdall_app::remote_env::runner_result(serde_json::from_value(refusal).unwrap())
+                .unwrap_err();
+        shown.push((
+            "a refusal",
+            serde_json::to_string(&refused.into_envelope()).unwrap(),
+        ));
+        let leaked: Vec<&str> = shown
+            .iter()
+            .filter(|(_, text)| text.contains(heimdall_testkit::CANARY_PREFIX))
+            .map(|(what, _)| *what)
+            .collect();
+        assert!(
+            leaked.is_empty(),
+            "the runner's operation ID reached {leaked:?}"
+        );
+    }
+
     #[tokio::test]
     async fn forward_ensure_refuses_a_runner_grant_id_matching_a_local_grant() {
         let r = rig().await;
@@ -5314,17 +5479,133 @@ mod sec5_ensure_ingress {
         let grant = GrantId::from_random_bytes([0x66; 16]);
         let base_data = valid_ensure_data(&r.w.env, &grant);
 
-        let assert_clean = |what: &str, text: &str| {
-            assert!(
-                !text.contains(&canary) && !text.contains(instruction),
-                "{what}: hostile runner text leaked: {text}"
-            );
-            heimdall_testkit::assert_no_canary(text);
+        let leaks = |text: &str| {
+            text.contains(&canary)
+                || text.contains(instruction)
+                || text.contains(heimdall_testkit::CANARY_PREFIX)
         };
+        let mut wrong: Vec<String> = Vec::new();
 
-        // 1. Clean baseline with hostile free-text wording, hostile unknown-fallback enums,
-        // hostile unobserved evidence versions, and extra unknown keys at every level:
-        // accepted with fixed wording, unknown/absent fallback values, and extra keys stripped.
+        // 2. Every relayed field: the hostile text replaces each leaf of the fixture in turn
+        // (every field of `EnsureData` and of each type in it is present there), and an
+        // extra key carrying it is added to each object in turn. Each answer goes through
+        // `forward_ensure` and `submit_ensure`: it is refused `OUTCOME_UNKNOWN`, with nothing
+        // recorded, or kept with neither the canary nor the instruction in it.
+        let mut leaves = Vec::new();
+        let mut objects = Vec::new();
+        json_paths(&base_data, "", &mut leaves, &mut objects);
+        assert!(
+            leaves.len() > 120,
+            "the fixture covers every field: {}",
+            leaves.len()
+        );
+        let mut cases: Vec<(String, serde_json::Value)> = Vec::new();
+        for at in &leaves {
+            let mut payload = base_data.clone();
+            *payload.pointer_mut(at).unwrap() = hostile.clone().into();
+            cases.push((format!("leaf {at}"), payload));
+        }
+        for at in &objects {
+            let mut payload = base_data.clone();
+            payload
+                .pointer_mut(at)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .insert("note".to_owned(), hostile.clone().into());
+            cases.push((format!("extra key in {at:?}"), payload));
+        }
+        // A control character in a runner path (bounded paths keep everything else).
+        let mut payload = base_data.clone();
+        payload["consumer"]["signing_endpoint"] = control_path.clone().into();
+        cases.push((
+            "leaf /consumer/signing_endpoint (control)".to_owned(),
+            payload,
+        ));
+        let (mut refused, mut kept) = (0, 0);
+        for (i, (label, mut payload)) in cases.into_iter().enumerate() {
+            // A fresh grant per case, so a recorded grant names the case that wrote it.
+            let fresh = GrantId::from_random_bytes(
+                u128::try_from(i + 1)
+                    .unwrap()
+                    .wrapping_mul(0x9e37_79b9)
+                    .to_be_bytes(),
+            );
+            if payload["grant_id"] == serde_json::json!(grant) {
+                payload["grant_id"] = serde_json::json!(fresh);
+            }
+            let reply = Envelope {
+                state: OperationState::Succeeded,
+                code: Code::AccessReady,
+                ..Envelope::ok(payload)
+            };
+            let mut s = CannedSession {
+                hello: SessionHello {
+                    environment: r.w.env.clone(),
+                    role: Some(Role::Owner),
+                    client: Some(controller_a()),
+                },
+                reply: Mutex::new(Some(reply.clone())),
+            };
+            let forwarded = da.forward_ensure(&a.pin, &mut s, &req, &ca).await;
+            if forwarded.is_err()
+                && a.store
+                    .transaction(|tx| tx.delivered_grant(&r.w.env, &fresh))
+                    .unwrap()
+                    .is_some()
+            {
+                wrong.push(format!("forward_ensure, {label}: refused, yet recorded"));
+            }
+            let sessions = CannedSessions {
+                hello: SessionHello {
+                    environment: r.w.env.clone(),
+                    role: Some(Role::Requester),
+                    client: Some(controller_b()),
+                },
+                reply: Arc::new(Mutex::new(Some(reply))),
+            };
+            let submitted = dq.submit_ensure(&sessions, &q.pin, &req).await;
+            for (path, answer) in [("forward_ensure", forwarded), ("submit_ensure", submitted)] {
+                let what = format!("{path}, {label}");
+                match answer {
+                    Ok(Forwarded::Ready { data, .. }) => {
+                        kept += 1;
+                        if leaks(&serde_json::to_string(&data).unwrap()) {
+                            wrong.push(format!("{what}: kept with the runner's text"));
+                        }
+                        // What is kept still reads as the contract's type.
+                        if serde_json::from_value::<heimdall_contract::request::EnsureData>(data)
+                            .is_err()
+                        {
+                            wrong.push(format!("{what}: kept, but no longer `EnsureData`"));
+                        }
+                    }
+                    Ok(other) => wrong.push(format!("{what}: not a ready answer: {other:?}")),
+                    Err(e) => {
+                        refused += 1;
+                        // `forward_ensure` reads the grant before the screen, with its own
+                        // refusal (fixed text, as before this unit).
+                        let message = if path == "forward_ensure" && label == "leaf /grant_id" {
+                            "the runner's answer to the forwarded ensure names no grant; \
+                             nothing was recorded"
+                        } else {
+                            "the runner's response could not be read"
+                        };
+                        if e.code != Code::OutcomeUnknown || e.message != message {
+                            wrong.push(format!("{what}: refused {:?}", e.code));
+                        }
+                        if leaks(&serde_json::to_string(&e.into_envelope()).unwrap()) {
+                            wrong.push(format!("{what}: the refusal carries the runner's text"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(refused > 0 && kept > 0, "refused {refused}, kept {kept}");
+
+        // 3. What a kept answer says instead of the runner's text, many such fields at once:
+        // fixed wording, the contract's unknown representations (`unknown`, `undetermined`,
+        // `not_verified`, an absent version), extra keys dropped, the runner's paths kept.
         {
             let mut mutated = base_data.clone();
             mutated["extra_top"] = hostile.clone().into();
@@ -5389,10 +5670,12 @@ mod sec5_ensure_ingress {
                 },
                 reply: Mutex::new(Some(reply.clone())),
             };
-            let Forwarded::Ready { data: fwd, .. } =
-                da.forward_ensure(&a.pin, &mut s, &req, &ca).await.unwrap()
-            else {
-                panic!("expected ready");
+            let fwd = match da.forward_ensure(&a.pin, &mut s, &req, &ca).await {
+                Ok(Forwarded::Ready { data, .. }) => Some(data),
+                other => {
+                    wrong.push(format!("forward_ensure, many fields: not kept: {other:?}"));
+                    None
+                }
             };
             let sessions = CannedSessions {
                 hello: SessionHello {
@@ -5402,322 +5685,111 @@ mod sec5_ensure_ingress {
                 },
                 reply: Arc::new(Mutex::new(Some(reply))),
             };
-            let Forwarded::Ready { data: sub, .. } =
-                dq.submit_ensure(&sessions, &q.pin, &req).await.unwrap()
-            else {
-                panic!("expected ready");
+            let sub = match dq.submit_ensure(&sessions, &q.pin, &req).await {
+                Ok(Forwarded::Ready { data, .. }) => Some(data),
+                other => {
+                    wrong.push(format!("submit_ensure, many fields: not kept: {other:?}"));
+                    None
+                }
             };
-            for (what, data) in [("forward_ensure", &fwd), ("submit_ensure", &sub)] {
-                let text = serde_json::to_string(data).unwrap();
-                assert_clean(what, &text);
-                assert!(data.get("extra_top").is_none(), "{what}: {data}");
-                assert!(
-                    data["consumer"].get("extra_consumer").is_none(),
-                    "{what}: {data}"
-                );
-                assert_eq!(data["credential_availability"], "unknown", "{what}");
-                assert_eq!(data["lock_continuity"], "not_verified", "{what}");
-                assert_eq!(
-                    data["enforcement"]["destination_scope"], "unknown",
-                    "{what}"
-                );
-                assert_eq!(data["provider"]["provider"], "unknown", "{what}");
-                assert_eq!(data["revocation"]["remote"], "unknown", "{what}");
-                assert_eq!(
-                    data["residuals"]["owned_dedicated_sessions"], "unknown",
-                    "{what}"
-                );
-                assert!(data["evidence"][0].get("client").is_none(), "{what}");
-                assert!(data["evidence"][0].get("server").is_none(), "{what}");
-                assert_eq!(data["evidence"][1]["endpoint_kind"], "unknown", "{what}");
-                assert_eq!(
-                    data["consumer"]["pairs"][0]["interaction"], "unknown",
-                    "{what}"
-                );
-                assert_eq!(
-                    data["consumer"]["pairs"][0]["identity_selection"], "undetermined",
-                    "{what}"
-                );
-                // Runner-local paths stayed intact as runner-reported values.
-                assert_eq!(
-                    data["consumer"]["signing_endpoint"],
-                    "/run/heimdall/b/0123456789abcdef/agent.sock",
-                    "{what}"
-                );
-                // Typed EnsureData round-trips cleanly.
-                let _: heimdall_contract::request::EnsureData =
-                    serde_json::from_value(data.clone()).unwrap();
+            for (what, data) in [("forward_ensure", fwd), ("submit_ensure", sub)] {
+                let Some(data) = data else { continue };
+                let p = &data["consumer"]["pairs"][0];
+                let checks = [
+                    (
+                        "the runner's text",
+                        !leaks(&serde_json::to_string(&data).unwrap()),
+                    ),
+                    ("an extra key", data.get("extra_top").is_none()),
+                    (
+                        "a nested extra key",
+                        data["consumer"].get("extra_consumer").is_none(),
+                    ),
+                    (
+                        "credential_availability",
+                        data["credential_availability"] == "unknown",
+                    ),
+                    ("lock_continuity", data["lock_continuity"] == "not_verified"),
+                    (
+                        "enforcement.destination_scope",
+                        data["enforcement"]["destination_scope"] == "unknown",
+                    ),
+                    (
+                        "provider.provider",
+                        data["provider"]["provider"] == "unknown",
+                    ),
+                    (
+                        "revocation.remote",
+                        data["revocation"]["remote"] == "unknown",
+                    ),
+                    (
+                        "residuals.owned_dedicated_sessions",
+                        data["residuals"]["owned_dedicated_sessions"] == "unknown",
+                    ),
+                    (
+                        "evidence client",
+                        data["evidence"][0].get("client").is_none(),
+                    ),
+                    (
+                        "evidence server",
+                        data["evidence"][0].get("server").is_none(),
+                    ),
+                    (
+                        "evidence endpoint_kind",
+                        data["evidence"][1]["endpoint_kind"] == "unknown",
+                    ),
+                    ("pair interaction", p["interaction"] == "unknown"),
+                    (
+                        "pair identity_selection",
+                        p["identity_selection"] == "undetermined",
+                    ),
+                    (
+                        "the runner's path, as reported",
+                        data["consumer"]["signing_endpoint"]
+                            == "/run/heimdall/b/0123456789abcdef/agent.sock",
+                    ),
+                    (
+                        "still `EnsureData`",
+                        serde_json::from_value::<heimdall_contract::request::EnsureData>(
+                            data.clone(),
+                        )
+                        .is_ok(),
+                    ),
+                ];
+                for (field, ok) in checks {
+                    if !ok {
+                        wrong.push(format!("{what}, many fields: {field}"));
+                    }
+                }
             }
         }
 
-        // 2. Every strict relayed field: hostile text must refuse with OUTCOME_UNKNOWN and
-        // "the runner's response could not be read", on both forward_ensure and submit_ensure,
-        // and write no delivered-grant record.
-        type Mutator<'a> = Box<dyn Fn(&mut serde_json::Value) + 'a>;
-        let strict_cases: Vec<(&str, Mutator<'_>)> = vec![
-            (
-                "binding_id",
-                Box::new(|v| v["binding_id"] = hostile.clone().into()),
-            ),
-            (
-                "environment_id",
-                Box::new(|v| v["environment_id"] = hostile.clone().into()),
-            ),
-            (
-                "refresh_dependency",
-                Box::new(|v| v["refresh_dependency"] = hostile.clone().into()),
-            ),
-            (
-                "credential_mechanism",
-                Box::new(|v| v["credential_mechanism"] = hostile.clone().into()),
-            ),
-            (
-                "signing_endpoint.hostile",
-                Box::new(|v| v["consumer"]["signing_endpoint"] = hostile.clone().into()),
-            ),
-            (
-                "signing_endpoint.ctrl",
-                Box::new(|v| v["consumer"]["signing_endpoint"] = control_path.clone().into()),
-            ),
-            (
-                "ssh_config_include.hostile",
-                Box::new(|v| v["consumer"]["ssh_config_include"] = hostile.clone().into()),
-            ),
-            (
-                "consumer.environment.name",
-                Box::new(|v| {
-                    v["consumer"]["environment"] = serde_json::json!([[hostile, "/run/a"]]);
-                }),
-            ),
-            (
-                "consumer.environment.ssh_auth_sock",
-                Box::new(|v| {
-                    v["consumer"]["environment"] = serde_json::json!([["SSH_AUTH_SOCK", hostile]]);
-                }),
-            ),
-            (
-                "consumer.environment.git_ssh_command",
-                Box::new(|v| {
-                    v["consumer"]["environment"] =
-                        serde_json::json!([["GIT_SSH_COMMAND", hostile]]);
-                }),
-            ),
-            (
-                "executables.path",
-                Box::new(|v| v["consumer"]["executables"][0]["path"] = hostile.clone().into()),
-            ),
-            (
-                "executables.version",
-                Box::new(|v| v["consumer"]["executables"][0]["version"] = hostile.clone().into()),
-            ),
-            (
-                "executables.sha256",
-                Box::new(|v| v["consumer"]["executables"][0]["sha256"] = hostile.clone().into()),
-            ),
-            (
-                "overrides.setting",
-                Box::new(|v| v["consumer"]["overrides"][0]["setting"] = hostile.clone().into()),
-            ),
-            (
-                "overrides.path_display",
-                Box::new(|v| {
-                    v["consumer"]["overrides"][0]["source"]["path_display"] =
-                        hostile.clone().into();
-                }),
-            ),
-            (
-                "pairs.destination",
-                Box::new(|v| v["consumer"]["pairs"][0]["destination"] = hostile.clone().into()),
-            ),
-            (
-                "pairs.account",
-                Box::new(|v| v["consumer"]["pairs"][0]["account"] = hostile.clone().into()),
-            ),
-            (
-                "pairs.identity",
-                Box::new(|v| v["consumer"]["pairs"][0]["identity"] = hostile.clone().into()),
-            ),
-            (
-                "pairs.mechanism",
-                Box::new(|v| v["consumer"]["pairs"][0]["mechanism"] = hostile.clone().into()),
-            ),
-            (
-                "pairs.endpoint.locator",
-                Box::new(|v| {
-                    v["consumer"]["pairs"][0]["endpoint"]["locator"] = hostile.clone().into();
-                }),
-            ),
-            (
-                "pairs.alias",
-                Box::new(|v| v["consumer"]["pairs"][0]["alias"] = hostile.clone().into()),
-            ),
-            (
-                "pairs.declaration.endpoint.locator",
-                Box::new(|v| {
-                    v["consumer"]["pairs"][0]["declaration"]["endpoint"]["locator"] =
-                        hostile.clone().into();
-                }),
-            ),
-            (
-                "pairs.noninteractive.reason",
-                Box::new(|v| {
-                    v["consumer"]["pairs"][0]["noninteractive"]["reason"] = hostile.clone().into();
-                }),
-            ),
-            (
-                "pairs.entries.provenance.path_display",
-                Box::new(|v| {
-                    v["consumer"]["pairs"][0]["identity_selection_report"]["entries"][0]["provenance"]
-                        ["path_display"] = hostile.clone().into();
-                }),
-            ),
-            (
-                "pairs.entries.fingerprint",
-                Box::new(|v| {
-                    v["consumer"]["pairs"][0]["identity_selection_report"]["entries"][0]["fingerprint"] =
-                        hostile.clone().into();
-                }),
-            ),
-            (
-                "pairs.route.jump",
-                Box::new(|v| {
-                    v["consumer"]["pairs"][0]["route"]["jump"] = hostile.clone().into();
-                }),
-            ),
-            (
-                "pairs.route.jump_alias",
-                Box::new(|v| {
-                    v["consumer"]["pairs"][0]["route"]["jump_alias"] = hostile.clone().into();
-                }),
-            ),
-            (
-                "realization.endpoint",
-                Box::new(|v| {
-                    v["consumer"]["realization"]["endpoint"] = hostile.clone().into();
-                }),
-            ),
-            (
-                "realization.config",
-                Box::new(|v| {
-                    v["consumer"]["realization"]["config"] = hostile.clone().into();
-                }),
-            ),
-            (
-                "realization.mount.source",
-                Box::new(|v| {
-                    v["consumer"]["realization"]["mount"]["source"] = hostile.clone().into();
-                }),
-            ),
-            (
-                "realization.mount.target",
-                Box::new(|v| {
-                    v["consumer"]["realization"]["mount"]["target"] = hostile.clone().into();
-                }),
-            ),
-            (
-                "realization.environment",
-                Box::new(|v| {
-                    v["consumer"]["realization"]["environment"] =
-                        serde_json::json!([["GIT_SSH_COMMAND", hostile]]);
-                }),
-            ),
-            (
-                "evidence.field",
-                Box::new(|v| v["evidence"][0]["field"] = hostile.clone().into()),
-            ),
-            (
-                "evidence.record",
-                Box::new(|v| v["evidence"][1]["record"] = hostile.clone().into()),
-            ),
-            (
-                "evidence.operation_id",
-                Box::new(|v| v["evidence"][0]["operation_id"] = hostile.clone().into()),
-            ),
-            (
-                "context.workspace_id",
-                Box::new(|v| v["context"]["workspace_id"] = hostile.clone().into()),
-            ),
-            (
-                "context.policy_id",
-                Box::new(|v| v["context"]["policy_id"] = hostile.clone().into()),
-            ),
-            (
-                "uncovered.destination",
-                Box::new(|v| v["uncovered"][0]["destination"] = hostile.clone().into()),
-            ),
-        ];
-
-        for (i, (label, mutate)) in strict_cases.into_iter().enumerate() {
-            let fresh_grant = GrantId::from_random_bytes([0x80 + (i as u8); 16]);
-            let mut payload = valid_ensure_data(&r.w.env, &fresh_grant);
-            mutate(&mut payload);
-            let reply = Envelope {
-                state: OperationState::Succeeded,
-                code: Code::AccessReady,
-                ..Envelope::ok(payload)
-            };
-            let mut s = CannedSession {
-                hello: SessionHello {
-                    environment: r.w.env.clone(),
-                    role: Some(Role::Owner),
-                    client: Some(controller_a()),
-                },
-                reply: Mutex::new(Some(reply.clone())),
-            };
-            let err = da
-                .forward_ensure(&a.pin, &mut s, &req, &ca)
-                .await
-                .expect_err(&format!("forward_ensure.{label}: must be refused"));
-            assert_eq!(
-                err.code,
-                Code::OutcomeUnknown,
-                "forward_ensure.{label}: {err:?}"
-            );
-            assert_eq!(
-                err.message, "the runner's response could not be read",
-                "forward_ensure.{label}: {err:?}"
-            );
-            assert_clean(
-                &format!("forward_ensure.{label}"),
-                &serde_json::to_string(&err.into_envelope()).unwrap(),
-            );
-            assert!(
-                a.store
-                    .transaction(|tx| tx.delivered_grant(&r.w.env, &fresh_grant))
-                    .unwrap()
-                    .is_none(),
-                "forward_ensure.{label}: unreadable answer must record no delivered grant"
-            );
-
-            let sessions = CannedSessions {
-                hello: SessionHello {
-                    environment: r.w.env.clone(),
-                    role: Some(Role::Requester),
-                    client: Some(controller_b()),
-                },
-                reply: Arc::new(Mutex::new(Some(reply))),
-            };
-            let err = dq
-                .submit_ensure(&sessions, &q.pin, &req)
-                .await
-                .expect_err(&format!("submit_ensure.{label}: must be refused"));
-            assert_eq!(
-                err.code,
-                Code::OutcomeUnknown,
-                "submit_ensure.{label}: {err:?}"
-            );
-            assert_eq!(
-                err.message, "the runner's response could not be read",
-                "submit_ensure.{label}: {err:?}"
-            );
-            assert_clean(
-                &format!("submit_ensure.{label}"),
-                &serde_json::to_string(&err.into_envelope()).unwrap(),
-            );
+        // 4. Nothing the runner said reached this controller's records or its status.
+        for (who, c) in [("owner", &a), ("requester", &q)] {
+            let records = c
+                .store
+                .transaction(|tx| {
+                    Ok(vec![
+                        serde_json::to_string(&tx.delivered_grants(None)?).unwrap(),
+                        serde_json::to_string(&tx.remote_contact(&r.w.env)?).unwrap(),
+                        serde_json::to_string(&tx.remote_effect_outbox(None, false)?).unwrap(),
+                        serde_json::to_string(&heimdall_app::remote_status::status_of_recorded(
+                            tx,
+                            &r.w.env,
+                            None,
+                            c.now(),
+                        )?)
+                        .unwrap(),
+                    ])
+                })
+                .unwrap();
+            if records.iter().any(|text| leaks(text)) {
+                wrong.push(format!("{who}'s records and status"));
+            }
         }
 
-        // 3. Through ControllerHost::forward_ensure (limited role submit_limited): verify
-        // records, JSON output and tracing logs carry neither canary nor instruction.
+        // 5. Through the hosted driver (`ControllerHost::forward_ensure`, a limited role's
+        // submission): neither the answer it renders nor its logs carry the runner's text.
         let mut payload = valid_ensure_data(&r.w.env, &GrantId::from_random_bytes([0x77; 16]));
         payload["connection_policy"]["wording"] = hostile.clone().into();
         let sessions = Arc::new(CannedSessions {
@@ -5770,7 +5842,15 @@ mod sec5_ensure_ingress {
         drop(guard);
         let json = serde_json::to_string(&heimdall_runtime::dispatch::render(outcome)).unwrap();
         let logs = String::from_utf8(logged.0.lock().unwrap().clone()).unwrap();
-        assert_clean("controller_host.json", &json);
-        assert_clean("controller_host.logs", &logs);
+        if leaks(&json) {
+            wrong.push("the hosted driver's answer".to_owned());
+        }
+        if leaks(&logs) {
+            wrong.push("the hosted driver's logs".to_owned());
+        }
+        assert!(
+            wrong.is_empty(),
+            "the runner's `EnsureData` was relayed: {wrong:#?}"
+        );
     }
 }

@@ -1,34 +1,40 @@
 //! ⟨M08 W4 SEC-5; spec §14; ADR-0013⟩ Remote-ingress screening of runner success data and
 //! unknown error codes.
 //!
-//! A paired runner is an untrusted peer from the perspective of this controller's own
-//! records, human output, logs and agent-facing JSON (spec §14). SEC-1 added
-//! [`crate::remote_env::peer_refusal`] for runner refusals and canonicalized report/ack
-//! `scope_key`s. This module extends that boundary to:
+//! A paired runner is an untrusted peer from the point of view of this controller's own
+//! records, human output, logs and agent-facing JSON (spec §14). SEC-1 screened a runner's
+//! refusals ([`crate::remote_env::peer_refusal`]) and the report's and acknowledgements'
+//! scope keys. This module screens the rest:
 //!
-//! 1. **Bounded unknown error codes** (ruling 8): [`screen_peer_code`] keeps
-//!    [`Code::Unknown`] only when it matches `[A-Z][A-Z0-9_]*` and is at most
-//!    [`MAX_PEER_CODE_BYTES`] (64 bytes), and maps any other spelling to
-//!    [`PEER_UNKNOWN_CODE`] (`"UNKNOWN_CODE"`).
-//! 2. **Runner success payloads** (item 1): every relayed success answer
-//!    (`revoke-client`, `update`, `recheck`, `transport rotate` accepted announcements,
-//!    a limited role's `runner_view`, and forwarded/submitted `EnsureData`) is parsed from
-//!    the wire into freshly constructed typed values, dropping unknown keys and screening
-//!    every field to the grammar guaranteed by its local producer:
-//!    * enumerations and tokens to their grammar (unknown values map to the contract's
-//!      existing unknown/undetermined/not-verified/absent representation where one exists,
-//!      else refuse as `OUTCOME_UNKNOWN`);
-//!    * IDs to their ID grammar (generated `<prefix>_<32 lowercase hex>` for
-//!      runtime-generated IDs, contract token grammar for caller-chosen IDs, exact 64
-//!      lowercase hex for Iroh endpoints, `SHA256:<43 base64>` for fingerprints);
-//!    * runner-local paths and endpoints bounded (<= 4096 bytes), with no control
-//!      characters and a valid path or named-pipe prefix, kept as runner-reported values;
-//!    * genuine free text (`EnsureData.connection_policy.wording`, `runner_view` record
-//!      `label`) replaced with fixed local text.
+//! 1. **A peer's unknown code** (ruling 8): [`screen_peer_code`] keeps a [`Code::Unknown`]
+//!    only when it matches `[A-Z][A-Z0-9_]*` and is at most [`MAX_PEER_CODE_BYTES`] (64)
+//!    bytes, and maps any other spelling to [`PEER_UNKNOWN_CODE`]. (The wire already bounds
+//!    a code to `[A-Z0-9_]{1,64}`: a leading digit or `_` was the way through.)
+//! 2. **A runner's success data** (item 1), wherever it is relayed: `revoke-client`,
+//!    `update` and `recheck`'s answers, `transport rotate`'s accepted announcement, a
+//!    limited role's runner view, and a forwarded or submitted `ensure`'s `EnsureData`.
+//!    Each answer is rebuilt here from what is read: a key this build does not know is
+//!    dropped, and each field is held to the grammar its local producer guarantees:
+//!    * enumerations and tokens to their grammar; a value outside it becomes the
+//!      contract's existing unknown representation where the field has one (`unknown`,
+//!      `undetermined`, `not_verified`, absent);
+//!    * IDs to their grammar: `<prefix>_<32 lowercase hex>` for the generated ones (and
+//!      the environment, client and grant the request named), the contract's token grammar
+//!      for the chosen ones (destinations, accounts, policies), the catalog's for aliases;
+//!    * runner-local paths and endpoints: at most 4096 bytes, no control character, and
+//!      rooted as a producer roots them (`/`, a drive or a named pipe), kept as the runner
+//!      reported them;
+//!    * genuine free text (`connection_policy.wording`, a runner view's `label`) replaced
+//!      with fixed local text, and the evidence's peer-reported version lines kept only as
+//!      an OpenSSH version token (absent otherwise: unobserved).
 //!
-//! Values only change — no contract shape is altered (ADR-0013). Any reply that fails its
-//! grammar where the field has no existing unknown representation is refused as
-//! `OUTCOME_UNKNOWN` with the message `"the runner's response could not be read"`.
+//!    `update` has no success producer in this build, so its answer keeps no field.
+//!
+//! Only values change, never a contract's shape (ADR-0013). An answer that fails a field's
+//! grammar where the field has no unknown representation is refused, `OUTCOME_UNKNOWN`, with
+//! the message `"the runner's response could not be read"` ([`unreadable_runner_response`]),
+//! and nothing of it is relayed or recorded. A value that fits its grammar is kept: a
+//! token-shaped string fits an ID or path grammar, and is relayed as the runner's value.
 
 use heimdall_contract::doctor::{ConfigProvenance, GitScope};
 use heimdall_contract::environment::{
@@ -83,10 +89,9 @@ pub const PEER_UNKNOWN_CODE: &str = "UNKNOWN_CODE";
 /// `runner_view` (spec §14).
 const RUNNER_LABEL_OMITTED: &str = "runner label omitted";
 
-const MAX_ALIAS_BYTES: usize = 64;
+const MAX_ALIAS_BYTES: usize = 255;
 const MAX_FIELD_BYTES: usize = 64;
 const MAX_RECORD_PATH_BYTES: usize = 256;
-const MAX_VERSION_BYTES: usize = 64;
 const MAX_OPENSSH_VERSION_BYTES: usize = 32;
 const MAX_ENV_VARS: usize = 32;
 const MAX_EXECUTABLES: usize = 16;
@@ -152,13 +157,14 @@ pub fn is_generated_id(text: &str, prefix: &str) -> bool {
         .is_some_and(|hex| is_lower_hex(hex, 32))
 }
 
+/// A managed alias or a route's jump alias, as the catalog accepts one (`catalog::valid_alias`,
+/// which both producers read): 1 to 255 bytes of `[A-Za-z0-9._-]`, not starting with `-`
+/// or `.`.
 fn is_alias_name(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    !bytes.is_empty()
-        && bytes.len() <= MAX_ALIAS_BYTES
-        && bytes[0].is_ascii_alphanumeric()
-        && bytes
-            .iter()
+    !s.is_empty()
+        && s.len() <= MAX_ALIAS_BYTES
+        && !s.starts_with(['-', '.'])
+        && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
@@ -174,16 +180,6 @@ fn is_evidence_record_path(s: &str) -> bool {
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'/' | b'-'))
         && s.split('/').all(|seg| !seg.is_empty() && seg != "..")
-}
-
-fn is_version_token(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    !bytes.is_empty()
-        && bytes.len() <= MAX_VERSION_BYTES
-        && bytes[0].is_ascii_alphanumeric()
-        && bytes
-            .iter()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'+'))
 }
 
 /// OpenSSH version token: `[OpenSSH_]<digits>.<digits>[p<digits>]`, <= 32 bytes.
@@ -425,6 +421,15 @@ fn screen_operation_id(v: &Value) -> Result<OperationId, OpError> {
     OperationId::parse(s).map_err(|_| unreadable_runner_response())
 }
 
+/// ⟨M08 W4 SEC-5, item 1⟩ The runner's operation ID on an answer this controller relays (a
+/// forwarded or submitted `ensure` still pending, a refusal): kept only in the form a runtime
+/// generates (`op_` and 32 lowercase hex). Any other is absent, the field's unknown
+/// representation: the caller then has no operation to wait on, and repeats the request.
+#[must_use]
+pub fn screen_peer_operation_id(id: Option<OperationId>) -> Option<OperationId> {
+    id.filter(|id| is_generated_id(id.as_str(), OperationId::PREFIX))
+}
+
 fn screen_identity_id(v: &Value) -> Result<IdentityId, OpError> {
     let s = v.as_str().ok_or_else(unreadable_runner_response)?;
     if !is_generated_id(s, IdentityId::PREFIX) {
@@ -563,50 +568,18 @@ pub fn screen_revoke_client_answer(
 
 /// Screen the runner's `remote_environment.update` success payload.
 ///
-/// Accepts a JSON object whose optional known fields (`environment`, `status`, `version`,
-/// `sha256`, `updated`) match their grammars; drops any unknown key.
+/// This build has no producer of one: a runner of this build answers
+/// `remote_environment.update` with `driver_unavailable` (its operations' revision-6
+/// refusal), or with a pending runner-local decision, which [`crate::remote_env::runner_result`]
+/// handles as a refusal. So no field of a success answer has a grammar here, and each is
+/// a key this build does not know, dropped as every screen drops one. The answer is an
+/// empty object. A `data` that is not an object cannot be read.
 ///
 /// # Errors
 /// [`unreadable_runner_response`] (`OUTCOME_UNKNOWN`).
-pub fn screen_update_answer(raw: Value, expected_env: &EnvironmentId) -> Result<Value, OpError> {
-    let obj = as_obj(&raw)?;
-    let mut out = Map::new();
-    if let Some(v) = opt(obj, "environment") {
-        let env = screen_env_id(v)?;
-        if env != *expected_env {
-            return Err(unreadable_runner_response());
-        }
-        out.insert(
-            "environment".to_owned(),
-            Value::String(env.as_str().to_owned()),
-        );
-    }
-    if let Some(v) = opt(obj, "status") {
-        let s = v.as_str().ok_or_else(unreadable_runner_response)?;
-        if !is_reason_token(s) {
-            return Err(unreadable_runner_response());
-        }
-        out.insert("status".to_owned(), Value::String(s.to_owned()));
-    }
-    if let Some(v) = opt(obj, "version") {
-        let s = v.as_str().ok_or_else(unreadable_runner_response)?;
-        if !is_version_token(s) {
-            return Err(unreadable_runner_response());
-        }
-        out.insert("version".to_owned(), Value::String(s.to_owned()));
-    }
-    if let Some(v) = opt(obj, "sha256") {
-        let s = v.as_str().ok_or_else(unreadable_runner_response)?;
-        if !is_lower_hex(s, 64) {
-            return Err(unreadable_runner_response());
-        }
-        out.insert("sha256".to_owned(), Value::String(s.to_owned()));
-    }
-    if let Some(v) = opt(obj, "updated") {
-        let b = v.as_bool().ok_or_else(unreadable_runner_response)?;
-        out.insert("updated".to_owned(), Value::Bool(b));
-    }
-    Ok(Value::Object(out))
+pub fn screen_update_answer(raw: &Value) -> Result<Value, OpError> {
+    as_obj(raw)?;
+    Ok(Value::Object(Map::new()))
 }
 
 /// Screen the runner's `remote_environment.runner_policy_recheck` success payload.
@@ -614,12 +587,18 @@ pub fn screen_update_answer(raw: Value, expected_env: &EnvironmentId) -> Result<
 /// Expected wire shapes (`PairedRunner::policy_recheck`):
 /// * not downgraded: `{environment, downgraded: false, recorded: false, management_policy}`;
 /// * downgraded and recorded: `{environment, downgraded: true, recorded: true, cause, epoch,
-///   controller, recorded_at, valid_for_seconds}` (an unknown `cause` string maps to the
-///   existing unknown spelling `"unreadable"`).
+///   controller, recorded_at, valid_for_seconds}`. `controller` is the session's own client
+///   (`expected_client`). The runner stores `cause` as an opaque token, so a token this
+///   build does not know maps to the runner's own unknown spelling, `"unreadable"`
+///   (`OwnerOnlyCause::Unreadable`).
 ///
 /// # Errors
 /// [`unreadable_runner_response`] (`OUTCOME_UNKNOWN`).
-pub fn screen_recheck_answer(raw: Value, expected_env: &EnvironmentId) -> Result<Value, OpError> {
+pub fn screen_recheck_answer(
+    raw: Value,
+    expected_env: &EnvironmentId,
+    expected_client: &ClientId,
+) -> Result<Value, OpError> {
     let obj = as_obj(&raw)?;
     let environment = screen_env_id(req(obj, "environment")?)?;
     if environment != *expected_env {
@@ -647,6 +626,9 @@ pub fn screen_recheck_answer(raw: Value, expected_env: &EnvironmentId) -> Result
             };
             let epoch = req_u64(obj, "epoch")?;
             let controller = screen_client_id(req(obj, "controller")?)?;
+            if controller != *expected_client {
+                return Err(unreadable_runner_response());
+            }
             let recorded_at = parse_ts(req(obj, "recorded_at")?)?;
             let valid_for_seconds = req_u64(obj, "valid_for_seconds")?;
             Ok(serde_json::json!({

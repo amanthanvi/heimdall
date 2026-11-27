@@ -4733,16 +4733,12 @@ async fn an_approval_whose_widening_fails_to_apply_leaves_the_decision_as_it_was
     );
 }
 
-/// ⟨M08 W4 SEC-5, item 7.2 (S3-07)⟩ `confirm_time` runs its decision insert, time-gate
-/// confirmation and decision completion in **one** transaction and handles
-/// `DecisionCompletion::Refused` by rolling everything back:
-/// 1. on acceptance and on skew refusal, exactly one store transaction commits (never 3);
-/// 2. a commit fault leaves no pending decision, no confirmation, no anchor and no event;
-/// 3. when `complete_decision` refuses (here `decision_lifetime == 0` so `now >= expires_at`),
-///    `confirm_time` returns `DECISION_STALE` and rolls back the decision record, the time
-///    confirmation, the runtime anchor and the events.
+/// ⟨M08 W4 SEC-5, item 7.2 (S3-07)⟩ `confirm_time` writes its decision record, the time
+/// gate's attended confirmation and the decision's outcome in **one** transaction: an
+/// accepted and a refused (skew) confirmation each commit exactly once, and a failed commit
+/// leaves neither a pending decision nor a confirmation.
 #[tokio::test]
-async fn confirm_time_runs_in_one_transaction_and_rolls_back_on_decision_refusal() {
+async fn confirm_time_runs_in_one_transaction() {
     use heimdall_contract::request::ConfirmTimeRequest;
 
     struct CountAndFailCommits {
@@ -4870,8 +4866,17 @@ async fn confirm_time_runs_in_one_transaction_and_rolls_back_on_decision_refusal
             .is_empty(),
         "no pending decision left after skew refusal"
     );
+}
 
-    // 2. DecisionCompletion::Refused (decision_lifetime == 0 -> already expired when completed):
+/// ⟨M08 W4 SEC-5, item 7.2 (S3-07)⟩ When the store refuses to complete `confirm_time`'s
+/// decision (`DecisionCompletion::Refused`; here the decision lifetime is zero, so it has
+/// expired when it is completed), the refusal is answered (`DECISION_STALE`) and the whole
+/// transaction rolls back: no decision record, no confirmation, no decision event.
+#[tokio::test]
+async fn confirm_time_answers_a_refused_completion_and_rolls_back() {
+    use heimdall_contract::request::ConfirmTimeRequest;
+
+    // DecisionCompletion::Refused (decision_lifetime == 0 -> already expired when completed):
     // must return DECISION_STALE and roll back the entire transaction (no decision record, no
     // confirmation, no runtime anchor, no decision event).
     let w_refused = World::with_opts(Opts {
@@ -4918,13 +4923,14 @@ async fn confirm_time_runs_in_one_transaction_and_rolls_back_on_decision_refusal
     );
 }
 
-/// ⟨M08 W4 SEC-5, item 7.1⟩ An ordinary trusted-time policy cutoff ending a grant records
-/// `policy_cutoff` as its reason/cause, while a normal deadline expiry omits reason/cause.
+/// ⟨M08 W4 SEC-5, item 7.1⟩ A grant a cutoff ends on safe time records `policy_cutoff` as the
+/// cause of its `credential_lifecycle` `expired` event; a deadline expiry records no cause.
+/// `grant_state_changed` carries a `reason` only for a degraded grant, in both cases.
 #[tokio::test]
 async fn a_cutoff_ending_a_grant_records_policy_cutoff_reason_and_deadline_expiry_does_not() {
     use heimdall_contract::event::EventType;
 
-    // Case 1: policy cutoff ends the grant -> records `policy_cutoff`.
+    // Case 1: a cutoff ends the grant: the cause is `policy_cutoff`.
     let w = World::new().await;
     let base = w.ready("req-cut", "work-cut", &["h1"], None).await;
     w.clock.advance(MINUTE);
@@ -4960,7 +4966,7 @@ async fn a_cutoff_ending_a_grant_records_policy_cutoff_reason_and_deadline_expir
                 && e.payload["state"] == "expired"
         })
         .expect("grant_state_changed(expired)");
-    assert_eq!(gs.payload["reason"], "policy_cutoff", "{}", gs.payload);
+    assert!(gs.payload.get("reason").is_none(), "{}", gs.payload);
     let cl = events
         .iter()
         .find(|e| {
@@ -4971,7 +4977,7 @@ async fn a_cutoff_ending_a_grant_records_policy_cutoff_reason_and_deadline_expir
         .expect("credential_lifecycle(expired)");
     assert_eq!(cl.payload["cause"], "policy_cutoff", "{}", cl.payload);
 
-    // Case 2: ordinary deadline expiry (no cutoff) -> omits reason and cause.
+    // Case 2: the deadline passes (no cutoff): no cause.
     let w2 = World::new().await;
     let base2 = w2
         .ready(

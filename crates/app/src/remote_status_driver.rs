@@ -1004,7 +1004,12 @@ impl ControllerSync {
     /// * the runner's refusal, unchanged: `APPROVAL_REQUIRED` with the runner-local
     ///   `decision_ref` for a request beyond its standing policy (nothing recorded), or any
     ///   other error;
-    /// * `OUTCOME_UNKNOWN` for an answer that names no grant (nothing recorded).
+    /// * `OUTCOME_UNKNOWN` for an answer that names no grant (nothing recorded);
+    /// * ⟨M08 W4 SEC-5, ruling 7⟩ `CAPABILITY_UNAVAILABLE`, effect `none`, for an answer
+    ///   naming a grant of this installation, before anything else (nothing recorded);
+    /// * ⟨M08 W4 SEC-5, item 1⟩ `OUTCOME_UNKNOWN` ("the runner's response could not be
+    ///   read") for an answer whose data fails its grammar
+    ///   ([`crate::remote_ingress::screen_ensure_data`]; nothing recorded).
     pub async fn forward_ensure(
         &self,
         pin: &RemoteEnvironmentPin,
@@ -1041,7 +1046,8 @@ impl ControllerSync {
             timeout_ms: FORWARD_WAIT_MS,
         };
         let answer = session.call(ManagementCall::Ensure(Box::new(sent))).await?;
-        let operation = answer.operation_id.clone();
+        let operation =
+            crate::remote_ingress::screen_peer_operation_id(answer.operation_id.clone());
         let (grant, ready) = match answer.code {
             Code::Ok | Code::AccessReady => {
                 let grant = answer
@@ -1132,7 +1138,8 @@ impl ControllerSync {
     ///   (`environment_identity_mismatch`), nothing sent;
     /// * the runner's refusal, unchanged (`APPROVAL_REQUIRED` with the runner-local
     ///   `decision_ref`, `role_insufficient`, …);
-    /// * `OUTCOME_UNKNOWN` for an answer that names no grant.
+    /// * `OUTCOME_UNKNOWN` for an answer that names no grant, or ⟨M08 W4 SEC-5, item 1⟩ one
+    ///   whose data fails its grammar ([`crate::remote_ingress::screen_ensure_data`]).
     pub async fn submit_ensure(
         &self,
         sessions: &dyn ManagementSessions,
@@ -1183,7 +1190,8 @@ impl ControllerSync {
             .with_effect(EffectStatus::None));
         }
         let answer = session.call(ManagementCall::Ensure(Box::new(sent))).await?;
-        let operation = answer.operation_id.clone();
+        let operation =
+            crate::remote_ingress::screen_peer_operation_id(answer.operation_id.clone());
         match answer.code {
             Code::Ok | Code::AccessReady => {
                 // ⟨M08 W4 SEC-5, item 1⟩ Screen `EnsureData` at the remote ingress.

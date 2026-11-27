@@ -1028,20 +1028,13 @@ impl Emit {
         tx: &mut Txn<'_>,
         g: &GrantSnapshot,
         op: Option<&OperationId>,
-        reason: Option<&str>,
     ) -> heimdall_store::Result<()> {
-        let mut payload = serde_json::json!({ "grant_id": g.id, "state": g.state });
-        if let Some(reason) = reason
-            && let Some(map) = payload.as_object_mut()
-        {
-            map.insert("reason".to_owned(), serde_json::json!(reason));
-        }
         self.event(
             tx,
             EventType::GrantStateChanged,
             op.cloned(),
             Some(resource("grant", &g.id)),
-            payload,
+            serde_json::json!({ "grant_id": g.id, "state": g.state }),
         )
     }
 
@@ -1678,19 +1671,8 @@ fn put_grant(
     g: &GrantSnapshot,
     op: Option<&OperationId>,
 ) -> heimdall_store::Result<()> {
-    put_grant_reason(tx, emit, g, None, op)
-}
-
-/// [`put_grant`] with an optional stable `reason` recorded on the grant's state-change event.
-fn put_grant_reason(
-    tx: &mut Txn<'_>,
-    emit: &mut Emit,
-    g: &GrantSnapshot,
-    reason: Option<&str>,
-    op: Option<&OperationId>,
-) -> heimdall_store::Result<()> {
     tx.update_grant_state(g)?;
-    emit.grant(tx, g, op, reason)?;
+    emit.grant(tx, g, op)?;
     let mut child = g.clone();
     for _ in 0..MAX_ANCESTRY {
         // `revoking` can only become `revoked`: the child is never live again, so
@@ -1718,7 +1700,7 @@ fn put_grant_reason(
             // Release is never revoke (ADR-0006 §13.1 item 2): no tombstone, no
             // cascade to other descendants.
             tx.update_grant_state(&p)?;
-            emit.grant(tx, &p, None, None)?;
+            emit.grant(tx, &p, None)?;
             child = p;
         } else {
             break;
@@ -1727,13 +1709,32 @@ fn put_grant_reason(
     Ok(())
 }
 
-/// ⟨M08 W4 SEC-5, item 7.1⟩ Why a grant expired:
-/// - `Some("cutoff_fired_under_uncertain_time")` when an in-force delivered remote cutoff
-///   that fired while time was uncertain applies to the grant and its fired instant is at
-///   or before the grant's deadline bound;
-/// - `Some("policy_cutoff")` when an applicable policy cutoff lowered the grant's bound
-///   strictly below its own and ancestors' deadlines;
-/// - `None` for an ordinary deadline expiry.
+/// ⟨M08 W4 SEC-5, item 7.1⟩ `credential_lifecycle`'s `expired` payload for `g`, which ends
+/// now: with the cause when a cutoff ended it ([`expiry_cause_in`]).
+fn expired_payload(
+    tx: &mut Txn<'_>,
+    g: &GrantSnapshot,
+) -> heimdall_store::Result<serde_json::Value> {
+    let mut payload = serde_json::json!({ "grant_id": g.id, "event": "expired" });
+    if let Some(cause) = expiry_cause_in(tx, g)?
+        && let Some(map) = payload.as_object_mut()
+    {
+        map.insert("cause".to_owned(), serde_json::json!(cause));
+    }
+    Ok(payload)
+}
+
+/// ⟨M08 W4 SEC-5, item 7.1⟩ Why `g` ends now, when a cutoff ended it: its bound
+/// ([`grant_bound`]) is the cutoff of its policies, earlier than its own deadline and every
+/// ancestor's. `None` otherwise: a deadline, or a continuous budget that ran out against one.
+///
+/// * `cutoff_fired_while_time_uncertain`: that cutoff is one this installation applied while
+///   its time was uncertain, a delivered revision still in force that fired
+///   (`fired_uncertain_at`) no later than the cutoff and covers one of the grant's policies
+///   as the runner applied it (`heimdall_remote::sync`: every policy, the named one, those
+///   of the profile or of the workspace). Under uncertain time it cut the grant's anchored
+///   budget to the instant it fired, and the next scheduler pass ends the grant there.
+/// * `policy_cutoff`: any other cutoff.
 fn expiry_cause_in(
     tx: &mut Txn<'_>,
     g: &GrantSnapshot,
@@ -1741,46 +1742,35 @@ fn expiry_cause_in(
     use heimdall_contract::trust::PolicyTarget;
 
     let ancestors = ancestry(tx, g)?;
-    let mut deadline_bound = g.deadline.effective;
-    for a in &ancestors {
-        deadline_bound = deadline_bound.min(a.deadline.effective);
-    }
+    let deadline = grant_bound(g, &ancestors, None);
     let origin = tx.grant_origin(&g.id)?;
     let context = crate::policy_context::grant_context(origin.as_ref());
     let policies = match &origin {
         Some(o) => tx.policies_for(&o.profile, &g.environment)?,
         None => Vec::new(),
     };
-    let merged = merged_policy(&policies, &context);
-    let cutoff = merged.as_ref().and_then(|p| p.cutoff_at);
-    let uncertain_cutoff = tx
-        .remote_policy_revisions()?
-        .into_iter()
-        .filter(|r| r.in_force && r.fired_uncertain_at.is_some())
-        .filter(|r| match &r.scope {
-            PolicyTarget::All => true,
-            PolicyTarget::Policy { policy_id } => policies.iter().any(|p| &p.id == policy_id),
-            PolicyTarget::Profile { profile } => {
-                origin.as_ref().is_some_and(|o| &o.profile == profile)
-            }
-            PolicyTarget::Workspace { workspace } => {
-                origin.as_ref().and_then(|o| o.workspace.as_ref()) == Some(workspace)
-            }
-            _ => true,
-        })
-        .filter_map(|r| r.fired_uncertain_at)
-        .min();
-    if let Some(fired_at) = uncertain_cutoff
-        && fired_at <= deadline_bound
-    {
-        return Ok(Some("cutoff_fired_under_uncertain_time"));
-    }
-    if let Some(c) = cutoff
-        && c < deadline_bound
-    {
-        return Ok(Some("policy_cutoff"));
-    }
-    Ok(None)
+    let Some(cutoff) = merged_policy(&policies, &context)
+        .and_then(|p| p.cutoff_at)
+        .filter(|c| *c < deadline)
+    else {
+        return Ok(None);
+    };
+    let fired_uncertain = tx.remote_policy_revisions()?.iter().any(|r| {
+        r.in_force
+            && r.fired_uncertain_at.is_some_and(|f| f <= cutoff)
+            && policies.iter().any(|p| match &r.scope {
+                PolicyTarget::All => true,
+                PolicyTarget::Policy { policy_id } => p.id == *policy_id,
+                PolicyTarget::Profile { profile } => p.profile == *profile,
+                PolicyTarget::Workspace { workspace } => p.workspace.as_ref() == Some(workspace),
+                _ => false,
+            })
+    });
+    Ok(Some(if fired_uncertain {
+        "cutoff_fired_while_time_uncertain"
+    } else {
+        "policy_cutoff"
+    }))
 }
 
 /// `min(deadline, every ancestor deadline, cutoff)` (ADR-0005 §3.6).
@@ -2616,14 +2606,8 @@ fn end_in(
             Some(GrantEnd::Expired) => {
                 let mut g = g;
                 if grant_try(&mut g, GrantEvent::DeadlineReached) {
-                    let cause = expiry_cause_in(tx, &g)?;
-                    put_grant_reason(tx, emit, &g, cause, op)?;
-                    let mut payload = serde_json::json!({ "grant_id": g.id, "event": "expired" });
-                    if let Some(cause) = cause
-                        && let Some(map) = payload.as_object_mut()
-                    {
-                        map.insert("cause".to_owned(), serde_json::json!(cause));
-                    }
+                    put_grant(tx, emit, &g, op)?;
+                    let payload = expired_payload(tx, &g)?;
                     emit.event(
                         tx,
                         EventType::CredentialLifecycle,
@@ -7108,7 +7092,7 @@ impl Operations {
                                     )?;
                                     tx.set_grant_origin(&grant.id, &origin)?;
                                 }
-                                emit.grant(tx, &grant, Some(&id), None)?;
+                                emit.grant(tx, &grant, Some(&id))?;
                                 if ordinary {
                                     let decision = DecisionRecord {
                                         id: decision_id,
@@ -7785,7 +7769,7 @@ impl Operations {
                             rr.grant = Some(gid.clone());
                         }
                         tx.set_recovery_intent(&id2, &intent)?;
-                        emit.grant(tx, &g, Some(&id2), None)?;
+                        emit.grant(tx, &g, Some(&id2))?;
                         Ok(Some(gid))
                     })
                     .await?;
@@ -13195,14 +13179,8 @@ impl Operations {
                 };
                 let expired = grant_try(&mut g, GrantEvent::DeadlineReached);
                 if expired {
-                    let cause = expiry_cause_in(tx, &g)?;
-                    put_grant_reason(tx, emit, &g, cause, None)?;
-                    let mut payload = serde_json::json!({ "grant_id": gid, "event": "expired" });
-                    if let Some(cause) = cause
-                        && let Some(map) = payload.as_object_mut()
-                    {
-                        map.insert("cause".to_owned(), serde_json::json!(cause));
-                    }
+                    put_grant(tx, emit, &g, None)?;
+                    let payload = expired_payload(tx, &g)?;
                     emit.event(
                         tx,
                         EventType::CredentialLifecycle,

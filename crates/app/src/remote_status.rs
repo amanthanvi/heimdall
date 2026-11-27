@@ -317,10 +317,6 @@ pub fn status_of(
         .filter_map(EarlyCutoff::of)
         .collect();
     let delivered = tx.delivered_grants(Some(environment))?;
-    let delivered_policy: BTreeMap<GrantId, Option<PolicyId>> = delivered
-        .iter()
-        .map(|d| (d.grant.clone(), d.policy.clone()))
-        .collect();
     let mut by_grant: BTreeMap<String, (GrantId, Timestamp)> = BTreeMap::new();
     let mut observed_at = None;
     if let Some(report) = &contact.last_report {
@@ -331,25 +327,27 @@ pub fn status_of(
                 .and_modify(|(_, t)| *t = (*t).min(c.valid_before))
                 .or_insert((c.grant.clone(), c.valid_before));
         }
-        // ⟨M08 W4 SEC-5, item 7.1⟩ An in-force cutoff that fired while the runner's time
-        // was uncertain caps the last-known readiness of every grant it applies to, so status
-        // never claims `within_bound` for a grant ended by that cutoff.
+        // ⟨M08 W4 SEC-5, item 7.1; ADR-0012 §7.4⟩ A cutoff that fired at the runner while its
+        // time was uncertain, and is still in force there, bounds every grant it applies to
+        // at the instant it fired, whatever the certificates' `valid_before` (the runner ends
+        // such a grant by its next scheduler pass): the last-known readiness ends there too.
+        // Which grants it applies to is the barrier's rule
+        // ([`crate::remote_status_barrier::revision_applies`]), over the runner's policy its
+        // prepare answer named (`None` when it named none, or when no answer is recorded).
         for (grant, offline_until) in by_grant.values_mut() {
-            let policy = delivered_policy.get(grant).and_then(|p| p.as_ref());
-            if let Some(fired_at) = report
+            let policy = delivered
+                .iter()
+                .find(|d| d.grant == *grant)
+                .and_then(|d| d.prepared.as_ref())
+                .and_then(|p| p.policy.as_ref());
+            let fired = report
                 .cutoffs_fired_early
                 .iter()
-                .filter(|r| r.in_force)
-                .filter(|r| {
-                    r.scope_key == "all"
-                        || r.scope_key
-                            .strip_prefix("policy:")
-                            .is_some_and(|pid| policy.is_some_and(|p| p.as_str() == pid))
-                })
+                .filter(|r| r.in_force && crate::remote_status_barrier::revision_applies(r, policy))
                 .filter_map(|r| r.fired_uncertain_at)
-                .min()
-            {
-                let _ = fired_at;
+                .min();
+            if let Some(fired) = fired {
+                *offline_until = (*offline_until).min(fired);
             }
         }
     }
