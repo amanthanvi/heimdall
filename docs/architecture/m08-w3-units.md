@@ -99,6 +99,16 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
       - The grammar-fit residual is accepted.
     - **SEC-5F, next on Gemini, carries:** those follow-ups, and U2b-3a's held item 4, which
       moved out of U2b-3b so that `remote_env*.rs` and `m06_cmd.rs` have one owner.
+  - **A defect found during W4 (U2b-3a-F, Gemini):** `OperationsDispatcher::handle_as`, the
+    dispatcher entry that a local `LimitedConsumer` caller reaches, bypassed the request fence
+    completely (`Gate::open()`). Requests through it were never stamped, never added to the
+    request ledger and never held to the per-caller share.
+    - Fixed in `61081b38`. `handle_as` now runs the pre-fence refusal, the fence keyed by the
+      caller, the stamp and the terminal record.
+    - Test: `a_local_requester_principal_is_bounded_by_its_share`. It fails at the base, and fails
+      again with only the fix reverted.
+    - **Ruling of 2026-11-27:** paired owners stay share-limited; only the local owner is exempt
+      (ADR-0006 §19.3).
   - **A product-facing installer defect, found by PC jobs 70 and 71.** `install.ps1`, run by
     Windows PowerShell 5.1 from a PowerShell 7 parent (Windows Terminal's default), fails with
     `Get-FileHash` not recognized. The cause: `pwsh`'s modules path is inherited through

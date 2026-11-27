@@ -2805,6 +2805,12 @@ new request key is refused before any append, `BACKPRESSURE` (retryable, effect 
   and keyed by the caller identity the session carries (principal plus client), covering every
   non-owner caller — local requester principals included — as well as paired clients other than
   the local owner (so one requester's flood refuses only that caller, until the reserve line);
+  - **⟨ruling, 2026-11-27⟩ Who the share limits:** **the local owner is exempt, and every caller
+    with a `remote_client` is share-limited, owner role included.** A paired owner is a remote
+    principal; ADR-0012's T-RA5 counts a compromised owner controller among its threats.
+    - The reserve exists so that no remote party can lock the local owner out.
+    - A share of 32,768 is below the reserve of 65,536, so no paired owner can use up the
+      reserve within one runtime lifetime.
 - **the residual:** because the ledger holds no identifier, the share is counted in memory and
   resets at a restart, so a principal that floods across restarts can exceed its share, but never
   the owner's reserve. Since S2-01, a paired client cannot restart the runtime remotely.
