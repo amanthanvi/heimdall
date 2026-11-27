@@ -1371,6 +1371,33 @@ async fn service_status_reports_only_the_verified_connection() {
     let message = env["data"]["error"]["message"].as_str().unwrap();
     assert!(message.contains("not the advertised"), "{message}");
 
+    // 3e. ⟨S2-07 Q1, ruled 2026-11-26⟩ `service stop` accepts an advertisement from an earlier
+    // build only when the verified peer is the advertised process: a mismatched PID is still
+    // refused, before any hello.
+    let mut other = std::process::Command::new("/bin/sleep")
+        .arg("30")
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let other_started = heimdall_runtime::platform::process_start_time(other.id()).unwrap();
+    advertise(other.id(), other_started, None);
+    let before = hellos.load(Ordering::SeqCst);
+    let out = cli_output(&home, cli(&home, &root, &["--json", "service", "stop"])).await;
+    let env = json(&home, &out, &out.stdout);
+    // No signal fallback: the process the file names is still running.
+    let still_alive = other.try_wait().unwrap().is_none();
+    other.kill().unwrap();
+    other.wait().unwrap();
+    assert!(still_alive, "stop signalled the advertised process: {env}");
+    refused(&out, &env, "endpoint_untrusted");
+    let message = env["data"]["error"]["message"].as_str().unwrap();
+    assert!(message.contains("nothing was stopped"), "{message}");
+    assert!(message.contains("instance.json"), "{message}");
+    assert_eq!(hellos.load(Ordering::SeqCst), before, "no hello was sent");
+
     server.abort();
     let _ = server.await;
 }

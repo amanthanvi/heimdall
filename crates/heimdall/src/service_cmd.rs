@@ -585,7 +585,18 @@ async fn request_shutdown(
         crate::client::Expect::StopLegacy,
     )
     .await
-    .map_err(|e| StopFailure::Unreachable(*e))?;
+    .map_err(|e| {
+        // ⟨M07 S2-07 Q1; ruled 2026-11-26⟩ A verified mismatch is the one case where the
+        // advertisement is known to be untrusted: it is reported, never followed by the
+        // signal fallback to whatever process the file names.
+        if e.data.error.reason.as_deref()
+            == Some(heimdall_contract::envelope::reason::ENDPOINT_UNTRUSTED)
+        {
+            StopFailure::Refused(untrusted_stop(paths))
+        } else {
+            StopFailure::Unreachable(*e)
+        }
+    })?;
     let env = client.request(Request::Shutdown(ShutdownRequest {})).await;
     if env.code == Code::Ok {
         return Ok(());
@@ -613,6 +624,30 @@ async fn request_shutdown(
     } else {
         Err(StopFailure::Refused(rendered))
     }
+}
+
+/// ⟨M07 S2-07 Q1⟩ `service stop`'s answer when the advertised runtime and the endpoint's
+/// server do not match: nothing was stopped and no signal was sent. It names the
+/// advertisement file, so the owner can see which process it names and stop that process
+/// themselves if they recognise it; it never prints a process's command line.
+fn untrusted_stop(paths: &Paths) -> Envelope<ErrorData> {
+    let file = paths
+        .runtime_dir
+        .join(heimdall_runtime::instance::INSTANCE_FILE);
+    let mut env = heimdall_app::OpError::new(
+        Code::ServiceUnavailable,
+        format!(
+            "the runtime advertised in {} is not the process serving its endpoint; nothing \
+             was stopped and no signal was sent. Check which process that file names, and \
+             stop it yourself if you recognise it",
+            file.display()
+        ),
+    )
+    .with_effect(EffectStatus::None)
+    .into_envelope();
+    env.data.error.reason =
+        Some(heimdall_contract::envelope::reason::ENDPOINT_UNTRUSTED.to_owned());
+    env
 }
 
 /// Wait, bounded, until the exact advertised process (pid + start time) is gone.
