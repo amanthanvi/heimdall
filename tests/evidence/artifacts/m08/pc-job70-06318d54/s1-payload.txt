@@ -1,0 +1,6 @@
+payload-install-selftest: FAIL install.ps1 fresh install installer exit: expected 0, got 1
+payload-install-selftest: FAIL install.ps1 fresh install home tree: unexpected path 'AppData'
+payload-install-selftest: FAIL install.ps1 fresh install home tree: unexpected path 'AppData/Roaming'
+payload-install-selftest: FAIL install.ps1 fresh install prefix tree: missing path 'heimdall.exe'
+payload-install-selftest: FAIL install.ps1 fresh install prefix tree: missing path 'linux-x86_64'
+payload-install-selftest: FAIL install.ps1 fresh install prefix tree: missing path 'linux-x86_64/heimdall'
