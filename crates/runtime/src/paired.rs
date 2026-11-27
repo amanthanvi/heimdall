@@ -1214,11 +1214,14 @@ pub fn recheck_view(tx: &mut Txn<'_>, now: &ClockReading) -> heimdall_store::Res
 /// transaction ([`recheck_view`]), and the rows are removed only at the epoch judged. A
 /// runner that is not downgraded answers `lifted: false` (idempotent by convergence).
 ///
+/// The CLI uses this path when the runtime is offline, after terminal confirmation. The
+/// runtime checks attendance for `runner_local.policy_recheck` before the request fence.
+///
 /// # Errors
 ///
-/// `INTERACTION_REQUIRED` unattended; `driver_unavailable` on a store that is not a
-/// runner's; `CAPABILITY_UNAVAILABLE` / `management_sshd_unverified` with the
-/// [`LiftRefusal`]'s statement; `STATE_UNAVAILABLE`.
+/// `INTERACTION_REQUIRED` when unattended; `driver_unavailable` on a store that is not a runner's;
+/// `CAPABILITY_UNAVAILABLE` /
+/// `management_sshd_unverified` with the [`LiftRefusal`]'s statement; `STATE_UNAVAILABLE`.
 pub fn lift_downgrade(
     store: &Store,
     now: &ClockReading,
@@ -1231,6 +1234,13 @@ pub fn lift_downgrade(
         )
         .with_effect(EffectStatus::None));
     }
+    apply_downgrade_lift(store, now)
+}
+
+fn apply_downgrade_lift(
+    store: &Store,
+    now: &ClockReading,
+) -> heimdall_app::error::OpResult<serde_json::Value> {
     // ⟨M06-W3-R03⟩ A pending marker is a downgrade event not yet in the store: record it
     // first (its row moves the epoch, so evidence from before it lifts nothing below). A
     // marker that cannot be recorded and removed refuses the lift: the runner would be
@@ -1746,7 +1756,11 @@ impl PairedRunner {
         let answer = match verdict {
             Check::Refuse(r) => {
                 if matches!(r, Refusal::ClientRevoked | Refusal::InvitationExpired) {
-                    // Whatever revoked it, this client's other sessions end too.
+                    // Whatever revoked it, forget any cached time sample from it and end its
+                    // other sessions too.
+                    if let Some(rt) = &self.runtime {
+                        rt.time().invalidate_client(&session.client);
+                    }
                     self.revocations.send_modify(|n| *n = n.wrapping_add(1));
                 }
                 return Frame::Answer(refused(r));
@@ -2360,22 +2374,14 @@ impl PairedRunner {
         }
     }
 
-    /// ⟨M06 W3; ADR-0006 §18.7 item 7⟩ A runner-local decision (`issuer_trust`, the time
-    /// source): the **local** owner only, and for the widening forms an attended session
-    /// (the CLI attends and asks for the typed `yes` first). A paired caller is refused
-    /// (`INTERACTION_REQUIRED`, reason `local_owner_required`, as `heimdall_remote::roles` refuses it before dispatch), a
-    /// local caller that is not the owner `role_insufficient`.
-    pub async fn runner_local(
+    /// ⟨M06 W3; ADR-0006 §18.7 item 7; M08 W4 SEC-3a⟩ A runner-local decision (`issuer_trust`,
+    /// the time source, owner enrollment, downgrade lift): caller identity and attendance for
+    /// widening forms were enforced once before the request fence in `dispatch::pre_fence_refusal`.
+    /// Source changes invalidate the runner's cached time sample and outstanding challenges.
+    pub(crate) async fn runner_local(
         &self,
-        caller: &Caller,
         request: heimdall_contract::remote::RunnerLocalRequest,
     ) -> Envelope<serde_json::Value> {
-        if caller.context.remote_client.is_some() {
-            return refused(Refusal::LocalOwnerRequired);
-        }
-        if !caller.context.has_global_access() {
-            return refused(Refusal::RoleInsufficient);
-        }
         if let heimdall_contract::remote::RunnerLocalRequest::EnrollOwner {
             client,
             public_key,
@@ -2388,18 +2394,27 @@ impl PairedRunner {
                 public_key: public_key.clone(),
                 iroh_endpoint: iroh_endpoint.clone(),
             };
-            return self.enroll_owner(caller.is_attended(), enrollment).await;
+            return self.enroll_owner(enrollment).await;
         }
         let store = Arc::clone(&self.store);
+        let runtime = self.runtime.clone();
         let now = self.clock.wall();
-        let attended = caller.is_attended();
         // ⟨§18.7 item 19⟩ The attended lift, judged on this runtime's own clock.
         let reading = ClockReading::of(self.clock.as_ref());
-        let applied = tokio::task::spawn_blocking(move || match &request {
-            heimdall_contract::remote::RunnerLocalRequest::PolicyRecheck { .. } => {
-                lift_downgrade(&store, &reading, attended)
+        let applied = tokio::task::spawn_blocking(move || {
+            use heimdall_contract::remote::RunnerLocalRequest;
+            let apply = || crate::runner::apply_runner_local(&store, now, &request);
+            match (&request, runtime) {
+                (RunnerLocalRequest::PolicyRecheck { .. }, _) => {
+                    apply_downgrade_lift(&store, &reading)
+                }
+                (
+                    RunnerLocalRequest::DesignateTimeSource { .. }
+                    | RunnerLocalRequest::ClearTimeSource,
+                    Some(rt),
+                ) => rt.time().change_source(apply),
+                _ => apply(),
             }
-            _ => crate::runner::runner_local(&store, now, attended, &request),
         })
         .await;
         match applied {
@@ -2416,18 +2431,11 @@ impl PairedRunner {
     }
 
     /// ⟨M06-W2-R02⟩ `runner_local.enroll_owner`: `remote init` while this runtime runs. The
-    /// attended local owner only (the CLI attends and asks for the typed `yes` first). The
-    /// records commit ([`enroll_owner`]); the line is then written by the runtime's own
+    /// attended local owner only (enforced before the fence in `dispatch::pre_fence_refusal`).
+    /// The records commit ([`enroll_owner`]); the line is then written by the runtime's own
     /// reconciler, under the line lock and from the row as it is then (so a revocation still
     /// wins); a first endpoint reaches the serve child by its replacement (U56-Q10).
-    async fn enroll_owner(
-        &self,
-        attended: bool,
-        enrollment: OwnerEnrollment,
-    ) -> Envelope<serde_json::Value> {
-        if !attended {
-            return refused(Refusal::InteractionRequired);
-        }
+    async fn enroll_owner(&self, enrollment: OwnerEnrollment) -> Envelope<serde_json::Value> {
         let Some(command) = self.options.command.clone() else {
             return refused(Refusal::LinesUnavailable);
         };
@@ -2615,6 +2623,10 @@ impl PairedRunner {
             Ok(t) => t,
             Err(r) => return refused(r),
         };
+        // ⟨M08 W4 SEC-3a, S2-02⟩ Forget any cached time sample from the revoked client at once.
+        if let Some(rt) = &self.runtime {
+            rt.time().invalidate_client(client);
+        }
         self.revocations.send_modify(|n| *n = n.wrapping_add(1));
         let iroh = match self.serve_control() {
             Some(serve) => serve.apply_narrowing().await,

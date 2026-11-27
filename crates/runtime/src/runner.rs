@@ -141,7 +141,11 @@ impl RunnerRuntime {
         policy: RunnerTimePolicy,
         lifetime: RunnerLifetime,
     ) -> Self {
-        let time = Arc::new(RunnerTime::new(Arc::clone(&clock), policy));
+        let time = Arc::new(RunnerTime::new(
+            Arc::clone(&store),
+            Arc::clone(&clock),
+            policy,
+        ));
         Self {
             issuance: RunnerIssuance::new(Arc::clone(&store), Arc::clone(&clock), time, vault),
             store,
@@ -309,10 +313,9 @@ impl RunnerRuntime {
                 ok(installed)
             }
             RunnerRequest::TimeChallenge => {
-                let time = self.time();
                 let data = self
-                    .store
-                    .transaction(|tx| Ok(time.challenge(tx, &session)))?
+                    .time()
+                    .issue_challenge(&session)
                     .map_err(time::TimeRefusal::to_error)?;
                 ok(data)
             }
@@ -320,10 +323,9 @@ impl RunnerRuntime {
                 nonce,
                 controller_time,
             } => {
-                let time = self.time();
                 let data = self
-                    .store
-                    .transaction(|tx| Ok(time.respond(tx, &session, nonce, *controller_time)))?
+                    .time()
+                    .respond(&session, nonce, *controller_time)
                     .map_err(time::TimeRefusal::to_error)?;
                 ok(data)
             }
@@ -382,11 +384,23 @@ impl RunnerRuntime {
     }
 }
 
-/// ⟨M06 W3; ADR-0006 §18.7 item 7⟩ Apply one runner-local decision (module docs,
-/// "Runner-local decisions") to this runner's store, at `now`. `attended`: the asking session
-/// is an attended local owner (the CLI's direct path passes `true` only after its typed
-/// confirmation on a terminal). Who asks is the caller's check; this function refuses only a
-/// widening form without attendance, a store that is not a runner's, and invalid input.
+pub(crate) fn check_runner_local_attendance(
+    request: &RunnerLocalRequest,
+    attended: bool,
+) -> Result<(), OpError> {
+    if request.is_widening() && !attended {
+        return Err(OpError::new(
+            Code::InteractionRequired,
+            "this runner-local decision needs the owner attending at this runner's terminal",
+        )
+        .with_effect(EffectStatus::None));
+    }
+    Ok(())
+}
+
+/// Apply a runner-local decision directly while the runtime is offline. The CLI holds the
+/// instance lock and supplies `attended` after the owner's terminal confirmation. The live
+/// dispatcher uses the same attendance check before its request fence.
 ///
 /// * `trust_issuer`: `controller` must be an **active owner** client; the CA key must be one
 ///   OpenSSH public key line, whose fingerprint the runner computes. Adds (or replaces) the
@@ -397,23 +411,24 @@ impl RunnerRuntime {
 ///
 /// # Errors
 ///
-/// `INTERACTION_REQUIRED` for an unattended widening form; `CAPABILITY_UNAVAILABLE` with
-/// `driver_unavailable` on a store that is not a runner's, or `role_insufficient` for a
-/// controller or client that is not an active owner; `USAGE_ERROR` for a CA key that is not
-/// one public key line; `STATE_UNAVAILABLE`.
+/// `INTERACTION_REQUIRED` for an unattended widening form, `CAPABILITY_UNAVAILABLE` for a
+/// non-runner store or a non-owner target, `USAGE_ERROR` for invalid input, or `STATE_UNAVAILABLE`.
 pub fn runner_local(
     store: &Store,
     now: Timestamp,
     attended: bool,
     request: &RunnerLocalRequest,
 ) -> OpResult<serde_json::Value> {
-    if request.is_widening() && !attended {
-        return Err(OpError::new(
-            Code::InteractionRequired,
-            "this runner-local decision needs the owner attending at this runner's terminal",
-        )
-        .with_effect(EffectStatus::None));
-    }
+    check_runner_local_attendance(request, attended)?;
+    apply_runner_local(store, now, request)
+}
+
+/// Apply a runner-local decision after admission and any needed attendance check.
+pub(crate) fn apply_runner_local(
+    store: &Store,
+    now: Timestamp,
+    request: &RunnerLocalRequest,
+) -> OpResult<serde_json::Value> {
     let not_owner = |what: &str| {
         OpError::new(
             Code::CapabilityUnavailable,

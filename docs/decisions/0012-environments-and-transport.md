@@ -409,6 +409,7 @@ The same path repairs a lost host pin or a lost K_mgmt.
    - **submit** a widening request. It creates a pending runner-local decision record (`APPROVAL_REQUIRED` with `next.decision_ref`), which grants nothing;
    - **deliver narrowing effects** (§7).
    - **They cannot decide.**
+   - ⟨2026-11-26, orchestrator's ruling on S2-01⟩ **Runner-local configuration is local-only for paired sessions.** Paired sessions are gated by a single pre-fence allow-list permitting only views (reads), the management calls an honest controller uses, narrowing effects (§7), widening submissions that create a pending runner-local decision (item 3 above), and the time exchange and session lifecycle. Every runner-local configuration request — catalog, setup, service control (`shutdown`, `uninstall_fence`), connections, non-widening or mutating transport (`transport.enable` without serving/exposure widening, `transport.disable`, `transport.rotate`), issuer and issuer bundle, enrollment, environments, non-`add` route mutations/lookups, controller records, `runner_local`, `device`, `decide`, and `confirm_time` — is refused before the request fence (`INTERACTION_REQUIRED`, reason `local_owner_required`, effect `none`) and writes nothing to the request ledger or state store.
 4. **The same rule applies on the controller** to its own widening actions: local attended decisions only. Examples are widening the controller's own dialer exposure (§2.1) and `device retire`.
 
 **Widening actions on a runner:**

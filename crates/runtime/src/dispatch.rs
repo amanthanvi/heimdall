@@ -24,8 +24,8 @@
 //!   executes them on dispatch (ADR-0006 §13.1 R5, §13.4 N04).
 //! * **Service control** (ADR-0006 §13.6 item 8). `Request::Shutdown` reaches this
 //!   dispatcher only on a session that negotiated `service-control/1` (the session
-//!   refuses it otherwise). It is accepted only from the **owner** role, on any
-//!   session (attended or not: an availability action, not a widening), and only
+//!   refuses it otherwise). It is accepted only from the **local owner** role,
+//!   whether attended or unattended, and only
 //!   when the service gave this dispatcher its stop token
 //!   ([`OperationsDispatcher::with_service_control`]); a limited consumer gets
 //!   `CAPABILITY_UNAVAILABLE`. The answer is `OK {"stopping": true,
@@ -35,7 +35,7 @@
 //!   requests are idempotent. This dispatcher serves the control endpoint only:
 //!   the signing endpoint speaks the agent protocol and has no such request.
 //! * ⟨M03; ADR-0008 §17.27 item 2⟩ **The uninstall fence**
-//!   (`Request::UninstallFence`, `service-control/1`, owner role only, any session):
+//!   (`Request::UninstallFence`, `service-control/1`, local owner only):
 //!   held by **this connection**. Each clone of the dispatcher is one connection's
 //!   scope (the control listener clones it once per accepted connection and drops
 //!   that clone when the connection ends, whatever the reason), so the fence is
@@ -51,13 +51,15 @@
 //!   the one the request is served as (a paired session's client included). Every answer to a
 //!   mutating request reports its `request_id` and `request_epoch`.
 //!
-//!   ⟨follow-up A⟩ **The order, for every mutating frame:** (1) the role checks: a paired
-//!   client's row check (`PairedRunner::frame`), the attended-only and local-owner-only forms,
-//!   and the owner-only forms (`owner_only_refusal`); (2) the uninstall-fence admission (the
-//!   holder's lease, or `uninstall_fence_admit`), held across what follows; (3) the request
-//!   fence (`Gate::pass`); (4) the request. A frame refused at (1) or (2) appends nothing to
-//!   the ledger and writes nothing; its answer still reports the request ID and the epoch it
-//!   is bound to.
+//!   ⟨follow-up A; M08 W4 SEC-3a⟩ **The order, for every mutating frame:** (1) the single
+//!   pre-fence check (`pre_fence_refusal`): the paired-session allow-list (refusing any
+//!   runner-local configuration form `INTERACTION_REQUIRED` / `local_owner_required`), a
+//!   paired client's row and role check (`PairedRunner::frame`), local attended-only forms
+//!   (including widening `runner_local` forms on a runner), and local owner-only forms;
+//!   (2) the uninstall-fence admission (the holder's lease, or `uninstall_fence_admit`), held
+//!   across what follows; (3) the request fence (`Gate::pass`); (4) the request. A frame
+//!   refused at (1) or (2) appends nothing to the ledger and writes nothing; its answer still
+//!   reports the request ID and the epoch it is bound to.
 //! * **Subscriptions.** The application's [`heimdall_app::events::SubscriptionStart`]
 //!   carries a live receiver of `SequencedEvent`s; the session wants
 //!   [`LiveEvent`]s. One runtime-wide [`EventRelay`] converts the application's
@@ -142,11 +144,56 @@ pub fn owner_only_m03(request: &Request) -> bool {
     )
 }
 
-/// ⟨M08 U2b-2 follow-up A⟩ The owner-only forms: the refusal of a request that `caller`'s
-/// role may not send, answered before the uninstall-fence admission, the request fence and
-/// the request (module docs), so it reads and writes nothing. Authorization before
-/// capability: a non-owner learns nothing about this build's drivers.
-fn owner_only_refusal(caller: &Caller, request: &Request) -> Option<Envelope<serde_json::Value>> {
+/// ⟨M08 W4 SEC-3a, S2-01 & U2b-3a item 2; ADR-0012 §3.10 amendment 2026-11-26⟩ The single
+/// pre-fence admission check, evaluated before `PairedRunner::frame`, uninstall-fence admission,
+/// and `Gate::pass`, so every refused request writes nothing to `REQUEST-LEDGER` or SQLite:
+///
+/// 1. **Paired sessions** (`caller.context.remote_client.is_some()`): only requests in
+///    [`heimdall_domain::principal::paired_session_allows`] pass. Everything else — runner-local
+///    configuration, service control, attended-only actions, controller records — is refused
+///    `INTERACTION_REQUIRED` with reason `local_owner_required` and effect `none`.
+/// 2. **Local callers** (`remote_client.is_none()`):
+///    - attended-only forms (`Request::requires_attended_session`) without attendance are
+///      refused `INTERACTION_REQUIRED`, effect `none`;
+///    - on a runner (`is_runner`), `Request::RunnerLocal` requires global owner access
+///      (`role_insufficient` otherwise) and, for widening forms (`trust_issuer`,
+///      `designate_time_source`, `enroll_owner`, `policy_recheck`), an attended session
+///      (`INTERACTION_REQUIRED`, effect `none` — the sole runtime check, with no second copy
+///      after the fence);
+///    - owner-only forms (`owner_only_m03`, `Environment`, `ControllerRecord`, `UninstallFence`)
+///      require the owner role (`CAPABILITY_UNAVAILABLE`, effect `none`).
+fn pre_fence_refusal(
+    caller: &Caller,
+    request: &Request,
+    is_runner: bool,
+) -> Option<Envelope<serde_json::Value>> {
+    if caller.context.remote_client.is_some() {
+        if !heimdall_domain::principal::paired_session_allows(request) {
+            return Some(error_value(
+                heimdall_remote::roles::Refusal::LocalOwnerRequired.to_op_error(),
+            ));
+        }
+        return None;
+    }
+    if request.requires_attended_session() && !caller.is_attended() {
+        return Some(error_value(
+            OpError::new(
+                Code::InteractionRequired,
+                "this request requires an attended interactive session",
+            )
+            .with_effect(EffectStatus::None),
+        ));
+    }
+    if is_runner && let Request::RunnerLocal(r) = request {
+        if !caller.context.has_global_access() {
+            return Some(error_value(
+                heimdall_remote::roles::Refusal::RoleInsufficient.to_op_error(),
+            ));
+        }
+        return crate::runner::check_runner_local_attendance(r, caller.is_attended())
+            .err()
+            .map(error_value);
+    }
     let needs_the_owner_role = || {
         error_value(
             OpError::new(
@@ -161,8 +208,10 @@ fn owner_only_refusal(caller: &Caller, request: &Request) -> Option<Envelope<ser
         _ if owner_only_m03(request) && !caller.context.is_owner() => Some(needs_the_owner_role()),
         // ⟨M04⟩ ADR-0006 revision 5: adding or removing a WSL or container environment.
         Request::Environment(_) if !caller.context.is_owner() => Some(needs_the_owner_role()),
-        // ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The controller's own records.
-        Request::ControllerRecord(_) => controller_record_refusal(caller),
+        // ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The controller's own records (local owner only).
+        Request::ControllerRecord(_) if !caller.context.has_global_access() => {
+            Some(needs_the_owner_role())
+        }
         // ⟨ADR-0008 §17.27 item 2⟩ Taking, lifting or retrying under the uninstall fence.
         Request::UninstallFence(_) if !caller.context.is_owner() => Some(error_value(
             OpError::new(
@@ -173,34 +222,6 @@ fn owner_only_refusal(caller: &Caller, request: &Request) -> Option<Envelope<ser
         )),
         _ => None,
     }
-}
-
-/// ⟨rev6.3; ADR-0006 §18.7 items 6 and 9⟩ Who may write the controller's records
-/// (`Request::ControllerRecord`): a paired caller is refused `INTERACTION_REQUIRED` with
-/// reason `local_owner_required` (ruling Q5), a local caller without the owner role
-/// `CAPABILITY_UNAVAILABLE`.
-fn controller_record_refusal(caller: &Caller) -> Option<Envelope<serde_json::Value>> {
-    if caller.context.remote_client.is_some() {
-        // The controller's records are the local owner's alone.
-        return Some(error_value(
-            OpError::new(
-                Code::InteractionRequired,
-                "the controller's records are written by the local owner only",
-            )
-            .with_reason(heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED)
-            .with_effect(EffectStatus::None),
-        ));
-    }
-    if !caller.context.has_global_access() {
-        return Some(error_value(
-            OpError::new(
-                Code::CapabilityUnavailable,
-                "this request needs the owner role",
-            )
-            .with_effect(EffectStatus::None),
-        ));
-    }
-    None
 }
 
 /// ⟨M03⟩ `Request::Connections` (m03-plan §5 item 4a) over the wired connection
@@ -768,28 +789,11 @@ impl OperationsDispatcher {
         request: Request,
         gate: &Gate<'_>,
     ) -> Envelope<serde_json::Value> {
-        // ⟨M06 W2⟩ A paired session: every frame is checked against the client's row first
-        // (`crate::paired`); only a request that passes reaches the application, as the
-        // client's caller.
+        // ⟨M06 W2; M08 W4 SEC-3a⟩ A paired session: the single pre-fence allow-list runs first,
+        // then every allowed frame is checked against the client's row (`crate::paired`); only a
+        // request that passes reaches the request fence and the application, as the client's
+        // caller.
         if let Some(paired) = &self.paired {
-            // ⟨ruling Q5; ADR-0006 §18.7 item 9⟩ A paired session's controller-record form is
-            // refused here, whatever its role (the refusal names the local owner).
-            if matches!(request, Request::ControllerRecord(_))
-                && let Some(refused) = controller_record_refusal(&self.caller(session))
-            {
-                return refused;
-            }
-            // ⟨rev6.3; ADR-0006 §18.7 item 10⟩ So is `transport.rotate`: rotating this
-            // device's K_iroh is the local owner's alone (`local_owner_required`), whatever
-            // the paired client's role, and nothing is left pending.
-            if matches!(
-                request,
-                Request::Transport(heimdall_contract::route::TransportRequest::Rotate)
-            ) {
-                return error_value(
-                    heimdall_remote::roles::Refusal::LocalOwnerRequired.to_op_error(),
-                );
-            }
             let Some(runner) = &self.runner else {
                 return error_value(
                     OpError::new(
@@ -799,6 +803,10 @@ impl OperationsDispatcher {
                     .with_effect(EffectStatus::None),
                 );
             };
+            let caller = runner.caller(&session.principal, paired);
+            if let Some(refused) = pre_fence_refusal(&caller, &request, true) {
+                return refused;
+            }
             return match runner.frame(&session.principal, paired, request) {
                 crate::paired::Frame::Answer(env) => env,
                 // ⟨M08 U2b-2 follow-up A⟩ Passed the row check and answered by the runner
@@ -820,6 +828,9 @@ impl OperationsDispatcher {
             };
         }
         let caller = caller_for(session, self.clock.wall());
+        if let Some(refused) = pre_fence_refusal(&caller, &request, self.runner.is_some()) {
+            return refused;
+        }
         // ⟨M06 W2; ADR-0012 §3.10 item 2⟩ On a runner, `Decide` on a runner-local widening
         // record is decided here, locally (attended only); any other decision goes to the
         // application.
@@ -862,6 +873,9 @@ impl OperationsDispatcher {
         caller: &Caller,
         request: Request,
     ) -> Envelope<serde_json::Value> {
+        if let Some(refused) = pre_fence_refusal(caller, &request, self.runner.is_some()) {
+            return refused;
+        }
         self.handle_as_gated(caller, request, &Gate::open()).await
     }
 
@@ -877,9 +891,8 @@ impl OperationsDispatcher {
         env
     }
 
-    /// The checks of one request in their order (module docs): the attendance and role
-    /// checks, then (⟨M08 U2b-2 follow-up A⟩) the uninstall-fence admission, which is held
-    /// across the request fence ([`Gate::pass`]) and the request.
+    /// After `pre_fence_refusal`, hold the uninstall-fence admission across the request fence
+    /// ([`Gate::pass`]) and the request.
     async fn handle_as_unshown(
         &self,
         caller: &Caller,
@@ -887,25 +900,6 @@ impl OperationsDispatcher {
         gate: &Gate<'_>,
     ) -> Envelope<serde_json::Value> {
         let caller = caller.clone();
-        // ⟨rev 6.3; ADR-0006 §18.7 item 9⟩ A paired session's `decide` has no remote path:
-        // it names its reason, so a wrapper does not ask the user and retry.
-        // ⟨§18.7 item 15⟩ So does every attended-only form: a paired caller is never the
-        // local owner, whatever its session says about attendance.
-        if (matches!(request, Request::Decide(_)) || request.requires_attended_session())
-            && caller.context.remote_client.is_some()
-        {
-            return error_value(heimdall_remote::roles::Refusal::LocalOwnerRequired.to_op_error());
-        }
-        if request.requires_attended_session() && !caller.is_attended() {
-            return error_value(OpError::new(
-                Code::InteractionRequired,
-                "this request requires an attended interactive session",
-            ));
-        }
-        // ⟨M08 U2b-2 follow-up A⟩ The owner-only forms, before any admission.
-        if let Some(refused) = owner_only_refusal(&caller, &request) {
-            return refused;
-        }
         // ⟨M06 W5; ADR-0006 §18.9 item 8; ADR-0012 §3.10 item 4⟩ On every installation that
         // serves the route and transport forms, `Decide` on a **local** widening record is
         // decided here, before the application (attended, local owner, checked time); a paired client's record is
@@ -1023,7 +1017,7 @@ impl OperationsDispatcher {
                         .runner_request(&caller, self.scope.id, r.clone())
                         .await;
                 }
-                Request::RunnerLocal(r) => return runner.runner_local(&caller, r.clone()).await,
+                Request::RunnerLocal(r) => return runner.runner_local(r.clone()).await,
                 _ => {}
             }
         }

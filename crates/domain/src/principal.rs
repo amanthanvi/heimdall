@@ -4,6 +4,9 @@
 //! Caller-supplied names, PIDs and paths are metadata and never appear here.
 
 use heimdall_contract::ids::ClientId;
+use heimdall_contract::remote::{RemoteEnvironmentRequest, RunnerRequest};
+use heimdall_contract::request::{PolicyAction, Request};
+use heimdall_contract::route::{ExposurePolicy, RouteRequest, TransportRequest};
 use serde::{Deserialize, Serialize};
 
 /// The OS principal established by the transport.
@@ -101,6 +104,131 @@ impl CallerContext {
     #[must_use]
     pub fn may_narrow_across_callers(&self) -> bool {
         self.is_owner()
+    }
+}
+
+/// ⟨M08 W4 SEC-3a, S2-01; ADR-0012 §3.10 amendment 2026-11-26⟩ Whether a paired remote
+/// session (`CallerContext::remote_client.is_some()`) is permitted to send `request` at all,
+/// evaluated in one place before the request fence.
+///
+/// Allowed categories only:
+/// - views (reads): `inspect`, `observe`, `remote_environment.status`, `runner.authority_report`;
+/// - honest controller management calls and grant/work lifecycle within role: `ensure`, `bind`,
+///   `delegate`, `cancel`, `release`, `runner.prepare_remote_grant`,
+///   `runner.install_certificate`, `remote_environment.runner_policy_recheck`,
+///   `remote_environment.update`;
+/// - narrowing effects (ADR-0012 §7, §3.10–§3.11): `revoke`, `runner.deliver_effect`,
+///   `remote_environment.revoke_client`, and `policy` (narrowing executes; widening only
+///   submits a pending runner-local decision and is refused when lifting a delivered effect);
+/// - widening submissions that create a pending runner-local decision (ADR-0012 §3.10 item 3):
+///   `remote_environment.invite`, widening `transport.enable` (`serve` or non-default
+///   `exposure`), `transport.adopt_roost`, `route.add`;
+/// - time exchange and session lifecycle: `runner.time_challenge`, `runner.time_response`,
+///   `remote_environment.activation_probe`, `remote_environment.join`,
+///   `remote_environment.rotate_endpoint`.
+///
+/// Everything else — in particular runner-local configuration (`catalog`, `setup`, `shutdown`,
+/// `uninstall_fence`, `connections`, non-widening `transport.enable`, `transport.disable`,
+/// `transport.rotate`, `issuer`, `enrollment`, `environment`, `route.{remove,prefer,
+/// resolve_binding,record_health}`, `remote_environment.{add,remove}`, `device`,
+/// `runner_local`, `controller_record`, `decide`, `confirm_time`, and any unknown future
+/// sub-variant) — is refused before the request fence (`INTERACTION_REQUIRED` /
+/// `local_owner_required`), writing nothing.
+///
+/// New request kinds are refused until explicitly allowed here.
+#[must_use]
+pub fn paired_session_allows(request: &Request) -> bool {
+    match request {
+        // Views (reads).
+        Request::Inspect(_) | Request::Observe(_) => true,
+
+        // Honest controller management calls & grant/work lifecycle within role.
+        Request::Ensure(_)
+        | Request::Bind(_)
+        | Request::Delegate(_)
+        | Request::Cancel(_)
+        | Request::Release(_) => true,
+
+        // Narrowing effects & widening policy submissions (widening creates a pending
+        // decision only; lifting a delivered effect is refused without a decision).
+        Request::Revoke(_) => true,
+        Request::Policy(action) => matches!(
+            action,
+            PolicyAction::Pause { .. }
+                | PolicyAction::Resume { .. }
+                | PolicyAction::Cutoff { .. }
+                | PolicyAction::ClearCutoff { .. }
+                | PolicyAction::SetLockBehavior { .. }
+                | PolicyAction::SetConnectionPolicy { .. }
+                | PolicyAction::Create { .. }
+                | PolicyAction::ExtendScope { .. }
+                | PolicyAction::NarrowScope { .. }
+                | PolicyAction::SetMaxWindow { .. }
+                | PolicyAction::Remove { .. }
+                | PolicyAction::TrustWorkspace { .. }
+                | PolicyAction::ReconcileWorkspace { .. }
+                | PolicyAction::Stop { .. }
+        ),
+
+        // Remote-environment session lifecycle, narrowing, widening submission, and honest
+        // controller management calls.
+        Request::RemoteEnvironment(r) => matches!(
+            r,
+            RemoteEnvironmentRequest::Status { .. }
+                | RemoteEnvironmentRequest::ActivationProbe { .. }
+                | RemoteEnvironmentRequest::Join { .. }
+                | RemoteEnvironmentRequest::Invite { .. }
+                | RemoteEnvironmentRequest::RevokeClient { .. }
+                | RemoteEnvironmentRequest::RotateEndpoint { .. }
+                | RemoteEnvironmentRequest::RunnerPolicyRecheck { .. }
+                | RemoteEnvironmentRequest::Update { .. }
+        ),
+
+        // Runner protocol: issuance, time exchange, narrowing delivery, and authority report.
+        Request::Runner(r) => matches!(
+            r,
+            RunnerRequest::PrepareRemoteGrant { .. }
+                | RunnerRequest::InstallCertificate { .. }
+                | RunnerRequest::TimeChallenge
+                | RunnerRequest::TimeResponse { .. }
+                | RunnerRequest::DeliverEffect { .. }
+                | RunnerRequest::AuthorityReport
+        ),
+
+        // Widening transport/route submissions that create a pending runner-local decision
+        // (ADR-0012 §3.10 item 3). Non-serving minimal `transport.enable` (which would mint
+        // K_iroh unattended), `transport.disable`, `transport.rotate`, and all non-`add`
+        // route forms are local-only.
+        Request::Transport(t) => match t {
+            TransportRequest::Enable {
+                serve, exposure, ..
+            } => {
+                *serve
+                    || exposure
+                        .as_ref()
+                        .is_some_and(|p| *p != ExposurePolicy::default())
+            }
+            TransportRequest::AdoptRoost { .. } => true,
+            TransportRequest::Disable | TransportRequest::Rotate => false,
+            _ => false,
+        },
+        Request::Route(r) => matches!(r, RouteRequest::Add { .. }),
+
+        // Local-only configuration, service control, attended actions, and controller records.
+        Request::Decide(_)
+        | Request::ConfirmTime(_)
+        | Request::Shutdown(_)
+        | Request::UninstallFence(_)
+        | Request::Setup(_)
+        | Request::Catalog(_)
+        | Request::Issuer(_)
+        | Request::Enrollment(_)
+        | Request::Connections(_)
+        | Request::Environment(_)
+        | Request::Device(_)
+        | Request::RunnerLocal(_)
+        | Request::ControllerRecord(_) => false,
+        _ => false,
     }
 }
 

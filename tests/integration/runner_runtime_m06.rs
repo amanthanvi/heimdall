@@ -67,12 +67,7 @@ fn a_sample_from_a_non_designated_client_is_refused() {
         .unwrap()
         .nonce;
     assert_eq!(nonce.len(), 32);
-    assert_eq!(
-        w.store
-            .transaction(|tx| Ok(time.respond(tx, &b, &nonce, tc)))
-            .unwrap(),
-        Err(TimeRefusal::UnknownNonce)
-    );
+    assert_eq!(time.respond(&b, &nonce, tc), Err(TimeRefusal::UnknownNonce));
     assert_eq!(
         TimeRefusal::UnknownNonce.to_error().code,
         Code::TimeUncertain
@@ -86,9 +81,7 @@ fn a_sample_from_a_non_designated_client_is_refused() {
         .nonce;
     w.designate(&controller_b());
     assert_eq!(
-        w.store
-            .transaction(|tx| Ok(time.respond(tx, &a, &nonce, tc)))
-            .unwrap(),
+        time.respond(&a, &nonce, tc),
         Err(TimeRefusal::NotDesignated)
     );
     // A designated client that is revoked counts for nothing.
@@ -131,11 +124,7 @@ fn a_sample_is_fresh_nonce_bound_and_rtt_bounded() {
             .unwrap()
             .nonce
     };
-    let respond = |s, n: &str| {
-        w.store
-            .transaction(|tx| Ok(time.respond(tx, s, n, tc)))
-            .unwrap()
-    };
+    let respond = |s, n: &str| time.respond(s, n, tc);
     // The same client on another connection: not this session's challenge.
     let n = challenge(&s);
     assert_eq!(
@@ -934,5 +923,100 @@ fn a24_a_controller_dependent_signer_behind_an_ordinary_local_path_is_unknown() 
         !String::from_utf8(none.stdout)
             .unwrap()
             .contains("SSH_AUTH_SOCK")
+    );
+}
+
+/// ⟨M08 W4 SEC-3a, S3-05⟩ `RunnerTime::respond` keeps its sample in memory only after the
+/// SQLite `COMMIT` succeeds. When `FaultPoint::BeforeCommit` fails the transaction:
+/// - with no prior sample, `bounded()` stays `false` and `sample()` stays `None`;
+/// - with a prior sample and a pinned grant anchor, the anchor rolls back AND `sample()`
+///   keeps the prior committed sample rather than the uncommitted one.
+#[test]
+fn s3_05_time_sample_is_not_kept_when_commit_fails() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use heimdall_store::{FaultAction, FaultHook, FaultPoint};
+
+    struct ArmedCommitFault(AtomicBool);
+    impl FaultHook for ArmedCommitFault {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            if point == FaultPoint::BeforeCommit && self.0.swap(false, Ordering::SeqCst) {
+                FaultAction::Fail
+            } else {
+                FaultAction::Continue
+            }
+        }
+    }
+
+    let fault = Arc::new(ArmedCommitFault(AtomicBool::new(false)));
+    let w = world_with_faults(fault.clone());
+    let caller = World::caller(&controller_a());
+    w.designate(&controller_a());
+
+    let respond_with_commit_failure = |controller_time| {
+        let challenge = w
+            .runner
+            .handle(&caller, 1, &RunnerRequest::TimeChallenge)
+            .unwrap();
+        let nonce = challenge.data["nonce"].as_str().unwrap().to_owned();
+        w.clock.advance(Duration::from_millis(25));
+        fault.0.store(true, Ordering::SeqCst);
+        let error = w
+            .runner
+            .handle(
+                &caller,
+                1,
+                &RunnerRequest::TimeResponse {
+                    nonce,
+                    controller_time,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error.code, Code::StateUnavailable);
+    };
+
+    respond_with_commit_failure(w.clock.wall());
+    assert!(
+        !w.runner.time().bounded(),
+        "failed commit left RunnerTime::bounded() true"
+    );
+    assert!(w.runner.time().sample().is_none());
+
+    w.trust(&w.ca_a, &controller_a());
+    let generation = w.generation();
+    let prepared = w
+        .runner
+        .issuance()
+        .prepare(&controller_a(), &w.grant, generation)
+        .unwrap();
+    w.good_sample();
+    let committed_sample = w.runner.time().sample().expect("committed sample");
+    let valid_before =
+        heimdall_contract::Timestamp::from_second(grant_bound_until(&w).as_second()).unwrap();
+    let cert = w.sign(&w.ca_a, &prepared, &pair("h1"), valid_before);
+    w.runner
+        .issuance()
+        .install(&controller_a(), &w.grant, generation, &cert)
+        .unwrap();
+
+    let anchor = || {
+        w.store
+            .transaction(|tx| tx.grant_anchor(&w.grant))
+            .unwrap()
+            .expect("installed grant anchor")
+    };
+    let anchor_before = anchor();
+    // This response would move the persisted anchor earlier if it committed.
+    respond_with_commit_failure(plus(w.clock.wall(), Duration::from_secs(30 * 60)));
+    assert_eq!(
+        anchor(),
+        anchor_before,
+        "the grant anchor did not roll back"
+    );
+    assert_eq!(
+        w.runner.time().sample(),
+        Some(committed_sample),
+        "failed commit replaced the last committed sample"
     );
 }

@@ -40,7 +40,7 @@ use heimdall_runtime::runner::RunnerRuntime;
 use heimdall_runtime::runner::time::{RunnerTimePolicy, TimeSampleAccepted, TimeSession};
 use heimdall_store::ext_m06::{AppliedLine, ClientState, RemoteClientRecord};
 use heimdall_store::ext_runner::TrustedIssuer;
-use heimdall_store::{NoFaults, Store};
+use heimdall_store::{FaultHook, NoFaults, Store};
 use heimdall_testkit::VirtualClock;
 
 pub const HOUR: Duration = Duration::from_secs(3600);
@@ -166,7 +166,11 @@ pub fn deadline() -> Timestamp {
 
 /// A runner world (module docs). The clock's continuous reading starts at 1000 s.
 pub fn world() -> World {
-    let store = Arc::new(Store::open_in_memory(Arc::new(NoFaults)).unwrap());
+    world_with_faults(Arc::new(NoFaults))
+}
+
+pub fn world_with_faults(faults: Arc<dyn FaultHook>) -> World {
+    let store = Arc::new(Store::open_in_memory(faults).unwrap());
     let clock = VirtualClock::at(t0());
     clock.advance_continuous_only(Duration::from_secs(1000));
     let env = heimdall_runtime::paired::init_runner(&store).unwrap();
@@ -313,9 +317,7 @@ impl World {
             .unwrap()?
             .nonce;
         self.clock.advance(rtt);
-        self.store
-            .transaction(|tx| Ok(time.respond(tx, &session, &nonce, controller_time)))
-            .unwrap()
+        time.respond(&session, &nonce, controller_time)
     }
 
     /// A good sample from controller A (designated first): RTT 100 ms, the controller's clock
