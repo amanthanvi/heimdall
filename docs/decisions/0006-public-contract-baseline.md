@@ -441,8 +441,9 @@ classify(record, marker, hash, now)`).
   same amendment). The retention pass (`Operations::tick`) also prunes a runner's history, on
   time the time gate accepted only (never under `TIME_UNCERTAIN`) and only on a runner's store
   (`Txn::prune_runner_history`); every other store is untouched, as above:
-  - **R1, tombstones.** A known-grant tombstone goes only when its grant's row is `revoked`
-    (terminal; `denied_ancestor` denies by that state, through every descendant), every
+  - **R1, tombstones.** A known-grant tombstone goes only when its grant's row is terminal,
+    `revoked` or, ⟨widened 2026-11-27, ruling on SEC-3b; M08 W4 SEC-3b-F⟩, `expired` for a revoke
+    delivered after the grant had already ended (terminal; `denied_ancestor` denies by that state, through every descendant), every
     descendant is terminal, `now ≥ max(the grant's deadline, the latest descendant's) +
     retention.operations`, and nothing live remains (no key or certificate in the runner's
     signer, no unreleased binding, grant reference, held slot, slot reference or open owned
