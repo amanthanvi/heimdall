@@ -88,7 +88,8 @@ fn service_error(e: &ServiceError) -> Envelope<ErrorData> {
             return state_dir_unsafe(c);
         }
         ServiceError::Config(c) => (Code::ConfigConflict, c.to_string()),
-        ServiceError::Store(s) => (Code::StateUnavailable, format!("state store: {s}")),
+        // ⟨M08 U2b-3b; ADR-0014 H4⟩ A damaged or newer store names its reason and choices.
+        ServiceError::Store(s) => return crate::state_cmd::store_unavailable(s),
         ServiceError::App(app) => return app.clone().into_envelope(),
         ServiceError::Bind(io) => (
             Code::ServiceUnavailable,

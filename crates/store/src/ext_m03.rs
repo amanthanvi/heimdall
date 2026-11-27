@@ -315,6 +315,13 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
         "request_terminals",
         RecoveryClass::Discarded("request terminal records for the ledger's trim; local"),
     ),
+    // ⟨M08 U2b-3b⟩ Migration 0017 (ADR-0014 §3.6's table, H9, H10): what a restore put on
+    // hold. A row is a reason, never authority, and the purge's inventory compares the
+    // records it refers to (`remote_clients`, `remote_invitations`, the transport tables).
+    (
+        "restore_holds",
+        RecoveryClass::Discarded("why a restore quarantined, voided or ended an item; local"),
+    ),
 ];
 
 /// ⟨M06⟩ Why a migration-0009 table is `Discarded` in wave 0 ([`TABLE_RECOVERY`]).
@@ -2734,6 +2741,10 @@ mod tests {
         ("lib.rs", include_str!("lib.rs")),
         ("migrations.rs", include_str!("migrations.rs")),
         ("fence.rs", include_str!("fence.rs")),
+        // ⟨M08 U2b-3b⟩ Restore, reset and repair (it writes the staged generation's tables),
+        // and the durable pre-migration backup's tests.
+        ("restore.rs", include_str!("restore.rs")),
+        ("backup_tests.rs", include_str!("backup_tests.rs")),
     ];
 
     /// Every `mod` of `lib.rs` names an embedded source, so a new module cannot hide a writer

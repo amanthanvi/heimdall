@@ -59,6 +59,8 @@ pub mod remote_status_driver;
 pub mod routes;
 pub mod setup;
 pub mod singleflight;
+// ⟨M08 U2b-3b⟩ The restore's `state_restored` event (ADR-0014 H4, H10).
+pub mod state_restore;
 pub mod timegate;
 // ⟨M06 U56⟩ `transport enable|disable|adopt_roost` over ports (ADR-0012 §2.1–§2.5, §2.8).
 pub mod transport;

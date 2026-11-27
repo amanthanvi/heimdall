@@ -238,9 +238,16 @@ pub async fn connect_as(
         ))
     })?;
     let home = ctx.home.clone();
+    let state_dir = paths.state_dir.clone();
     // Same executable path (never a PATH lookup), no shell; an explicit `--home`
     // is passed on so the runtime uses the same directories.
     let spawn = move || {
+        // ⟨M08 U2b-3b; ADR-0014 H4⟩ A store the runtime would refuse at its start (damaged,
+        // newer than this build, or with a damaged request ledger) is refused here, read
+        // only, before anything is started; the refusal below names the choices.
+        if crate::state_cmd::quick_state_refusal(&state_dir).is_some() {
+            return Err(std::io::Error::other("the state store is unavailable"));
+        }
         let mut args: Vec<&OsStr> = Vec::new();
         if let Some(h) = &home {
             args.push(OsStr::new("--home"));
@@ -256,7 +263,13 @@ pub async fn connect_as(
         &spawn,
     )
     .await
-    .map_err(|e| Box::new(launch_error(&e)))?;
+    .map_err(|e| {
+        // ⟨M08 U2b-3b; ADR-0014 H4⟩ No runtime serves: a damaged or newer store is named as
+        // such, with its recovery choices, never as "not running" or a start timeout.
+        Box::new(
+            crate::state_cmd::state_refusal(&paths.state_dir).unwrap_or_else(|| launch_error(&e)),
+        )
+    })?;
 
     let stream = open_stream(&paths).await?;
     let required: BTreeSet<String> = std::iter::once(capability::OPERATIONS_V1)

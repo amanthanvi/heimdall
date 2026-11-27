@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 16;
+pub const SCHEMA_VERSION: u32 = 17;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -121,6 +121,12 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 16,
         name: "request_terminals",
         sql: include_str!("../migrations/0016_request_terminals.sql"),
+    },
+    // ⟨M08 W4 U2b-3b⟩ What a restore put on hold (ADR-0014 §3.6's table, H9, H10).
+    Migration {
+        version: 17,
+        name: "restore_holds",
+        sql: include_str!("../migrations/0017_restore_holds.sql"),
     },
 ];
 

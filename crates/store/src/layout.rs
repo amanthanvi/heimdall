@@ -234,7 +234,7 @@ pub fn open_locked(
     // refuses (a newer schema, a fence) gets no note: it is not touched.
     let found = generation_version(&db)?;
     note_migration(&state, &current, None, found, now);
-    let (store, before) = Store::open_generation(&db, faults)?;
+    let (store, before) = Store::open_generation(&db, faults, fs)?;
     let after = store.schema_version()?;
     if after != before {
         note_migration(&state, &current, Some(before), after, now);
@@ -332,6 +332,13 @@ fn probe_flat(flat: &Path) -> Result<Option<FlatProbe>> {
         fenced,
         environment,
     }))
+}
+
+/// ⟨M08 U2b-3b⟩ Whether there is a readable flat store at `flat` (read-only checks only, as
+/// start-up makes them): `Ok(false)` when there is none, an error when it is newer, damaged or
+/// fenced without an intent. For a restore's and a reset's plan.
+pub(crate) fn probe_flat_readable(flat: &Path) -> Result<bool> {
+    probe_flat(flat).map(|p| p.is_some())
 }
 
 /// Steps 1 to 5 of the adoption, through `heimdall-stategen`'s order.

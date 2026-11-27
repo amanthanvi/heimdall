@@ -194,6 +194,33 @@ pub(crate) fn decode_pointer(bytes: &[u8]) -> Option<GenerationName> {
     GenerationName::parse(name)
 }
 
+/// ⟨M08 U2b-3b⟩ The SHA-256 of the file at `path`, as 64 lower-case hex digits: how a
+/// restore's operation record names the backup it staged ([`OperationRecord::backup_sha256`]).
+/// The file is read in pieces, never whole; a final symbolic link is not followed.
+///
+/// # Errors
+/// The file cannot be opened or read, or is not a regular file.
+pub fn sha256_file(path: &std::path::Path) -> std::io::Result<String> {
+    use std::io::Read as _;
+    if !std::fs::symlink_metadata(path)?.file_type().is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex(&hasher.finalize()))
+}
+
 /// Whether `text` is 64 lower-case hex digits.
 pub(crate) fn is_sha256_hex(text: &str) -> bool {
     text.len() == 64

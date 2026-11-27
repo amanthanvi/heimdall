@@ -2161,6 +2161,11 @@
           "description": "⟨M06⟩ Revision 6: `route.health` for every attempt, `route.failed_over` its subtype\n(payload [`crate::route::RouteHealthPayload`]). Declared, not emitted by wave 0.",
           "type": "string",
           "const": "route"
+        },
+        {
+          "description": "⟨rev7; ADR-0014 H4, H10; M08 U2b-3b⟩ A restore made this generation current: what it\nended, quarantined and voided (payload [`crate::lifecycle::StateRestoredPayload`];\n[`crate::lifecycle::STATE_RESTORED_EVENT`]). The restore writes it into the restored\ngeneration before the pointer moves, so it is the first event a restarted runtime\nserves after the restore.",
+          "type": "string",
+          "const": "state_restored"
         }
       ]
     },

@@ -104,6 +104,41 @@ impl LedgerRead {
     }
 }
 
+/// ⟨M08 U2b-3b; ADR-0006 §19.4, the ruling on U0-Q8⟩ What [`Ledger::scan`] found in a ledger
+/// that may be damaged: what the attended `state repair` keeps, carries into the store as fence
+/// records, and drops.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LedgerScan {
+    /// The records before the first damaged one, in order: the ledger is cut after them.
+    pub intact: Vec<Entry>,
+    /// The index of the first damaged record, or `None` when the ledger is whole (a torn tail
+    /// aside).
+    pub damaged_at: Option<usize>,
+    /// Every record after the damage that still decodes (its tag and its check), found by
+    /// reading on byte by byte from the damage, so a record shifted out of alignment is found
+    /// too. These are carried into the store as fence records before the cut.
+    pub after: Vec<Entry>,
+    /// What after the damage did not decode, in records of [`RECORD_LEN`] bytes (rounded up),
+    /// a torn tail included: dropped by the cut.
+    pub dropped_records: u64,
+    /// A torn tail of a whole ledger (`damaged_at` is `None`); 0 otherwise.
+    pub torn_tail: usize,
+}
+
+impl LedgerScan {
+    /// Every decodable entry: the intact ones and those after the damage.
+    #[must_use]
+    pub fn all_decodable(&self) -> Vec<Entry> {
+        self.intact.iter().chain(&self.after).copied().collect()
+    }
+
+    /// Where the cut goes: the length of the intact records.
+    #[must_use]
+    pub fn cut_len(&self) -> u64 {
+        (self.intact.len() as u64).saturating_mul(RECORD_LEN as u64)
+    }
+}
+
 /// ⟨M08 U2b-3a⟩ What [`Ledger::trim_entries`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Trimmed {
@@ -185,6 +220,82 @@ impl<F: Fs> Ledger<F> {
     pub fn read(&self) -> Result<LedgerRead, LedgerError> {
         let bytes = self.bytes()?;
         Self::parse(&bytes)
+    }
+
+    /// ⟨M08 U2b-3b; ADR-0006 §19.4, the ruling on U0-Q8⟩ Read the ledger **whatever its
+    /// damage**, writing nothing: the records before the first damaged one, and every record
+    /// after it that still decodes ([`LedgerScan`]). A ledger that is not a regular file, or is
+    /// longer than the read limit, is [`LedgerError::Unreadable`]. A missing ledger is empty.
+    pub fn scan(&self) -> Result<LedgerScan, LedgerError> {
+        let bytes = self.bytes()?;
+        if let Ok(read) = Self::parse(&bytes) {
+            return Ok(LedgerScan {
+                intact: read.entries,
+                damaged_at: None,
+                after: Vec::new(),
+                dropped_records: 0,
+                torn_tail: read.torn_tail,
+            });
+        }
+        let (records, _) = bytes.as_chunks::<RECORD_LEN>();
+        let mut intact = Vec::new();
+        for record in records {
+            match Entry::decode(record) {
+                Some(entry) => intact.push(entry),
+                None => break,
+            }
+        }
+        let damaged_at = intact.len();
+        let mut after = Vec::new();
+        let mut undecoded = 0usize;
+        let mut at = damaged_at * RECORD_LEN;
+        while at < bytes.len() {
+            match bytes.get(at..at + RECORD_LEN).and_then(Entry::decode) {
+                Some(entry) => {
+                    after.push(entry);
+                    at += RECORD_LEN;
+                }
+                None => {
+                    undecoded += 1;
+                    at += 1;
+                }
+            }
+        }
+        Ok(LedgerScan {
+            intact,
+            damaged_at: Some(damaged_at),
+            after,
+            dropped_records: undecoded.div_ceil(RECORD_LEN) as u64,
+            torn_tail: 0,
+        })
+    }
+
+    /// ⟨M08 U2b-3b; ADR-0006 §19.4⟩ Cut the ledger to `len` bytes and sync it, then sync the
+    /// state directory: the attended repair's last step, after the decodable records past the
+    /// damage are fence records in the store. `len` must be a whole number of records no
+    /// longer than the file. A missing ledger is left missing.
+    pub fn cut(&self, len: u64) -> Result<(), LedgerError> {
+        let path = self.root.join(LEDGER);
+        let found = self
+            .fs
+            .file_len(&path)
+            .map_err(|_| LedgerError::Unreadable)?;
+        let Some(found) = found else {
+            return Ok(());
+        };
+        if !len.is_multiple_of(RECORD_LEN as u64) || len > found {
+            return Err(LedgerError::Unreadable);
+        }
+        if len != found {
+            self.fs
+                .truncate_sync(Point::LedgerRepair, &path, len)
+                .map_err(io_at(Point::LedgerRepair))?;
+        }
+        self.fs
+            .sync_dir(Point::LedgerDirSync, &self.root)
+            .map_err(io_at(Point::LedgerDirSync))?;
+        self.dir_synced.set(true);
+        Ok(())
     }
 
     /// ⟨M08 U2b-3a⟩ The whole ledger, read and checked once, for a caller that keeps its
@@ -750,6 +861,59 @@ mod tests {
         assert_eq!(ledger.read().expect("read").torn_tail, 0);
         // A misaligned expectation is never appended at.
         assert_eq!(ledger.append_at(entry(2, b"y"), 7), Ok(None));
+    }
+
+    /// ⟨M08 U2b-3b; the ruling on U0-Q8⟩ The repair's read: the records before the damage,
+    /// every record after it that still decodes (also one shifted out of alignment), and
+    /// what is dropped; the cut keeps the intact records only and writes nothing else.
+    #[test]
+    fn scan_finds_every_decodable_record_after_the_damage_and_the_cut_keeps_the_rest() {
+        let dir = tempfile::tempdir().expect("a scratch directory");
+        let ledger = Ledger::new(RealFs, dir.path());
+        // A whole ledger scans as intact.
+        for key in [b"a", b"b"] {
+            ledger.append(entry(1, key)).expect("append");
+        }
+        let whole = ledger.scan().expect("scan");
+        assert_eq!(
+            (whole.intact.len(), whole.damaged_at, whole.after.len()),
+            (2, None, 0)
+        );
+        // Damage the second record, then add one aligned record and one shifted by 5 bytes.
+        let path = dir.path().join(LEDGER);
+        let mut bytes = std::fs::read(&path).expect("read");
+        bytes[RECORD_LEN + 20] ^= 1;
+        bytes.extend_from_slice(&entry(2, b"c").encode());
+        bytes.extend_from_slice(&[9u8; 5]);
+        bytes.extend_from_slice(&entry(2, b"d").encode());
+        bytes.extend_from_slice(&entry(2, b"torn").encode()[..11]);
+        std::fs::write(&path, &bytes).expect("write");
+        assert!(matches!(ledger.read(), Err(LedgerError::Damaged(1))));
+        let scan = ledger.scan().expect("a damaged ledger still scans");
+        assert_eq!(scan.intact, vec![entry(1, b"a")]);
+        assert_eq!(scan.damaged_at, Some(1));
+        assert_eq!(scan.after, vec![entry(2, b"c"), entry(2, b"d")]);
+        // The damaged record, the 5 stray bytes and the torn 11: 64 bytes, two records.
+        assert_eq!(scan.dropped_records, 2);
+        assert_eq!(scan.all_decodable().len(), 3);
+        assert_eq!(
+            std::fs::read(&path).expect("read"),
+            bytes,
+            "the scan wrote nothing"
+        );
+        // The cut keeps the intact records only; the ledger is whole again.
+        ledger.cut(scan.cut_len()).expect("cut");
+        assert_eq!(
+            ledger.read().expect("whole after the cut").entries,
+            vec![entry(1, b"a")]
+        );
+        // A cut longer than the file, or off a record boundary, writes nothing.
+        assert_eq!(
+            ledger.cut(RECORD_LEN as u64 * 3),
+            Err(LedgerError::Unreadable)
+        );
+        assert_eq!(ledger.cut(7), Err(LedgerError::Unreadable));
+        assert_eq!(ledger.read().expect("read").entries.len(), 1);
     }
 
     /// ⟨M08 U2b-3a⟩ The trim reports what it dropped and the ledger's length afterwards; with
