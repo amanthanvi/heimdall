@@ -3930,10 +3930,13 @@ async fn another_controllers_cutoff_that_fired_early_blocks_reserve_and_publish(
             .find(|row| row.producer == controller_b())
             .unwrap();
         assert!(row.in_force, "{scope:?}: {row:?}");
-        assert_eq!(
-            row.fired_uncertain_at,
-            Some(plus(certain, HOUR)),
-            "{scope:?}"
+        // ⟨SEC-4, S3-01⟩ A cutoff that fires under uncertain time is latched at a floor no
+        // trusted reading can precede (at most the last trusted reading), not at the runner's
+        // fast wall clock.
+        assert!(
+            row.fired_uncertain_at.is_some_and(|t| t <= certain),
+            "{scope:?}: {:?}",
+            row.fired_uncertain_at
         );
         assert_eq!(row.cutoff_at, Some(at), "{scope:?}");
         let reserved = a
