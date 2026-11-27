@@ -1669,7 +1669,9 @@ async fn s2_01_paired_owner_cannot_run_runner_local_configuration_and_writes_not
         ),
         (
             "connections.close",
-            req(serde_json::json!({"op": "connections", "action": "close", "connection_id": "conn_01010101010101010101010101010101"})),
+            req(
+                serde_json::json!({"op": "connections", "action": "close", "connection_id": "conn_01010101010101010101010101010101"}),
+            ),
         ),
         (
             "connections.register",
@@ -1798,6 +1800,23 @@ async fn s2_01_paired_owner_cannot_run_runner_local_configuration_and_writes_not
     let before_ledger = ledger_bytes(&rig.state_dir());
     let before_db = db_files_bytes(&rig.state_dir());
 
+    // Check the refusal order with an epoch that the fence would reject on its own.
+    // This fixture cannot reach the catalog operation even if admission regresses.
+    let request = example_request("catalog.upsert-destination");
+    let stale = RestoreEpoch(42);
+    assert!(request.request_id().is_some());
+    let env = session
+        .request_with_epoch(request.clone(), Some(stale))
+        .await
+        .unwrap();
+    assert_refused(
+        &env,
+        &Code::InteractionRequired,
+        reason::LOCAL_OWNER_REQUIRED,
+        &request,
+        stale,
+    );
+
     for (label, request) in excluded.drain(..) {
         let env = session.request(request.clone()).await.unwrap();
         assert_eq!(
@@ -1817,7 +1836,8 @@ async fn s2_01_paired_owner_cannot_run_runner_local_configuration_and_writes_not
         assert_eq!(env.request_id, request.request_id().cloned(), "{label}");
         assert_eq!(
             env.request_epoch,
-            request.request_id().map(|_| RestoreEpoch(0)),
+            (request.is_effectful() && !request.requires_attended_session())
+                .then_some(RestoreEpoch(0)),
             "{label}"
         );
     }
@@ -1849,7 +1869,9 @@ async fn s2_01_paired_owner_cannot_run_runner_local_configuration_and_writes_not
 
     // Positive controls: allow-listed view and widening submission still work.
     let view = session
-        .request(req(serde_json::json!({"op": "inspect", "subject": "environments"})))
+        .request(req(
+            serde_json::json!({"op": "inspect", "subject": "environments"}),
+        ))
         .await
         .unwrap();
     assert_eq!(view.code, Code::Ok, "{view:?}");
@@ -1878,14 +1900,21 @@ async fn u2b_3a_unattended_local_owner_widening_runner_local_appends_nothing_to_
     let runner = Runner::start(&rig).await;
     let owner = runner.seed(1, Role::Owner, true);
     let new_owner = ClientId::from_random_bytes([9; 16]);
-    let ca_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl ca";
+    let ca_key =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl ca";
 
     let mut caps = client_capabilities();
     caps.insert(capability::REMOTE_CONTROL_V1.to_owned());
     caps.insert(capability::REQUEST_EPOCH_V1.to_owned());
     // Local (remote_client = None), unattended (NonInteractive, no Attend frame).
-    let mut local = connect_runner(&runner.dispatcher, &runner.stop, &runner.sessions, None, caps)
-        .await;
+    let mut local = connect_runner(
+        &runner.dispatcher,
+        &runner.stop,
+        &runner.sessions,
+        None,
+        caps,
+    )
+    .await;
 
     let forms = [
         (

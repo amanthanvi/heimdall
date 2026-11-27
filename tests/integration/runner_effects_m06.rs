@@ -1849,12 +1849,14 @@ async fn the_runner_owners_own_policy_remove_does_not_lift_a_delivered_cutoff() 
 /// controller is revoked, cleared, or replaced by another controller, the runner forgets its
 /// sample: `bounded()` is false, `sample()` and `now_upper_bound()` are `None`, certificate
 /// installation treats time as uncertain (`TIME_UNCERTAIN`), and a delivered cutoff at "now"
-/// fires even if the old source had supplied a backdated `controller_time`.
+/// fires when the runner's wall clock is ahead of the old source's bound.
 #[tokio::test]
 async fn s2_02_time_sample_is_forgotten_on_revocation_clear_and_switch() {
     use heimdall_contract::ids::RequestId;
     use heimdall_contract::remote::RunnerLocalRequest;
+    use heimdall_contract::request::Request;
     use heimdall_remote::sync::RunnerSide as _;
+    use heimdall_runtime::dispatch::{EventRelay, OperationsDispatcher};
 
     #[derive(Clone, Copy)]
     enum Transition {
@@ -1867,9 +1869,15 @@ async fn s2_02_time_sample_is_forgotten_on_revocation_clear_and_switch() {
     }
 
     let cases = [
-        ("revoke_via_paired_runner", Transition::RevokeViaPairedRunner),
+        (
+            "revoke_via_paired_runner",
+            Transition::RevokeViaPairedRunner,
+        ),
         ("clear_via_paired_runner", Transition::ClearViaPairedRunner),
-        ("switch_via_paired_runner", Transition::SwitchViaPairedRunner),
+        (
+            "switch_via_paired_runner",
+            Transition::SwitchViaPairedRunner,
+        ),
         ("revoke_in_store", Transition::RevokeInStore),
         ("clear_in_store", Transition::ClearInStore),
         ("switch_in_store", Transition::SwitchInStore),
@@ -1884,25 +1892,29 @@ async fn s2_02_time_sample_is_forgotten_on_revocation_clear_and_switch() {
             RunnerOptions::default(),
         )
         .with_runtime(Arc::clone(&r.w.runner));
+        let stop = tokio_util::sync::CancellationToken::new();
+        let dispatcher = OperationsDispatcher::new(
+            r.ops.clone(),
+            EventRelay::spawn(&r.ops, stop.clone()),
+            r.w.clock.clone(),
+        )
+        .with_runner(Arc::new(paired));
+        let _stop = stop.drop_guard();
 
         r.w.trust(&r.w.ca_a, &controller_a());
         r.w.trust(&r.w.ca_b, &controller_b());
         r.w.designate(&controller_a());
 
-        // Make runner local time uncertain, then let controller A answer with a backdated
-        // `controller_time` (2 hours in the past). While A's sample stands, `now_upper_bound()`
-        // is 2 hours before `now`, so a cutoff at `now` would NOT fire.
+        // Keep the runner wall clock below its high-water mark, then move it ahead
+        // of the last accepted sample without advancing the continuous clock.
         r.make_time_uncertain().await;
+        r.w.good_sample();
+        r.w.clock.set_wall(plus(r.w.clock.wall(), MINUTE));
         let now = r.w.clock.wall();
-        let backdated = now
-            .checked_sub(jiff::SignedDuration::from_hours(2))
-            .unwrap();
-        r.w.exchange(&controller_a(), 1, Duration::from_millis(20), backdated)
-            .unwrap();
         assert!(r.w.runner.time().bounded(), "{label}: baseline sample");
         assert!(
             r.w.runner.now_upper_bound().is_some_and(|u| u < now),
-            "{label}: backdated sample must bound upper below now before transition"
+            "{label}: the old source bounds time below the adjusted wall clock"
         );
 
         let local_unattended = Caller::unattended(CallerContext::local(
@@ -1917,24 +1929,37 @@ async fn s2_02_time_sample_is_forgotten_on_revocation_clear_and_switch() {
 
         match transition {
             Transition::RevokeViaPairedRunner => {
-                let ans = paired.revoke_client(&r.w.env, &controller_a()).await;
+                let ans = dispatcher
+                    .handle_as(
+                        &local_unattended,
+                        Request::RemoteEnvironment(
+                            heimdall_contract::remote::RemoteEnvironmentRequest::RevokeClient {
+                                environment: r.w.env.clone(),
+                                client: controller_a(),
+                            },
+                        ),
+                    )
+                    .await;
                 assert_eq!(ans.code, Code::Ok, "{label}: {ans:?}");
             }
             Transition::ClearViaPairedRunner => {
-                let ans = paired
-                    .runner_local(&local_unattended, RunnerLocalRequest::ClearTimeSource)
+                let ans = dispatcher
+                    .handle_as(
+                        &local_unattended,
+                        Request::RunnerLocal(RunnerLocalRequest::ClearTimeSource),
+                    )
                     .await;
                 assert_eq!(ans.code, Code::Ok, "{label}: {ans:?}");
                 assert_eq!(ans.data["cleared"], true, "{label}: {ans:?}");
             }
             Transition::SwitchViaPairedRunner => {
-                let ans = paired
-                    .runner_local(
+                let ans = dispatcher
+                    .handle_as(
                         &local_attended,
-                        RunnerLocalRequest::DesignateTimeSource {
+                        Request::RunnerLocal(RunnerLocalRequest::DesignateTimeSource {
                             client: controller_b(),
                             request_id: RequestId::parse("s2-02-switch").unwrap(),
-                        },
+                        }),
                     )
                     .await;
                 assert_eq!(ans.code, Code::Ok, "{label}: {ans:?}");
@@ -1977,28 +2002,25 @@ async fn s2_02_time_sample_is_forgotten_on_revocation_clear_and_switch() {
 
         // 2. Issuance treats time as uncertain (`TIME_UNCERTAIN`).
         let generation = r.w.generation();
-        let prepared = r
-            .w
-            .runner
-            .issuance()
-            .prepare(&controller_b(), &r.w.grant, generation)
-            .unwrap();
+        let prepared =
+            r.w.runner
+                .issuance()
+                .prepare(&controller_b(), &r.w.grant, generation)
+                .unwrap();
         let valid_before =
             Timestamp::from_second(plus(r.w.clock.wall(), HOUR).as_second()).unwrap();
         let cert = r.w.sign(&r.w.ca_b, &prepared, &pair("h1"), valid_before);
-        let install = r
-            .w
-            .runner
-            .issuance()
-            .install(&controller_b(), &r.w.grant, generation, &cert);
+        let install =
+            r.w.runner
+                .issuance()
+                .install(&controller_b(), &r.w.grant, generation, &cert);
         assert_eq!(
             install,
             Err(IssuanceFailure::TimeUncertain),
             "{label}: install did not treat time as uncertain"
         );
 
-        // 3. A cutoff at "now" fires immediately under uncertain time (not delayed by A's
-        // backdated sample).
+        // 3. A cutoff at "now" fires immediately under uncertain time.
         let ack = r
             .deliver(
                 &controller_b(),
@@ -2012,9 +2034,22 @@ async fn s2_02_time_sample_is_forgotten_on_revocation_clear_and_switch() {
             .await
             .unwrap();
         assert!(
-            matches!(ack.record, AppliedRecord::PolicyRevision { fired: true, .. }),
+            matches!(
+                ack.record,
+                AppliedRecord::PolicyRevision { fired: true, .. }
+            ),
             "{label}: cutoff at now did not fire: {ack:?}"
         );
+
+        if matches!(transition, Transition::SwitchInStore) {
+            r.w.clock.advance(MINUTE);
+            r.w.designate(&controller_a());
+            assert!(
+                r.w.runner.time().sample().is_none(),
+                "re-designation revived a sample from an earlier designation"
+            );
+            r.w.designate(&controller_b());
+        }
 
         // Positive control for Switch: a fresh sample from controller B bounds time again.
         if matches!(

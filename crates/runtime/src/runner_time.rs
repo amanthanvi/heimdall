@@ -154,16 +154,23 @@ pub struct QualifyingSample {
 #[derive(Debug, Clone)]
 struct Challenge {
     session: TimeSession,
+    designation: TimeSourceDesignation,
     boot_id: BootId,
     t1: Duration,
     seq: u64,
+}
+
+#[derive(Debug)]
+struct CommittedSample {
+    designation: TimeSourceDesignation,
+    sample: QualifyingSample,
 }
 
 #[derive(Debug, Default)]
 struct State {
     outstanding: HashMap<String, Challenge>,
     seq: u64,
-    latest: Option<QualifyingSample>,
+    latest: Option<CommittedSample>,
 }
 
 /// The runner's time-sample state (module docs). One per runner runtime.
@@ -171,6 +178,9 @@ pub struct RunnerTime {
     store: Arc<Store>,
     clock: Arc<dyn Clock>,
     policy: RunnerTimePolicy,
+    // Serializes a source change with the commit and publication of a response. Never
+    // acquired from a store transaction. Readers need only the store and `state`.
+    updates: Mutex<()>,
     state: Mutex<State>,
 }
 
@@ -190,15 +200,19 @@ fn active_owner(tx: &mut Txn<'_>, client: &ClientId) -> heimdall_store::Result<b
 }
 
 /// The designated time source, checked: `client` is designated and still an active owner.
-fn check_designated(tx: &mut Txn<'_>, client: &ClientId) -> Result<(), TimeRefusal> {
-    let designation = tx.time_source().map_err(|_| TimeRefusal::State)?;
-    if designation.as_ref().map(|d| &d.client) != Some(client) {
-        return Err(TimeRefusal::NotDesignated);
-    }
+fn check_designated(
+    tx: &mut Txn<'_>,
+    client: &ClientId,
+) -> Result<TimeSourceDesignation, TimeRefusal> {
+    let designation = tx
+        .time_source()
+        .map_err(|_| TimeRefusal::State)?
+        .filter(|d| &d.client == client)
+        .ok_or(TimeRefusal::NotDesignated)?;
     if !active_owner(tx, client).map_err(|_| TimeRefusal::State)? {
         return Err(TimeRefusal::NotActiveOwner);
     }
-    Ok(())
+    Ok(designation)
 }
 
 /// Designate `client` as this runner's time source (module docs). The caller is an attended
@@ -241,6 +255,7 @@ impl RunnerTime {
             store,
             clock,
             policy,
+            updates: Mutex::new(()),
             state: Mutex::new(State::default()),
         }
     }
@@ -255,19 +270,39 @@ impl RunnerTime {
         self.policy
     }
 
-    /// ⟨M08 W4 SEC-3a, S2-02⟩ Forget the cached sample (called on `DesignateTimeSource` and
-    /// `ClearTimeSource`).
-    pub fn clear(&self) {
-        self.lock().latest = None;
+    /// Apply a designation change and invalidate samples and challenges from the old one.
+    pub(crate) fn change_source<T, E>(&self, apply: impl FnOnce() -> Result<T, E>) -> Result<T, E> {
+        let _update = self.updates.lock().unwrap_or_else(PoisonError::into_inner);
+        {
+            let mut state = self.lock();
+            state.latest = None;
+            state.outstanding.clear();
+        }
+        apply()
     }
 
     /// ⟨M08 W4 SEC-3a, S2-02⟩ Forget the cached sample when it came from `client` (called on
     /// revocation of `client`).
-    pub fn invalidate_client(&self, client: &ClientId) {
+    pub(crate) fn invalidate_client(&self, client: &ClientId) {
+        let _update = self.updates.lock().unwrap_or_else(PoisonError::into_inner);
         let mut s = self.lock();
-        if s.latest.as_ref().is_some_and(|l| &l.client == client) {
+        if s.latest
+            .as_ref()
+            .is_some_and(|l| &l.sample.client == client)
+        {
             s.latest = None;
         }
+        s.outstanding.retain(|_, c| &c.session.client != client);
+    }
+
+    pub(super) fn issue_challenge(
+        &self,
+        session: &TimeSession,
+    ) -> Result<TimeChallengeData, TimeRefusal> {
+        let _update = self.updates.lock().unwrap_or_else(PoisonError::into_inner);
+        self.store
+            .transaction(|tx| Ok(self.challenge(tx, session)))
+            .map_err(|_| TimeRefusal::State)?
     }
 
     /// `runner.time_challenge` (module docs): a fresh nonce bound to `session` and to `t₁` now.
@@ -282,7 +317,7 @@ impl RunnerTime {
         tx: &mut Txn<'_>,
         session: &TimeSession,
     ) -> Result<TimeChallengeData, TimeRefusal> {
-        check_designated(tx, &session.client)?;
+        let designation = check_designated(tx, &session.client)?;
         let nonce = fresh_nonce()?;
         let now = self.clock.observe();
         let mut s = self.lock();
@@ -308,6 +343,7 @@ impl RunnerTime {
             nonce.clone(),
             Challenge {
                 session: session.clone(),
+                designation,
                 boot_id: now.boot_id,
                 t1: now.continuous,
                 seq,
@@ -339,6 +375,7 @@ impl RunnerTime {
         // The arrival time t₂ is read first, then the nonce consumed: whatever follows, the
         // answer is judged by when it arrived.
         let arrival = self.clock.observe();
+        let _update = self.updates.lock().unwrap_or_else(PoisonError::into_inner);
         let challenge = {
             let mut s = self.lock();
             match s.outstanding.get(nonce) {
@@ -352,8 +389,10 @@ impl RunnerTime {
         let (exchange, rtt, shortened) = self
             .store
             .transaction(|tx| {
-                if let Err(refusal) = check_designated(tx, &session.client) {
-                    return Ok(Err(refusal));
+                match check_designated(tx, &session.client) {
+                    Ok(designation) if designation == challenge.designation => {}
+                    Ok(_) => return Ok(Err(TimeRefusal::NotDesignated)),
+                    Err(refusal) => return Ok(Err(refusal)),
                 }
                 if challenge.boot_id != arrival.boot_id {
                     return Ok(Err(TimeRefusal::OtherBoot));
@@ -374,9 +413,12 @@ impl RunnerTime {
             })
             .map_err(|_| TimeRefusal::State)??;
         // Commit succeeded: keep the sample in memory only now.
-        self.lock().latest = Some(QualifyingSample {
-            client: session.client.clone(),
-            exchange,
+        self.lock().latest = Some(CommittedSample {
+            designation: challenge.designation,
+            sample: QualifyingSample {
+                client: session.client.clone(),
+                exchange,
+            },
         });
         Ok(TimeSampleAccepted {
             rtt_ms: millis(rtt),
@@ -409,15 +451,15 @@ impl RunnerTime {
     /// `tx` to still belong to the currently designated active owner time source. Fails closed
     /// (`None`) on any designation change, revocation, boot mismatch, or store error.
     #[must_use]
-    pub fn sample_in(&self, tx: &mut Txn<'_>) -> Option<QualifyingSample> {
+    pub(super) fn sample_in(&self, tx: &mut Txn<'_>) -> Option<QualifyingSample> {
         let boot = self.clock.boot_id();
-        let sample = self
-            .lock()
+        let state = self.lock();
+        let latest = state
             .latest
-            .clone()
-            .filter(|s| s.exchange.boot_id == boot)?;
-        check_designated(tx, &sample.client).ok()?;
-        Some(sample)
+            .as_ref()
+            .filter(|s| s.sample.exchange.boot_id == boot)?;
+        let designation = check_designated(tx, &latest.sample.client).ok()?;
+        (designation == latest.designation).then(|| latest.sample.clone())
     }
 
     /// ⟨M08 W4 SEC-3a, S2-02⟩ The latest qualifying sample of **this** boot whose client is
@@ -425,17 +467,10 @@ impl RunnerTime {
     /// or store error.
     #[must_use]
     pub fn sample(&self) -> Option<QualifyingSample> {
-        let boot = self.clock.boot_id();
-        let sample = self
-            .lock()
-            .latest
-            .clone()
-            .filter(|s| s.exchange.boot_id == boot)?;
-        let valid = self
-            .store
-            .transaction(|tx| Ok(check_designated(tx, &sample.client).is_ok()))
-            .ok()?;
-        valid.then_some(sample)
+        self.store
+            .transaction(|tx| Ok(self.sample_in(tx)))
+            .ok()
+            .flatten()
     }
 
     /// Whether a qualifying sample bounds the runner's offset in this boot.

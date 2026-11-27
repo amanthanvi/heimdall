@@ -1214,18 +1214,32 @@ pub fn recheck_view(tx: &mut Txn<'_>, now: &ClockReading) -> heimdall_store::Res
 /// transaction ([`recheck_view`]), and the rows are removed only at the epoch judged. A
 /// runner that is not downgraded answers `lifted: false` (idempotent by convergence).
 ///
-/// ⟨M08 W4 SEC-3a / U2b-3a item 2⟩ Attendance for `runner_local.policy_recheck` is enforced
-/// once before the request fence in `dispatch::pre_fence_refusal` (and by the CLI's offline
-/// confirmation before calling directly); no second copy is kept here.
+/// The CLI uses this path when the runtime is offline, after terminal confirmation. The
+/// runtime checks attendance for `runner_local.policy_recheck` before the request fence.
 ///
 /// # Errors
 ///
-/// `driver_unavailable` on a store that is not a runner's; `CAPABILITY_UNAVAILABLE` /
+/// `INTERACTION_REQUIRED` when unattended; `driver_unavailable` on a store that is not a runner's;
+/// `CAPABILITY_UNAVAILABLE` /
 /// `management_sshd_unverified` with the [`LiftRefusal`]'s statement; `STATE_UNAVAILABLE`.
 pub fn lift_downgrade(
     store: &Store,
     now: &ClockReading,
-    _attended: bool,
+    attended: bool,
+) -> heimdall_app::error::OpResult<serde_json::Value> {
+    if !attended {
+        return Err(OpError::new(
+            Code::InteractionRequired,
+            "lifting the owner-only downgrade needs the owner attending at this runner's terminal",
+        )
+        .with_effect(EffectStatus::None));
+    }
+    apply_downgrade_lift(store, now)
+}
+
+fn apply_downgrade_lift(
+    store: &Store,
+    now: &ClockReading,
 ) -> heimdall_app::error::OpResult<serde_json::Value> {
     // ⟨M06-W3-R03⟩ A pending marker is a downgrade event not yet in the store: record it
     // first (its row moves the epoch, so evidence from before it lifts nothing below). A
@@ -2363,11 +2377,9 @@ impl PairedRunner {
     /// ⟨M06 W3; ADR-0006 §18.7 item 7; M08 W4 SEC-3a⟩ A runner-local decision (`issuer_trust`,
     /// the time source, owner enrollment, downgrade lift): caller identity and attendance for
     /// widening forms were enforced once before the request fence in `dispatch::pre_fence_refusal`.
-    /// When `designate_time_source` or `clear_time_source` commits, the runner's cached time
-    /// sample is cleared (S2-02).
-    pub async fn runner_local(
+    /// Source changes invalidate the runner's cached time sample and outstanding challenges.
+    pub(crate) async fn runner_local(
         &self,
-        _caller: &Caller,
         request: heimdall_contract::remote::RunnerLocalRequest,
     ) -> Envelope<serde_json::Value> {
         if let heimdall_contract::remote::RunnerLocalRequest::EnrollOwner {
@@ -2384,32 +2396,29 @@ impl PairedRunner {
             };
             return self.enroll_owner(enrollment).await;
         }
-        let clears_time = matches!(
-            request,
-            heimdall_contract::remote::RunnerLocalRequest::DesignateTimeSource { .. }
-                | heimdall_contract::remote::RunnerLocalRequest::ClearTimeSource
-        );
         let store = Arc::clone(&self.store);
+        let runtime = self.runtime.clone();
         let now = self.clock.wall();
         // ⟨§18.7 item 19⟩ The attended lift, judged on this runtime's own clock.
         let reading = ClockReading::of(self.clock.as_ref());
-        let applied = tokio::task::spawn_blocking(move || match &request {
-            heimdall_contract::remote::RunnerLocalRequest::PolicyRecheck { .. } => {
-                lift_downgrade(&store, &reading, true)
+        let applied = tokio::task::spawn_blocking(move || {
+            use heimdall_contract::remote::RunnerLocalRequest;
+            let apply = || crate::runner::apply_runner_local(&store, now, &request);
+            match (&request, runtime) {
+                (RunnerLocalRequest::PolicyRecheck { .. }, _) => {
+                    apply_downgrade_lift(&store, &reading)
+                }
+                (
+                    RunnerLocalRequest::DesignateTimeSource { .. }
+                    | RunnerLocalRequest::ClearTimeSource,
+                    Some(rt),
+                ) => rt.time().change_source(apply),
+                _ => apply(),
             }
-            _ => crate::runner::runner_local(&store, now, true, &request),
         })
         .await;
         match applied {
-            Ok(result) => {
-                if result.is_ok()
-                    && clears_time
-                    && let Some(rt) = &self.runtime
-                {
-                    rt.time().clear();
-                }
-                crate::dispatch::render(result)
-            }
+            Ok(result) => crate::dispatch::render(result),
             Err(_) => value_of(
                 OpError::new(
                     Code::InternalError,

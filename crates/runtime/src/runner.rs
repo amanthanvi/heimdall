@@ -313,10 +313,9 @@ impl RunnerRuntime {
                 ok(installed)
             }
             RunnerRequest::TimeChallenge => {
-                let time = self.time();
                 let data = self
-                    .store
-                    .transaction(|tx| Ok(time.challenge(tx, &session)))?
+                    .time()
+                    .issue_challenge(&session)
                     .map_err(time::TimeRefusal::to_error)?;
                 ok(data)
             }
@@ -385,12 +384,23 @@ impl RunnerRuntime {
     }
 }
 
-/// ⟨M06 W3; ADR-0006 §18.7 item 7; M08 W4 SEC-3a / U2b-3a item 2⟩ Apply one runner-local
-/// decision (module docs, "Runner-local decisions") to this runner's store, at `now`.
-/// Caller identity and attendance for widening forms are enforced once before the request
-/// fence in `dispatch::pre_fence_refusal` (and by the CLI's offline confirmation before
-/// calling directly); this function keeps no second copy of the attendance check and refuses
-/// only a store that is not a runner's, a non-owner target, and invalid input.
+pub(crate) fn check_runner_local_attendance(
+    request: &RunnerLocalRequest,
+    attended: bool,
+) -> Result<(), OpError> {
+    if request.is_widening() && !attended {
+        return Err(OpError::new(
+            Code::InteractionRequired,
+            "this runner-local decision needs the owner attending at this runner's terminal",
+        )
+        .with_effect(EffectStatus::None));
+    }
+    Ok(())
+}
+
+/// Apply a runner-local decision directly while the runtime is offline. The CLI holds the
+/// instance lock and supplies `attended` after the owner's terminal confirmation. The live
+/// dispatcher uses the same attendance check before its request fence.
 ///
 /// * `trust_issuer`: `controller` must be an **active owner** client; the CA key must be one
 ///   OpenSSH public key line, whose fingerprint the runner computes. Adds (or replaces) the
@@ -401,13 +411,22 @@ impl RunnerRuntime {
 ///
 /// # Errors
 ///
-/// `CAPABILITY_UNAVAILABLE` with `driver_unavailable` on a store that is not a runner's, or
-/// `role_insufficient` for a controller or client that is not an active owner; `USAGE_ERROR`
-/// for a CA key that is not one public key line; `STATE_UNAVAILABLE`.
+/// `INTERACTION_REQUIRED` for an unattended widening form, `CAPABILITY_UNAVAILABLE` for a
+/// non-runner store or a non-owner target, `USAGE_ERROR` for invalid input, or `STATE_UNAVAILABLE`.
 pub fn runner_local(
     store: &Store,
     now: Timestamp,
-    _attended: bool,
+    attended: bool,
+    request: &RunnerLocalRequest,
+) -> OpResult<serde_json::Value> {
+    check_runner_local_attendance(request, attended)?;
+    apply_runner_local(store, now, request)
+}
+
+/// Apply a runner-local decision after admission and any needed attendance check.
+pub(crate) fn apply_runner_local(
+    store: &Store,
+    now: Timestamp,
     request: &RunnerLocalRequest,
 ) -> OpResult<serde_json::Value> {
     let not_owner = |what: &str| {

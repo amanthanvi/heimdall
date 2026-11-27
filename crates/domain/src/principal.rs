@@ -135,8 +135,7 @@ impl CallerContext {
 /// sub-variant) — is refused before the request fence (`INTERACTION_REQUIRED` /
 /// `local_owner_required`), writing nothing.
 ///
-/// Exhaustive over [`Request`] with no top-level wildcard, so any new request kind must be
-/// explicitly classified here.
+/// New request kinds are refused until explicitly allowed here.
 #[must_use]
 pub fn paired_session_allows(request: &Request) -> bool {
     match request {
@@ -203,7 +202,12 @@ pub fn paired_session_allows(request: &Request) -> bool {
         Request::Transport(t) => match t {
             TransportRequest::Enable {
                 serve, exposure, ..
-            } => *serve || exposure.as_ref().is_some_and(|p| *p != ExposurePolicy::default()),
+            } => {
+                *serve
+                    || exposure
+                        .as_ref()
+                        .is_some_and(|p| *p != ExposurePolicy::default())
+            }
             TransportRequest::AdoptRoost { .. } => true,
             TransportRequest::Disable | TransportRequest::Rotate => false,
             _ => false,
@@ -224,6 +228,7 @@ pub fn paired_session_allows(request: &Request) -> bool {
         | Request::Device(_)
         | Request::RunnerLocal(_)
         | Request::ControllerRecord(_) => false,
+        _ => false,
     }
 }
 

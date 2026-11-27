@@ -24,8 +24,8 @@
 //!   executes them on dispatch (ADR-0006 §13.1 R5, §13.4 N04).
 //! * **Service control** (ADR-0006 §13.6 item 8). `Request::Shutdown` reaches this
 //!   dispatcher only on a session that negotiated `service-control/1` (the session
-//!   refuses it otherwise). It is accepted only from the **owner** role, on any
-//!   session (attended or not: an availability action, not a widening), and only
+//!   refuses it otherwise). It is accepted only from the **local owner** role,
+//!   whether attended or unattended, and only
 //!   when the service gave this dispatcher its stop token
 //!   ([`OperationsDispatcher::with_service_control`]); a limited consumer gets
 //!   `CAPABILITY_UNAVAILABLE`. The answer is `OK {"stopping": true,
@@ -35,7 +35,7 @@
 //!   requests are idempotent. This dispatcher serves the control endpoint only:
 //!   the signing endpoint speaks the agent protocol and has no such request.
 //! * ⟨M03; ADR-0008 §17.27 item 2⟩ **The uninstall fence**
-//!   (`Request::UninstallFence`, `service-control/1`, owner role only, any session):
+//!   (`Request::UninstallFence`, `service-control/1`, local owner only):
 //!   held by **this connection**. Each clone of the dispatcher is one connection's
 //!   scope (the control listener clones it once per accepted connection and drops
 //!   that clone when the connection ends, whatever the reason), so the fence is
@@ -184,23 +184,15 @@ fn pre_fence_refusal(
             .with_effect(EffectStatus::None),
         ));
     }
-    if is_runner
-        && let Request::RunnerLocal(r) = request
-    {
+    if is_runner && let Request::RunnerLocal(r) = request {
         if !caller.context.has_global_access() {
             return Some(error_value(
                 heimdall_remote::roles::Refusal::RoleInsufficient.to_op_error(),
             ));
         }
-        if r.is_widening() && !caller.is_attended() {
-            return Some(error_value(
-                OpError::new(
-                    Code::InteractionRequired,
-                    "this runner-local decision needs the owner attending at this runner's terminal",
-                )
-                .with_effect(EffectStatus::None),
-            ));
-        }
+        return crate::runner::check_runner_local_attendance(r, caller.is_attended())
+            .err()
+            .map(error_value);
     }
     let needs_the_owner_role = || {
         error_value(
@@ -881,6 +873,9 @@ impl OperationsDispatcher {
         caller: &Caller,
         request: Request,
     ) -> Envelope<serde_json::Value> {
+        if let Some(refused) = pre_fence_refusal(caller, &request, self.runner.is_some()) {
+            return refused;
+        }
         self.handle_as_gated(caller, request, &Gate::open()).await
     }
 
@@ -896,9 +891,8 @@ impl OperationsDispatcher {
         env
     }
 
-    /// The checks of one request in their order (module docs): the single pre-fence check
-    /// (`pre_fence_refusal`), then (⟨M08 U2b-2 follow-up A⟩) the uninstall-fence admission,
-    /// which is held across the request fence ([`Gate::pass`]) and the request.
+    /// After `pre_fence_refusal`, hold the uninstall-fence admission across the request fence
+    /// ([`Gate::pass`]) and the request.
     async fn handle_as_unshown(
         &self,
         caller: &Caller,
@@ -906,9 +900,6 @@ impl OperationsDispatcher {
         gate: &Gate<'_>,
     ) -> Envelope<serde_json::Value> {
         let caller = caller.clone();
-        if let Some(refused) = pre_fence_refusal(&caller, &request, self.runner.is_some()) {
-            return refused;
-        }
         // ⟨M06 W5; ADR-0006 §18.9 item 8; ADR-0012 §3.10 item 4⟩ On every installation that
         // serves the route and transport forms, `Decide` on a **local** widening record is
         // decided here, before the application (attended, local owner, checked time); a paired client's record is
@@ -1026,7 +1017,7 @@ impl OperationsDispatcher {
                         .runner_request(&caller, self.scope.id, r.clone())
                         .await;
                 }
-                Request::RunnerLocal(r) => return runner.runner_local(&caller, r.clone()).await,
+                Request::RunnerLocal(r) => return runner.runner_local(r.clone()).await,
                 _ => {}
             }
         }
