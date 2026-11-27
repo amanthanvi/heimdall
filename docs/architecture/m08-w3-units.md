@@ -109,6 +109,17 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
       again with only the fix reverted.
     - **Ruling of 2026-11-27:** paired owners stay share-limited; only the local owner is exempt
       (ADR-0006 §19.3).
+  - **A W4 load flake:** `e2e_tui_m07` `pty::a20_key_latency` (M07's A20, debug build) failed the
+    gate at `95043b74`. The search keystroke's completed-frame P95 was 105.5 ms against a 100 ms
+    budget; Tab and PageDown were well inside it.
+    - The load averages were 10, 11 and 20, with three workers and other tracks running.
+    - SEC-5 touches no TUI code.
+    - Three focused reruns at the same SHA all passed, at load averages of 5 to 8. The full tip
+      `f3f0c082` was then regated.
+    - **Ruled 2026-11-27:** keep the budget and run A20 **serially** in the gate. It is never
+      skipped under load. It goes to M07. The authoritative A20 numbers come from the release
+      build on a quiet host at the candidate's benchmark run; the gate's debug run stays a
+      regression guard.
   - **A product-facing installer defect, found by PC jobs 70 and 71.** `install.ps1`, run by
     Windows PowerShell 5.1 from a PowerShell 7 parent (Windows Terminal's default), fails with
     `Get-FileHash` not recognized. The cause: `pwsh`'s modules path is inherited through
