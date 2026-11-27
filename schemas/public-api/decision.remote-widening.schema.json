@@ -3604,6 +3604,17 @@
         "binding_id": {
           "description": "Binding reference to release.",
           "$ref": "#/$defs/BindingId"
+        },
+        "request_id": {
+          "description": "⟨rev7; M08 W4 U2b-3a; U0-Q7(a)⟩ Idempotency request ID, optional: with one, the release\nis keyed by it like the other mutating requests (ADR-0006 §7.1) and carries the restore\nepoch it was first sent under (H13), so a retry is checked by the epoch and the replay\nfence before anything runs. Omitted when absent, so every earlier release's wire form\nis unchanged.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestId"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [

@@ -874,3 +874,107 @@ fn no_test_builds_the_state_database_path_by_hand() {
         offenders.join("\n")
     );
 }
+
+/// ⟨M08 W4 U2b-3a; W3-R05⟩ `a_stale_install_intent_is_recovered_only_from_an_unfenced_flat_store`:
+/// this build's first start on a new home is stopped before its pointer exists (an
+/// interrupted install), then a build that predates generations runs on that home and creates
+/// its own flat store. The next start of this build adopts that store with what the older build
+/// wrote, instead of refusing every start (`WrongState`) until the intent is removed by hand,
+/// and a further start serves the adopted generation. A flat store under the stale install
+/// intent that carries an adoption fence (a fence no adoption intent explains) is refused
+/// `state_corrupt` (`adoption_intent_missing`): its family is untouched and nothing is
+/// published.
+#[test]
+fn a_stale_install_intent_is_recovered_only_from_an_unfenced_flat_store() {
+    for fenced in [false, true] {
+        let case = if fenced { "fenced" } else { "unfenced" };
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // 1. The interrupted install: stopped (a process stop, not an error) at the rename.
+        let fs = FaultFs::new(
+            RealFs,
+            Some(Fault {
+                point: Point::PointerRename,
+                nth: 0,
+                when: When::Before,
+                action: Action::Dead,
+            }),
+        );
+        assert!(start(root, &fs).is_err(), "{case}");
+        assert!(fs.fired(), "{case}");
+        assert!(
+            root.join(INTENT).exists(),
+            "{case}: the install's intent is left"
+        );
+        assert!(
+            !root.join(CURRENT).exists(),
+            "{case}: nothing was published"
+        );
+        // 2. The older build creates its flat store there and writes a revocation.
+        seed_flat(root);
+        if fenced {
+            // The fence's own transaction (adoption step 2): the kept version, then the fence.
+            let conn = rusqlite::Connection::open(flat(root)).unwrap();
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('adoption_fenced_from', ?1)",
+                [OLDER.to_string()],
+            )
+            .unwrap();
+            conn.pragma_update(None, "user_version", layout::ADOPTION_FENCE)
+                .unwrap();
+        }
+        let family = |root: &Path| {
+            let mut bytes = BTreeMap::new();
+            for suffix in ["", "-wal", "-journal"] {
+                let path = root.join(format!("{}{suffix}", layout::DB_FILE));
+                if let Ok(b) = std::fs::read(&path) {
+                    bytes.insert(suffix.to_owned(), b);
+                }
+            }
+            bytes
+        };
+        let flat_before = family(root);
+        // 3. This build starts again.
+        match start(root, &RealFs) {
+            Ok(opened) if !fenced => {
+                assert_eq!(
+                    opened.began,
+                    Began::Adopted {
+                        schema_version: OLDER
+                    },
+                    "{case}"
+                );
+                assert_eq!(opened.current.record.operation, Operation::Adopt, "{case}");
+                assert_eq!(
+                    opened.current.record.environment_id,
+                    env(1).as_str(),
+                    "{case}: the older build's identity is kept"
+                );
+                assert!(
+                    has_tombstone(&opened.store, 1),
+                    "{case}: what the older build wrote is adopted"
+                );
+                let adopted = opened.current.name.as_str().to_owned();
+                drop(opened);
+                let again = start_real(root);
+                assert_eq!(again.current.name.as_str(), adopted, "{case}");
+                assert_eq!(again.began, Began::Served, "{case}");
+            }
+            Err(StoreError::Corrupt(why)) if fenced => {
+                assert!(why.contains("adoption_intent_missing"), "{case}: {why}");
+                assert_eq!(family(root), flat_before, "{case}: the family is untouched");
+                assert!(
+                    !root.join(CURRENT).exists(),
+                    "{case}: nothing was published"
+                );
+                assert!(
+                    generations(root).is_empty(),
+                    "{case}: {:?}",
+                    generations(root)
+                );
+            }
+            Ok(opened) => panic!("{case}: started {:?}", opened.began),
+            Err(e) => panic!("{case}: {e}"),
+        }
+    }
+}

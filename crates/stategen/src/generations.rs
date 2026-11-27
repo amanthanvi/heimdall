@@ -412,6 +412,15 @@ impl<F: Fs> StateDir<F> {
     /// of the fenced family, as `populate` does in [`StateDir::publish`].
     ///
     /// The flat family is never moved, removed or served again by this crate.
+    ///
+    /// ⟨M08 W4 U2b-3a; W3-R05⟩ **A stale install intent.** An install that never published
+    /// (its first start was interrupted, and start-up has removed what it staged) leaves its
+    /// intent. When a build that predates generations then creates a flat family in the state
+    /// directory, that intent is stale: an install fences nothing, so the adoption starts from
+    /// the beginning and its own intent replaces the install's. **The caller checks first that
+    /// the flat family carries no adoption fence:** a fenced family under an install's intent
+    /// has no adoption intent to explain its fence, and is refused (fail closed; the store's
+    /// layout answers `state_corrupt`).
     pub fn adopt<E>(
         &self,
         plan: Plan,
@@ -426,7 +435,7 @@ impl<F: Fs> StateDir<F> {
         match self.open()? {
             Startup::Empty => {}
             Startup::FirstPublicationPending { intent, .. }
-                if intent.operation == Operation::Adopt => {}
+                if matches!(intent.operation, Operation::Adopt | Operation::Install) => {}
             _ => return Err(StateError::Refused(Refusal::WrongState).into()),
         }
         self.require_free(&plan.name)?;

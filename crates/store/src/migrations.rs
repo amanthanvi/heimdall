@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 15;
+pub const SCHEMA_VERSION: u32 = 16;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -114,6 +114,13 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 15,
         name: "grant_live",
         sql: include_str!("../migrations/0015_grant_live.sql"),
+    },
+    // ⟨M08 W4 U2b-3a⟩ (ADR-0014 §3.6 step 4, ADR-0006 §7.4): the terminal records the request
+    // ledger's trim and the restore read by the ledger's digest.
+    Migration {
+        version: 16,
+        name: "request_terminals",
+        sql: include_str!("../migrations/0016_request_terminals.sql"),
     },
 ];
 

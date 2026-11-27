@@ -308,6 +308,13 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
         "request_fences",
         RecoveryClass::Discarded("request replay fences; local"),
     ),
+    // ⟨M08 U2b-3a⟩ Migration 0016 (ADR-0014 §3.6 step 4): the request keys' terminal records by
+    // the ledger's digest, written by `crate::fence` and `Txn::purge_operations_before`; replay
+    // bookkeeping like the fences.
+    (
+        "request_terminals",
+        RecoveryClass::Discarded("request terminal records for the ledger's trim; local"),
+    ),
 ];
 
 /// ⟨M06⟩ Why a migration-0009 table is `Discarded` in wave 0 ([`TABLE_RECOVERY`]).

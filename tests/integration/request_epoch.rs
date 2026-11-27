@@ -1044,14 +1044,34 @@ struct Runner {
     stop: CancellationToken,
     /// The runtime's dispatcher with its request fence ([`Self::restart`]).
     dispatcher: OperationsDispatcher,
+    /// ⟨M08 W4 U2b-3a⟩ The dispatcher's request fence ([`Self::restart`] makes a new one).
+    fence: Arc<RequestFence>,
+    /// ⟨M08 W4 U2b-3a⟩ What [`Self::start_with`] was given, kept for [`Self::restart`].
+    setup: RunnerSetup,
     /// The paired sessions' serving tasks this rig spawned ([`Self::connect`]), awaited by
     /// [`Self::stop`].
     sessions: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
+/// ⟨M08 W4 U2b-3a⟩ How [`Runner::start_with`] serves: the request fence's cap and test hook,
+/// the management-line writer (so an approved invitation runs), and the route and transport
+/// forms over fixture K_iroh custody.
+#[derive(Clone, Default)]
+struct RunnerSetup {
+    limits: Option<heimdall_runtime::request_fence::LedgerLimits>,
+    hook: Option<FenceHook>,
+    lines: bool,
+    routes: bool,
+}
+
 impl Runner {
     /// The rig's installation, made a runner (`remote init`'s marker), and served.
     async fn start(rig: &Rig) -> Runner {
+        Self::start_with(rig, RunnerSetup::default()).await
+    }
+
+    /// [`Self::start`], served as `setup` says.
+    async fn start_with(rig: &Rig, setup: RunnerSetup) -> Runner {
         let store = Arc::new(rig.store());
         assert_eq!(init_runner(&store).unwrap(), env_id());
         let ops = Operations::start(OperationsConfig {
@@ -1069,7 +1089,8 @@ impl Runner {
         .await
         .unwrap();
         let stop = CancellationToken::new();
-        let dispatcher = Self::serve(&store, &ops, &rig.clock, &rig.state_dir(), &stop);
+        let (dispatcher, fence) =
+            Self::serve(&store, &ops, &rig.clock, &rig.state_dir(), &stop, &setup);
         Runner {
             store,
             ops,
@@ -1077,6 +1098,8 @@ impl Runner {
             state_dir: rig.state_dir(),
             stop,
             dispatcher,
+            fence,
+            setup,
             sessions: std::sync::Mutex::new(Vec::new()),
         }
     }
@@ -1125,32 +1148,127 @@ impl Runner {
         clock: &Arc<VirtualClock>,
         state_dir: &Path,
         stop: &CancellationToken,
-    ) -> OperationsDispatcher {
-        let fence = Arc::new(RequestFence::open(Arc::clone(store), state_dir).unwrap());
-        let runner = PairedRunner::new(
-            Arc::clone(store),
-            ops.clone(),
-            clock.clone(),
-            RunnerOptions::default(),
-        );
-        OperationsDispatcher::new(
+        setup: &RunnerSetup,
+    ) -> (OperationsDispatcher, Arc<RequestFence>) {
+        let mut fence = RequestFence::open(Arc::clone(store), state_dir).unwrap();
+        if let Some(limits) = setup.limits {
+            fence = fence.with_limits(limits);
+        }
+        if let Some(hook) = &setup.hook {
+            fence = fence.with_hook(Arc::clone(hook));
+        }
+        let fence = Arc::new(fence);
+        let options = if setup.lines {
+            RunnerOptions {
+                lines: Some(Arc::new(
+                    heimdall_remote::testing::MemoryLines::default_pair(),
+                )),
+                command: Some(
+                    heimdall_remote::line::ServeCommand::new(
+                        "/opt/heimdall/bin/heimdall",
+                        "/srv/runner/heimdall",
+                    )
+                    .unwrap(),
+                ),
+                management_policy: heimdall_contract::remote::ManagementPolicy::Verified,
+                ..RunnerOptions::default()
+            }
+        } else {
+            RunnerOptions::default()
+        };
+        let runner = PairedRunner::new(Arc::clone(store), ops.clone(), clock.clone(), options);
+        let mut dispatcher = OperationsDispatcher::new(
             ops.clone(),
             EventRelay::spawn(ops, stop.clone()),
             clock.clone(),
         )
-        .with_request_fence(fence)
-        .with_runner(Arc::new(runner))
+        .with_request_fence(Arc::clone(&fence))
+        .with_runner(Arc::new(runner));
+        if setup.routes {
+            use heimdall_runtime::supervise_transport::{
+                CredentialKeys, NoPeerEndpoints, RouteTransport, ServeSpawn, SupervisorConfig,
+                TransportSupervisor,
+            };
+            // The route and transport forms over fixture K_iroh custody; no serve child is
+            // ever started (nothing here serves).
+            let supervisor = Arc::new(TransportSupervisor::new(
+                Arc::clone(store),
+                Arc::new(NoPeerEndpoints),
+                SupervisorConfig::new(ServeSpawn {
+                    program: PathBuf::from("/nonexistent/heimdall"),
+                    args: Vec::new(),
+                    env: Vec::new(),
+                }),
+            ));
+            let keys: Arc<dyn heimdall_app::transport::TransportKeys> = Arc::new(CredentialKeys(
+                Arc::new(heimdall_credential::iroh::FixtureIrohStore::new()),
+            ));
+            dispatcher = dispatcher.with_route_transport(Arc::new(RouteTransport::new(
+                Arc::clone(store),
+                supervisor,
+                keys,
+                Arc::new(heimdall_app::transport::StorePeerEnrollments),
+            )));
+        }
+        (dispatcher, fence)
     }
 
-    /// The runtime started again on the same state: its request fence reads the epoch now.
+    /// The runtime started again on the same state: its request fence reads the epoch and the
+    /// ledger now.
     fn restart(&mut self) {
-        self.dispatcher = Self::serve(
+        (self.dispatcher, self.fence) = Self::serve(
             &self.store,
             &self.ops,
             &self.clock,
             &self.state_dir,
             &self.stop,
+            &self.setup,
         );
+    }
+
+    /// ⟨M08 W4 U2b-3a⟩ A session local to the runner: its local owner, attended when asked.
+    async fn connect_local(&self, attended: bool) -> ControlClient<tokio::io::DuplexStream> {
+        let (client_end, server_end) = tokio::io::duplex(1 << 20);
+        let conn = ControlConnection::new(server_end, ConnectionLimits::default())
+            .with_server_identity(
+                env_id(),
+                PeerInfo {
+                    name: "runner".into(),
+                    version: "0".into(),
+                },
+            );
+        let (dispatcher, stop) = (self.dispatcher.clone(), self.stop.clone());
+        let session = tokio::spawn(async move {
+            let _ = conn.serve(paired_principal(), dispatcher, stop).await;
+        });
+        self.sessions.lock().unwrap().push(session);
+        let mut c = ControlClient::handshake_hello(
+            client_end,
+            ClientHello {
+                protocol: PROTOCOL_VERSION,
+                schema_version: SchemaVersion::current(),
+                client: PeerInfo {
+                    name: "epoch-test".into(),
+                    version: "0".into(),
+                },
+                capabilities: heimdall_ipc::session::Dispatcher::offered_capabilities(
+                    &self.dispatcher,
+                ),
+                required: BTreeSet::new(),
+                interaction: if attended {
+                    InteractionMode::Interactive
+                } else {
+                    InteractionMode::NonInteractive
+                },
+                remote_client: None,
+            },
+        )
+        .await
+        .unwrap();
+        if attended {
+            assert_eq!(c.attend().await.unwrap().code, Code::Ok);
+        }
+        c
     }
 
     /// Client `n`'s row in the role table as the invitation service leaves it: pending, or
@@ -1980,5 +2098,463 @@ async fn u2b_3a_unattended_local_owner_widening_runner_local_appends_nothing_to_
         "unattended local runner_local widening wrote to the SQLite store"
     );
     assert_eq!(rig.footprint(), before_footprint);
+    runner.stop().await;
+}
+
+// --- ⟨M08 W4 U2b-3a⟩ the ledger bounded, its trim, and the terminal records of M06's kinds ----
+
+/// The cap's refusal: `BACKPRESSURE`, retryable, effect `none`, next `retry_after` with a hint,
+/// and the request's ID and epoch reported.
+fn assert_ledger_full(env: &Envelope<serde_json::Value>, request: &Request) {
+    let text = serde_json::to_string(env).unwrap();
+    assert_no_canary(&text);
+    assert_eq!(env.code, Code::Backpressure, "{text}");
+    let error = error_of(env).error;
+    assert!(error.retryable, "{text}");
+    assert_eq!(error.effect_status, EffectStatus::None, "{text}");
+    assert_eq!(error.next.action, "retry_after", "{text}");
+    assert!(error.next.retry_after_ms.is_some(), "{text}");
+    assert_eq!(env.request_id.as_ref(), request.request_id());
+    assert_eq!(env.request_epoch, Some(RestoreEpoch(0)));
+}
+
+/// ⟨M08 W4 U2b-3a; the soak precondition and the orchestrator's cap of 2026-11-26⟩ An
+/// authorized session's flood of distinct keys keeps the request ledger bounded, and an
+/// append's cost does not grow with the ledger's history. Through a runner's paired sessions
+/// and its local owner, with the cap's numbers made small (limit 24, owner reserve 6, share 8):
+///
+/// - each new key appends one entry, and **no append reads the ledger** (the fence's bytes read
+///   stay at what its open read: the cost proxy is flat);
+/// - past its share, a requester's next new key is refused `BACKPRESSURE` with nothing
+///   appended (the ledger is byte-identical), while a retry of one of its keys is still
+///   answered, appending nothing;
+/// - another requester is not refused by the first one's flood;
+/// - at the owner reserve's line a requester is refused although its own share is not full,
+///   and the **owner's** new keys are admitted while requesters are at their share and at the
+///   line, up to the limit, where the owner's own next key is refused: the ledger never holds
+///   more than the limit;
+/// - started again, the fence reads the ledger once, and the line holds (the count is the
+///   ledger's own).
+///
+/// The application answers these `ensure`s with its own refusal (the rig has no adapter):
+/// what the cap governs is the request fence's admission, which each assertion checks.
+#[tokio::test]
+async fn a_flood_of_distinct_keys_keeps_the_ledger_bounded() {
+    use heimdall_runtime::request_fence::LedgerLimits;
+    let rig = Rig::new();
+    let limits = LedgerLimits {
+        limit: 24,
+        owner_reserve: 6,
+        client_share: 8,
+    };
+    let mut runner = Runner::start_with(
+        &rig,
+        RunnerSetup {
+            limits: Some(limits),
+            ..RunnerSetup::default()
+        },
+    )
+    .await;
+    let flooder = runner.seed(1, Role::Requester, true);
+    let second = runner.seed(2, Role::Requester, true);
+    let third = runner.seed(3, Role::Requester, true);
+    let opened = runner.fence.ledger_bytes_read();
+    let admitted = |env: &Envelope<serde_json::Value>, id: &str, n: usize| {
+        assert_ne!(env.code, Code::Backpressure, "{id}: {env:?}");
+        assert_ne!(env.code, Code::StateUnavailable, "{id}: {env:?}");
+        assert_eq!(env.request_id, Some(rid(id)), "{id}");
+        assert_eq!(rig.ledger().len(), n, "{id}: one entry per new key");
+    };
+    // The flood, up to the share.
+    let mut a = runner.connect(&flooder).await;
+    for n in 0..8 {
+        let id = format!("r-a-{n}");
+        let env = a.request(ensure(&id)).await.unwrap();
+        admitted(&env, &id, n + 1);
+        assert_eq!(
+            runner.fence.ledger_bytes_read(),
+            opened,
+            "{id}: an append reads nothing"
+        );
+    }
+    // Past the share: refused before any append.
+    let before = ledger_bytes(&rig.state_dir());
+    let over = ensure("r-a-8");
+    assert_ledger_full(&a.request(over.clone()).await.unwrap(), &over);
+    assert_eq!(ledger_bytes(&rig.state_dir()), before, "nothing appended");
+    // A retry of a key already in the ledger is deduplicated, and still answered.
+    let retry = a.request(ensure("r-a-3")).await.unwrap();
+    assert_ne!(retry.code, Code::Backpressure, "{retry:?}");
+    assert_eq!(retry.request_id, Some(rid("r-a-3")));
+    assert_eq!(
+        ledger_bytes(&rig.state_dir()),
+        before,
+        "a retry appends nothing"
+    );
+    // Another requester is not refused by the first one's flood.
+    let mut b = runner.connect(&second).await;
+    for n in 0..8 {
+        let id = format!("r-b-{n}");
+        let env = b.request(ensure(&id)).await.unwrap();
+        admitted(&env, &id, 9 + n);
+    }
+    let mut c = runner.connect(&third).await;
+    for n in 0..2 {
+        let id = format!("r-c-{n}");
+        let env = c.request(ensure(&id)).await.unwrap();
+        admitted(&env, &id, 17 + n);
+    }
+    // The owner reserve's line (24 - 6): the third requester is refused with its share not full.
+    let at_line = ensure("r-c-2");
+    assert_ledger_full(&c.request(at_line.clone()).await.unwrap(), &at_line);
+    assert_eq!(rig.ledger().len(), 18);
+    // The owner is admitted while requesters are at their share and at the line.
+    let mut owner = runner.connect_local(false).await;
+    for n in 0..6 {
+        let id = format!("r-o-{n}");
+        let env = owner.request(ensure(&id)).await.unwrap();
+        admitted(&env, &id, 19 + n);
+    }
+    // The limit: the owner's own next key is refused; the ledger holds the limit, no more.
+    let full = ensure("r-o-6");
+    let before = ledger_bytes(&rig.state_dir());
+    assert_ledger_full(&owner.request(full.clone()).await.unwrap(), &full);
+    assert_eq!(ledger_bytes(&rig.state_dir()), before);
+    assert_eq!(rig.ledger().len(), limits.limit);
+    assert_eq!(
+        runner.fence.ledger_bytes_read(),
+        opened,
+        "no append, refusal or retry read the ledger"
+    );
+    // Started again: the ledger is read once, and the line holds.
+    drop((a, b, c, owner));
+    runner.restart();
+    assert_eq!(
+        runner.fence.ledger_bytes_read(),
+        (limits.limit * heimdall_store::layout::stategen::ledger::RECORD_LEN) as u64
+    );
+    let mut c = runner.connect(&third).await;
+    let after = ensure("r-c-3");
+    assert_ledger_full(&c.request(after.clone()).await.unwrap(), &after);
+    assert_eq!(rig.ledger().len(), limits.limit);
+    drop(c);
+    runner.stop().await;
+}
+
+/// ⟨M08 W4 U2b-3a; ADR-0006 §7.4, ADR-0014 §3.6 step 4⟩ The ledger's trim, through the
+/// runtime: a settled key's entry is dropped only once its marker window has ended, as the
+/// retention pass found on checked time, although its operation and idempotency record were
+/// purged long before (its settlement is kept by the ledger's digest). An entry whose settlement
+/// is unknown (its request stopped after the append, before any store write) is never dropped.
+#[tokio::test]
+async fn the_trim_drops_an_entry_only_after_its_marker_window() {
+    let rig = Rig::new();
+    let cut = Arc::new(AtomicBool::new(false));
+    let hook: FenceHook = {
+        let cut = Arc::clone(&cut);
+        Arc::new(move |p| p == FencePoint::AfterLedgerAppend && cut.swap(false, Ordering::SeqCst))
+    };
+    let running = rig.start(Some(hook)).await;
+    let mut c = client(&running.control, InteractionMode::NonInteractive).await;
+    assert_eq!(
+        c.request(ensure("r-done")).await.unwrap().code,
+        Code::AccessReady
+    );
+    cut.store(true, Ordering::SeqCst);
+    let stopped = c.request(ensure("r-cut")).await.unwrap();
+    assert_eq!(stopped.code, Code::InternalError, "{stopped:?}");
+    running.stop().await;
+    let caller = CallerContext::local(owner_principal(), ClientRole::Owner);
+    let digest = |r: &str| ledger_digest(&caller, "ensure", &rid(r)).unwrap();
+    let digests =
+        |rig: &Rig| -> BTreeSet<[u8; 32]> { rig.ledger().iter().map(|e| e.digest).collect() };
+    assert_eq!(digests(&rig), [digest("r-done"), digest("r-cut")].into());
+    // The retention pass's purges, on its time: `r-done` (settled at t0, retention 7 days) is
+    // purged at once; its marker window ends 30 days after that.
+    let store = rig.store();
+    let purged_at = at(10 * 24 * 3600);
+    assert!(
+        store
+            .transaction(|tx| tx.purge_operations_before(purged_at))
+            .unwrap()
+            >= 1
+    );
+    let terminal = store
+        .transaction(|tx| tx.request_terminal(&digest("r-done")))
+        .unwrap()
+        .expect("the settlement is kept by the ledger's digest");
+    let until = terminal.trim_after;
+    let second = jiff::SignedDuration::from_secs(1);
+    store
+        .transaction(|tx| tx.purge_markers_before(until.checked_sub(second).unwrap()))
+        .unwrap();
+    drop(store);
+    // Inside the window: the trim, at the next start's first request, drops nothing.
+    let running = rig.start(None).await;
+    let mut c = client(&running.control, InteractionMode::NonInteractive).await;
+    c.request(ensure("r-later-1")).await.unwrap();
+    running.stop().await;
+    assert!(
+        digests(&rig).contains(&digest("r-done")),
+        "kept inside its window"
+    );
+    // The window has ended: the next start's trim drops it, and its record goes.
+    let store = rig.store();
+    store
+        .transaction(|tx| tx.purge_markers_before(until))
+        .unwrap();
+    drop(store);
+    let running = rig.start(None).await;
+    let mut c = client(&running.control, InteractionMode::NonInteractive).await;
+    c.request(ensure("r-later-2")).await.unwrap();
+    running.stop().await;
+    let now = digests(&rig);
+    assert!(!now.contains(&digest("r-done")), "dropped after its window");
+    assert!(
+        now.contains(&digest("r-cut")),
+        "an unknown settlement is never dropped"
+    );
+    assert!(now.contains(&digest("r-later-1")) && now.contains(&digest("r-later-2")));
+    assert_eq!(
+        rig.read_only()
+            .transaction(|tx| tx.request_terminal(&digest("r-done")))
+            .unwrap(),
+        None,
+        "the trim removed the record it consumed"
+    );
+}
+
+/// `trust_issuer` of `controller`'s CA (a public key line), as a request with `id`.
+fn trust_issuer(controller: &ClientId, id: &str) -> Request {
+    req(serde_json::json!({
+        "op": "runner_local", "action": "trust_issuer", "controller": controller,
+        "ca_public_key":
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl ca",
+        "request_id": id,
+    }))
+}
+
+/// `route add` of a direct route to `lab`, as a request with `id`.
+fn route_add(id: &str) -> Request {
+    req(serde_json::json!({
+        "op": "route", "action": "add", "destination": "lab",
+        "route": {"kind": "direct", "host": "127.0.0.2", "port": 2222}, "request_id": id,
+    }))
+}
+
+/// `transport enable` without serving, under the minimal policy, as a request with `id`.
+fn transport_enable(id: &str) -> Request {
+    req(serde_json::json!({
+        "op": "transport", "action": "enable", "serve": false, "request_id": id,
+    }))
+}
+
+/// `environment invite` of a requester whose key is the fixture key `n` (a synthetic public
+/// key, no private half), as a request with `id`.
+fn invite(n: u8, id: &str) -> Request {
+    let mut blob = Vec::new();
+    blob.extend_from_slice(&11u32.to_be_bytes());
+    blob.extend_from_slice(b"ssh-ed25519");
+    blob.extend_from_slice(&32u32.to_be_bytes());
+    let mut k = [0x5au8; 32];
+    k[0] = n;
+    blob.extend_from_slice(&k);
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut b64 = String::new();
+    for chunk in blob.chunks(3) {
+        let b = [
+            chunk[0],
+            chunk.get(1).copied().unwrap_or(0),
+            chunk.get(2).copied().unwrap_or(0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                b64.push(T[((n >> (18 - 6 * i)) & 63) as usize] as char);
+            } else {
+                b64.push('=');
+            }
+        }
+    }
+    let text = format!("ssh-ed25519 {b64}");
+    let fp = heimdall_remote::line::PublicKeyText::parse(&text)
+        .unwrap()
+        .fingerprint();
+    req(serde_json::json!({
+        "op": "remote_environment", "action": "invite", "environment": env_id(),
+        "role": "requester", "key_fingerprint": fp, "public_key": text, "request_id": id,
+    }))
+}
+
+/// ⟨M08 W4 U2b-3a; the U2b-2 ruling "terminal records before restore lands"⟩ M06's request-ID
+/// kinds have terminal records: one kind of each family completes (its answer is a success),
+/// one request of the same kind is received but never completes, and a raise of the epoch
+/// fences from the request ledger every entry with no terminal record
+/// (`fence_ledger_for_test`, the restore's step in miniature). After it, a retry of each
+/// completed request (bound at receipt, after a fresh hello) is answered again, never
+/// `REQUEST_STALE`; a retry of each incomplete one is refused `REQUEST_STALE` /
+/// `restored_before_completion` and never run. The families and kinds, on a runner served with
+/// the route and transport forms and its management-line writer:
+///
+/// - **route:** the local owner's `route add` of a direct route (completed: the route is
+///   stored; a retry finds it `already_present`);
+/// - **transport:** the local owner's `transport enable`, not serving, minimal policy;
+/// - **runner-local:** the attended local owner's `runner_local.trust_issuer`;
+/// - **invite:** a paired owner's `remote_environment.invite`, a widening the runner's
+///   attended local owner approves; the invite is completed once its retry is answered from
+///   the decided record (the request it names then has its terminal record). The incomplete
+///   one stays a pending decision.
+///
+/// An incomplete request of the first three is stopped by the request fence's test hook after
+/// its ledger append, before the application, as a stop at that point leaves it.
+#[tokio::test]
+async fn m06_request_id_kinds_complete_with_terminal_records_and_only_the_incomplete_are_fenced() {
+    let rig = Rig::new();
+    let cut = Arc::new(AtomicBool::new(false));
+    let hook: FenceHook = {
+        let cut = Arc::clone(&cut);
+        Arc::new(move |p| p == FencePoint::AfterLedgerAppend && cut.swap(false, Ordering::SeqCst))
+    };
+    let mut runner = Runner::start_with(
+        &rig,
+        RunnerSetup {
+            hook: Some(hook),
+            lines: true,
+            routes: true,
+            ..RunnerSetup::default()
+        },
+    )
+    .await;
+    let controller = runner.seed(1, Role::Owner, true);
+    // The managed destination the route is added to.
+    runner
+        .store
+        .transaction(|tx| {
+            tx.upsert_destination(&heimdall_domain::catalog::DestinationRecord {
+                id: DestinationId::parse("lab").unwrap(),
+                alias: "lab".to_owned(),
+                revision: 1,
+                definition: heimdall_domain::catalog::DestinationDefinition::Managed {
+                    hostname: "127.0.0.1".into(),
+                    port: Some(22),
+                    account: AccountName::parse("deploy").unwrap(),
+                    identity: heimdall_contract::ids::IdentityId::from_random_bytes([7; 16]),
+                    jump: None,
+                },
+                label: None,
+                updated_at: t0(),
+            })
+        })
+        .unwrap();
+    let mut owner = runner.connect_local(true).await;
+    let mut paired = runner.connect(&controller).await;
+    let ok = |env: &Envelope<serde_json::Value>, what: &str| {
+        assert!(
+            matches!(env.code, Code::Ok | Code::AccessReady),
+            "{what}: {env:?}"
+        );
+    };
+    // Completed, one of each family. The transport family completes only where the Iroh
+    // transport is built (`--features iroh`); without it `transport enable` is refused
+    // `driver_unavailable` (no success, so no terminal record), and its retry after the raise
+    // is fenced like an incomplete one.
+    let mut completed = vec![
+        ("route", route_add("r-route-done")),
+        ("runner-local", trust_issuer(&controller, "r-trust-done")),
+    ];
+    if cfg!(feature = "iroh") {
+        completed.push(("transport", transport_enable("r-transport-done")));
+    } else {
+        let refused = owner
+            .request(transport_enable("r-transport-refused"))
+            .await
+            .unwrap();
+        assert_eq!(refused.code, Code::CapabilityUnavailable, "{refused:?}");
+        assert_eq!(
+            error_of(&refused).error.reason.as_deref(),
+            Some(reason::DRIVER_UNAVAILABLE)
+        );
+    }
+    for (family, request) in &completed {
+        ok(&owner.request(request.clone()).await.unwrap(), family);
+    }
+    let submitted = paired.request(invite(20, "r-invite-done")).await.unwrap();
+    assert_eq!(submitted.code, Code::ApprovalRequired, "{submitted:?}");
+    let decision = submitted
+        .next
+        .as_ref()
+        .and_then(|n| n.decision_ref.clone())
+        .unwrap();
+    let approved = owner
+        .request(req(serde_json::json!({
+            "op": "decide", "decision_id": decision, "verdict": "approve",
+        })))
+        .await
+        .unwrap();
+    ok(&approved, "the invite's approval");
+    ok(
+        &paired.request(invite(20, "r-invite-done")).await.unwrap(),
+        "the invite's retry, answered from its decided record",
+    );
+    // Incomplete, one of each family (the refused transport request among them, where the
+    // build has no Iroh transport: a refusal is no completion).
+    let mut incomplete = vec![
+        ("route", route_add("r-route-cut")),
+        ("transport", transport_enable("r-transport-cut")),
+        ("runner-local", trust_issuer(&controller, "r-trust-cut")),
+    ];
+    for (family, request) in &incomplete {
+        cut.store(true, Ordering::SeqCst);
+        let stopped = owner.request(request.clone()).await.unwrap();
+        assert_eq!(stopped.code, Code::InternalError, "{family}: {stopped:?}");
+    }
+    let pending = paired
+        .request(invite(21, "r-invite-pending"))
+        .await
+        .unwrap();
+    assert_eq!(pending.code, Code::ApprovalRequired, "{pending:?}");
+    if !cfg!(feature = "iroh") {
+        incomplete.push(("transport", transport_enable("r-transport-refused")));
+    }
+    // The raise: every ledger entry with no terminal record is fenced, and only those.
+    drop((owner, paired));
+    let fenced =
+        fence_ledger_for_test(&runner.store, &rig.state_dir(), RestoreEpoch(1), at(60)).unwrap();
+    assert_eq!(
+        fenced,
+        incomplete.len() + 1,
+        "the incomplete requests and the pending invite, and nothing else"
+    );
+    runner.restart();
+    let mut owner = runner.connect_local(true).await;
+    let mut paired = runner.connect(&controller).await;
+    for (family, request) in &completed {
+        let again = owner.request(request.clone()).await.unwrap();
+        ok(&again, family);
+        assert_eq!(again.request_epoch, Some(RestoreEpoch(1)), "{family}");
+    }
+    let again = paired.request(invite(20, "r-invite-done")).await.unwrap();
+    ok(&again, "invite");
+    for (family, request) in &incomplete {
+        let refused = owner.request(request.clone()).await.unwrap();
+        assert_refused(
+            &refused,
+            &Code::RequestStale,
+            reason::RESTORED_BEFORE_COMPLETION,
+            request,
+            RestoreEpoch(1),
+        );
+        let _ = family;
+    }
+    let request = invite(21, "r-invite-pending");
+    let refused = paired.request(request.clone()).await.unwrap();
+    assert_refused(
+        &refused,
+        &Code::RequestStale,
+        reason::RESTORED_BEFORE_COMPLETION,
+        &request,
+        RestoreEpoch(1),
+    );
+    drop((owner, paired));
     runner.stop().await;
 }

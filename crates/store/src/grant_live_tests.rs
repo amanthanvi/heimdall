@@ -84,12 +84,16 @@ fn seed_v14(db: &Path) -> Result<Vec<GrantSnapshot>> {
 }
 
 fn assert_backfill(root: &Path, opened: &layout::Opened, grants: &[GrantSnapshot]) {
-    assert_eq!(opened.store.schema_version().unwrap(), 15);
+    // ⟨M08 U2b-3a⟩ Migrated to this build's schema (15 and, since then, 16 in one open).
+    assert_eq!(
+        opened.store.schema_version().unwrap(),
+        crate::migrations::SCHEMA_VERSION
+    );
     let state = StateDir::new(RealFs, root);
     let notes = state.migrations(&opened.current).unwrap();
     assert_eq!(
         notes.last().map(|note| (note.from, note.to)),
-        Some((14, 15))
+        Some((14, crate::migrations::SCHEMA_VERSION))
     );
     opened
         .store

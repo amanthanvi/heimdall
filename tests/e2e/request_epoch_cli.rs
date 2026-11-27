@@ -302,6 +302,120 @@ fn run_reports_its_minted_request_id_with_the_epoch() {
     );
 }
 
+/// ⟨M08 W4 U2b-3a⟩ `run --parent-binding` without `--request-id` reports the request ID it
+/// minted on stderr with the epoch beside it, as `run` does (`--request-id <id> --request-epoch
+/// <n>`), once its session has bound one. Passed back, the pair is the invocation's kept pair:
+/// answered at that epoch with nothing reported again, and refused `REQUEST_STALE` once the
+/// epoch has risen. (The parent binding does not exist, so nothing is ever delegated or
+/// launched.)
+#[test]
+fn run_parent_binding_reports_its_minted_request_id_with_the_epoch() {
+    let scratch = Scratch::new();
+    let _stop = StopOnDrop(&scratch);
+    #[cfg(windows)]
+    let shell = std::path::Path::new(&std::env::var_os("SystemRoot").expect("SystemRoot"))
+        .join("System32")
+        .join("cmd.exe")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    #[cfg(not(windows))]
+    let shell = "/bin/sh".to_owned();
+    let program = ["--", shell.as_str()];
+    let base = [
+        "run",
+        "--parent-binding",
+        "binding_00112233445566778899aabbccddeeff",
+    ];
+    let first: Vec<&str> = base.iter().chain(&program).copied().collect();
+    let out = scratch.heimdall(&first);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let line = stderr
+        .lines()
+        .find(|l| l.starts_with("heimdall: request ID "))
+        .unwrap_or_else(|| panic!("no minted request ID reported: {stderr}"));
+    let (id, retry) = line["heimdall: request ID ".len()..]
+        .split_once("; retry with ")
+        .unwrap_or_else(|| panic!("the epoch is not reported beside the ID: {line}"));
+    assert_eq!(
+        retry,
+        format!("--request-id {id} --request-epoch 0"),
+        "{line}"
+    );
+    let again: Vec<String> = base
+        .iter()
+        .copied()
+        .chain(retry.split(' '))
+        .chain(program.iter().copied())
+        .map(str::to_owned)
+        .collect();
+    let (out, answer) = run(&scratch, &again);
+    assert_ne!(answer["code"], "REQUEST_STALE", "{answer}");
+    assert_eq!(answer["request_id"], id, "{answer}");
+    assert_eq!(answer["request_epoch"], 0, "{answer}");
+    assert!(
+        !String::from_utf8_lossy(&out.stderr).contains("heimdall: request ID "),
+        "a given request ID is not reported again: {out:?}"
+    );
+    scratch.stop();
+    scratch.raise_epoch(1);
+    let (out, stale) = run(&scratch, &again);
+    assert_eq!(out.status.code(), Some(6), "{stale}");
+    assert_eq!(stale["code"], "REQUEST_STALE", "{stale}");
+    assert_eq!(
+        (&stale["request_id"], &stale["request_epoch"]),
+        (&answer["request_id"], &answer["request_epoch"])
+    );
+}
+
+/// ⟨M08 W4 U2b-3a; U0-Q7(a), ASK-FLAGS⟩ `access release --request-id` / `--request-epoch`,
+/// with their check: the release is keyed by its request ID and reports the pair; the same
+/// pair after the epoch has risen is refused `REQUEST_STALE` (exit 6) before anything is
+/// written; without `--request-id` a release sends none, as before; and `--request-epoch`
+/// without `--request-id` is a usage error before anything is sent.
+#[test]
+fn access_release_takes_a_request_id_and_its_epoch() {
+    let scratch = Scratch::new();
+    let _stop = StopOnDrop(&scratch);
+    let binding = "binding_00112233445566778899aabbccddeeff";
+    let release = ["access", "release", binding];
+    let (_, first) = run(&scratch, &with(&release, &["--request-id", "r-release"]));
+    assert_ne!(first["code"], "REQUEST_STALE", "{first}");
+    assert_eq!(first["request_id"], "r-release", "{first}");
+    assert_eq!(first["request_epoch"], 0, "{first}");
+    let (_, plain) = run(&scratch, &with(&release, &[]));
+    assert!(
+        plain["request_id"].is_null(),
+        "no request ID is minted: {plain}"
+    );
+    assert_eq!(plain["request_epoch"], 0, "{plain}");
+    let (out, usage) = run(&scratch, &with(&release, &["--request-epoch", "0"]));
+    assert_eq!(out.status.code(), Some(2), "{usage}");
+    scratch.stop();
+    scratch.raise_epoch(1);
+    let before = scratch.footprint();
+    let (out, stale) = run(
+        &scratch,
+        &with(
+            &release,
+            &["--request-id", "r-release", "--request-epoch", "0"],
+        ),
+    );
+    assert_eq!(out.status.code(), Some(6), "{stale}");
+    assert_eq!(stale["code"], "REQUEST_STALE", "{stale}");
+    assert_eq!(stale["data"]["error"]["reason"], "restore_epoch_stale");
+    assert_eq!(stale["data"]["error"]["effect_status"], "none");
+    assert_eq!(
+        (&stale["request_id"], &stale["request_epoch"]),
+        (&first["request_id"], &first["request_epoch"])
+    );
+    assert_eq!(
+        scratch.footprint(),
+        before,
+        "nothing written, nothing appended"
+    );
+}
+
 /// ADR-0014 §3.6 step 3 through the CLI: each command that sends a mutating request with
 /// `--request-id` and a `--request-epoch` that is not current is refused `REQUEST_STALE`,
 /// exit 6, effect `none`, and reports the pair; the store and the request ledger are as they
@@ -331,6 +445,7 @@ fn stale_epoch_is_refused_before_any_write_through_the_cli() {
     let commands: Vec<Vec<&str>> = vec![
         vec!["access", "ensure", "--profile", "dev", "--work-id", "w1"],
         vec!["access", "revoke", grant],
+        vec!["access", "release", binding],
         vec!["access", "delegate", "--parent", binding, "--work-id", "w2"],
         vec!["access", "stop", "--work", "w3"],
         vec!["access", "default-profile", "dev"],

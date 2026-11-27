@@ -1612,6 +1612,7 @@ async fn a29_another_principals_binding_is_not_found_or_not_owner() {
             &foreign,
             ReleaseRequest {
                 binding_id: done.data.binding_id.clone(),
+                request_id: None,
             },
         )
         .await);
@@ -1838,6 +1839,7 @@ async fn release_is_idempotent_and_the_last_reference_releases_without_revoking(
             &unattended(501),
             ReleaseRequest {
                 binding_id: done.data.binding_id.clone(),
+                request_id: None,
             },
         )
         .await);
@@ -1849,6 +1851,7 @@ async fn release_is_idempotent_and_the_last_reference_releases_without_revoking(
             &unattended(501),
             ReleaseRequest {
                 binding_id: done.data.binding_id.clone(),
+                request_id: None,
             },
         )
         .await);
@@ -1866,6 +1869,7 @@ async fn release_is_idempotent_and_the_last_reference_releases_without_revoking(
             &unattended(501),
             ReleaseRequest {
                 binding_id: heimdall_contract::ids::BindingId::from_random_bytes([3; 16]),
+                request_id: None,
             },
         )
         .await);
@@ -2173,6 +2177,7 @@ async fn u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_
             &unattended(501),
             ReleaseRequest {
                 binding_id: parent.binding_id.clone(),
+                request_id: None,
             },
         )
         .await);
@@ -2196,6 +2201,7 @@ async fn u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_
             &unattended(501),
             ReleaseRequest {
                 binding_id: child.binding_id.clone(),
+                request_id: None,
             },
         )
         .await);
@@ -3224,6 +3230,7 @@ async fn g02_a_revoked_child_frees_its_parent_without_revoking_it() {
             &unattended(501),
             ReleaseRequest {
                 binding_id: parent.binding_id.clone(),
+                request_id: None,
             },
         )
         .await);
@@ -3904,6 +3911,7 @@ async fn r136_3_a_child_entering_revoking_releases_its_parent_reference() {
             &unattended(501),
             ReleaseRequest {
                 binding_id: parent.binding_id.clone(),
+                request_id: None,
             },
         )
         .await);
@@ -3959,6 +3967,7 @@ async fn r136_3_an_expired_child_releases_its_parent_reference() {
             &unattended(501),
             ReleaseRequest {
                 binding_id: parent.binding_id.clone(),
+                request_id: None,
             },
         )
         .await);
@@ -4139,6 +4148,7 @@ async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
             &unattended(501),
             ReleaseRequest {
                 binding_id: b.binding_id.clone(),
+                request_id: None,
             },
         )
         .await);
@@ -4817,6 +4827,7 @@ async fn r139_2_a_parent_kept_alive_by_its_child_revalidates_after_an_unrelated_
             &unattended(501),
             ReleaseRequest {
                 binding_id: parent.binding_id.clone(),
+                request_id: None,
             },
         )
         .await);

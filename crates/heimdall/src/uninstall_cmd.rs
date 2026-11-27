@@ -1646,6 +1646,28 @@ fn apply_retries(inv: &mut Inventory, retries: &[RemoteRetry]) {
 const RETRY_NOT_MADE: &str = "--purge-state refused: the one retry attempt of the pending remote revocations could not be made before the runtime stopped, so they would be discarded unretried; nothing was purged: the state database, the backups and every recovery record are kept. Run `heimdall uninstall --purge-state` again";
 
 /// The refusal when the state database cannot be read for a purge.
+/// ⟨M08 W4 U2b-3a; the ruling of 2026-11-25 on U2b-1 (W3-R04)⟩ The refusal of a purge while
+/// the state store's pointer is damaged. A purge that stopped while it removed the store's
+/// layout leaves a pointer without its store (`crate::purge_sweep`'s named residual), and a
+/// second purge cannot read what the first left: the refusal names the way out, the attended
+/// `heimdall state reset`.
+fn pointer_damaged() -> Outcome {
+    Outcome::of(output::error_value(
+        heimdall_app::OpError::new(
+            Code::ConfigConflict,
+            format!("--purge-state refused: {POINTER_DAMAGED}"),
+        )
+        .with_effect(EffectStatus::None)
+        .into_envelope(),
+    ))
+}
+
+/// [`pointer_damaged`]'s reason and way out.
+const POINTER_DAMAGED: &str = "the state store's pointer is damaged, so the remaining remote \
+     enrollments are unknown; nothing was changed. A purge that stopped while it removed the \
+     state store leaves it so: recover the state directory at this machine with `heimdall state \
+     reset`";
+
 fn unreadable(why: &str) -> Outcome {
     Outcome::of(output::error_value(
         heimdall_app::OpError::new(
@@ -2548,7 +2570,7 @@ async fn uninstall_after_recovery<P: Prompter>(
     // damaged layout is an unreadable state store.
     let db = match heimdall_store::layout::db_path(&paths.state_dir) {
         Ok(db) => db,
-        Err(_) if purge => return unreadable("the state store's pointer is damaged"),
+        Err(_) if purge => return pointer_damaged(),
         Err(_) => paths.state_dir.clone(),
     };
     if !db.exists() {
@@ -2618,7 +2640,7 @@ async fn uninstall_after_recovery<P: Prompter>(
     // generation: from here the store is the one the pointer names now.
     let db = match heimdall_store::layout::db_path(&paths.state_dir) {
         Ok(db) => db,
-        Err(_) if purge => return unreadable("the state store's pointer is damaged"),
+        Err(_) if purge => return pointer_damaged(),
         Err(_) => db,
     };
     // Close admission, then revalidate against the state about to be changed: an
@@ -4802,6 +4824,88 @@ mod tests {
             block_on(instance_lock(&state, Duration::from_secs(5))).is_ok(),
             "the lock is released after the deletion"
         );
+    }
+
+    /// ⟨M08 W4 U2b-3a; the ruling of 2026-11-25 on U2b-1 (W3-R04)⟩ A purge that stopped
+    /// while it removed the store's layout (after the store and its generation, before the
+    /// pointer) leaves a pointer without its store. A second `uninstall --purge-state` is then
+    /// refused before anything is read, asked or removed, and its refusal names `heimdall state
+    /// reset`, the way out. (The reset itself is the next slice's, U2b-3b.)
+    #[test]
+    fn a_second_purge_after_an_interrupted_layout_removal_names_state_reset() {
+        use heimdall_store::layout::stategen::generations::{CURRENT, GENERATIONS};
+        let (d, state, _) = state_dir();
+        // A start adopts the flat store into the generation layout, as the runtime's does.
+        {
+            let _lock = heimdall_runtime::InstanceLock::try_acquire(&state)
+                .unwrap_or_else(|e| panic!("{e}"));
+            heimdall_runtime::state_store::open_locked(
+                &state,
+                Arc::new(NoFaults),
+                Timestamp::now(),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        }
+        // The first purge's layout removal stopped before the pointer: the generations and
+        // the flat family are gone, `CURRENT` is still there.
+        std::fs::remove_dir_all(state.join(GENERATIONS)).unwrap_or_else(|e| panic!("{e}"));
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            let _ = std::fs::remove_file(
+                state.join(format!("{}{suffix}", heimdall_store::layout::DB_FILE)),
+            );
+        }
+        assert!(state.join(CURRENT).exists());
+        assert!(
+            heimdall_store::layout::db_path(&state).is_err(),
+            "state_corrupt"
+        );
+        let listing = |dir: &Path| {
+            let mut names: Vec<String> = std::fs::read_dir(dir)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .map(|e| {
+                    e.unwrap_or_else(|e| panic!("{e}"))
+                        .file_name()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect();
+            names.sort();
+            names
+        };
+        let before = listing(&state);
+        let ctx = Ctx {
+            json: true,
+            non_interactive: false,
+            home: Some(d.path().to_path_buf()),
+            stdin_tty: true,
+            request_epoch: None,
+        };
+        let args = UninstallArgs {
+            purge_state: true,
+            keep_remote_enrollments: false,
+            bundle: None,
+        };
+        let mut prompt = Script {
+            answers: vec![Answer::Yes],
+            shown: Vec::new(),
+        };
+        let out = block_on(uninstall(&ctx, &args, &mut prompt));
+        assert_eq!(out.env.code, Code::ConfigConflict, "{:?}", out.env);
+        let error: heimdall_contract::envelope::ErrorData =
+            serde_json::from_value(out.env.data.clone()).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(error.error.effect_status, EffectStatus::None);
+        assert!(
+            error.error.message.contains("pointer is damaged")
+                && error.error.message.contains("`heimdall state reset`"),
+            "{}",
+            error.error.message
+        );
+        assert!(
+            prompt.shown.is_empty(),
+            "nothing was asked: {:?}",
+            prompt.shown
+        );
+        assert_eq!(listing(&state), before, "nothing was removed or written");
     }
 
     /// ⟨M08 U2b-1; ADR-0014 §3.4, §3.6⟩ `purge_removes_every_generation_under_the_lock`: a

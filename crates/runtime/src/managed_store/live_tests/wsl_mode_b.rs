@@ -690,6 +690,7 @@ async fn wsl_mode_b_ensure_realizes_serves_and_withdraws_by_generation() {
             &caller(),
             heimdall_contract::request::ReleaseRequest {
                 binding_id: a.binding_id.clone(),
+                request_id: None,
             },
         )
         .await
