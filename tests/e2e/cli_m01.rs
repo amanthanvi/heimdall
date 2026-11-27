@@ -1820,12 +1820,12 @@ fn json_usage_failures_render_exactly_one_usage_error_envelope() {
         assert_eq!(out.json()["data"]["error"]["message"], message, "{args:?}");
     }
     // The envelope never echoes the offending argument (a value may be a secret
-    // or carry terminal escapes); the human diagnostic stays on stderr.
+    // or carry terminal escapes), and ⟨M09 review S1-03⟩ with `--json` the envelope is the
+    // whole answer: stderr stays empty.
     let echoed = home.run(&["--json", "access", "ensure", "--odd-\u{1b}[31m-flag"]);
     assert_one_usage_envelope(&echoed);
     assert!(!echoed.stdout.contains("odd-"), "{echoed:?}");
-    assert!(!echoed.stderr.contains('\u{1b}'), "{echoed:?}");
-    assert!(!echoed.stderr.is_empty(), "{echoed:?}");
+    assert!(echoed.stderr.is_empty(), "{echoed:?}");
     // Nothing started a runtime.
     assert_eq!(home.instance_pid(), None);
 }
@@ -1850,16 +1850,152 @@ fn usage_failures_keep_human_help_version_and_errors() {
         assert!(out.stdout.starts_with("heimdall "), "{out:?}");
         assert!(last_json(&out.stdout).is_none(), "{out:?}");
     }
-    // Without --json a usage failure is clap's human text on stderr, exit 2.
+    // Without --json a usage failure is a value-free human diagnostic on stderr, exit 2:
+    // an unknown flag's own text is not repeated (review S1-03).
     let human = home.run(&["access", "ensure", "--no-such-flag"]);
     assert_eq!(human.code, 2, "{human:?}");
     assert!(human.stdout.is_empty(), "{human:?}");
-    assert!(human.stderr.contains("--no-such-flag"), "{human:?}");
+    assert!(!human.stderr.contains("no-such-flag"), "{human:?}");
+    assert!(human.stderr.contains("unexpected argument"), "{human:?}");
     // `--json` after `--` is part of the launched argv, not a Heimdall flag.
     let argv = home.run(&["run", "--no-such-flag", "--", "tool", "--json"]);
     assert_eq!(argv.code, 2, "{argv:?}");
     assert!(argv.stdout.is_empty(), "{argv:?}");
     assert!(!argv.stderr.is_empty(), "{argv:?}");
+}
+
+/// ⟨review S1-03; spec §7.3, A33; ADR-0006 review C01–C03⟩ A command-line parse error
+/// never repeats a value the user supplied, in either mode: a passphrase pasted into the
+/// wrong place must not reach stdout or stderr. A canary built at run time is passed as
+/// an unexpected positional, an unknown command, the rejected value of a flag, an
+/// unknown flag `--<canary>`, and a value after a flag that takes none. Each line keeps
+/// exit 2 and, with `--json`, the one value-free `USAGE_ERROR` envelope with its fixed
+/// message; the human diagnostic still names a defined argument.
+///
+/// **Isolation.** Every process gets a cleared environment with separate scratch
+/// `HEIMDALL_HOME`, `HOME` and `HEIMDALL_TEST_SSH_HOME` (with an empty `etc-ssh`), the
+/// scratch secret store and fixture management and transport key stores, and no
+/// `SSH_AUTH_SOCK`. Failure messages name the case, never the canary.
+#[test]
+fn usage_errors_never_repeat_an_argument_value() {
+    let canary = format!(
+        "{}S103_{}",
+        heimdall_testkit::CANARY_PREFIX,
+        heimdall_testkit::agent::random_hex(8)
+    );
+    let flag = format!("--{canary}");
+    let after_flag = format!("--non-interactive={canary}");
+    let cases: [(&str, Vec<&str>, &str); 5] = [
+        (
+            "unexpected positional",
+            vec!["status", &canary],
+            "unknown argument",
+        ),
+        ("unknown command", vec![&canary], "unknown command"),
+        (
+            "invalid value",
+            vec!["operation", "wait", "op_x", "--timeout-ms", &canary],
+            "invalid argument value",
+        ),
+        (
+            "unknown flag",
+            vec!["access", "ensure", &flag],
+            "unknown argument",
+        ),
+        (
+            "value after a flag that takes none",
+            vec!["status", &after_flag],
+            "invalid arguments",
+        ),
+    ];
+    let scratch = tempfile::Builder::new()
+        .prefix("hds103")
+        .tempdir()
+        .expect("scratch");
+    let root = scratch.path();
+    let (heimdall_home, account, ssh_home) = (
+        root.join("heimdall"),
+        root.join("account"),
+        root.join("ssh"),
+    );
+    std::fs::create_dir_all(&heimdall_home).unwrap();
+    std::fs::create_dir_all(&account).unwrap();
+    std::fs::create_dir_all(ssh_home.join("etc-ssh")).unwrap();
+    let mgmt = format!("fixture-file:{}", root.join("mgmt-store").display());
+    let mut leaks = Vec::new();
+    for (label, args, message) in &cases {
+        for json in [false, true] {
+            let mut cmd = Command::new(bin());
+            if json {
+                cmd.arg("--json");
+            }
+            cmd.args(args)
+                .env_clear()
+                .env("HEIMDALL_HOME", &heimdall_home)
+                .env("HOME", &account)
+                .env("HEIMDALL_TEST_SSH_HOME", &ssh_home)
+                .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
+                .env("HEIMDALL_TEST_MGMT_STORE", &mgmt)
+                .env("HEIMDALL_TEST_IROH_KEY_STORE", root.join("iroh-key"))
+                .stdin(Stdio::null());
+            if cfg!(windows) {
+                for k in ["SystemRoot", "PATH", "TEMP", "TMP"] {
+                    if let Some(v) = std::env::var_os(k) {
+                        cmd.env(k, v);
+                    }
+                }
+            } else {
+                cmd.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+            }
+            let out = cmd.output().expect("spawn heimdall");
+            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+            let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+            // Checked before anything that prints the output; a case that leaks is
+            // recorded by its label and its output is never printed.
+            let leaked: Vec<&str> = [("stdout", &stdout), ("stderr", &stderr)]
+                .into_iter()
+                .filter(|(_, text)| {
+                    text.contains(&canary) || text.contains(heimdall_testkit::CANARY_PREFIX)
+                })
+                .map(|(stream, _)| stream)
+                .collect();
+            if !leaked.is_empty() {
+                leaks.push(format!("{label} (json: {json}): {}", leaked.join(", ")));
+                continue;
+            }
+            let out = Out {
+                code: out.status.code().unwrap_or(-1),
+                stdout,
+                stderr,
+            };
+            assert_eq!(out.code, 2, "{label} (json: {json}): {out:?}");
+            if json {
+                // The envelope is the whole answer (review S1-03): nothing on stderr.
+                assert_one_usage_envelope(&out);
+                assert_eq!(out.json()["data"]["error"]["message"], *message, "{label}");
+                assert!(out.stderr.is_empty(), "{label}: {out:?}");
+            } else {
+                assert!(out.stderr.starts_with("error: "), "{label}: {out:?}");
+                assert!(out.stderr.contains("Usage: heimdall"), "{label}: {out:?}");
+                assert!(out.stdout.is_empty(), "{label}: {out:?}");
+            }
+            if *label == "invalid value" && !json {
+                // A defined argument is still named in the human diagnostic.
+                assert!(
+                    out.stderr.contains("'--timeout-ms <TIMEOUT_MS>'"),
+                    "{label}: {out:?}"
+                );
+            }
+        }
+    }
+    assert!(
+        leaks.is_empty(),
+        "the argument's value reached the output in: {leaks:#?}"
+    );
+    assert!(
+        std::fs::read_dir(&heimdall_home).unwrap().next().is_none(),
+        "a usage error starts nothing and writes nothing"
+    );
 }
 
 /// ⟨M02⟩ `w0_m02_cli_commands_report_not_available_and_never_panic` (m02-plan U0b

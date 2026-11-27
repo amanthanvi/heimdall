@@ -1807,18 +1807,245 @@ fn usage_message(kind: clap::error::ErrorKind) -> &'static str {
 /// Help and version are successes: clap's human text on stdout, exit 0, also
 /// with `--json`. Every other failure is a usage error, exit 2: with `--json`
 /// exactly one `USAGE_ERROR` envelope (effect `none`, `next.action`
-/// `fix_request`) on stdout; in both modes clap's diagnostic goes to stderr,
-/// sanitized for the terminal.
+/// `fix_request`) on stdout; in both modes a value-free diagnostic goes to
+/// stderr ([`usage_diagnostic`]; review S1-03), never clap's own text, which
+/// repeats the offending token.
 pub fn parse_failure(err: &clap::Error, json: bool) -> ExitCode {
     if !err.use_stderr() {
         let _ = err.print();
         return ExitCode::Success;
     }
-    output::diagnostic(err.render().to_string().trim_end());
+    // ⟨M09 review S1-03; ruled 2026-11-26⟩ With `--json` the value-free envelope on stdout is
+    // the whole answer: nothing goes to stderr. Without it, a value-free human diagnostic (the
+    // error's kind and names this command line defines, never what the user typed).
     if json {
         output::emit(&usage(usage_message(err.kind())), true);
+    } else {
+        let argv: Vec<OsString> = std::env::args_os().collect();
+        output::diagnostic(usage_diagnostic(err, &argv).trim_end());
     }
     ExitCode::Usage
+}
+
+/// Every name this command line defines: argument forms (`--long`, `-s`, clap's
+/// `--long <VALUE>` and `<POSITIONAL>` renderings and their aliases), command
+/// names, aliases and full command paths, and the declared possible values. A
+/// string is repeated in a diagnostic only when it is one of these; whatever the
+/// user typed otherwise is never printed (review S1-03; spec §7.3, A33).
+struct KnownNames {
+    names: std::collections::BTreeSet<String>,
+    values: std::collections::BTreeSet<String>,
+}
+
+impl KnownNames {
+    fn of(cmd: &clap::Command) -> Self {
+        let mut known = Self {
+            names: std::collections::BTreeSet::new(),
+            values: std::collections::BTreeSet::new(),
+        };
+        known.collect(cmd);
+        known
+    }
+
+    fn collect(&mut self, cmd: &clap::Command) {
+        self.names.insert(cmd.get_name().to_owned());
+        self.names.extend(cmd.get_all_aliases().map(str::to_owned));
+        if let Some(bin) = cmd.get_bin_name() {
+            self.names.insert(bin.to_owned());
+        }
+        for arg in cmd.get_arguments() {
+            let shown = arg.to_string();
+            if arg.is_positional() {
+                // A required group lists a positional without its brackets.
+                self.names.insert(
+                    shown
+                        .trim_start_matches('<')
+                        .trim_end_matches(['>', '.'])
+                        .to_owned(),
+                );
+            }
+            self.names.insert(shown);
+            if let Some(long) = arg.get_long() {
+                self.names.insert(format!("--{long}"));
+            }
+            for long in arg.get_all_aliases().unwrap_or_default() {
+                self.names.insert(format!("--{long}"));
+            }
+            if let Some(short) = arg.get_short() {
+                self.names.insert(format!("-{short}"));
+            }
+            for short in arg.get_all_short_aliases().unwrap_or_default() {
+                self.names.insert(format!("-{short}"));
+            }
+            for value in arg.get_possible_values() {
+                self.values
+                    .extend(value.get_name_and_aliases().map(str::to_owned));
+            }
+        }
+        for sub in cmd.get_subcommands() {
+            self.collect(sub);
+        }
+    }
+
+    /// Whether `s` is a name of this CLI: one of [`Self::names`], or clap's rendering
+    /// of a required group (`<a|b>`) made only of such names.
+    fn is_name(&self, s: &str) -> bool {
+        self.names.contains(s)
+            || s.strip_prefix('<')
+                .and_then(|g| g.strip_suffix('>'))
+                .is_some_and(|g| g.contains('|') && g.split('|').all(|n| self.names.contains(n)))
+    }
+
+    /// The context items of `kind` that are names of this CLI, in clap's order. A
+    /// context kind that carries user input (`InvalidValue`, `SuggestedValue`,
+    /// `Suggested`, `Custom`, `Usage`) is never asked for; `InvalidArg` and
+    /// `InvalidSubcommand`, which can be the user's own token, pass only when they
+    /// are such a name.
+    fn context(&self, err: &clap::Error, kind: clap::error::ContextKind) -> Vec<String> {
+        use clap::error::ContextValue as V;
+        let items: Vec<&str> = match err.get(kind) {
+            Some(V::String(s)) => vec![s.as_str()],
+            Some(V::Strings(list)) => list.iter().map(String::as_str).collect(),
+            _ => Vec::new(),
+        };
+        items
+            .into_iter()
+            .filter(|s| self.is_name(s))
+            .map(|s| format!("'{s}'"))
+            .collect()
+    }
+
+    /// The declared possible values clap listed for an invalid value.
+    fn valid_values(&self, err: &clap::Error) -> Vec<String> {
+        use clap::error::{ContextKind, ContextValue as V};
+        match err.get(ContextKind::ValidValue) {
+            Some(V::Strings(list)) => list
+                .iter()
+                .filter(|v| self.values.contains(v.as_str()))
+                .cloned()
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// The command a failed command line was in: the root, descended through every
+/// token (before a bare `--`) that names a subcommand of the command reached so far.
+/// Only defined names are matched, so the result never depends on a value's text.
+fn failed_command<'a>(root: &'a clap::Command, argv: &[OsString]) -> &'a clap::Command {
+    let mut at = root;
+    for token in argv.iter().skip(1).take_while(|a| *a != "--") {
+        let Some(token) = token.to_str() else {
+            continue;
+        };
+        if let Some(sub) = at.find_subcommand(token) {
+            at = sub;
+        }
+    }
+    at
+}
+
+/// The value-free human diagnostic for a usage error (review S1-03; spec §7.3, A33;
+/// ADR-0006 review C01–C03): the kind of error, the argument's or command's name
+/// when it is one this CLI defines ([`KnownNames`]), the usage of the command the
+/// line was in (rendered from the definition, not from clap's error), and the help
+/// hint. Never a value the user supplied, and never clap's rendered error, whose
+/// text repeats the offending token: an unknown flag, an unexpected positional or a
+/// rejected value may be a passphrase pasted in the wrong place.
+fn usage_diagnostic(err: &clap::Error, argv: &[OsString]) -> String {
+    use clap::CommandFactory as _;
+    use clap::error::{ContextKind as C, ErrorKind as K};
+    let mut root = Cli::command();
+    root.build();
+    let known = KnownNames::of(&root);
+    let mut at = failed_command(&root, argv).clone();
+    let path = at
+        .get_bin_name()
+        .unwrap_or_else(|| root.get_name())
+        .to_owned();
+    if err.kind() == K::DisplayHelpOnMissingArgumentOrSubcommand {
+        // clap's text here is the command's help, rendered from the definition alone.
+        return at.render_help().to_string();
+    }
+    let first = |kind: C| known.context(err, kind).into_iter().next();
+    let all = |kind: C| known.context(err, kind).join(", ");
+    let mut lines = Vec::new();
+    match err.kind() {
+        K::UnknownArgument => {
+            lines.push(match first(C::InvalidArg) {
+                Some(name) => format!("error: the argument {name} is not accepted here"),
+                None => "error: an unexpected argument was given (not repeated here)".to_owned(),
+            });
+            if let Some(similar) = first(C::SuggestedArg) {
+                lines.push(format!("  tip: a similar argument exists: {similar}"));
+            }
+        }
+        K::InvalidSubcommand => {
+            lines.push("error: unknown command (not repeated here)".to_owned());
+            let similar = all(C::SuggestedSubcommand);
+            if !similar.is_empty() {
+                lines.push(format!("  tip: a similar command exists: {similar}"));
+            }
+        }
+        K::MissingRequiredArgument => {
+            let missing = all(C::InvalidArg);
+            lines.push(if missing.is_empty() {
+                "error: missing required argument".to_owned()
+            } else {
+                format!("error: missing required argument: {missing}")
+            });
+        }
+        K::MissingSubcommand => {
+            lines.push(format!("error: '{path}' needs a subcommand"));
+            let commands = all(C::ValidSubcommand);
+            if !commands.is_empty() {
+                lines.push(format!("  subcommands: {commands}"));
+            }
+        }
+        K::InvalidValue | K::ValueValidation => {
+            lines.push(match first(C::InvalidArg) {
+                Some(name) => format!("error: invalid value for {name} (not repeated here)"),
+                None => "error: invalid argument value (not repeated here)".to_owned(),
+            });
+            let valid = known.valid_values(err);
+            if !valid.is_empty() {
+                lines.push(format!("  [possible values: {}]", valid.join(", ")));
+            }
+        }
+        K::NoEquals => lines.push(match first(C::InvalidArg) {
+            Some(name) => format!("error: {name} needs its value after '='"),
+            None => "error: an argument needs its value after '='".to_owned(),
+        }),
+        K::TooManyValues => lines.push(match first(C::InvalidArg) {
+            Some(name) => format!("error: unexpected value for {name} (not repeated here)"),
+            None => "error: unexpected value (not repeated here)".to_owned(),
+        }),
+        K::TooFewValues | K::WrongNumberOfValues => {
+            lines.push(match first(C::InvalidArg) {
+                Some(name) => {
+                    format!("error: wrong number of values for {name} (not repeated here)")
+                }
+                None => "error: wrong number of values (not repeated here)".to_owned(),
+            });
+        }
+        K::InvalidUtf8 => lines.push("error: an argument is not valid UTF-8".to_owned()),
+        K::ArgumentConflict => {
+            let one = first(C::InvalidArg).or_else(|| first(C::InvalidSubcommand));
+            let other = all(C::PriorArg);
+            lines.push(match one {
+                Some(one) if !other.is_empty() => {
+                    format!("error: {one} cannot be used with {other}")
+                }
+                _ => "error: conflicting arguments".to_owned(),
+            });
+        }
+        _ => lines.push(format!("error: {}", usage_message(err.kind()))),
+    }
+    lines.push(String::new());
+    lines.push(at.render_usage().to_string());
+    lines.push(String::new());
+    lines.push(format!("For more information, try '{path} --help'."));
+    lines.join("\n")
 }
 
 /// Dispatch a parsed command and return the process exit code.
