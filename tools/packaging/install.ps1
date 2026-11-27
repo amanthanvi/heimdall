@@ -60,6 +60,17 @@ param(
     [switch]$AssumeStopped
 )
 $ErrorActionPreference = "Stop"
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    # An intermediate process can pass PowerShell 7's module paths to Windows PowerShell 5.1.
+    # Load the cmdlets this script uses from 5.1's own modules before restoring the caller's path.
+    $inheritedModulePath = $env:PSModulePath
+    try {
+        $env:PSModulePath = [System.IO.Path]::Combine($PSHOME, 'Modules')
+        Import-Module Microsoft.PowerShell.Management, Microsoft.PowerShell.Utility -Scope Local
+    } finally {
+        $env:PSModulePath = $inheritedModulePath
+    }
+}
 $here = $PSScriptRoot
 function Say([string]$m) { Write-Host "install: $m" }
 function Die([string]$m) { Write-Host "install: $m"; exit 1 }
