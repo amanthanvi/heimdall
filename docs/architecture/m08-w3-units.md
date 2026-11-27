@@ -86,6 +86,25 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
   - SEC-3b: S2-05's design (Gemini) and its code items.
   - SEC-4 (GPT): cutoff latching (S3-01, S3-03, S3-06, S3-07).
   - S3-04 goes to U2b-3b.
+  - **SEC-5's record.** Authors: Gemini 4 Neon wrote the WIP (`b0affd8f`), and Opus finished it
+    (`1a95fc9a`). The reviewer is Gemini.
+    - **Rulings of 2026-11-26:**
+      - A fired `profile:` or `workspace:` row from another controller blocks every policy until
+        the attended lift. This is accepted as fail-closed for 1.0; `ReportedPolicy` membership is
+        the post-1.0 path.
+      - Ruling 7 also applies to `submit_ensure`.
+      - The new `credential_lifecycle.cause` values are approved; the field is an
+        `Option<String>`, so they are additive.
+      - An unreadable runner answer must never block a local removal.
+      - The grammar-fit residual is accepted.
+    - **SEC-5F, next on Gemini, carries:** those follow-ups, and U2b-3a's held item 4, which
+      moved out of U2b-3b so that `remote_env*.rs` and `m06_cmd.rs` have one owner.
+  - **The store split while U2b-3b and SEC-3b run in parallel** (approved):
+    - **U2b-3b:** migration `0017`, `layout`, the backup, open and restore paths in `lib.rs`,
+      `stategen` and `fence`.
+    - **SEC-3b:** migration `0018`, `ext_m06*`, `ext_runner`, `ext_effects` and the report
+      builder. Its new `Txn` methods go in its own ext files.
+    - They are integrated one at a time.
   - **SEC-4's record.** Authors: GPT-6.2 Sol wrote the WIP (`82c98040`, then stopped on its
     cyber flag), and Opus finished it (`80de1241`). The reviewer is Gemini.
     - **Confirmed, 2026-11-26:** under uncertain time, a fired cutoff cuts an anchored grant's
