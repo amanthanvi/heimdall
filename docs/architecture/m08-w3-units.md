@@ -341,6 +341,21 @@ have landed.
   - **W4R-06:** a lifted cutoff stops showing.
   - All six go in **W4-RF1**, on Opus, with GPT's scoped re-check. It runs after SEC-3b-F
     integrates and U6b frees Opus.
+- **The store units, reviewed by Grok 4.7** (the pilot of a third family): 1 blocking, 1 nit.
+  - **W4S-1, blocking:** the ledger's owner reserve let paired owners in (`!caller.is_owner()`).
+    So two paired owners, or one paired owner across a restart, could lock the local owner out of
+    a journaled revoke.
+    - **The earlier ruling's reasoning was incomplete.** "32,768 < 65,536" holds only for one
+      paired owner within one runtime lifetime.
+    - **The fix, in W4-RF1 item 7:** the reserve belongs to the local owner alone
+      (`has_global_access`). ADR-0006 §19.3, the module comment and `limitations.md` are amended
+      to match.
+  - **W4S-2, a nit:** `privacy-defaults.md`'s claim that the ledger is never trimmed. Fixed in
+    W4-RF1 item 8.
+  - **Grok is accepted as the fallback reviewer**, recorded as the third family.
+  - **One more Grok review:** U6b, as a cross-check beside GPT, once U6b is final.
+- **W4-RF1 also carries W4-T1's two review fixes** (W4T-1 and W4T-2, test only), so the wave
+  has one review-fix commit.
 
 **H13's reader side and M07.** H13 is one change, owned by U2b-2. Its readers today are M07's:
 - the TUI's request paths (`crates/heimdall/src/tui/worker.rs`, `tui/m05.rs`, `tui/m07.rs`);
