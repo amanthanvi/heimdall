@@ -2473,6 +2473,21 @@ orchestrator's rulings, applied in M06 wave 1. Readings 3, 4, 6, 8, 10–13, 15 
 | 16 | Key-fingerprint uniqueness is scoped per runner and role table; policy-revision identity is producer-scoped `(scope_key, producer, revision)` with a runner-side order (`runner_seq`) and composing narrowing effects — migration 0009 amended in place before any writer (unmerged, unreleased); recovery and purge cases before writers, transport writers included (ruling 3: `placeholder_discarded_tables_have_no_writer`) | M06-W0-R05 | 0009, U4, store |
 | 17 | The local owner keeps its global bypass. A paired caller, owner role included, gets client-scoped ownership (principal and client) plus only its role-permitted environment views and the named cross-controller narrowing powers (ADR-0012 §7.2, §8); no blanket bypass for observe, cancel or binding ownership; visibility on every delivery path (event pages, resumed and live subscriptions) | M06-W0-R03 | app, domain, ipc (W1) |
 
+**⟨amended 2026-11-26, M08 W4 SEC-3a (S2-01); the orchestrator's ruling⟩ Ruling 7's `route prefer`
+is local-only.**
+- Ruling 7 itself is unchanged on the local endpoint: a preference among consented routes needs no
+  decision, and its request ID is optional.
+- A **paired** session's `route.prefer` is refused before the request fence with
+  `INTERACTION_REQUIRED` / `local_owner_required`, as all runner-local configuration is (ADR-0012
+  §3.10, amended the same day), and nothing is written.
+  - No shipped client sends it over a paired session.
+  - The old paired path could leave a pending record with no executor, which fails open.
+- The test is `tests/integration/request_epoch.rs`
+  `s2_01_paired_owner_cannot_run_runner_local_configuration_and_writes_nothing`, where
+  `route.prefer` is one of the excluded kinds.
+- **Post-1.0:** a route preference set from the controller would come as a delivered effect with
+  its own executor, never as a pending record.
+
 ### 18.6 Revision 6.2 (M06 wave 2)
 
 Additive changes the wave-2 units (the paired runtime, U2, U3, U56) needed; the integrator
