@@ -326,6 +326,22 @@ have landed.
      re-review the findings themselves.
 4. **The orchestrator merges `m08/w4` into main.**
 
+**W4's review: the first results (2026-11-27).**
+- **W4-T1, reviewed by GPT-6.2 Sol:** 0 blocking, 1 non-blocking, 1 nit. The fixes go in the
+  review-fix commit: W4T-1 adds a wall-clock deadline on the child process, stopped by its exact
+  PID, and a diagnostic path that cannot panic; W4T-2 fixes the guard's wording.
+- **SEC-1 and SEC-5, reviewed by GPT-6.2 Sol:** 4 blocking, 2 non-blocking. The lead verified
+  W4R-01 in the code. The rulings:
+  - **W4R-02, blocking:** grant IDs are globally unique across deliveries. A tombstone is
+    accepted only for the pair of environment and grant.
+  - **W4R-03, must-fix:** every stored or relayed peer ID is checked against its generated form.
+  - **W4R-04, must-fix:** a receipt's body must match its effect.
+  - **W4R-01, must-fix:** no publication at or after the certificate's `valid_before`.
+  - **W4R-05, must-fix:** the source policy's revision is unchanged since reserve.
+  - **W4R-06:** a lifted cutoff stops showing.
+  - All six go in **W4-RF1**, on Opus, with GPT's scoped re-check. It runs after SEC-3b-F
+    integrates and U6b frees Opus.
+
 **H13's reader side and M07.** H13 is one change, owned by U2b-2. Its readers today are M07's:
 - the TUI's request paths (`crates/heimdall/src/tui/worker.rs`, `tui/m05.rs`, `tui/m07.rs`);
 - the reference wrapper (`examples/reference-wrapper/reference_wrapper.py`);
