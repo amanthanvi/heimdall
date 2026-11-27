@@ -27,6 +27,12 @@
 //!   connecting; after connecting the server's peer credentials must be ours too
 //!   (stale-socket and squatting defence; a same-user attacker is out of scope,
 //!   spec §14.1).
+//! * ⟨M07 S2-07; ADR-0013 §8⟩ The server's process ID is read from the same peer
+//!   credentials (Linux `SO_PEERCRED`; macOS `LOCAL_PEEREPID`, which the pinned tokio's
+//!   `peer_cred` queries beside `getpeereid`) and returned with the stream
+//!   ([`connect_verified`], [`crate::VerifiedConnection`]). A PID the platform does not
+//!   report (absent, zero or negative) is a refusal (`PeerRejected::Unavailable`), never
+//!   skipped: no byte is sent on such a connection.
 //! * The same rules serve the control and signing endpoints; the kind only selects
 //!   the file name and the frame limit. ⟨M03⟩ The issuer kind is reserved and never
 //!   bound ([`IssuerEndpointReserved`]; ADR-0008 Q1).
@@ -211,8 +217,20 @@ impl Drop for Listener {
 }
 
 /// Connect as a client after verifying the directory is ours and private, then
-/// verify the server's peer credentials are ours too.
+/// verify the server's peer credentials are ours too. [`connect_verified`] without the
+/// server's process ID (which it still requires).
 pub async fn connect(path: &Path) -> Result<UnixStream, ConnectError> {
+    connect_verified(path)
+        .await
+        .map(crate::VerifiedConnection::into_stream)
+}
+
+/// ⟨M07 S2-07; ADR-0013 §8⟩ [`connect`]'s checks, returning the stream with the server's
+/// process ID from the verified peer credentials. An unknown PID is
+/// `PeerRejected::Unavailable`.
+pub async fn connect_verified(
+    path: &Path,
+) -> Result<crate::VerifiedConnection<UnixStream>, ConnectError> {
     let uid = current_uid();
     let dir = parent_dir(path)?;
     match fs::symlink_metadata(dir) {
@@ -242,7 +260,18 @@ pub async fn connect(path: &Path) -> Result<UnixStream, ConnectError> {
         },
         &ExpectedOwner::Uid(uid),
     )?;
-    Ok(stream)
+    let server_pid = known_pid(cred.pid())?;
+    Ok(crate::VerifiedConnection::new(stream, server_pid))
+}
+
+/// ⟨M07 S2-07⟩ The peer's process ID as reported, or `Unavailable` when the platform
+/// reports none, zero (Linux: a peer outside this PID namespace) or a negative value.
+#[doc(hidden)]
+pub fn known_pid(reported: Option<i32>) -> Result<u32, PeerRejected> {
+    reported
+        .and_then(|pid| u32::try_from(pid).ok())
+        .filter(|pid| *pid != 0)
+        .ok_or(PeerRejected::Unavailable)
 }
 
 /// Client-side connect failure.
@@ -516,5 +545,64 @@ pub fn classify_existing(
         // Ok (someone answered) or any other error: do not delete what we cannot
         // prove dead.
         _ => Existing::LiveOurs,
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    /// ⟨M07 S2-07⟩ A PID the platform does not report, zero or negative is a refusal.
+    #[test]
+    fn an_unknown_server_pid_refuses() {
+        assert_eq!(known_pid(Some(4242)), Ok(4242));
+        for unknown in [None, Some(0), Some(-1), Some(i32::MIN)] {
+            assert_eq!(
+                known_pid(unknown),
+                Err(PeerRejected::Unavailable),
+                "{unknown:?}"
+            );
+        }
+    }
+
+    /// ⟨M07 S2-07⟩ The server PID of a verified connection is the listening process's
+    /// (here: this test process), read from the connection itself.
+    #[tokio::test(flavor = "current_thread")]
+    async fn verified_connection_reports_the_server_pid() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run").join("control.sock");
+        let listener = Listener::bind(&path, EndpointKind::Control).unwrap();
+        let (accepted, connected) = tokio::join!(listener.accept(), connect_verified(&path));
+        let (_server, peer) = accepted.unwrap();
+        let connected = connected.unwrap();
+        assert_eq!(connected.server_pid(), std::process::id());
+        let PeerIdentity::Unix { pid, .. } = peer else {
+            panic!("a Unix peer");
+        };
+        assert_eq!(
+            pid.and_then(|p| u32::try_from(p).ok()),
+            Some(std::process::id())
+        );
+    }
+
+    /// ⟨M07 S2-07⟩ No listener: refused before anything is read; a non-socket at the path is
+    /// `Insecure`.
+    #[tokio::test(flavor = "current_thread")]
+    async fn verified_connect_refuses_without_a_live_own_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let run = dir.path().join("run");
+        fs::DirBuilder::new().mode(0o700).create(&run).unwrap();
+        let path = run.join("control.sock");
+        assert!(matches!(
+            connect_verified(&path).await,
+            Err(ConnectError::NotRunning)
+        ));
+        fs::write(&path, b"").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(matches!(
+            connect_verified(&path).await,
+            Err(ConnectError::Insecure)
+        ));
     }
 }

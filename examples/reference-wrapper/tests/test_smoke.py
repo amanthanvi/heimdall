@@ -74,15 +74,20 @@ class RealBinarySmoke(unittest.TestCase):
         status_codes = []
         try:
             status = self.wait_for_status(binary, env, runtime, status_codes)
-            self.assertEqual(status["data"]["pid"], runtime.pid)
-            expected = status["data"]["environment_id"]
-            endpoint = Path(env["HEIMDALL_HOME"]) / "run" / "control.sock"
+            # Discovery (ADR-0013 §8, D12): every field from the CLI's verified connection. The
+            # endpoint is the one it connected to (on Windows the pipe name carries an
+            # unpredictable token only the runtime can report); this test never reads
+            # instance.json.
+            data = status["data"]
+            self.assertEqual(data["pid"], runtime.pid)
+            self.assertIsInstance(data["protocol"], int)
+            expected = data["environment_id"]
+            endpoint = data["control_endpoint"]
+            self.assertIsInstance(endpoint, str)
             if WINDOWS:
-                # The pipe name carries an unpredictable token. Only the runtime can report it.
-                endpoint = status["data"].get("control_endpoint")
-                if not isinstance(endpoint, str) or not endpoint:
-                    self.skipTest("service status reports no data.control_endpoint: this build does not "
-                                  "serve ADR-0013 D12 yet, and this test never reads instance.json")
+                self.assertRegex(endpoint, r"^\\\\\.\\pipe\\heimdall-[A-Za-z0-9-]+-control$")
+            else:
+                self.assertEqual(Path(endpoint), Path(env["HEIMDALL_HOME"]) / "run" / "control.sock")
             with Client(endpoint, expected, required=("events/1",), timeout=2) as client:
                 self.assertIn("events/1", client.capabilities)
                 capabilities = client.request("inspect", subject="capabilities")

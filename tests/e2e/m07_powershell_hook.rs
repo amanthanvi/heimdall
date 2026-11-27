@@ -683,6 +683,7 @@ async fn powershell_hook_startup_with_an_unreachable_runtime() {
             version: "0.0.0".into(),
             control_endpoint: endpoints.control.to_str().unwrap().into(),
             signing_endpoint: endpoints.signing.to_str().unwrap().into(),
+            environment_id: Some("env_fixture".into()),
         };
         let runtime_dir = &fixture.paths.runtime_dir;
         info.write(runtime_dir).unwrap();

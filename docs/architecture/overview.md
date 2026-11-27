@@ -370,6 +370,11 @@ four more (4–7 below; ADR-0008 §18, ⟨r7⟩ §17.17 item 5 for the fourth):
    handle, `ConvertSidToStringSidW`, the returned descriptor and string released
    with `LocalFree` exactly once; design-fix second round R8). The server's SDDL
    sets an explicit owner `O:<sid>` (R6) so the check holds for elevated runtimes.
+   ⟨M07 S2-07; ADR-0013 §8⟩ The client-side server-process check:
+   `GetNamedPipeServerProcessId` on the client handle (out-pointer to a local),
+   `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` and `OpenProcessToken(TOKEN_QUERY)`,
+   each handle owned at once by an `OwnedHandle` and closed exactly once, then the
+   existing `GetTokenInformation(TokenUser)` read; every failure is a refusal.
 2. `crates/runtime/src/platform.rs` (`#![allow(unsafe_code)]`): the boot-scoped
    continuous clock and boot ID syscalls (`clock_gettime(CLOCK_BOOTTIME)`,
    `mach_continuous_time`/`mach_timebase_info`, `sysctlbyname`,

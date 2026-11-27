@@ -28,7 +28,10 @@
 //!   registry subkey under `Software\HeimdallTest\`), and a release build refuses the
 //!   variable.
 //! * `status` validates the advertisement (pid + OS start time + owner-only
-//!   endpoints) and performs a hello; it never starts a runtime.
+//!   endpoints), connects to the advertised endpoint, verifies it and performs a hello;
+//!   it never starts a runtime. ⟨M07 S2-07; ADR-0013 §8 D12, ADR-0014 H14⟩ It answers
+//!   three states (`runtime_not_running`, the verified status, `runtime_unreachable`)
+//!   and reports only what the verified connection gives or checks ([`status`]).
 //! * `stop` (every platform, ADR-0006 §13.6 item 8) connects to the owner's
 //!   control endpoint requiring `service-control/1` and sends `Request::Shutdown`;
 //!   on `OK` the runtime drains gracefully and this command waits, bounded, for
@@ -51,7 +54,7 @@ use heimdall_contract::envelope::{Envelope, ErrorData};
 use heimdall_contract::{Code, ExitCode};
 use heimdall_runtime::autostart::port::HostLoginPort;
 use heimdall_runtime::config::{Config, MAX_CONFIG_BYTES};
-use heimdall_runtime::instance::InstanceInfo;
+use heimdall_runtime::instance::{Advertised, InstanceInfo};
 use heimdall_runtime::service::{Service, ServiceError, ServiceOptions};
 use heimdall_runtime::telemetry::{self, LogSink};
 use heimdall_runtime::{Paths, config::ConfigError};
@@ -419,54 +422,75 @@ async fn stop_on_signal(token: CancellationToken, _detach: bool) {
     }
 }
 
-/// `service status`: never starts a runtime.
+/// `service status`: never starts a runtime (ADR-0013 §8 "Discovery", D12; ADR-0014 H14).
+///
+/// Three states, from [`InstanceInfo::read_advertised`]: nothing advertised is
+/// `SERVICE_UNAVAILABLE` / `runtime_not_running`; advertised with an endpoint that does
+/// not answer is `runtime_unreachable`; otherwise it connects, verifies (the advertised
+/// environment ID present, the endpoint's platform checks and a known server PID, Windows'
+/// exact control pipe name and server-process SID) and completes the hello, which must name
+/// the advertised environment. Every reported field comes from that verified connection or
+/// is checked against it: `control_endpoint` is the endpoint connected to; `environment_id`,
+/// `protocol`, `capabilities`, `principal` and `version` are the hello's; `pid` is the
+/// verified peer's and must equal the advertisement's. Any failed check is
+/// `endpoint_untrusted`. `time_sync_observation` is this host's diagnostic, not the
+/// runtime's.
 pub fn status(ctx: &Ctx) -> ExitCode {
     let paths = match ctx.paths() {
         Ok(p) => p,
         Err(e) => return fail(ctx, *e),
     };
-    let info = match InstanceInfo::read_valid(&paths.runtime_dir) {
-        Ok(Some(info)) => info,
-        Ok(None) => {
-            return fail(
-                ctx,
-                error(Code::ServiceUnavailable, "no runtime is running"),
-            );
-        }
-        Err(e) => {
-            return fail(
-                ctx,
-                error(
-                    Code::ServiceUnavailable,
-                    &format!("the runtime advertisement is not trusted: {}", e.kind()),
-                ),
-            );
-        }
+    let info = match InstanceInfo::read_advertised(&paths.runtime_dir) {
+        Ok(Advertised::Live(info)) => info,
+        Ok(advertised) => return fail(ctx, *crate::client::not_live(&advertised)),
+        Err(e) => return fail(ctx, *crate::client::advertisement_untrusted(&e)),
     };
     let rt = match current_thread() {
         Ok(rt) => rt,
         Err(env) => return fail(ctx, env),
     };
-    let hello = rt.block_on(async {
-        crate::client::connect(ctx, false)
-            .await
-            .map(|c| c.server().clone())
-    });
-    match hello {
-        Ok(h) => finish(
+    let verified = rt.block_on(async {
+        let client = crate::client::connect_advertised(
             ctx,
-            Envelope::ok(serde_json::json!({
-                "running": true,
-                "pid": info.pid,
-                "version": info.version,
-                "environment_id": h.environment_id,
-                "capabilities": h.capabilities,
-                "principal": h.principal,
-                "time_sync_observation": time_sync_observation(),
-            })),
-        ),
+            &paths,
+            &info,
+            &[],
+            ctx.interaction(),
+            crate::client::Expect::Required,
+        )
+        .await?;
+        verified_status(&client, &info)
+    });
+    match verified {
+        Ok(data) => finish(ctx, Envelope::ok(data)),
         Err(env) => fail(ctx, *env),
     }
+}
+
+/// ⟨M07 S2-07; D12⟩ `service status`'s data from a verified session: the verified peer's PID
+/// must equal the advertisement's (`endpoint_untrusted` otherwise); every other runtime
+/// field is the session's.
+fn verified_status(
+    client: &crate::client::Client,
+    info: &InstanceInfo,
+) -> Result<serde_json::Value, Box<Envelope<ErrorData>>> {
+    if client.server_pid() != info.pid {
+        return Err(crate::client::untrusted(
+            "the process serving the runtime's endpoint is not the advertised runtime process",
+        ));
+    }
+    let h = client.server();
+    Ok(serde_json::json!({
+        "running": true,
+        "pid": client.server_pid(),
+        "version": h.server.version,
+        "environment_id": h.environment_id,
+        "capabilities": h.capabilities,
+        "principal": h.principal,
+        "protocol": h.protocol,
+        "control_endpoint": client.control_endpoint(),
+        "time_sync_observation": time_sync_observation(),
+    }))
 }
 
 /// A current-thread executor for client commands.
@@ -518,7 +542,7 @@ pub fn stop(ctx: &Ctx) -> ExitCode {
             "via": via,
         }))
     };
-    match rt.block_on(request_shutdown(ctx)) {
+    match rt.block_on(request_shutdown(ctx, &paths, &info)) {
         Ok(()) => match wait_for_exit(&info) {
             Ok(()) => finish(ctx, stopped("control")),
             Err(env) => fail(ctx, env),
@@ -539,13 +563,29 @@ enum StopFailure {
     Unreachable(Envelope<ErrorData>),
 }
 
-/// Send `Request::Shutdown` on a session that requires `service-control/1`.
-async fn request_shutdown(ctx: &Ctx) -> Result<(), StopFailure> {
+/// Send `Request::Shutdown` on a session that requires `service-control/1`, to the runtime
+/// `info` advertises. ⟨M07 S2-07⟩ The session is verified as every connect's
+/// (`client::connect_advertised`); an advertisement from an earlier build, without the
+/// environment ID, is still stopped, on a connection whose verified server PID is the
+/// advertised one (`client::Expect::StopLegacy`): `heimdall service stop` is the restart
+/// guidance for such a runtime.
+async fn request_shutdown(
+    ctx: &Ctx,
+    paths: &Paths,
+    info: &InstanceInfo,
+) -> Result<(), StopFailure> {
     use heimdall_contract::ipc::capability::SERVICE_CONTROL_V1;
     use heimdall_contract::request::{Request, ShutdownRequest};
-    let mut client = crate::client::connect_requiring(ctx, false, &[SERVICE_CONTROL_V1])
-        .await
-        .map_err(|e| StopFailure::Unreachable(*e))?;
+    let mut client = crate::client::connect_advertised(
+        ctx,
+        paths,
+        info,
+        &[SERVICE_CONTROL_V1],
+        ctx.interaction(),
+        crate::client::Expect::StopLegacy,
+    )
+    .await
+    .map_err(|e| StopFailure::Unreachable(*e))?;
     let env = client.request(Request::Shutdown(ShutdownRequest {})).await;
     if env.code == Code::Ok {
         return Ok(());

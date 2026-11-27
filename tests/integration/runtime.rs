@@ -620,6 +620,7 @@ fn info_for(dir: &Path, pid: u32, started_at: String) -> InstanceInfo {
         version: env!("CARGO_PKG_VERSION").to_owned(),
         control_endpoint: dir.join("control.sock").display().to_string(),
         signing_endpoint: dir.join("signing.sock").display().to_string(),
+        environment_id: Some("env_fixture".to_owned()),
     }
 }
 
@@ -673,6 +674,53 @@ fn instance_valid_when_process_and_endpoints_are_live() {
     let info = info_for(&dir, std::process::id(), started);
     info.write(&dir).unwrap();
     assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), Some(info));
+}
+
+/// ⟨M07 S2-07; ADR-0014 H14⟩ The three-state read without collapsing `read_valid`'s `None`:
+/// absent is `NotRunning`; live with answering sockets `Live`; live with ours but refusing
+/// `Unreachable`; live naming another socket path, or with a non-socket at the path,
+/// `Untrusted`. `read_valid` stays `Some` only for `Live`.
+#[cfg(unix)]
+#[test]
+fn instance_read_advertised_tells_the_states_apart() {
+    use heimdall_runtime::instance::Advertised;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = runtime_dir(&tmp);
+    let started = InstanceInfo::current_started_at().unwrap();
+    let info = info_for(&dir, std::process::id(), started);
+    assert_eq!(
+        InstanceInfo::read_advertised(&dir).unwrap(),
+        Advertised::NotRunning
+    );
+    info.write(&dir).unwrap();
+    let (c, s) = listen(&dir);
+    assert_eq!(
+        InstanceInfo::read_advertised(&dir).unwrap(),
+        Advertised::Live(info.clone())
+    );
+    drop((c, s));
+    assert_eq!(
+        InstanceInfo::read_advertised(&dir).unwrap(),
+        Advertised::Unreachable(info.clone())
+    );
+    assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), None);
+    let elsewhere = InstanceInfo {
+        control_endpoint: dir.join("other.sock").display().to_string(),
+        ..info.clone()
+    };
+    elsewhere.write(&dir).unwrap();
+    assert_eq!(
+        InstanceInfo::read_advertised(&dir).unwrap(),
+        Advertised::Untrusted(elsewhere)
+    );
+    info.write(&dir).unwrap();
+    std::fs::remove_file(dir.join("control.sock")).unwrap();
+    std::fs::write(dir.join("control.sock"), b"").unwrap();
+    assert_eq!(
+        InstanceInfo::read_advertised(&dir).unwrap(),
+        Advertised::Untrusted(info)
+    );
+    assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), None);
 }
 
 #[cfg(unix)]
@@ -1342,6 +1390,7 @@ mod u8b {
             version: "0.0.0".to_owned(),
             control_endpoint: control,
             signing_endpoint: signing,
+            environment_id: None,
         };
         stale.write(&run).unwrap();
         #[cfg(unix)]

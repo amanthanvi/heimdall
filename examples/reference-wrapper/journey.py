@@ -31,7 +31,10 @@ class JourneyClient(Client):
 
 class Journey:
     def __init__(self, endpoint, environment):
-        # U3/U4b: verified-hello discovery is held. Both values come from the harness.
+        # Both values come from the harness, which reads them from `heimdall service status
+        # --json` (ADR-0013 §8 "Discovery", D12): `data.control_endpoint` and
+        # `data.environment_id`, from the CLI's verified connection. The client checks the
+        # endpoint and the hello's environment ID again itself.
         self.endpoint = endpoint
         self.environment = environment
         self.stream = None

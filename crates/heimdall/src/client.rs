@@ -11,12 +11,14 @@ use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
 use heimdall_contract::Code;
+use heimdall_contract::envelope::reason;
 use heimdall_contract::envelope::{EffectStatus, Envelope, ErrorData};
 use heimdall_contract::ipc::{PeerInfo, capability};
 use heimdall_contract::page::{PageRequest, PageToken, Select};
 use heimdall_contract::request::{InspectRequest, InspectSubject, InteractionMode, Request};
 use heimdall_ipc::session::{ControlClient, transport_failure_envelope};
 use heimdall_runtime::Paths;
+use heimdall_runtime::instance::{Advertised, InstanceInfo};
 use heimdall_runtime::launcher::{self, LaunchError, LauncherConfig};
 use heimdall_runtime::paths::HOME_ENV;
 
@@ -101,6 +103,10 @@ pub struct Client {
     inner: ControlClient<Stream>,
     /// ⟨M08 U2b-2⟩ This invocation's kept epoch ([`Ctx::request_epoch`]).
     kept: Option<heimdall_contract::lifecycle::RestoreEpoch>,
+    /// ⟨M07 S2-07⟩ The server's process ID, read from the verified connection.
+    server_pid: u32,
+    /// ⟨M07 S2-07⟩ The control endpoint this session connected to.
+    control_endpoint: String,
 }
 
 impl std::fmt::Debug for Client {
@@ -139,6 +145,20 @@ impl Client {
     #[must_use]
     pub fn server(&self) -> &heimdall_contract::ipc::ServerHello {
         self.inner.server()
+    }
+
+    /// ⟨M07 S2-07; ADR-0013 §8⟩ The server's process ID, as the OS reports it for this
+    /// connection (Linux `SO_PEERCRED`, macOS `LOCAL_PEEREPID`, Windows
+    /// `GetNamedPipeServerProcessId`), never the advertisement's.
+    #[must_use]
+    pub fn server_pid(&self) -> u32 {
+        self.server_pid
+    }
+
+    /// ⟨M07 S2-07⟩ The control endpoint this session connected to and verified.
+    #[must_use]
+    pub fn control_endpoint(&self) -> &str {
+        &self.control_endpoint
     }
 
     /// ⟨M08 U2b-2⟩ Send `request` carrying `kept`, the epoch a retried request ID was first
@@ -550,7 +570,57 @@ pub async fn connect_as(
     .await
     .map_err(|e| Box::new(launch_error(&e)))?;
 
-    let stream = open_stream(&paths).await?;
+    let info = match InstanceInfo::read_advertised(&paths.runtime_dir) {
+        Ok(Advertised::Live(info)) => info,
+        Ok(advertised) => return Err(not_live(&advertised)),
+        Err(e) => return Err(advertisement_untrusted(&e)),
+    };
+    connect_advertised(ctx, &paths, &info, extra, interaction, Expect::Required).await
+}
+
+/// ⟨M07 S2-07⟩ Whether the advertisement must carry the expected environment ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Expect {
+    /// It must (every command but `service stop`): an advertisement without it is from an
+    /// earlier build and refused `endpoint_untrusted` before any connection.
+    Required,
+    /// `service stop` only: an advertisement from an earlier build is still stopped (the
+    /// restart guidance names `heimdall service stop`), but only on a connection whose
+    /// verified server PID is the advertised one. With the field present it is checked as
+    /// under [`Expect::Required`].
+    StopLegacy,
+}
+
+/// ⟨M07 S2-07; ADR-0013 §8, D12⟩ Connect to the runtime `info` advertises in `paths` and
+/// complete the hello, verifying, in order and before any byte is sent: the advertisement
+/// carries the expected environment ID ([`Expect`]); Windows: the control pipe is named
+/// exactly `\\.\pipe\heimdall-<token>-control`; the endpoint's platform checks (Unix: the
+/// private directory, our own socket, the peer's uid; Windows: the pipe namespace, the
+/// owner and the server process's SID) and a known server PID. After the hello,
+/// `ServerHello.environment_id` must equal the expected one. Every failed check is
+/// `SERVICE_UNAVAILABLE` / `endpoint_untrusted`; an endpoint that does not answer is
+/// `runtime_unreachable`.
+pub(crate) async fn connect_advertised(
+    ctx: &Ctx,
+    paths: &Paths,
+    info: &InstanceInfo,
+    extra: &[&str],
+    interaction: InteractionMode,
+    expect: Expect,
+) -> Result<Client, Box<Envelope<ErrorData>>> {
+    let expected = match (&info.environment_id, expect) {
+        (Some(id), _) => Some(id.as_str()),
+        (None, Expect::StopLegacy) => None,
+        (None, Expect::Required) => return Err(Box::new(from_another_build())),
+    };
+    let endpoint = control_endpoint(paths, info)?;
+    let (stream, server_pid) = open_verified(&endpoint).await?;
+    if expected.is_none() && server_pid != info.pid {
+        return Err(untrusted(
+            "the runtime advertisement was written by another build and the process serving \
+             its endpoint is not the advertised one; nothing was sent",
+        ));
+    }
     let required: BTreeSet<String> = std::iter::once(capability::OPERATIONS_V1)
         .chain(extra.iter().copied())
         .map(str::to_owned)
@@ -566,13 +636,99 @@ pub async fn connect_as(
     )
     .await
     .map_err(|e| Box::new(transport_failure_envelope(&e, false)))?;
+    if let Some(expected) = expected
+        && inner.server().environment_id.as_str() != expected
+    {
+        return Err(untrusted(
+            "the runtime that answered is not the advertised environment (its hello names \
+             another environment ID); nothing was sent",
+        ));
+    }
     let mut inner = inner;
     // ⟨M08 U2b-2⟩ A retry's kept epoch travels with every mutating request it sends.
     inner.keep_epoch(ctx.request_epoch);
     Ok(Client {
         inner,
         kept: ctx.request_epoch,
+        server_pid,
+        control_endpoint: endpoint.to_string_lossy().into_owned(),
     })
+}
+
+/// ⟨M07 S2-07⟩ `SERVICE_UNAVAILABLE` with `reason`, effect `none`, resource `endpoint`.
+fn service_unavailable(reason: &str, message: &str) -> Box<Envelope<ErrorData>> {
+    Box::new(
+        heimdall_app::OpError::new(Code::ServiceUnavailable, message)
+            .with_reason(reason)
+            .with_effect(EffectStatus::None)
+            .with_resource("endpoint", None)
+            .into_envelope(),
+    )
+}
+
+/// ⟨M07 S2-07⟩ `SERVICE_UNAVAILABLE` / `endpoint_untrusted`.
+pub(crate) fn untrusted(message: &str) -> Box<Envelope<ErrorData>> {
+    service_unavailable(reason::ENDPOINT_UNTRUSTED, message)
+}
+
+/// ⟨M07 S2-07⟩ An advertisement without the expected environment ID: written by an earlier
+/// build, never trusted. The way out is the existing restart: `heimdall service stop`, after
+/// which the next command starts this build's runtime (there is no `service restart`).
+pub(crate) fn from_another_build() -> Envelope<ErrorData> {
+    *untrusted(
+        "the running runtime is from another build of Heimdall: its advertisement does not \
+         name its environment ID, so it cannot be verified and nothing was sent; restart it: \
+         stop it (`heimdall service stop`), then any command starts this build's runtime again",
+    )
+}
+
+/// ⟨M07 S2-07; ADR-0014 H14⟩ The refusal for an advertisement that is not live:
+/// `runtime_not_running` (nothing advertised; the message every reader matches, "no runtime
+/// is running"), `runtime_unreachable` or `endpoint_untrusted`.
+pub(crate) fn not_live(advertised: &Advertised) -> Box<Envelope<ErrorData>> {
+    match advertised {
+        Advertised::NotRunning | Advertised::Live(_) => {
+            service_unavailable(reason::RUNTIME_NOT_RUNNING, "no runtime is running")
+        }
+        Advertised::Unreachable(_) => service_unavailable(
+            reason::RUNTIME_UNREACHABLE,
+            "a runtime is advertised and its process is running, but its control endpoint does \
+             not answer",
+        ),
+        Advertised::Untrusted(_) => untrusted(
+            "the runtime advertisement names an endpoint this client may not use; nothing was \
+             sent",
+        ),
+    }
+}
+
+/// ⟨M07 S2-07⟩ An advertisement file that is not a private regular file of this user.
+pub(crate) fn advertisement_untrusted(e: &std::io::Error) -> Box<Envelope<ErrorData>> {
+    untrusted(&format!(
+        "the runtime advertisement is not trusted: {}",
+        e.kind()
+    ))
+}
+
+/// ⟨M07 S2-07⟩ The control endpoint a client connects to for `info`. Unix: the runtime
+/// directory's `control.sock` (the advertisement was checked to name exactly it). Windows:
+/// the advertised pipe, refused `endpoint_untrusted` unless named exactly
+/// `\\.\pipe\heimdall-<token>-control`.
+fn control_endpoint(
+    paths: &Paths,
+    info: &InstanceInfo,
+) -> Result<PathBuf, Box<Envelope<ErrorData>>> {
+    if cfg!(windows) {
+        if !heimdall_runtime::instance::is_control_pipe_name(&info.control_endpoint) {
+            return Err(untrusted(
+                "the runtime advertisement names a control endpoint that is not a Heimdall \
+                 control pipe; nothing was sent",
+            ));
+        }
+        Ok(PathBuf::from(&info.control_endpoint))
+    } else {
+        Ok(heimdall_ipc::EndpointPaths::for_runtime(&paths.runtime_dir, "").control)
+    }
 }
 
 /// ⟨M06 W2⟩ A raw connection to the control endpoint of the runtime serving `home` (an
@@ -604,48 +760,73 @@ pub async fn control_stream_for_home(
     open_stream(&paths).await
 }
 
+/// The remote-serve bridge's raw stream (no hello): the endpoint's platform checks and a
+/// known server PID, as every connect.
 #[cfg(unix)]
 async fn open_stream(paths: &Paths) -> Result<Stream, Box<Envelope<ErrorData>>> {
     let endpoints = heimdall_ipc::EndpointPaths::for_runtime(&paths.runtime_dir, "");
-    heimdall_ipc::unix::connect(&endpoints.control)
+    open_verified(&endpoints.control)
         .await
-        .map_err(|e| {
-            Box::new(
-                heimdall_app::OpError::new(
-                    Code::ServiceUnavailable,
-                    format!("cannot connect to the runtime: {e}"),
-                )
-                .with_effect(EffectStatus::None)
-                .with_resource("endpoint", None)
-                .into_envelope(),
-            )
-        })
+        .map(|(stream, _)| stream)
 }
 
 #[cfg(windows)]
 async fn open_stream(paths: &Paths) -> Result<Stream, Box<Envelope<ErrorData>>> {
-    let unavailable = |msg: String| {
-        Box::new(
-            heimdall_app::OpError::new(Code::ServiceUnavailable, msg)
-                .with_effect(EffectStatus::None)
-                .with_resource("endpoint", None)
-                .into_envelope(),
-        )
+    let info = match InstanceInfo::read_advertised(&paths.runtime_dir) {
+        Ok(Advertised::Live(info)) => info,
+        Ok(advertised) => return Err(not_live(&advertised)),
+        Err(e) => return Err(advertisement_untrusted(&e)),
     };
-    let info = heimdall_runtime::instance::InstanceInfo::read_valid(&paths.runtime_dir)
-        .map_err(|e| {
-            unavailable(format!(
-                "cannot read the runtime advertisement: {}",
-                e.kind()
-            ))
-        })?
-        .ok_or_else(|| unavailable("no runtime is running".to_owned()))?;
-    heimdall_ipc::windows::connect_with_owner(
-        std::path::Path::new(&info.control_endpoint),
+    let endpoint = control_endpoint(paths, &info)?;
+    open_verified(&endpoint).await.map(|(stream, _)| stream)
+}
+
+/// ⟨M07 S2-07⟩ The verified connection to `endpoint` and its server's PID. Unix: no runtime
+/// listening is `runtime_unreachable`; a directory, socket or peer that fails its check
+/// (an unknown PID included) is `endpoint_untrusted`.
+#[cfg(unix)]
+async fn open_verified(
+    endpoint: &std::path::Path,
+) -> Result<(Stream, u32), Box<Envelope<ErrorData>>> {
+    use heimdall_ipc::unix::ConnectError;
+    match heimdall_ipc::unix::connect_verified(endpoint).await {
+        Ok(verified) => Ok(verified.into_parts()),
+        Err(e @ ConnectError::NotRunning) => Err(service_unavailable(
+            reason::RUNTIME_UNREACHABLE,
+            &format!("cannot connect to the runtime: {e}"),
+        )),
+        Err(e) => Err(untrusted(&format!("cannot connect to the runtime: {e}"))),
+    }
+}
+
+/// ⟨M07 S2-07⟩ The verified connection to `endpoint` and its server's PID. Windows: a pipe
+/// that is absent or stays busy is `runtime_unreachable`; every other failure (not a pipe,
+/// another owner, a server process that is not this user's or cannot be read) is
+/// `endpoint_untrusted`.
+#[cfg(windows)]
+async fn open_verified(
+    endpoint: &std::path::Path,
+) -> Result<(Stream, u32), Box<Envelope<ErrorData>>> {
+    match heimdall_ipc::windows::connect_with_owner_verified(
+        endpoint,
         heimdall_ipc::windows::ServerOwner::CurrentUser,
     )
     .await
-    .map_err(|e| unavailable(format!("cannot connect to the runtime: {}", e.kind())))
+    {
+        Ok(verified) => Ok(verified.into_parts()),
+        Err(e) => {
+            let message = format!("cannot connect to the runtime: {}", e.kind());
+            // `ERROR_PIPE_BUSY` (231; this crate has no `windows-sys` outside its tests): every
+            // instance stayed taken through `connect`'s bounded retries.
+            const ERROR_PIPE_BUSY: i32 = 231;
+            let busy = e.raw_os_error() == Some(ERROR_PIPE_BUSY);
+            if e.kind() == std::io::ErrorKind::NotFound || busy {
+                Err(service_unavailable(reason::RUNTIME_UNREACHABLE, &message))
+            } else {
+                Err(untrusted(&message))
+            }
+        }
+    }
 }
 
 #[cfg(test)]

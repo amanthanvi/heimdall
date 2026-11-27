@@ -44,9 +44,22 @@
 //! name squatted by another user is refused. [`connect`] has no owner check and is
 //! for tests only.
 //!
+//! ⟨M07 S2-07; ADR-0013 §8⟩ Client-side server-process check: after the owner check,
+//! still before any byte is written, [`connect_with_owner_verified`] reads the server's
+//! process ID from the client handle (`GetNamedPipeServerProcessId`), opens that process
+//! (`OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`), reads its token's user SID
+//! (`OpenProcessToken(TOKEN_QUERY)` + `GetTokenInformation(TokenUser)`) and requires it to
+//! equal this process's user SID, under either [`ServerOwner`] (an elevated runtime's
+//! pipes carry its token's default owner, but its process still runs as the user). Any
+//! failure to read the PID, open the process or read its token is a refusal
+//! (`PermissionDenied`), never a pass; a PID of zero is unknown and refused. The PID is
+//! returned with the stream ([`crate::VerifiedConnection`]).
+//!
 //! This is the crate's only `unsafe` boundary: the raw security-attributes pointer
 //! passed to `create_with_security_attributes_raw`, the SDDL conversion, the
-//! impersonation/token calls, and the owner query on a client handle. Each call is
+//! impersonation/token calls, the owner query on a client handle, and ⟨M07 S2-07⟩ the
+//! server-process query on a client handle (`GetNamedPipeServerProcessId`, `OpenProcess`,
+//! `OpenProcessToken`). Each call is
 //! wrapped in a safe function with documented invariants; no unsafe escapes this
 //! module.
 
@@ -81,10 +94,12 @@ use windows_sys::Win32::Storage::FileSystem::{
     GetFileType, GetFullPathNameW, MoveFileExW, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
 };
 use windows_sys::Win32::System::Pipes::{
-    GetNamedPipeClientComputerNameW, GetNamedPipeClientProcessId, ImpersonateNamedPipeClient,
+    GetNamedPipeClientComputerNameW, GetNamedPipeClientProcessId, GetNamedPipeServerProcessId,
+    ImpersonateNamedPipeClient,
 };
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, GetCurrentThread, OpenProcessToken, OpenThreadToken,
+    GetCurrentProcess, GetCurrentThread, OpenProcess, OpenProcessToken, OpenThreadToken,
+    PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
 use crate::endpoint::{EndpointKind, ExpectedOwner, PeerIdentity, PeerRejected, verify_peer};
@@ -427,9 +442,27 @@ pub enum ServerOwner {
 /// any byte is written, so a hello (or anything else) never reaches a pipe another
 /// principal created under the runtime's name. Failure to read the owner is an
 /// error, never a pass. The SIDs involved are not logged.
+///
+/// ⟨M07 S2-07⟩ [`connect_with_owner_verified`]'s checks, the server-process check
+/// included, without the server's PID.
 pub async fn connect_with_owner(path: &Path, owner: ServerOwner) -> io::Result<NamedPipeClient> {
+    connect_with_owner_verified(path, owner)
+        .await
+        .map(crate::VerifiedConnection::into_stream)
+}
+
+/// ⟨M07 S2-07; ADR-0013 §8⟩ [`connect_with_owner`]'s classification, open and owner check,
+/// then the server-process check (module documentation): the process serving the pipe
+/// (`GetNamedPipeServerProcessId`) must run as this process's user SID. Every check runs
+/// before any byte is written; a refusal closes the handle. Returns the stream with the
+/// server's PID.
+pub async fn connect_with_owner_verified(
+    path: &Path,
+    owner: ServerOwner,
+) -> io::Result<crate::VerifiedConnection<NamedPipeClient>> {
+    let user = current_user_sid()?;
     let expected = match owner {
-        ServerOwner::CurrentUser => current_user_sid()?,
+        ServerOwner::CurrentUser => user.clone(),
         ServerOwner::Sid(sid) => {
             if !is_sid_string(&sid) {
                 return Err(io::Error::new(
@@ -450,7 +483,48 @@ pub async fn connect_with_owner(path: &Path, owner: ServerOwner) -> io::Result<N
             "the endpoint is not owned by the expected user",
         ));
     }
-    Ok(client)
+    let pipe = client.as_raw_handle();
+    match check_server_process(&user, || server_process_id(pipe), process_user_sid) {
+        Ok(pid) => Ok(crate::VerifiedConnection::new(client, pid)),
+        Err(e) => {
+            drop(client);
+            Err(e)
+        }
+    }
+}
+
+/// ⟨M07 S2-07⟩ The server-process rule, with the two reads injected (`read_pid` from the
+/// client handle, `read_sid` of a process ID): the PID must be read and non-zero, and the
+/// process's token user SID read and equal (case-insensitively) to `user`. Every failure,
+/// a read that fails included, is `PermissionDenied` with a fixed message (no SID, no
+/// PID); the OS error is logged at debug only. Returns the PID.
+#[doc(hidden)]
+pub fn check_server_process(
+    user: &str,
+    read_pid: impl FnOnce() -> io::Result<u32>,
+    read_sid: impl FnOnce(u32) -> io::Result<String>,
+) -> io::Result<u32> {
+    let refused = |what: &str, e: Option<&io::Error>| {
+        tracing::debug!(
+            os_error = e.and_then(io::Error::raw_os_error),
+            "named-pipe server process check failed: {what}"
+        );
+        io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "the endpoint's server process could not be verified as the expected user",
+        )
+    };
+    let pid = match read_pid() {
+        Ok(0) => return Err(refused("no server process ID", None)),
+        Ok(pid) => pid,
+        Err(e) => return Err(refused("server process ID unreadable", Some(&e))),
+    };
+    let sid = read_sid(pid).map_err(|e| refused("server process token unreadable", Some(&e)))?;
+    if !sid.eq_ignore_ascii_case(user) {
+        tracing::warn!("named-pipe endpoint served by a process of another principal; refused");
+        return Err(refused("server process runs as another principal", None));
+    }
+    Ok(pid)
 }
 
 /// Connect with `SECURITY_IDENTIFICATION` after classification and a
@@ -871,6 +945,46 @@ fn owner_sid_of(handle: RawHandle, object_type: SE_OBJECT_TYPE) -> io::Result<St
     let sid = sid_to_string(owner);
     drop(descriptor);
     sid
+}
+
+/// ⟨M07 S2-07⟩ The process ID of the server of the pipe whose client handle is `pipe`
+/// (`GetNamedPipeServerProcessId`).
+fn server_process_id(pipe: RawHandle) -> io::Result<u32> {
+    let mut pid = 0u32;
+    // SAFETY: `pipe` is an open client handle of a named pipe, owned by the caller's
+    // `NamedPipeClient` for the duration of the call; `pid` is a valid out-pointer to a
+    // local.
+    if unsafe { GetNamedPipeServerProcessId(pipe as HANDLE, &mut pid) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(pid)
+}
+
+/// ⟨M07 S2-07⟩ The user SID of process `pid`'s primary token: `OpenProcess` with
+/// `PROCESS_QUERY_LIMITED_INFORMATION`, `OpenProcessToken` with `TOKEN_QUERY`, then
+/// [`token_user_sid`]. Both handles are owned at once and closed exactly once.
+fn process_user_sid(pid: u32) -> io::Result<String> {
+    // SAFETY: a plain call with no pointers; a non-null result is a process handle that
+    // nothing else owns.
+    let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if raw.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: OpenProcess returned a valid handle that nothing else owns; OwnedHandle
+    // closes it exactly once.
+    let process = unsafe { OwnedHandle::from_raw_handle(raw as RawHandle) };
+    let mut token: HANDLE = ptr::null_mut();
+    // SAFETY: `process` is a valid process handle for the call; `token` is a valid
+    // out-pointer to a local.
+    if unsafe { OpenProcessToken(process.as_raw_handle() as HANDLE, TOKEN_QUERY, &mut token) } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: OpenProcessToken succeeded, so `token` is a token handle we now own
+    // exclusively; OwnedHandle closes it exactly once.
+    let token = unsafe { OwnedHandle::from_raw_handle(token as RawHandle) };
+    drop(process);
+    token_user_sid(&token)
 }
 
 /// Client process ID (metadata only, spec §4.2).
@@ -1418,6 +1532,101 @@ mod tests {
         });
         accepted.unwrap();
         client.unwrap();
+    }
+
+    /// ⟨M07 S2-07⟩ A same-user server passes the server-process check under both owner
+    /// expectations: the PID read from the client handle is this process's, and this
+    /// process's token user is this user.
+    #[tokio::test(flavor = "current_thread")]
+    async fn connect_with_owner_verified_reports_this_process_as_the_server() {
+        let sid = current_user_sid().unwrap();
+        assert_eq!(process_user_sid(std::process::id()).unwrap(), sid);
+        let name = unique_pipe("control");
+        let listener = Listener::bind(&name, EndpointKind::Control, &sid).unwrap();
+        for owner in [ServerOwner::CurrentUser, ServerOwner::Sid(sid.clone())] {
+            let (accepted, client) = tokio::join!(listener.accept(), async {
+                let verified = connect_with_owner_verified(Path::new(&name), owner.clone()).await?;
+                let pid = verified.server_pid();
+                let mut client = verified.into_stream();
+                client.write_all(b"ping").await?;
+                io::Result::Ok((client, pid))
+            });
+            accepted.unwrap();
+            let (_client, pid) = client.unwrap_or_else(|e| panic!("{owner:?}: {e}"));
+            assert_eq!(pid, std::process::id(), "{owner:?}");
+        }
+    }
+
+    /// ⟨M07 S2-07⟩ The server-process rule with injected reads: a PID that cannot be read,
+    /// a zero PID, a token that cannot be read and another user's token are all refused
+    /// `PermissionDenied`, with a message that names no SID; only a matching user passes.
+    #[test]
+    fn server_process_read_failures_are_refusals() {
+        let user = current_user_sid().unwrap();
+        let denied = |r: io::Result<u32>| {
+            let e = r.unwrap_err();
+            assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
+            assert!(!e.to_string().contains("S-1-"), "{e}");
+        };
+        denied(check_server_process(
+            &user,
+            || Err(io::Error::from_raw_os_error(6)),
+            |_| panic!("no SID read without a PID"),
+        ));
+        denied(check_server_process(
+            &user,
+            || Ok(0),
+            |_| panic!("no SID read for PID 0"),
+        ));
+        denied(check_server_process(
+            &user,
+            || Ok(4242),
+            |_| Err(io::Error::from_raw_os_error(5)),
+        ));
+        denied(check_server_process(
+            &user,
+            || Ok(4242),
+            |_| Ok(OTHER_SID.to_owned()),
+        ));
+        let lower = user.to_ascii_lowercase();
+        assert_eq!(
+            check_server_process(
+                &user,
+                || Ok(4242),
+                |pid| {
+                    assert_eq!(pid, 4242);
+                    Ok(lower.clone())
+                }
+            )
+            .unwrap(),
+            4242
+        );
+    }
+
+    /// ⟨M07 S2-07⟩ The real reads fail on what they cannot read: `OpenProcess` of PID 0 (the
+    /// idle process, never opened) and `GetNamedPipeServerProcessId` on a handle that is not
+    /// a pipe client.
+    #[test]
+    fn server_process_reads_fail_on_what_they_cannot_read() {
+        assert!(process_user_sid(0).is_err());
+        let dir = tempfile::tempdir().unwrap();
+        let file = std::fs::File::create(dir.path().join("not-a-pipe")).unwrap();
+        assert!(server_process_id(file.as_raw_handle()).is_err());
+    }
+
+    /// ⟨M07 S2-07⟩ A pipe served by a process of a second account is refused before any byte
+    /// is written (by the owner check, and by the server-process check behind it). Needs a
+    /// pipe created by a second account on this host, named in `HEIMDALL_TEST_FOREIGN_PIPE`
+    /// (B2).
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore = "needs a second account (B2)"]
+    async fn connect_with_owner_verified_refuses_a_foreign_server() {
+        let name = std::env::var("HEIMDALL_TEST_FOREIGN_PIPE")
+            .expect("HEIMDALL_TEST_FOREIGN_PIPE names a pipe a second account serves");
+        let err = connect_with_owner_verified(Path::new(&name), ServerOwner::CurrentUser)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied, "{err}");
     }
 
     /// A valid first frame on the signing endpoint: ssh-agent `REQUEST_IDENTITIES`.

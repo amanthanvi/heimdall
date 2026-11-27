@@ -1135,6 +1135,8 @@ impl Service {
             version: env!("CARGO_PKG_VERSION").to_owned(),
             control_endpoint: endpoint_string(&endpoints.control)?,
             signing_endpoint,
+            // ⟨M07 S2-07; ADR-0013 §8⟩ The expected environment ID of discovery.
+            environment_id: Some(environment.to_string()),
         };
         info.write(&paths.runtime_dir)
             .map_err(ServiceError::Advertise)?;

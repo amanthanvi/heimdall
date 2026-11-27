@@ -831,6 +831,7 @@ async fn enrollment_wait_explains_an_interrupted_step() {
         version: "0.0.0".into(),
         control_endpoint: endpoints.control.to_str().unwrap().into(),
         signing_endpoint: endpoints.signing.to_str().unwrap().into(),
+        environment_id: Some("env_fixture".into()),
     }
     .write(&paths.runtime_dir)
     .unwrap();
@@ -1198,4 +1199,178 @@ async fn cli_standalone_access_and_stop() {
         .unwrap()
         .unwrap()
         .unwrap();
+}
+
+/// ⟨M07 S2-07; ADR-0013 §8 "Discovery" (D12), ADR-0014 H14⟩ `service status` through the real
+/// binary against a fixture runtime this test serves in process (Unix): nothing advertised is
+/// `runtime_not_running`; an advertisement whose process is live but whose sockets refuse is
+/// `runtime_unreachable`; a verified runtime reports only what the verified connection gives
+/// (`pid` is the peer's, `version` and `protocol` the hello's, `control_endpoint` the endpoint
+/// connected to), never the advertisement's own `version`; an advertisement without the
+/// environment ID (an earlier build) is refused `endpoint_untrusted` with the restart guidance
+/// and no hello sent; a hello naming another environment, and an advertised PID that is not the
+/// peer's, are refused `endpoint_untrusted`.
+#[cfg(unix)]
+#[tokio::test(flavor = "current_thread")]
+async fn service_status_reports_only_the_verified_connection() {
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use heimdall_contract::PROTOCOL_VERSION;
+    use heimdall_contract::ipc::{
+        ClientMessage, MAX_CONTROL_FRAME_BYTES, PeerInfo, PrincipalInfo, ServerMessage,
+    };
+    use heimdall_ipc::unix::{Listener, current_uid};
+    use heimdall_ipc::{EndpointKind, EndpointPaths, encode_frame};
+    use heimdall_runtime::instance::InstanceInfo;
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    const FIXTURE_ENV: &str = "env_fixture";
+    const HELLO_VERSION: &str = "0.0.0-fixture-hello";
+    const ADVERTISED_VERSION: &str = "9.9.9-advertised";
+
+    let home = cli_scratch();
+    let root = home.root.join("heimdall");
+    let paths = Paths::under(&root);
+    let status = || async {
+        let out = cli_output(&home, cli(&home, &root, &["--json", "service", "status"])).await;
+        let env = json(&home, &out, &out.stdout);
+        (out, env)
+    };
+    let refused = |out: &Output, env: &Value, reason: &str| {
+        verify(
+            &home,
+            out,
+            out.status.code() == Some(5)
+                && env["code"] == "SERVICE_UNAVAILABLE"
+                && env["data"]["error"]["reason"] == reason,
+            &format!("SERVICE_UNAVAILABLE / {reason}"),
+        );
+    };
+
+    // 1. Nothing advertised.
+    let (out, env) = status().await;
+    refused(&out, &env, "runtime_not_running");
+    assert_eq!(env["data"]["error"]["message"], "no runtime is running");
+
+    // 2. Advertised, its process live with its start time, its sockets ours but refusing.
+    paths.ensure().unwrap();
+    let endpoints = EndpointPaths::for_runtime(&paths.runtime_dir, "");
+    for socket in [&endpoints.control, &endpoints.signing] {
+        drop(std::os::unix::net::UnixListener::bind(socket).unwrap());
+        std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let advertise = |pid: u32, started_at: String, environment: Option<&str>| {
+        InstanceInfo {
+            pid,
+            started_at,
+            version: ADVERTISED_VERSION.into(),
+            control_endpoint: endpoints.control.to_str().unwrap().into(),
+            signing_endpoint: endpoints.signing.to_str().unwrap().into(),
+            environment_id: environment.map(str::to_owned),
+        }
+        .write(&paths.runtime_dir)
+        .unwrap();
+    };
+    let ours = || InstanceInfo::current_started_at().unwrap();
+    advertise(std::process::id(), ours(), Some(FIXTURE_ENV));
+    let (out, env) = status().await;
+    refused(&out, &env, "runtime_unreachable");
+
+    // 3. A fixture runtime serving the endpoints, answering every hello for `env_fixture`.
+    let control = Listener::bind(&endpoints.control, EndpointKind::Control).unwrap();
+    let _signing = Listener::bind(&endpoints.signing, EndpointKind::Signing).unwrap();
+    let hellos = Arc::new(AtomicUsize::new(0));
+    let seen = hellos.clone();
+    let server = tokio::spawn(async move {
+        loop {
+            let (mut wire, _) = control.accept().await.unwrap();
+            // A liveness probe connects and closes without a hello.
+            let Ok(len) = wire.read_u32().await else {
+                continue;
+            };
+            let len = len as usize;
+            assert!(len <= MAX_CONTROL_FRAME_BYTES);
+            let mut frame = vec![0; len];
+            wire.read_exact(&mut frame).await.unwrap();
+            let ClientMessage::Hello(hello) = heimdall_ipc::session::parse_frame(&frame).unwrap()
+            else {
+                panic!("the first frame is the hello");
+            };
+            seen.fetch_add(1, Ordering::SeqCst);
+            let reply = heimdall_ipc::session::negotiate(
+                &hello,
+                PrincipalInfo::OsUserUnix { uid: current_uid() },
+                heimdall_contract::ids::EnvironmentId::parse(FIXTURE_ENV).unwrap(),
+                PeerInfo {
+                    name: "fixture-runtime".into(),
+                    version: HELLO_VERSION.into(),
+                },
+            )
+            .unwrap();
+            wire.write_all(
+                &encode_frame(&ServerMessage::Hello(reply), MAX_CONTROL_FRAME_BYTES).unwrap(),
+            )
+            .await
+            .unwrap();
+            // The status client sends nothing after the hello; wait for it to close.
+            let mut rest = Vec::new();
+            let _ = wire.read_to_end(&mut rest).await;
+        }
+    });
+
+    // 3a. Verified: every field from the connection.
+    let (out, env) = status().await;
+    verify(&home, &out, out.status.success(), "verified status");
+    let data = &env["data"];
+    assert_eq!(data["running"], true);
+    assert_eq!(data["pid"], std::process::id(), "the verified peer's PID");
+    assert_eq!(data["version"], HELLO_VERSION, "the hello's version");
+    assert_eq!(data["environment_id"], FIXTURE_ENV);
+    assert_eq!(data["protocol"], PROTOCOL_VERSION);
+    assert_eq!(
+        data["control_endpoint"],
+        endpoints.control.to_str().unwrap(),
+        "the endpoint connected to"
+    );
+    assert_eq!(data["principal"]["kind"], "os_user_unix");
+    assert!(data["capabilities"].is_array());
+    assert!(data.get("time_sync_observation").is_some());
+    assert_eq!(hellos.load(Ordering::SeqCst), 1);
+
+    // 3b. The hello names another environment than the advertisement.
+    advertise(std::process::id(), ours(), Some("env_other"));
+    let (out, env) = status().await;
+    refused(&out, &env, "endpoint_untrusted");
+    assert_eq!(hellos.load(Ordering::SeqCst), 2);
+
+    // 3c. An advertisement from an earlier build: refused before any hello, with the restart.
+    advertise(std::process::id(), ours(), None);
+    let (out, env) = status().await;
+    refused(&out, &env, "endpoint_untrusted");
+    let message = env["data"]["error"]["message"].as_str().unwrap();
+    assert!(message.contains("another build"), "{message}");
+    assert!(message.contains("`heimdall service stop`"), "{message}");
+    assert_eq!(hellos.load(Ordering::SeqCst), 2, "no hello was sent");
+
+    // 3d. The advertised PID is a live process with its start time, but not the peer.
+    let mut other = std::process::Command::new("/bin/sleep")
+        .arg("30")
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let other_started = heimdall_runtime::platform::process_start_time(other.id()).unwrap();
+    advertise(other.id(), other_started, Some(FIXTURE_ENV));
+    let (out, env) = status().await;
+    other.kill().unwrap();
+    other.wait().unwrap();
+    refused(&out, &env, "endpoint_untrusted");
+    let message = env["data"]["error"]["message"].as_str().unwrap();
+    assert!(message.contains("not the advertised"), "{message}");
+
+    server.abort();
+    let _ = server.await;
 }

@@ -69,7 +69,8 @@ const OPERATIONS: &str = "operation_state_changed";
 const CURRENT: &str = "1";
 const EXTRA_CAPABILITY: &str = "wrapper-unknown/1";
 
-// Baseline CLI and driver vocabulary. U3/U4b can replace the explicit endpoint seam.
+// Baseline CLI and driver vocabulary. The driver's endpoint and environment come from
+// `service status`'s verified discovery (ADR-0013 §8, D12).
 mod names {
     pub const RUN: &[&str] = &["service", "run", "--detach"];
     pub const STATUS: &[&str] = &["--json", "service", "status"];
@@ -77,6 +78,7 @@ mod names {
     pub const APPROVE: &[&str] = &["--json", "decision", "approve"];
     pub const SHOW_SCHEMA: &[&str] = &["schema", "show"];
     pub const CONTROL: &str = "run/control.sock";
+    pub const CONTROL_ENDPOINT: &str = "control_endpoint";
     pub const HELLO: &str = "hello";
     pub const REQUEST: &str = "request";
     pub const ATTEND: &str = "attend";
@@ -152,6 +154,8 @@ struct World {
     ssh_home: PathBuf,
     bin: PathBuf,
     environment: Option<String>,
+    /// ⟨M07 S2-07; D12⟩ The control endpoint `service status` reported it connected to.
+    control_endpoint: Option<PathBuf>,
 }
 
 impl World {
@@ -174,6 +178,7 @@ impl World {
             ssh_home,
             bin,
             environment: None,
+            control_endpoint: None,
         };
         world.check_env(&world.command(&world.bin));
         world
@@ -312,7 +317,12 @@ impl World {
             let service = self.service.as_mut().unwrap();
             if status.status.success() {
                 let data = &parse(&status.stdout)["data"];
+                // Discovery (D12): the verified peer's PID, the endpoint connected to.
                 assert_eq!(data["pid"].as_u64(), Some(u64::from(service.0.id())));
+                assert!(data["protocol"].is_u64(), "{data}");
+                let endpoint = PathBuf::from(field(data, names::CONTROL_ENDPOINT));
+                assert_eq!(endpoint, self.heimdall_home.join(names::CONTROL));
+                self.control_endpoint = Some(endpoint);
                 let environment = field(data, "environment_id");
                 if let Some(previous) = &self.environment {
                     assert!(
@@ -369,7 +379,10 @@ impl World {
             std::fs::write(dir.join(name), source).unwrap();
         }
         let script = dir.join("journey.py");
-        let path = self.heimdall_home.join(names::CONTROL);
+        let path = self
+            .control_endpoint
+            .clone()
+            .expect("start the runtime first");
         let output = tempfile::NamedTempFile::new_in(&self.home.root).unwrap();
         let error = tempfile::tempfile_in(&self.home.root).unwrap();
         let mut process = self.spawn(
