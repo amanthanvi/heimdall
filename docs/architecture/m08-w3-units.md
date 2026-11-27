@@ -86,6 +86,18 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
   - SEC-3b: S2-05's design (Gemini) and its code items.
   - SEC-4 (GPT): cutoff latching (S3-01, S3-03, S3-06, S3-07).
   - S3-04 goes to U2b-3b.
+  - **SEC-4's record.** Authors: GPT-6.2 Sol wrote the WIP (`82c98040`, then stopped on its
+    cyber flag), and Opus finished it (`80de1241`). The reviewer is Gemini.
+    - **Confirmed, 2026-11-26:** under uncertain time, a fired cutoff cuts an anchored grant's
+      continuous budget to the floor, and the next tick ends the grant. This is the intended
+      fail-closed direction (ADR-0012 §7.2 and §7.4).
+    - **Moved to SEC-5:** the ended grant's reason, and its status and readiness text; S3-07's
+      single transaction (`timegate.rs` granted); the "fired while time was uncertain" wording;
+      and the wait at `tests/e2e/exit_m06/m06.rs:89` (granted, test only).
+    - **The sibling waits:** `environment_runner_m06.rs:1670`, `exit_m06/t06.rs:98`,
+      `exit_m06/a25_limited.rs:643` and `exit_m06/m06.rs:89` (that last one via SEC-5) were made
+      robust after the M06 exit, and what they assert did not change. `lift.rs` keeps single
+      waits, because its steps assert that a request stays pending.
   - **SEC-3a's record.** Authors: Gemini 4 Neon wrote the WIP (`82f7637b`), and GPT-6.2 Sol
     finished it (`8c3649ee`). The reviewer is Opus.
     - The worker's `check.sh` showed 124 failures in the enroll suites. They came from its
