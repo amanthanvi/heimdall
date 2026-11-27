@@ -1,0 +1,4 @@
+driver edition=Desktop version=5.1.26100.10068 psmodulepath_has_ps7=False
+python: 3.13.15 64 bit
+powershell.exe: 5.1.26100.10068 Desktop
+pwsh: 7.6.10 Core

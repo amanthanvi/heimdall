@@ -1,0 +1,5 @@
+@echo off
+cd /d <R>\c1 && powershell -NoProfile -NonInteractive -Command "python -I tools/packaging/payload-install-selftest.py --shell powershell; exit $LASTEXITCODE" > <R>\s1-parent-51.txt 2>&1
+echo s1 exit=%ERRORLEVEL%
+cd /d <R>\c1 && pwsh -NoProfile -NonInteractive -Command "python -I tools/packaging/payload-install-selftest.py --shell powershell; exit $LASTEXITCODE" > <R>\s2-parent-pwsh.txt 2>&1
+echo s2 exit=%ERRORLEVEL%

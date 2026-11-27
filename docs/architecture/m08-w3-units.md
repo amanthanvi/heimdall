@@ -152,7 +152,8 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
       under 5.1 and the capture of the installer's own output.
     - **The fix unit:** the installer no longer depends on the inherited `PSModulePath`. The
       self-test runs it under 5.1 with both a clean `PSModulePath` and a `pwsh`-like one.
-    - The PC reruns it from both parent shells (job 72).
+    - **Closed:** PC job 72 at `f3f0c082` passed from a 5.1 parent and from a `pwsh` parent, with
+      both a clean `PSModulePath` and a `pwsh`-like one.
   - **The store split while U2b-3b and SEC-3b run in parallel** (approved):
     - **U2b-3b:** migration `0017`, `layout`, the backup, open and restore paths in `lib.rs`,
       `stategen` and `fence`.

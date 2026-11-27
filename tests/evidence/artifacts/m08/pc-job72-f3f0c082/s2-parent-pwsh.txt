@@ -1,0 +1,2 @@
+payload-install-selftest: PASS install.ps1 [clean PSModulePath] (fresh install and reinstall)
+payload-install-selftest: PASS install.ps1 [pwsh-like PSModulePath] (fresh install and reinstall)
