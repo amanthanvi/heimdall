@@ -122,6 +122,17 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
     - **U2b-3b-F** carries the reasons emitted at their use sites, the controller-side holds in
       `environment status`, the read-only status chores, and the minor items. It lands before
       U2b-4.
+  - **The candidate phase adds a release-build A20 lane to the benchmark harness** (the
+    orchestrator, 2026-11-27).
+    - **What it measures:** M07's TUI key latency, as the completed-frame P50 and P95 for Tab,
+      PageDown and search, against their budgets. Search has a 100 ms P95.
+    - **Where it runs:** in the disposable benchmark container, on the release build, at the
+      candidate. This is the figure of record. The gate's debug-build
+      `e2e_tui_m07 pty::a20_key_latency` stays a regression guard.
+    - **Ownership:** M07 owns the test logic. Ask M07 for a release-runnable entry point if the
+      harness needs one.
+    - **The record:** it goes with the other benchmark evidence. M07 is adding an A20 P95 row to
+      its candidate PC and devbox jobs.
   - **A W4 load flake:** `e2e_tui_m07` `pty::a20_key_latency` (M07's A20, debug build) failed the
     gate at `95043b74`. The search keystroke's completed-frame P95 was 105.5 ms against a 100 ms
     budget; Tab and PageDown were well inside it.
