@@ -40,8 +40,11 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use heimdall_app::ports::{LoginEntryPort, LoginEntryState};
 use heimdall_contract::envelope::{EffectStatus, Envelope, NextAction, Warning, reason};
+use heimdall_contract::environment::LoginStartKind;
 use heimdall_contract::ids::{DecisionId, EnvironmentId, OperationId, ProfileId, RequestId};
+use heimdall_contract::issuer::{CaState, IssuerStatus};
 use heimdall_contract::managed::LockBehavior;
 use heimdall_contract::request::{
     DecideRequest, InspectRequest, InspectSubject, ObserveRequest, PolicyAction, Request, Verdict,
@@ -506,7 +509,7 @@ pub(crate) fn personal_default_disclosure(scope: &DecisionScope, own: &Environme
     };
     format!(
         "Use {profile} access automatically for ordinary ssh in this environment?\n\
-         {lock} (each use gets one bounded session window, 12 hours at most).\n\
+         {lock} (each use gets one bounded session window).\n\
          Access starts again automatically when you next use it, within your saved limits; pause or set a stop time to end it.\n\
          You can pause or remove access at any time.\n\
          Destinations and accounts: {pairs}\n\
@@ -806,10 +809,13 @@ async fn effect(
         Ok(c) => c,
         Err(o) => return o,
     };
-    let out = setup_flow(&mut client, &mut TerminalPrompt, ctx, &intent, rid).await;
+    let mut out = setup_flow(&mut client, &mut TerminalPrompt, ctx, &intent, rid).await;
+    let applied = matches!(intent, PreviewIntent::Apply { .. }) && out.exit == ExitCode::Success;
+    if applied && !ctx.json {
+        append_setup_summary(&mut out.human, ctx, &mut client).await;
+    }
     // ⟨M05⟩ U5: the one personal-default offer step, after a successful apply.
-    if matches!(intent, PreviewIntent::Apply { .. })
-        && out.exit == ExitCode::Success
+    if applied
         && let Some(note) = offer_personal_default(&mut client, &mut TerminalPrompt, ctx).await
     {
         output::diagnostic(&note);
@@ -820,11 +826,7 @@ async fn effect(
     // runs the configuration's commands, so it runs only with `--allow-config-commands`.
     // A defeated pin is reported; with or without the flag, the helper itself checks with
     // `ssh -G` before it tries any route and refuses such an alias.
-    let mut out = out;
-    if allow_config_commands
-        && matches!(intent, PreviewIntent::Apply { .. })
-        && out.exit == ExitCode::Success
-    {
+    if allow_config_commands && applied {
         for (alias, setting) in crate::m06_cmd::verify_projected_helper_aliases(ctx).await {
             let message = format!(
                 "`{alias}` does not hold its destination's catalog host-key pin: the SSH \
@@ -844,6 +846,48 @@ async fn effect(
         }
     }
     finish_repair(ctx, &intent, out)
+}
+
+/// The extra disclosures after setup applies. These are human output only.
+async fn append_setup_summary<S: Session>(human: &mut String, ctx: &Ctx, s: &mut S) {
+    let paths = ctx.paths().ok();
+    let config = paths
+        .as_ref()
+        .and_then(|p| crate::service_cmd::load_config(p).ok());
+    let window = config
+        .as_ref()
+        .map_or("unavailable", |c| c.session.max_window.trim());
+    human.push_str(&format!(
+        "\nConfigured grant-window ceiling: {window}.\n\
+         Change `session.max_window` in `config.toml` and restart the runtime. \
+         Set a narrower policy limit with the `create` or `set_max_window` policy action.\n"
+    ));
+
+    let Some(port) = paths.and_then(|p| crate::service_cmd::login_port(ctx, &p).ok().flatten())
+    else {
+        return;
+    };
+    if port.kind() != LoginStartKind::None
+        && matches!(port.observe(), Ok(LoginEntryState::Absent))
+        && managed_credentials_configured(s).await
+    {
+        human.push_str(
+            "To start Heimdall at login for managed credentials, run `heimdall service autostart enable`.\n",
+        );
+    }
+}
+
+async fn managed_credentials_configured<S: Session>(s: &mut S) -> bool {
+    inspect(s, InspectSubject::Issuer)
+        .await
+        .ok()
+        .and_then(|data| serde_json::from_value::<IssuerStatus>(data).ok())
+        .is_some_and(|issuer| {
+            issuer
+                .cas
+                .iter()
+                .any(|ca| matches!(ca.state, CaState::Pending | CaState::Active))
+        })
 }
 
 /// The held operation a held repair names.

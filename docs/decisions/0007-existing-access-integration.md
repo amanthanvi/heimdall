@@ -2095,6 +2095,10 @@ client, checks that the alias is a known destination (managed or observed), and 
 
 Its path, version and SHA-256 are reported (R-SS-03).
 
+**⟨2026-11-26, M08 U7b D07⟩** `[clients]` path overrides are deferred to post-1.0.
+The 1.0 configuration reader refuses the table. The verified SSH client is `ssh`
+from `PATH` on Unix and the in-box System32 OpenSSH on Windows.
+
 **Git under `run`** ⟨r2⟩ (M2-D10; §12.2 item 10).
 
 * **Resolution.** Before launch, when a `git` executable is resolvable, the CLI resolves

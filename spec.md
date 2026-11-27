@@ -117,6 +117,13 @@ These make the draft implementable without claiming that the user explicitly cho
 | P09 | No telemetry by default, no public relay without a disclosed opt-in, no automatic installation of arbitrary plugins. | Public distribution and optional connectivity must not change these silently. |
 | P10 | Local configuration is human-editable TOML with a generated JSON schema. | Syntax is a proposal; semantic model is the binding contract. |
 
+**P04, owner decision of 2026-11-26.** Heimdall 1.0 has no setup-time grant-window
+setter. Setup shows the effective configured ceiling and how to change it. Editing
+`session.max_window` in `config.toml` changes the local ceiling, and policy actions
+can set narrower limits. This disclosure and these controls satisfy P04's
+“adjustable during setup” wording for 1.0.
+[M08 W3 U7b ruling](docs/architecture/m08-w3-units.md#1-units-order-and-owners)
+
 The numeric session default, storage implementation, supported OS floors, selected credential recipe, local IPC transport, remote control transport, and language are not settled technical facts. Each has an explicit decision gate.
 
 ## 3. Release scope and platform contract

@@ -519,6 +519,13 @@ classify(record, marker, hash, now)`).
   required-nullable). Readers stay lenient and accept their omission.
 * **⟨rev2⟩ Hello `interaction`** defaults to `non_interactive` when omitted (older
   clients cannot accidentally become attendable).
+* **⟨2026-11-26, M08 U7b D01⟩** Heimdall 1.0 retires `session.strict_disconnect`
+  and removes it from `schemas/configuration/config.schema.json`. A configuration
+  that still sets the key fails at load with `USAGE_ERROR` and names
+  `heimdall access ensure --strict` and
+  `heimdall access connection-policy --policy <id> --existing strict`.
+  A post-1.0 file default would be narrowing-only and OR'd into the effective
+  strict flag derived from the request and policy.
 
 ## 10. Time rules referenced by the contract ⟨rev2⟩ (spec §6.2, §6.4; ADR-0005 §3.6; review F01; ruling 1)
 

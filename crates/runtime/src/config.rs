@@ -40,9 +40,6 @@ pub struct SessionConfig {
     // `continue` adds nothing. U9 implements and tests the merge.
     #[serde(default)]
     pub lock_behavior: LockBehavior,
-    /// Strict disconnect at expiry (spec §6.6).
-    #[serde(default)]
-    pub strict_disconnect: bool,
 }
 
 impl Default for SessionConfig {
@@ -50,7 +47,6 @@ impl Default for SessionConfig {
         Self {
             max_window: "12h".to_owned(),
             lock_behavior: LockBehavior::Continue,
-            strict_disconnect: false,
         }
     }
 }
@@ -147,6 +143,11 @@ pub enum ConfigError {
     /// Parse failure (location and a fixed category; no input text).
     #[error("config parse error: {0}")]
     Parse(String),
+    /// The retired session key needs a migration message instead of the generic unknown-key message.
+    #[error(
+        "config key `session.strict_disconnect` was retired for 1.0. Use `heimdall access ensure --strict` per request or `heimdall access connection-policy --policy <id> --existing strict` for a standing policy."
+    )]
+    RetiredStrictDisconnect,
     /// Unsupported schema version.
     #[error("config schema_version {0} is not supported")]
     UnsupportedVersion(u32),
@@ -281,6 +282,13 @@ impl Config {
             }
         }
         scan_forbidden(&table, 0, false)?;
+        if table
+            .get("session")
+            .and_then(toml::Value::as_table)
+            .is_some_and(|session| session.contains_key("strict_disconnect"))
+        {
+            return Err(ConfigError::RetiredStrictDisconnect);
+        }
         let config: Config = toml::from_str(text).map_err(|e| parse_error(text, &e))?;
         config.validate()?;
         Ok(config)

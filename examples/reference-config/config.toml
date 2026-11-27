@@ -6,13 +6,12 @@
 schema_version = 1
 
 [session]
-# The longest window new trusted work may be given. A request for longer is shortened to this.
+# The longest window new trusted work may be given. Longer explicit requests are refused.
+# An omitted duration inherits the applicable limit if policy or another bound is narrower.
 max_window = "12h"
 # What a desktop or vault lock does to approved managed work: "continue" (until its deadline)
 # or "revoke". "revoke" here wins over a policy that says continue.
 lock_behavior = "continue"
-# true: at a deadline, connections Heimdall owns are closed, not only refused new sessions.
-strict_disconnect = false
 
 [retention]
 # How long finished operations and their request IDs are kept. At least 24h.

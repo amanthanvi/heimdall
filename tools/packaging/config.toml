@@ -3,6 +3,7 @@ schema_version = 1
 
 [session]
 # Default and maximum new trusted-work window. A longer explicit request is refused.
+# An omitted duration inherits the applicable limit if policy or another bound is narrower.
 max_window = "12h"
 # Preserve approved managed work across lock where supported; "revoke" sets a revocation floor.
 lock_behavior = "continue"

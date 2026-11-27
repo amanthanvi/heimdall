@@ -4,6 +4,7 @@
 
 Short, and meant to be read once.
 
+- **Heimdall 1.0 uses the platform-default SSH client.** Client path overrides are deferred to post-1.0.
 - **Programs running as you can use what you can use.** A project's access is separate from
   another project's, but Heimdall does not sandbox programs running under your own account
   from each other. Where real isolation exists, the matrix says which mechanism provides it.

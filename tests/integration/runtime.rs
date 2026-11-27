@@ -182,14 +182,15 @@ fn config_defaults_and_max_window() {
     assert_eq!(c, Config::default());
     assert_eq!(c.max_window().unwrap(), Duration::from_secs(12 * 3600));
 
-    let c = Config::parse("schema_version = 1\n[session]\nmax_window = \"8h\"\nlock_behavior = \"revoke\"\nstrict_disconnect = true\n").unwrap();
+    let c = Config::parse(
+        "schema_version = 1\n[session]\nmax_window = \"8h\"\nlock_behavior = \"revoke\"\n",
+    )
+    .unwrap();
     assert_eq!(c.max_window().unwrap(), Duration::from_secs(8 * 3600));
     assert_eq!(
         c.session.lock_behavior,
         heimdall_runtime::config::LockBehavior::Revoke
     );
-    assert!(c.session.strict_disconnect);
-
     let c = Config::parse("schema_version = 1\n[session]\nmax_window = \"PT1H30M\"\n").unwrap();
     assert_eq!(c.max_window().unwrap(), Duration::from_secs(5400));
 

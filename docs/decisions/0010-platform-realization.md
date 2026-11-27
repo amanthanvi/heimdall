@@ -118,6 +118,9 @@ probe IDs P-…), **[I]** inference to be proved by the M04 tests named in the p
   **Limitation (M04-CL-R03):** its claim-table values are judged against the runtime's verified
   client. When `[clients].ssh` names another client than System32's in-box `ssh.exe`, which the Mode A
   Git item uses, the values reflect the configured client, not the one Mode A runs.
+  **⟨2026-11-26, M08 U7b D07⟩** `[clients].ssh` and the other path overrides are
+  deferred to post-1.0. In 1.0 the Windows runtime and Mode A both use the in-box
+  System32 OpenSSH client.
 
 **Non-claims:** every process of the same Windows user, in any distribution, can run `ssh.exe` against
 the same endpoints [S16].
@@ -371,6 +374,10 @@ readiness and doctor report that source as information.
      the lock.
    - **Same lifecycle everywhere:** an owned resource, removed by uninstall.
    - **Setup offers it** when managed credentials are configured. It is never silent.
+   - **⟨2026-11-26, M08 U7b D10⟩** Setup's summary names
+     `heimdall service autostart enable` when managed credentials are configured and
+     the supported login entry is absent. Setup itself leaves login registration as
+     found. Owners enable it with the separate attended command.
 2. **Headless Linux** is reported plainly: `issuer_store_unavailable`, `lock_signal_unavailable` and no
    boot persistence of managed credentials (ADR-0008 D1).
 3. **Time after a restart** (ADR-0006 §10): a source counts as `synchronized` only when it is a
