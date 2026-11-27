@@ -98,6 +98,15 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
       `exit_m06/a25_limited.rs:643` and `exit_m06/m06.rs:89` (that last one via SEC-5) were made
       robust after the M06 exit, and what they assert did not change. `lift.rs` keeps single
       waits, because its steps assert that a request stays pending.
+    - **SEC-4 and SEC-1 interact; the reviewers of both should see this.** At `2a5adff3`, SEC-1's
+      S3-02 test `another_controllers_cutoff_that_fired_early_blocks_reserve_and_publish`
+      failed. It had pinned `fired_uncertain_at` to the runner's fast wall-clock reading (10:00).
+      SEC-4's latch now stores the floor instead (08:59:55).
+      - The test-only fix `7d17d9f6` asserts the property S3-01 guarantees,
+        `fired_uncertain_at <= certain`.
+      - The blocking outcomes are unchanged: `all`, `policy:P` and `profile:dev` refuse, and
+        `profile:ops` issues.
+      - The orchestrator accepted the fix on 2026-11-26.
   - **SEC-3a's record.** Authors: Gemini 4 Neon wrote the WIP (`82f7637b`), and GPT-6.2 Sol
     finished it (`8c3649ee`). The reviewer is Opus.
     - The worker's `check.sh` showed 124 failures in the enroll suites. They came from its
