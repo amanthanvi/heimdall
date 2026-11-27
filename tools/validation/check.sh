@@ -187,6 +187,10 @@ run_step evidence-selftest env PYTHONDONTWRITEBYTECODE=1 \
 run_step evidence-records env PYTHONDONTWRITEBYTECODE=1 \
     python3 -I tools/validation/validate-records.py
 
+# M08 U7b: the generated compatibility rows cite schema-valid evidence records.
+run_step matrix_rows_cite_existing_records env PYTHONDONTWRITEBYTECODE=1 \
+    python3 -I -B tools/release/matrix.py --check
+
 # ⟨rev7⟩ U0 (ADR-0013 §1.3): the replay corpus driver (tests/contracts/replay_journey.py)
 # refuses a store dump that holds a home path, the account's user name, a canary or key armor.
 # Self-test only: it calls the refusal on built strings and runs no binary.
