@@ -2153,6 +2153,27 @@ fn status_view(
     })
 }
 
+/// ⟨rev7; ADR-0006 §9, §19.10⟩ `status`'s data from the runtime's two answers, or the refusal.
+/// A peer document that does not parse under the agreed schema major (the handshake agreed the
+/// major, but `counts` do not read as typed rows: `OperationState` is exhaustive, so a new state
+/// would have raised the major) is the incompatible-peer refusal, `SCHEMA_UNSUPPORTED` with its
+/// default next action: never an empty count, never `INTERNAL_ERROR`.
+fn status_data(
+    environment_id: &heimdall_contract::ids::EnvironmentId,
+    operations: &serde_json::Value,
+    decisions: &serde_json::Value,
+) -> Result<serde_json::Value, Envelope<heimdall_contract::envelope::ErrorData>> {
+    let view = status_view(environment_id, operations, decisions).ok_or_else(|| {
+        error(
+            Code::SchemaUnsupported,
+            "the runtime's operation counts do not parse under the agreed schema: this client and \
+             the runtime do not match; update the one that is older",
+        )
+    })?;
+    serde_json::to_value(view)
+        .map_err(|_| error(Code::InternalError, "the status could not be rendered"))
+}
+
 async fn status(ctx: &Ctx) -> Result<Done, Done> {
     let mut client = session(ctx, false).await?;
     let inspect = |subject| {
@@ -2174,13 +2195,9 @@ async fn status(ctx: &Ctx) -> Result<Done, Done> {
         return Ok(Done::of(decisions));
     }
     // ⟨rev7; D1, PC2⟩ The typed view (`status`).
-    let Some(data) = status_view(&client.server().environment_id, &ops.data, &decisions.data)
-        .and_then(|view| serde_json::to_value(view).ok())
-    else {
-        return Ok(Done::of(error_value(error(
-            Code::InternalError,
-            "the status could not be built from the runtime's answers",
-        ))));
+    let data = match status_data(&client.server().environment_id, &ops.data, &decisions.data) {
+        Ok(data) => data,
+        Err(refused) => return Ok(Done::of(error_value(refused))),
     };
     let mut env = Envelope::ok(data);
     env.warnings = ops.warnings;
@@ -4336,6 +4353,24 @@ mod tests {
             assert_eq!(serde_json::to_value(view).unwrap(), legacy(o, d));
         }
         assert!(status_view(&env, &serde_json::json!({"operations": []}), &decisions).is_none());
+        // ⟨§19.10⟩ A peer document that does not parse under the agreed major is the
+        // incompatible-peer refusal, never an empty count or an internal error.
+        for bad in [
+            serde_json::json!({"operations": []}),
+            serde_json::json!({"operations": [], "counts": [{"state": "a_state_from_later", "count": 1}]}),
+        ] {
+            let refused = status_data(&env, &bad, &decisions).unwrap_err();
+            assert_eq!(refused.code, Code::SchemaUnsupported, "{bad}");
+            let detail = &refused.data.error;
+            assert_eq!(
+                detail.next.action,
+                NextAction::for_code(Code::SchemaUnsupported).action
+            );
+            assert_eq!(
+                detail.effect_status,
+                heimdall_contract::envelope::EffectStatus::None
+            );
+        }
         assert!(
             status_view(
                 &env,

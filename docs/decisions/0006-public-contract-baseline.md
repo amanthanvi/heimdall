@@ -2979,6 +2979,13 @@ these readings landed in U3-1a; the contract owner ruled them on 2026-11-25:
   full and is never rewritten; every write to it, and every use the bound affects, is refused
   `USAGE_ERROR` / `item_too_large`, naming the field and the bound (`ErrorDetail.field`, `bound`,
   `unit`). There is no new finding or field for such a record in 1.0 (ruled 2026-11-25).
+- **A peer document that does not parse under the agreed major is `SCHEMA_UNSUPPORTED`**
+  (U3-3, `status`; ruled 2026-11-26). The handshake refuses only a protocol or schema-major
+  mismatch, never another build, so a CLI and a runtime of different builds meet; a document the
+  client reads as typed rows (`status`'s operation `counts`) that does not parse is outside the
+  agreed schema (`OperationState` is exhaustive: a new state would have raised the major), so it
+  answers the incompatible-peer refusal with its default next action, never an empty count and
+  never `INTERNAL_ERROR` (§9: an older client never reads a newer peer's data as empty).
 
 U3-1b also adds `inspect`'s `select` and `page` forms to the primitive index (D7; wire only,
 `operations/1` and `pages/1`, answering `selection` and `page`), and reads the page tokens' key
