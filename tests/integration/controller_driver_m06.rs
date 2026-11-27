@@ -5521,6 +5521,7 @@ mod sec5_ensure_ingress {
             ..Envelope::ok(valid_ensure_data(&r.w.env, &local_grant))
         };
 
+        let mut relayed = Vec::new();
         for (label, reply) in [
             ("accepted", accepted),
             ("access_ready", access_ready),
@@ -5534,10 +5535,13 @@ mod sec5_ensure_ingress {
                 },
                 reply: Arc::new(Mutex::new(Some(reply))),
             };
-            let err = dq
-                .submit_ensure(&sessions, &q.pin, &req)
-                .await
-                .expect_err(&format!("{label}: submit_ensure must refuse local grant ID"));
+            let err = match dq.submit_ensure(&sessions, &q.pin, &req).await {
+                Ok(_) => {
+                    relayed.push(label);
+                    continue;
+                }
+                Err(err) => err,
+            };
             assert_eq!(err.code, Code::CapabilityUnavailable, "{label}: {err:?}");
             assert_eq!(err.effect_status, EffectStatus::None, "{label}: {err:?}");
             let envelope_json = serde_json::to_string(&err.into_envelope()).unwrap();
@@ -5554,6 +5558,10 @@ mod sec5_ensure_ingress {
                 "{label}: submit_ensure must write no delivered-grant record"
             );
         }
+        assert!(
+            relayed.is_empty(),
+            "submit_ensure relayed a local grant ID for: {relayed:?}"
+        );
     }
 
     #[tokio::test]

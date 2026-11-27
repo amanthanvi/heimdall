@@ -86,7 +86,7 @@ pub enum EnvironmentCommand {
     Join(EnvJoinArgs),
     /// Revoke one client on a runner (narrowing; no decision).
     RevokeClient(EnvRevokeArgs),
-    /// Revoke this device on a runner, then forget the runner. The management key is kept.
+    /// Attempt to revoke this device on a runner, then forget it locally. The management key is kept.
     Remove(EnvTargetArgs),
     /// Ask a runner for its explicit, checksum-verified binary update.
     Update(EnvTargetArgs),
@@ -2319,12 +2319,8 @@ struct SshSessions {
     key: Arc<StoreKey>,
     /// ⟨M06 exit⟩ The management `ssh`'s and the probes' environment fill ([`OPENSSH_FILL`]).
     fill: env_ssh::OpensshEnvFill,
-    /// ⟨M08 U2b-2; ADR-0014 §3.6 step 3⟩ `environment invite --request-epoch`: the runner's
-    /// epoch the retried request ID was first sent with. Every management session offers
-    /// `request-epoch/1` (never requires it) so a runner that offers it binds frames to the
-    /// kept epoch — or, when `None`, to the hello epoch on a fresh invite; a runner that
-    /// does not offer `request-epoch/1` gets nothing when a kept epoch is set
-    /// (`SCHEMA_UNSUPPORTED`, effect `none`) and runs without frame epochs when `None`.
+    /// The restore epoch kept with a retried invite request ID (ADR-0014 §3.6 step 3).
+    /// A fresh invite uses the epoch from the runner's hello when negotiated.
     kept_epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
 }
 
@@ -2623,21 +2619,23 @@ fn render_refusal() -> OpError {
     .with_reason(reason::HOST_PIN_DEFEATED)
 }
 
-/// Build the capability sets and `ClientHello` a management session sends for `standing`.
-fn management_session_hello(
+/// Negotiate a management session and attach the epoch kept with a retried request ID.
+async fn handshake_management_session<S>(
+    stream: S,
     standing: heimdall_app::remote_env::SessionStanding,
-) -> (
-    heimdall_app::remote_env::SessionCapabilities,
-    heimdall_contract::ipc::ClientHello,
-) {
-    // ⟨M06 W5 D1⟩ The role rule (`SessionCapabilities::of`, shared by every platform):
-    // `remote-control/1` is required only when this controller's record says owner (or
-    // the session is the bootstrap's or a join's); `runner/1` is then offered and not
-    // required. A limited record's session requires nothing and offers neither.
-    // ⟨M08 W4 SEC-5F, item 5; U2b-3a held item 4⟩ Pass `client_capabilities()` so every
-    // management session offers `request-epoch/1` (never requires it), letting a runner
-    // that offers it bind frames to the kept or hello epoch while older runners still
-    // negotiate cleanly.
+    kept_epoch: Option<heimdall_contract::lifecycle::RestoreEpoch>,
+) -> Result<
+    (
+        heimdall_app::remote_env::SessionCapabilities,
+        heimdall_ipc::session::ControlClient<S>,
+    ),
+    heimdall_ipc::frame::FrameError,
+>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
+{
+    // The standing selects the management and runner capabilities. The client capability
+    // set also offers request-epoch/1, which remains optional for older runners.
     let wanted = heimdall_app::remote_env::SessionCapabilities::of(
         standing,
         heimdall_ipc::session::client_capabilities(),
@@ -2654,7 +2652,9 @@ fn management_session_hello(
         interaction: InteractionMode::NonInteractive,
         remote_client: None,
     };
-    (wanted, hello)
+    let mut client = heimdall_ipc::session::ControlClient::handshake_hello(stream, hello).await?;
+    client.keep_epoch(kept_epoch);
+    Ok((wanted, client))
 }
 
 #[async_trait::async_trait]
@@ -2796,17 +2796,17 @@ impl ManagementSessions for SshSessions {
             stdout,
             stderr,
         } = child;
-        let (wanted, client_hello) = management_session_hello(target.standing);
         let handshake = tokio::time::timeout(
             SESSION_HELLO_BOUND,
-            heimdall_ipc::session::ControlClient::handshake_hello(
+            handshake_management_session(
                 tokio::io::join(stdout, stdin),
-                client_hello,
+                target.standing,
+                self.kept_epoch,
             ),
         )
         .await;
-        let mut client = match handshake {
-            Ok(Ok(client)) => client,
+        let (wanted, client) = match handshake {
+            Ok(Ok(session)) => session,
             Ok(Err(e)) => {
                 if let Some(heimdall_ipc::session::ServerRefusal::Rejected(env)) =
                     heimdall_ipc::session::server_refusal(&e)
@@ -2851,8 +2851,6 @@ impl ManagementSessions for SshSessions {
                 .with_effect(EffectStatus::None),
             ));
         }
-        // ⟨M08 U2b-2⟩ The kept epoch travels with every mutating request of the session.
-        client.keep_epoch(self.kept_epoch);
         let hello = SessionHello {
             environment: client.server().environment_id.clone(),
             role: client.server().role,
@@ -3080,13 +3078,12 @@ fn remove_line(removed: &heimdall_app::remote_env::RemoveOutcome) -> String {
         }
         RemoteRemoveOutcome::Pending => format!(
             "forgot {environment} on this device (this device's management key is kept). \
-             Remote revocation on the runner is pending (not applied): client {client} may still \
+             Remote revocation is pending: client {client} may still \
              be enrolled there; revoke it from another owner controller or at the runner"
         ),
         RemoteRemoveOutcome::Unknown => format!(
             "forgot {environment} on this device (this device's management key is kept). \
-             Remote revocation outcome on the runner is unknown (the runner's response was lost \
-             or unreadable): check whether client {client} is still enrolled on the runner and \
+             Remote revocation outcome is unknown: check whether client {client} is still enrolled on the runner and \
              revoke it there if needed"
         ),
     }
@@ -7702,53 +7699,34 @@ mod tests {
         assert!(leaked.is_empty(), "the runner's text reached {leaked:?}");
     }
 
-    /// ⟨M08 W4 SEC-5F; U2b-3a held item 4⟩ When the runner offers `request-epoch/1`,
-    /// `environment invite`'s management session offers it too (never requires it), so both
-    /// a fresh invite (`kept_epoch: None`) and a retry (`kept_epoch: Some`) negotiate
-    /// `request-epoch/1` and bind the wire frame to the epoch; against a runner that does not
-    /// offer it, a fresh invite still succeeds without an epoch and a kept epoch refuses
-    /// `SCHEMA_UNSUPPORTED` with nothing sent.
-    #[test]
-    fn environment_invite_management_session_offers_request_epoch_and_binds_frames() {
-        use heimdall_app::remote_env::{
-            AccessCatalog, BootstrapPlan, BootstrapRunner, Confirmation, ControllerPorts,
-            EnvironmentRegistry, InviteInput, InviteOutcome, LocalConfirm, ManagementCall,
-            ManagementSession, ManagementSessions, MgmtKeyInfo, MgmtKeyPort, MgmtKeyUnavailable,
-            RemoteEnvController, SessionTarget, VerifiedAccess,
-        };
+    #[tokio::test]
+    async fn environment_invite_management_session_binds_the_request_epoch() {
+        use heimdall_app::remote_env::SessionStanding;
         use heimdall_contract::event::{Cursor, EventFilter};
-        use heimdall_contract::ipc::capability;
+        use heimdall_contract::ipc::{PeerInfo, PrincipalInfo, capability};
         use heimdall_contract::lifecycle::RestoreEpoch;
+        use heimdall_contract::remote::RemoteEnvironmentRequest;
         use heimdall_contract::request::Request;
         use heimdall_ipc::session::{
-            ConnectionLimits, ControlClient, ControlConnection, Dispatcher, SessionInfo,
-            SubscriptionStart, server_capabilities,
+            ConnectionLimits, ControlConnection, Dispatcher, SessionInfo, SubscriptionStart,
+            server_capabilities,
         };
 
-        type RecordedCalls = Arc<std::sync::Mutex<Vec<Option<RestoreEpoch>>>>;
-        type NegotiatedCaps =
-            Arc<std::sync::Mutex<Vec<std::collections::BTreeSet<String>>>>;
-
-        struct FakeRunnerDispatcher {
-            offer_epoch: bool,
-            epoch: RestoreEpoch,
-            seen: RecordedCalls,
-        }
+        struct Runner(Option<RestoreEpoch>);
 
         #[async_trait::async_trait]
-        impl Dispatcher for FakeRunnerDispatcher {
+        impl Dispatcher for Runner {
             fn offered_capabilities(&self) -> std::collections::BTreeSet<String> {
-                let mut caps = server_capabilities();
-                caps.insert(capability::REMOTE_CONTROL_V1.to_owned());
-                caps.insert(capability::RUNNER_V1.to_owned());
-                if self.offer_epoch {
-                    caps.insert(capability::REQUEST_EPOCH_V1.to_owned());
+                let mut offered = server_capabilities();
+                offered.insert(capability::REMOTE_CONTROL_V1.to_owned());
+                if self.0.is_some() {
+                    offered.insert(capability::REQUEST_EPOCH_V1.to_owned());
                 }
-                caps
+                offered
             }
 
             fn restore_epoch(&self) -> Option<RestoreEpoch> {
-                self.offer_epoch.then_some(self.epoch)
+                self.0
             }
 
             async fn dispatch(
@@ -7761,32 +7739,15 @@ mod tests {
 
             async fn dispatch_request(
                 &self,
-                _session: &SessionInfo,
-                _request: Request,
-                request_epoch: Option<RestoreEpoch>,
+                _: &SessionInfo,
+                request: Request,
+                frame_epoch: Option<RestoreEpoch>,
             ) -> Envelope<serde_json::Value> {
-                self.seen.lock().unwrap().push(request_epoch);
-                if self.offer_epoch
-                    && let Some(e) = request_epoch
-                    && e != self.epoch
-                {
-                    let mut env = output::error_value(
-                        OpError::new(Code::RequestStale, "stale restore epoch")
-                            .with_reason(reason::RESTORE_EPOCH_STALE)
-                            .with_effect(EffectStatus::None)
-                            .into_envelope(),
-                    );
-                    env.request_epoch = Some(e);
-                    return env;
-                }
-                let mut env = output::error_value(
-                    OpError::new(Code::ApprovalRequired, "confirm at runner")
-                        .with_decision("dec_01010101010101010101010101010101")
-                        .with_effect(EffectStatus::None)
-                        .into_envelope(),
-                );
-                env.request_epoch = request_epoch.or_else(|| self.offer_epoch.then_some(self.epoch));
-                env
+                assert!(matches!(
+                    request,
+                    Request::RemoteEnvironment(RemoteEnvironmentRequest::Invite { .. })
+                ));
+                Envelope::ok(serde_json::json!({"frame_epoch": frame_epoch}))
             }
 
             async fn subscribe(
@@ -7796,288 +7757,68 @@ mod tests {
                 _: Option<Cursor>,
             ) -> Result<SubscriptionStart, Box<Envelope<heimdall_contract::envelope::ErrorData>>>
             {
-                Err(Box::new(
-                    OpError::new(Code::CapabilityUnavailable, "no subscribe")
-                        .with_effect(EffectStatus::None)
-                        .into_envelope(),
-                ))
+                unreachable!("invite does not subscribe");
             }
         }
 
-        struct DuplexSession {
-            client: ControlClient<tokio::io::DuplexStream>,
-            hello: SessionHello,
-            shutdown: tokio_util::sync::CancellationToken,
-        }
-
-        impl Drop for DuplexSession {
-            fn drop(&mut self) {
-                self.shutdown.cancel();
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl ManagementSession for DuplexSession {
-            fn hello(&self) -> &SessionHello {
-                &self.hello
-            }
-
-            async fn call(
-                &mut self,
-                call: ManagementCall,
-            ) -> Result<Envelope<serde_json::Value>, OpError> {
-                self.client
-                    .request(call.into_request())
-                    .await
-                    .map_err(|_| OpError::new(Code::OutcomeUnknown, "session ended"))
-            }
-        }
-
-        struct DuplexSessions {
-            env: EnvironmentId,
-            offer_epoch: bool,
-            runner_epoch: RestoreEpoch,
-            kept_epoch: Option<RestoreEpoch>,
-            seen: RecordedCalls,
-            negotiated: NegotiatedCaps,
-        }
-
-        #[async_trait::async_trait]
-        impl ManagementSessions for DuplexSessions {
-            async fn open(
-                &self,
-                target: &SessionTarget,
-            ) -> Result<Box<dyn ManagementSession>, OpError> {
-                let (client_io, server_io) = tokio::io::duplex(64 * 1024);
-                let shutdown = tokio_util::sync::CancellationToken::new();
-                let dispatcher = FakeRunnerDispatcher {
-                    offer_epoch: self.offer_epoch,
-                    epoch: self.runner_epoch,
-                    seen: self.seen.clone(),
-                };
-                let conn = ControlConnection::new(server_io, ConnectionLimits::default())
+        let environment = EnvironmentId::from_random_bytes([0x5a; 16]);
+        let invite = ManagementCall::Environment(RemoteEnvironmentRequest::Invite {
+            environment: environment.clone(),
+            role: Role::Requester,
+            key_fingerprint: KeyFingerprint::parse(&format!("SHA256:{}", "K".repeat(43))).unwrap(),
+            public_key: "ssh-ed25519 fixture".into(),
+            request_id: RequestId::parse("req_invite_epoch").unwrap(),
+            iroh_admission: false,
+        });
+        let epoch = Some(RestoreEpoch(3));
+        let kept = Some(RestoreEpoch(2));
+        for (case, runner_epoch, kept_epoch, expected_epoch, expected_code) in [
+            ("fresh invite", epoch, None, epoch, Code::Ok),
+            ("retry", epoch, kept, kept, Code::Ok),
+            ("older runner", None, None, None, Code::Ok),
+            (
+                "older runner with kept epoch",
+                None,
+                kept,
+                None,
+                Code::SchemaUnsupported,
+            ),
+        ] {
+            let (client_io, runner_io) = tokio::io::duplex(16 * 1024);
+            let shutdown = tokio_util::sync::CancellationToken::new();
+            let runner = tokio::spawn(
+                ControlConnection::new(runner_io, ConnectionLimits::default())
                     .with_server_identity(
-                        self.env.clone(),
-                        heimdall_contract::ipc::PeerInfo {
-                            name: "test-runner".into(),
+                        environment.clone(),
+                        PeerInfo {
+                            name: "fixture-runner".into(),
                             version: "1.0.0".into(),
                         },
-                    );
-                let token = shutdown.clone();
-                tokio::spawn(async move {
-                    let _ = conn
-                        .serve(
-                            heimdall_contract::ipc::PrincipalInfo::OsUserUnix { uid: 1000 },
-                            dispatcher,
-                            token,
-                        )
-                        .await;
-                });
-                let (wanted, client_hello) =
-                    management_session_hello(target.standing);
-                let mut client = ControlClient::handshake_hello(client_io, client_hello)
+                    )
+                    .serve(
+                        PrincipalInfo::OsUserUnix { uid: 1000 },
+                        Runner(runner_epoch),
+                        shutdown.clone(),
+                    ),
+            );
+            let (_, mut client) =
+                handshake_management_session(client_io, SessionStanding::Owner, kept_epoch)
                     .await
-                    .map_err(|e| OpError::new(Code::ServiceUnavailable, format!("hello: {e}")))?;
-                assert!(wanted.granted(&client.server().capabilities));
-                self.negotiated
-                    .lock()
-                    .unwrap()
-                    .push(client.server().capabilities.clone());
-                client.keep_epoch(self.kept_epoch);
-                let hello = SessionHello {
-                    environment: client.server().environment_id.clone(),
-                    role: client.server().role,
-                    client: client.server().remote_client.clone(),
-                };
-                Ok(Box::new(DuplexSession {
-                    client,
-                    hello,
-                    shutdown,
-                }))
+                    .unwrap();
+            let answer = client.request(invite.clone().into_request()).await.unwrap();
+            assert_eq!(answer.code, expected_code, "{case}");
+            if expected_code == Code::Ok {
+                assert_eq!(
+                    answer.data["frame_epoch"],
+                    serde_json::json!(expected_epoch),
+                    "{case}: runner observed the wrong request-frame epoch"
+                );
+            } else {
+                assert_eq!(answer.data["error"]["effect_status"], "none", "{case}");
             }
+            shutdown.cancel();
+            runner.await.unwrap().unwrap();
         }
-
-        struct StaticKey(KeyFingerprint);
-        #[async_trait::async_trait]
-        impl MgmtKeyPort for StaticKey {
-            fn check(&self) -> Result<(), MgmtKeyUnavailable> {
-                Ok(())
-            }
-            fn public_key(&self, _: bool) -> Result<MgmtKeyInfo, MgmtKeyUnavailable> {
-                Ok(MgmtKeyInfo {
-                    openssh_line: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA".into(),
-                    fingerprint: self.0.clone(),
-                })
-            }
-            fn destroy(&self) -> Result<(), MgmtKeyUnavailable> {
-                Ok(())
-            }
-            fn fingerprint_of(&self, _: &str) -> Option<KeyFingerprint> {
-                Some(self.0.clone())
-            }
-        }
-
-        struct StaticRegistry(RemoteEnvironmentRecord);
-        #[async_trait::async_trait]
-        impl EnvironmentRegistry for StaticRegistry {
-            fn list(&self) -> Result<Vec<RemoteEnvironmentRecord>, OpError> {
-                Ok(vec![self.0.clone()])
-            }
-            async fn put(&self, _: &RemoteEnvironmentRecord) -> Result<(), OpError> {
-                Ok(())
-            }
-            async fn remove(&self, _: &EnvironmentId) -> Result<bool, OpError> {
-                Ok(true)
-            }
-        }
-
-        struct NoCatalog;
-        impl AccessCatalog for NoCatalog {
-            fn verified_access(
-                &self,
-                _: &DestinationId,
-                _: &AccountName,
-            ) -> Result<Option<VerifiedAccess>, OpError> {
-                Ok(None)
-            }
-        }
-
-        struct NoBootstrap;
-        #[async_trait::async_trait]
-        impl BootstrapRunner for NoBootstrap {
-            async fn run(&self, _: &BootstrapPlan) -> Result<(), OpError> {
-                Ok(())
-            }
-        }
-
-        struct YesConfirm;
-        impl LocalConfirm for YesConfirm {
-            fn confirm(&self, _: &Confirmation) -> bool {
-                true
-            }
-        }
-
-        let env = EnvironmentId::from_random_bytes([0x5a; 16]);
-        let fp = KeyFingerprint::parse(&format!("SHA256:{}", "K".repeat(43))).unwrap();
-        let rec = RemoteEnvironmentRecord {
-            environment: env.clone(),
-            destination: DestinationId::parse("lab1").unwrap(),
-            route: ManagementRoute {
-                runner: ManagementHop {
-                    hostname: "runner1.example".into(),
-                    port: None,
-                    account: AccountName::parse("deploy").unwrap(),
-                    host_keys: vec![
-                        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOVqmTNbwT7nI0Fk7RzD4mgwA0ke2pRDCgUNQ0FHb8xn".into(),
-                    ],
-                },
-                jump: None,
-            },
-            client: ClientId::from_random_bytes([0x5b; 16]),
-            role: Role::Owner,
-            key_fingerprint: fp.clone(),
-            label: None,
-            pinned_at: heimdall_contract::Timestamp::UNIX_EPOCH,
-        };
-        let input = InviteInput {
-            environment: env.clone(),
-            role: Role::Requester,
-            public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB".into(),
-            key_fingerprint: fp.clone(),
-            request_id: RequestId::parse("req_invite_epoch_1").unwrap(),
-            iroh_admission: false,
-        };
-        let run = |offer_epoch: bool, runner_epoch: u64, kept_epoch: Option<u64>| {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            let seen: RecordedCalls = Arc::default();
-            let negotiated: NegotiatedCaps = Arc::default();
-            let sessions = DuplexSessions {
-                env: env.clone(),
-                offer_epoch,
-                runner_epoch: RestoreEpoch(runner_epoch),
-                kept_epoch: kept_epoch.map(RestoreEpoch),
-                seen: seen.clone(),
-                negotiated: negotiated.clone(),
-            };
-            let key = StaticKey(fp.clone());
-            let registry = StaticRegistry(rec.clone());
-            let controller = RemoteEnvController::new(ControllerPorts {
-                key: &key,
-                registry: &registry,
-                catalog: &NoCatalog,
-                bootstrap: &NoBootstrap,
-                sessions: &sessions,
-                confirm: &YesConfirm,
-                now: heimdall_contract::Timestamp::UNIX_EPOCH,
-            });
-            let outcome = rt.block_on(controller.invite(&input));
-            let calls = seen.lock().unwrap().clone();
-            let caps = negotiated.lock().unwrap().clone();
-            (outcome, calls, caps)
-        };
-
-        // 1. Runner offers `request-epoch/1` at epoch 2; fresh invite (`kept_epoch: None`)
-        // must negotiate `request-epoch/1` and send the frame bound to epoch 2.
-        let (fresh, calls, caps) = run(true, 2, None);
-        let pending = fresh.expect("fresh invite should answer pending");
-        assert!(
-            matches!(
-                pending,
-                InviteOutcome::Pending {
-                    request_epoch: Some(RestoreEpoch(2)),
-                    ..
-                }
-            ),
-            "fresh invite pending must report epoch 2: {pending:?}"
-        );
-        assert_eq!(caps.len(), 1);
-        assert!(
-            caps[0].contains(capability::REQUEST_EPOCH_V1),
-            "fresh invite session must negotiate request-epoch/1: {:?}",
-            caps[0]
-        );
-        assert_eq!(calls, vec![Some(RestoreEpoch(2))]);
-
-        // 2. Runner restored to epoch 3; retry with kept epoch 2 sends frame epoch 2 and is
-        // refused `REQUEST_STALE` / `restore_epoch_stale`.
-        let (stale, calls, caps) = run(true, 3, Some(2));
-        let err = stale.expect_err("stale retry must be refused");
-        assert_eq!(err.code, Code::RequestStale, "{err:?}");
-        assert_eq!(
-            err.reason.as_deref(),
-            Some(reason::RESTORE_EPOCH_STALE),
-            "{err:?}"
-        );
-        assert!(caps[0].contains(capability::REQUEST_EPOCH_V1));
-        assert_eq!(calls, vec![Some(RestoreEpoch(2))]);
-
-        // 3. Older runner does not offer `request-epoch/1`; fresh invite still negotiates
-        // cleanly and sends no frame epoch.
-        let (older_fresh, calls, caps) = run(false, 0, None);
-        assert!(
-            matches!(
-                older_fresh,
-                Ok(InviteOutcome::Pending {
-                    request_epoch: None,
-                    ..
-                })
-            ),
-            "{older_fresh:?}"
-        );
-        assert!(!caps[0].contains(capability::REQUEST_EPOCH_V1));
-        assert_eq!(calls, vec![None]);
-
-        // 4. Older runner does not offer `request-epoch/1`; retry with kept epoch 2 is
-        // refused `SCHEMA_UNSUPPORTED` (effect `none`) with nothing sent on the wire.
-        let (older_kept, calls, caps) = run(false, 0, Some(2));
-        let err = older_kept.expect_err("kept epoch against runner without request-epoch/1");
-        assert_eq!(err.code, Code::SchemaUnsupported, "{err:?}");
-        assert_eq!(err.effect_status, EffectStatus::None, "{err:?}");
-        assert!(!caps[0].contains(capability::REQUEST_EPOCH_V1));
-        assert!(calls.is_empty(), "nothing may be sent: {calls:?}");
     }
 
     /// ⟨M08 W4 SEC-5F, item 2⟩ `environment remove`'s JSON data and human line report
@@ -8125,7 +7866,10 @@ mod tests {
         assert_eq!(d["role"], "viewer");
         let line = remove_line(&limited_pending);
         assert!(line.contains("on this device only"), "{line}");
-        assert!(line.contains("an owner must still revoke it there"), "{line}");
+        assert!(
+            line.contains("an owner must still revoke it there"),
+            "{line}"
+        );
 
         let owner_pending = RemoveOutcome {
             environment: env.clone(),

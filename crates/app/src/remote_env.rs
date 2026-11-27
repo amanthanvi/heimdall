@@ -476,11 +476,8 @@ impl SessionStanding {
 ///
 /// * [`SessionStanding::Owner`] and [`SessionStanding::Joining`] **require**
 ///   [`MANAGEMENT_CAPABILITY`] and offer `runner/1` (which the runner negotiates for an
-///   owner session only) and ⟨M08 W4 SEC-5F, item 5; U2b-3a held item 4⟩ `request-epoch/1`
-///   (never required, so a runner that offers it binds frames to the kept or hello epoch
-///   while an older runner still negotiates cleanly). A runner whose role table gives this
-///   client less refuses the hello (`role_insufficient`): an owner record never opens a
-///   session without it.
+///   owner session only). A runner whose role table gives this client less refuses the
+///   hello (`role_insufficient`): an owner record never opens a session without it.
 /// * [`SessionStanding::Limited`] requires nothing and offers the base capabilities only:
 ///   neither `remote-control/1` nor `runner/1` is offered, so no form that needs one can be
 ///   dispatched on that session whatever the runner would grant. The session gets the
@@ -508,7 +505,6 @@ impl SessionCapabilities {
                 required.insert(MANAGEMENT_CAPABILITY.to_owned());
                 offered.insert(MANAGEMENT_CAPABILITY.to_owned());
                 offered.insert(heimdall_contract::ipc::capability::RUNNER_V1.to_owned());
-                offered.insert(heimdall_contract::ipc::capability::REQUEST_EPOCH_V1.to_owned());
             }
             SessionStanding::Limited => {}
         }
@@ -1274,6 +1270,24 @@ impl<'a> RemoteEnvController<'a> {
         Ok(record)
     }
 
+    async fn revoke_on_session(
+        session: &mut dyn ManagementSession,
+        environment: &EnvironmentId,
+        client: &ClientId,
+    ) -> Result<serde_json::Value, OpError> {
+        let raw = runner_result(
+            session
+                .call(ManagementCall::Environment(
+                    RemoteEnvironmentRequest::RevokeClient {
+                        environment: environment.clone(),
+                        client: client.clone(),
+                    },
+                ))
+                .await?,
+        )?;
+        crate::remote_ingress::screen_revoke_client_answer(raw, environment, client)
+    }
+
     async fn call_recorded(
         &self,
         environment: &EnvironmentId,
@@ -1627,17 +1641,10 @@ impl<'a> RemoteEnvController<'a> {
         environment: &EnvironmentId,
         client: &ClientId,
     ) -> Result<serde_json::Value, OpError> {
-        self.owner_record(environment, "revoking a client")?;
-        let raw = self
-            .call_recorded(
-                environment,
-                ManagementCall::Environment(RemoteEnvironmentRequest::RevokeClient {
-                    environment: environment.clone(),
-                    client: client.clone(),
-                }),
-            )
-            .await?;
-        crate::remote_ingress::screen_revoke_client_answer(raw, environment, client)
+        let record = self.owner_record(environment, "revoking a client")?;
+        self.key_ready().await?;
+        let mut session = self.open_recorded(&record).await?;
+        Self::revoke_on_session(session.as_mut(), environment, client).await
     }
 
     /// ⟨rev6.3; ADR-0006 §18.7 item 4⟩ `transport rotate`'s announcement: send this
@@ -1775,50 +1782,39 @@ impl<'a> RemoteEnvController<'a> {
     pub async fn remove(&self, environment: &EnvironmentId) -> Result<RemoveOutcome, OpError> {
         use heimdall_contract::envelope::EffectStatus;
         let record = self.record(environment)?;
-        let (revoked_on_runner, remote_outcome, effect_status) = if record.role == Role::Owner {
+        let remote_outcome = if record.role != Role::Owner {
+            RemoteRemoveOutcome::Pending
+        } else {
             self.key_ready().await?;
             match self.open_recorded(&record).await {
-                Err(_) => (false, RemoteRemoveOutcome::Pending, EffectStatus::Partial),
+                Err(_) => RemoteRemoveOutcome::Pending,
                 Ok(mut session) => {
-                    let remote = async {
-                        let raw = runner_result(
-                            session
-                                .call(ManagementCall::Environment(
-                                    RemoteEnvironmentRequest::RevokeClient {
-                                        environment: environment.clone(),
-                                        client: record.client.clone(),
-                                    },
-                                ))
-                                .await?,
-                        )?;
-                        crate::remote_ingress::screen_revoke_client_answer(
-                            raw,
-                            environment,
-                            &record.client,
-                        )
-                    }
-                    .await;
-                    match remote {
-                        Ok(_) => (true, RemoteRemoveOutcome::Revoked, EffectStatus::Applied),
-                        Err(e)
-                            if e.code != Code::OutcomeUnknown
-                                && e.effect_status == EffectStatus::None =>
+                    match Self::revoke_on_session(session.as_mut(), environment, &record.client)
+                        .await
+                    {
+                        Ok(_) => RemoteRemoveOutcome::Revoked,
+                        Err(error)
+                            if error.code != Code::OutcomeUnknown
+                                && error.effect_status == EffectStatus::None =>
                         {
-                            (false, RemoteRemoveOutcome::Pending, EffectStatus::Partial)
+                            RemoteRemoveOutcome::Pending
                         }
-                        Err(_) => (false, RemoteRemoveOutcome::Unknown, EffectStatus::Unknown),
+                        Err(_) => RemoteRemoveOutcome::Unknown,
                     }
                 }
             }
-        } else {
-            (false, RemoteRemoveOutcome::Pending, EffectStatus::Partial)
         };
         self.ports.registry.remove(environment).await?;
+        let effect_status = match remote_outcome {
+            RemoteRemoveOutcome::Revoked => EffectStatus::Applied,
+            RemoteRemoveOutcome::Pending => EffectStatus::Partial,
+            RemoteRemoveOutcome::Unknown => EffectStatus::Unknown,
+        };
         Ok(RemoveOutcome {
             environment: environment.clone(),
             client: record.client,
             role: record.role,
-            revoked_on_runner,
+            revoked_on_runner: remote_outcome == RemoteRemoveOutcome::Revoked,
             remote_outcome,
             effect_status,
         })
@@ -1963,21 +1959,7 @@ impl<'a> RemoteEnvController<'a> {
             }
             let outcome = async {
                 let mut session = self.open_recorded(record).await?;
-                let raw = runner_result(
-                    session
-                        .call(ManagementCall::Environment(
-                            RemoteEnvironmentRequest::RevokeClient {
-                                environment: record.environment.clone(),
-                                client: record.client.clone(),
-                            },
-                        ))
-                        .await?,
-                )?;
-                crate::remote_ingress::screen_revoke_client_answer(
-                    raw,
-                    &record.environment,
-                    &record.client,
-                )
+                Self::revoke_on_session(session.as_mut(), &record.environment, &record.client).await
             }
             .await;
             match outcome {
