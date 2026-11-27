@@ -129,6 +129,7 @@ impl Operations {
             let caller = Caller::unattended(binding.owner.clone());
             let request = ReleaseRequest {
                 binding_id: binding.id.clone(),
+                request_id: None,
             };
             match self.release_if_held_by(&caller, request, holder).await {
                 Ok(done)

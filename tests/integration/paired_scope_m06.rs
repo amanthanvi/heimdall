@@ -345,6 +345,7 @@ async fn a_paired_owner_is_scoped_to_its_own_client_on_every_path() {
             &Caller::unattended(a.clone()),
             ReleaseRequest {
                 binding_id: binding.clone(),
+                request_id: None,
             },
         )
         .await;
@@ -522,6 +523,7 @@ async fn a_paired_owner_is_scoped_to_its_own_client_on_every_path() {
             &Caller::unattended(local.clone()),
             ReleaseRequest {
                 binding_id: binding.clone(),
+                request_id: None,
             },
         )
         .await;

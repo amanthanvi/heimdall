@@ -509,6 +509,11 @@ impl<'a> Gate<'a> {
         self.admitted.store(true, Ordering::Release);
         Ok(())
     }
+
+    /// ⟨M08 W4 U2b-3a⟩ Whether the request fence admitted the request (it then ran).
+    fn admitted(&self) -> bool {
+        self.admitted.load(std::sync::atomic::Ordering::Acquire)
+    }
 }
 
 impl OperationsDispatcher {
@@ -744,6 +749,9 @@ impl OperationsDispatcher {
             (Some(_), None) => return self.handle(session, request).await,
         };
         let binding = fence.binding(&request, frame_epoch);
+        // ⟨M08 W4 U2b-3a⟩ A request-ID request the journal does not hold gets its terminal
+        // record when it completes, so a restore replays it instead of fencing it.
+        let terminal = fence.terminal_key(&caller, &request);
         let gate = Gate::checked(GateCheck {
             fence,
             caller,
@@ -753,6 +761,18 @@ impl OperationsDispatcher {
         let mut env = self.handle_gated(session, request, &gate).await;
         if let Some(stamp) = binding {
             stamp.apply(&mut env);
+        }
+        if let Some(digest) = terminal
+            && gate.admitted()
+            && matches!(env.code, Code::Ok | Code::AccessReady)
+        {
+            fence
+                .record_terminal(
+                    digest,
+                    self.clock.wall(),
+                    self.operations.operation_retention(),
+                )
+                .await;
         }
         env
     }

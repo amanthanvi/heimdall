@@ -4428,6 +4428,7 @@ async fn release_destroys_key_without_tombstone() {
             &owner(),
             ReleaseRequest {
                 binding_id: data.binding_id.clone(),
+                request_id: None,
             },
         )
         .await

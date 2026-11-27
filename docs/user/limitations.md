@@ -42,12 +42,7 @@ Short, and meant to be read once.
   no store it recognises and starts a new installation with a new identity, beside the one
   this release keeps. An earlier home that this release adopted is safe: the old build refuses
   it and changes nothing. Every released build knows the layout, so this concerns only
-  pre-release builds against the first candidate (ADR-0014 §3.2 item 8). The same build can
-  also stop this release from starting: if this release's first start on a new home is
-  interrupted before it finishes, and such a build then runs on that home and creates a store
-  of its own, this release refuses to start (`WrongState`) until you remove the file
-  `STAGING-INTENT` from Heimdall's state directory by hand. Nothing is lost: the next start
-  adopts that store.
+  pre-release builds against the first candidate (ADR-0014 §3.2 item 8).
   - A pre-release runner's bridge checks the store's schema before its write transaction and
     does not check it again inside the transaction. So a pre-release build can lose a runner's
     switch to owner-only, but only if it handles a paired session while this release is

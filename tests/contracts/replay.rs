@@ -89,6 +89,11 @@ const KEYS: &[(&str, &str)] = &[
     ),
     // ⟨M08 U2b-2⟩ The replay fence (ADR-0014 §3.6 step 4).
     ("request_fences", "SELECT key_digest FROM request_fences"),
+    // ⟨M08 W4 U2b-3a⟩ The request keys' terminal records by the ledger's digest (migration 0016).
+    (
+        "request_terminals",
+        "SELECT key_digest FROM request_terminals",
+    ),
     (
         "profile_snapshots",
         "SELECT profile, CAST(revision AS TEXT) FROM profile_snapshots",
@@ -363,6 +368,13 @@ fn read_tables(tx: &mut Txn<'_>, keys: &BTreeMap<&str, Vec<Row>>, label: &str) -
     let got = k(t).iter().filter(|r| {
         let digest = id(RequestHash::from_hex(col(r, 0)), label, t).0;
         ok(tx.request_fence(&digest), label, t).is_some()
+    });
+    n.insert(t, got.count());
+    // ⟨M08 W4 U2b-3a⟩ The terminal records by the ledger's digest, each by its digest.
+    let t = "request_terminals";
+    let got = k(t).iter().filter(|r| {
+        let digest = id(RequestHash::from_hex(col(r, 0)), label, t).0;
+        ok(tx.request_terminal(&digest), label, t).is_some()
     });
     n.insert(t, got.count());
     let t = "grant_anchors";

@@ -324,6 +324,7 @@ async fn release(p: &Process, binding: &BindingId) -> serde_json::Value {
             &caller(),
             ReleaseRequest {
                 binding_id: binding.clone(),
+                request_id: None,
             },
         )
         .await

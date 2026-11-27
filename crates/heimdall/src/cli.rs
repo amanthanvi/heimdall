@@ -782,6 +782,15 @@ pub enum AccessCommand {
     Release {
         /// Binding ID.
         binding_id: String,
+        /// Idempotency request ID: a retry with the same one is checked as the same request.
+        /// Without it the release has none (releasing a binding again changes nothing).
+        #[arg(long)]
+        request_id: Option<String>,
+        /// The restore epoch the request ID was first sent with (the answer's `request_epoch`):
+        /// give it with the same `--request-id` to retry. Without it, the runtime's current epoch
+        /// is used.
+        #[arg(long, value_name = "N", requires = "request_id")]
+        request_epoch: Option<u64>,
     },
     // spec §6.7.
     /// Revoke a grant and its descendants.
@@ -2201,9 +2210,27 @@ async fn access(ctx: &Ctx, command: AccessCommand) -> Result<Done, Done> {
         AccessCommand::Allow(_) | AccessCommand::Stop(_) | AccessCommand::DefaultProfile(_) => {
             Err(Done::of(usage("unsupported command")))
         }
-        AccessCommand::Release { binding_id } => {
+        // ⟨M08 W4 U2b-3a; U0-Q7(a)⟩ `--request-id` is optional, and minted by no one: a
+        // release without it is sent as before. `--request-epoch` travels as every command's
+        // (`Ctx::request_epoch`).
+        AccessCommand::Release {
+            binding_id,
+            request_id,
+            request_epoch: _,
+        } => {
             let binding_id = parse("binding ID", BindingId::parse, &binding_id)?;
-            one(ctx, true, Request::Release(ReleaseRequest { binding_id })).await
+            let request_id = request_id
+                .map(|r| parse("request ID", RequestId::parse, &r))
+                .transpose()?;
+            one(
+                ctx,
+                true,
+                Request::Release(ReleaseRequest {
+                    binding_id,
+                    request_id,
+                }),
+            )
+            .await
         }
         AccessCommand::Revoke {
             grant_id,
@@ -3180,7 +3207,9 @@ mod tests {
         }
         let mut found = Vec::new();
         walk(&Cli::command(), &mut Vec::new(), &mut found);
-        assert_eq!(found.len(), 20, "{found:?}");
+        // ⟨M08 W4 U2b-3a; U0-Q7(a)⟩ `access release` is the 21st.
+        assert_eq!(found.len(), 21, "{found:?}");
+        assert!(found.iter().any(|p| p == "access release"), "{found:?}");
         let epoch = |argv: &[&str]| {
             parse_args(std::iter::once("heimdall").chain(argv.iter().copied()))
                 .map(|c| c.request_epoch)
@@ -3210,6 +3239,19 @@ mod tests {
             ])
             .unwrap(),
             Some(RestoreEpoch(3))
+        );
+        assert_eq!(
+            epoch(&[
+                "access",
+                "release",
+                "binding_x",
+                "--request-id",
+                "r",
+                "--request-epoch",
+                "5"
+            ])
+            .unwrap(),
+            Some(RestoreEpoch(5))
         );
         assert_eq!(
             epoch(&[

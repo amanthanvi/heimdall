@@ -739,6 +739,7 @@ async fn one_binding_per_container_environment_busy_continue_and_replacement_at_
                 &caller(),
                 heimdall_contract::request::ReleaseRequest {
                     binding_id: b.clone(),
+                    request_id: None,
                 },
             )
             .await

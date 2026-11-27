@@ -409,7 +409,14 @@ impl Txn<'_> {
     /// ⟨M08 U2b-2; ADR-0014 §3.6 step 4⟩ A settled key's fence record is a marker too: it goes
     /// once its `marker_until` has passed. An unresolved key's fence (`settled_at` NULL) is
     /// never purged. The count includes the fences removed.
+    ///
+    /// ⟨M08 U2b-3a⟩ First, on the same time (the retention pass's, which the time gate
+    /// accepted), every terminal record by the ledger's digest whose marker window has ended
+    /// becomes trimmable, a settled fence purged here among them: the request ledger's trim
+    /// may then drop those keys' entries (`crate::fence`, module docs). The terminal records
+    /// themselves are removed by the trim, not here.
     pub fn purge_markers_before(&mut self, now: Timestamp) -> Result<u64> {
+        self.mark_request_terminals_trimmable(now)?;
         let n = self.tx.execute(
             "DELETE FROM idempotency_markers WHERE marker_until <= ?1",
             [codec::ts(now)],

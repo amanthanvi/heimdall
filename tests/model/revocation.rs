@@ -1113,6 +1113,7 @@ async fn equivalent_work_is_single_flight_with_separate_references() {
             &owner(501),
             ReleaseRequest {
                 binding_id: a.binding_id.clone(),
+                request_id: None,
             },
         )
         .await
@@ -1123,6 +1124,7 @@ async fn equivalent_work_is_single_flight_with_separate_references() {
             &owner(501),
             ReleaseRequest {
                 binding_id: b.binding_id.clone(),
+                request_id: None,
             },
         )
         .await
@@ -1350,7 +1352,7 @@ proptest! {
                     }
                     Life::Release(i) => {
                         if let Some((_, b, _)) = grants.get(usize::from(i)) {
-                            let _ = w.ops.release(&owner(501), ReleaseRequest { binding_id: b.clone() }).await;
+                            let _ = w.ops.release(&owner(501), ReleaseRequest { binding_id: b.clone(), request_id: None }).await;
                         }
                     }
                     Life::Bind(i) => {
@@ -1489,7 +1491,7 @@ proptest! {
             let all: Vec<EnsureData> = by_grant.values().flatten().map(|(_, d)| d.clone()).collect();
             for (d, release) in all.iter().zip(releases.iter().cycle()) {
                 if *release {
-                    w.ops.release(&owner(501), ReleaseRequest { binding_id: d.binding_id.clone() }).await.unwrap();
+                    w.ops.release(&owner(501), ReleaseRequest { binding_id: d.binding_id.clone(), request_id: None }).await.unwrap();
                 }
             }
             w.clock.advance(61 * MINUTE);

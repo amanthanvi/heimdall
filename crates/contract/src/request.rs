@@ -940,6 +940,13 @@ pub struct CancelRequest {
 pub struct ReleaseRequest {
     /// Binding reference to release.
     pub binding_id: BindingId,
+    /// ⟨rev7; M08 W4 U2b-3a; U0-Q7(a)⟩ Idempotency request ID, optional: with one, the release
+    /// is keyed by it like the other mutating requests (ADR-0006 §7.1) and carries the restore
+    /// epoch it was first sent under (H13), so a retry is checked by the epoch and the replay
+    /// fence before anything runs. Omitted when absent, so every earlier release's wire form
+    /// is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<RequestId>,
 }
 
 /// `revoke` request (spec §6.7).
@@ -1737,6 +1744,8 @@ impl Request {
             Request::Bind(r) => Some(&r.request_id),
             Request::Delegate(r) => Some(&r.request_id),
             Request::Revoke(r) => Some(&r.request_id),
+            // ⟨M08 W4 U2b-3a; U0-Q7(a)⟩ Optional on `release`.
+            Request::Release(r) => r.request_id.as_ref(),
             Request::Setup(r) => r.request_id(),
             Request::Catalog(r) => Some(r.request_id()),
             Request::Enrollment(
@@ -1782,7 +1791,6 @@ impl Request {
             Request::Inspect(_)
             | Request::Observe(_)
             | Request::Cancel(_)
-            | Request::Release(_)
             | Request::Policy(_)
             | Request::Decide(_)
             | Request::ConfirmTime(_)

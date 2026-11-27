@@ -82,6 +82,20 @@ pub trait Fs {
     fn kind(&self, path: &Path) -> io::Result<Kind>;
     /// The whole file, or `InvalidData` when it is longer than `limit` bytes.
     fn read(&self, path: &Path, limit: u64) -> io::Result<Vec<u8>>;
+    /// ⟨M08 U2b-3a⟩ The length of the regular file at `path`, without following a final
+    /// symbolic link and without reading it: `None` when nothing is there, `InvalidData` for
+    /// anything that is not a regular file. A read, so it names no point.
+    fn file_len(&self, path: &Path) -> io::Result<Option<u64>> {
+        match fs::symlink_metadata(path) {
+            Ok(m) if m.file_type().is_file() => Ok(Some(m.len())),
+            Ok(_) => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "not a regular file",
+            )),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
     /// The names in a directory.
     fn list(&self, dir: &Path) -> io::Result<Vec<String>>;
     /// Create one directory; it must not exist.
@@ -111,6 +125,9 @@ impl<F: Fs + ?Sized> Fs for &F {
     }
     fn read(&self, path: &Path, limit: u64) -> io::Result<Vec<u8>> {
         (**self).read(path, limit)
+    }
+    fn file_len(&self, path: &Path) -> io::Result<Option<u64>> {
+        (**self).file_len(path)
     }
     fn list(&self, dir: &Path) -> io::Result<Vec<String>> {
         (**self).list(dir)
@@ -373,6 +390,10 @@ impl<F: Fs> Fs for FaultFs<F> {
     fn read(&self, path: &Path, limit: u64) -> io::Result<Vec<u8>> {
         self.alive()?;
         self.inner.read(path, limit)
+    }
+    fn file_len(&self, path: &Path) -> io::Result<Option<u64>> {
+        self.alive()?;
+        self.inner.file_len(path)
     }
     fn list(&self, dir: &Path) -> io::Result<Vec<String>> {
         self.alive()?;

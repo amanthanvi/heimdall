@@ -340,6 +340,8 @@ heimdall access ensure
   --issuer-ca <FINGERPRINT>  [hidden conflicts=--environment]
 heimdall access release
   <BINDING_ID>  [positional required]
+  --request-id <REQUEST_ID>
+  --request-epoch <N>  [requires=--request-id]
 heimdall access revoke
   <GRANT_ID>  [positional required]
   --request-id <REQUEST_ID>

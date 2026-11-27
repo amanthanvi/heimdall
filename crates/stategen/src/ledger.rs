@@ -8,6 +8,14 @@
 //! becomes a fence record there ([`unfenced`]).
 //!
 //! The caller holds the instance lock around [`Ledger::append`] and [`Ledger::trim`].
+//!
+//! ⟨M08 U2b-3a⟩ **A caller that keeps the entries in memory** (the runtime's request fence)
+//! reads the ledger once ([`Ledger::load`]) and then appends with [`Ledger::append_at`], which
+//! checks the file's length against the length it last saw and reads nothing. The damaged-ledger
+//! check is then made where the ledger is read whole: at that load, whenever the length is not
+//! the expected one (a torn tail, or a change the caller did not make), and at each trim. An
+//! append's cost does not grow with the ledger's history ([`Ledger::bytes_read`] counts what
+//! this value has read).
 
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -87,6 +95,25 @@ pub struct LedgerRead {
     pub torn_tail: usize,
 }
 
+impl LedgerRead {
+    /// ⟨M08 U2b-3a⟩ The length of the complete records: where the next record goes once the
+    /// torn tail is cut ([`Ledger::append_at`]'s `expected`).
+    #[must_use]
+    pub fn aligned_len(&self) -> u64 {
+        (self.entries.len() as u64).saturating_mul(RECORD_LEN as u64)
+    }
+}
+
+/// ⟨M08 U2b-3a⟩ What [`Ledger::trim_entries`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Trimmed {
+    /// The entries dropped, in the order they were in the ledger.
+    pub dropped: Vec<Entry>,
+    /// The ledger's length afterwards. When nothing was dropped the file was not rewritten,
+    /// and this is its length as read (a torn tail included).
+    pub len: u64,
+}
+
 /// An error from the ledger.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum LedgerError {
@@ -115,6 +142,8 @@ pub struct Ledger<F> {
     /// Whether this value has seen the state directory synced since the ledger file's
     /// entry last changed. Until then every append syncs it.
     dir_synced: Cell<bool>,
+    /// ⟨M08 U2b-3a⟩ Bytes this value has read from the ledger file ([`Self::bytes_read`]).
+    bytes_read: Cell<u64>,
 }
 
 impl<F: Fs> Ledger<F> {
@@ -124,17 +153,30 @@ impl<F: Fs> Ledger<F> {
             fs,
             root: root.into(),
             dir_synced: Cell::new(false),
+            bytes_read: Cell::new(0),
         }
+    }
+
+    /// ⟨M08 U2b-3a⟩ Every byte this value has read from the ledger file so far: the cost an
+    /// append adds is what this grows by (nothing, for [`Self::append_at`] at the expected
+    /// length).
+    pub fn bytes_read(&self) -> u64 {
+        self.bytes_read.get()
     }
 
     fn bytes(&self) -> Result<Vec<u8>, LedgerError> {
         let path = self.root.join(LEDGER);
         match self.fs.kind(&path) {
             Ok(Kind::Missing) => Ok(Vec::new()),
-            Ok(Kind::File) => self
-                .fs
-                .read(&path, READ_LIMIT)
-                .map_err(|_| LedgerError::Unreadable),
+            Ok(Kind::File) => {
+                let bytes = self
+                    .fs
+                    .read(&path, READ_LIMIT)
+                    .map_err(|_| LedgerError::Unreadable)?;
+                self.bytes_read
+                    .set(self.bytes_read.get().saturating_add(bytes.len() as u64));
+                Ok(bytes)
+            }
             _ => Err(LedgerError::Unreadable),
         }
     }
@@ -143,6 +185,14 @@ impl<F: Fs> Ledger<F> {
     pub fn read(&self) -> Result<LedgerRead, LedgerError> {
         let bytes = self.bytes()?;
         Self::parse(&bytes)
+    }
+
+    /// ⟨M08 U2b-3a⟩ The whole ledger, read and checked once, for a caller that keeps its
+    /// entries in memory and appends with [`Self::append_at`] from
+    /// [`LedgerRead::aligned_len`]. The same as [`Self::read`]; a damaged or unreadable
+    /// ledger is refused.
+    pub fn load(&self) -> Result<LedgerRead, LedgerError> {
+        self.read()
     }
 
     /// M08-W1-R03: a final record that is all zero bytes is a torn tail too. A stop during
@@ -169,8 +219,9 @@ impl<F: Fs> Ledger<F> {
     /// Append one entry and sync it. **The request's first store write comes only after
     /// this returns `Ok`.** A torn tail left by an earlier stop is cut off first, so
     /// records stay aligned. **A damaged ledger is refused** with [`LedgerError::Damaged`]
-    /// and nothing is written: the request must not proceed.
-    pub fn append(&self, entry: Entry) -> Result<(), LedgerError> {
+    /// and nothing is written: the request must not proceed. Returns the ledger's length
+    /// afterwards.
+    pub fn append(&self, entry: Entry) -> Result<u64, LedgerError> {
         let path = self.root.join(LEDGER);
         let bytes = self.bytes()?;
         let len = bytes.len();
@@ -185,8 +236,38 @@ impl<F: Fs> Ledger<F> {
                 .truncate_sync(Point::LedgerRepair, &path, aligned as u64)
                 .map_err(io_at(Point::LedgerRepair))?;
         }
+        self.write_record(&path, entry)?;
+        Ok((aligned + RECORD_LEN) as u64)
+    }
+
+    /// ⟨M08 U2b-3a⟩ Append one entry to a ledger the caller last saw `expected` bytes long
+    /// (by [`Self::load`]'s [`LedgerRead::aligned_len`], or an earlier append), **reading
+    /// nothing**: the file's length is compared with `expected` and the record appended and
+    /// synced. As for [`Self::append`], the request's first store write comes only after
+    /// this returns `Ok(Some(_))`.
+    ///
+    /// `Ok(Some(len))`: appended; the ledger is now `len` bytes. `Ok(None)`: the file is not
+    /// `expected` bytes long (a torn tail left by a failed append, or a change the caller
+    /// did not make). Nothing was written; the caller loads the ledger again, which checks
+    /// it whole, and appends with [`Self::append`].
+    pub fn append_at(&self, entry: Entry, expected: u64) -> Result<Option<u64>, LedgerError> {
+        let path = self.root.join(LEDGER);
+        let found = self
+            .fs
+            .file_len(&path)
+            .map_err(|_| LedgerError::Unreadable)?
+            .unwrap_or(0);
+        if found != expected || !expected.is_multiple_of(RECORD_LEN as u64) {
+            return Ok(None);
+        }
+        self.write_record(&path, entry)?;
+        Ok(Some(expected + RECORD_LEN as u64))
+    }
+
+    /// Append and sync one record, then make the file's directory entry durable once.
+    fn write_record(&self, path: &std::path::Path, entry: Entry) -> Result<(), LedgerError> {
         self.fs
-            .append_sync(Point::LedgerAppend, &path, &entry.encode())
+            .append_sync(Point::LedgerAppend, path, &entry.encode())
             .map_err(io_at(Point::LedgerAppend))?;
         // The file's directory entry must be durable too, or a later stop could lose the
         // whole ledger with entries the store has already acted on. Whether an earlier
@@ -205,16 +286,31 @@ impl<F: Fs> Ledger<F> {
     /// ([`may_trim`]), by a temporary file and a rename. Returns how many were dropped. A
     /// damaged or unreadable ledger is not trimmed.
     pub fn trim(&self, ended: impl Fn(&Entry) -> bool) -> Result<usize, LedgerError> {
-        let before = self.read()?.entries;
-        let kept: Vec<u8> = before
-            .iter()
-            .filter(|e| !ended(e))
-            .flat_map(Entry::encode)
-            .collect();
-        let dropped = before.len() - kept.len() / RECORD_LEN;
-        if dropped == 0 {
-            return Ok(0);
+        self.trim_entries(ended).map(|t| t.dropped.len())
+    }
+
+    /// ⟨M08 U2b-3a⟩ [`Self::trim`], reporting which entries were dropped and the ledger's
+    /// length afterwards, for a caller that keeps the entries in memory. The whole ledger is
+    /// read and checked: a damaged or unreadable ledger is not trimmed.
+    pub fn trim_entries(&self, ended: impl Fn(&Entry) -> bool) -> Result<Trimmed, LedgerError> {
+        let read = self.read()?;
+        let (dropped, kept): (Vec<Entry>, Vec<Entry>) =
+            read.entries.iter().copied().partition(|e| ended(e));
+        if dropped.is_empty() {
+            return Ok(Trimmed {
+                dropped,
+                len: read.aligned_len() + read.torn_tail as u64,
+            });
         }
+        let kept: Vec<u8> = kept.iter().flat_map(Entry::encode).collect();
+        let len = kept.len() as u64;
+        self.rewrite(&kept)?;
+        Ok(Trimmed { dropped, len })
+    }
+
+    /// The trim's replacement: a temporary file, synced, renamed over the ledger, and the
+    /// state directory synced.
+    fn rewrite(&self, kept: &[u8]) -> Result<(), LedgerError> {
         let (tmp, path) = (self.root.join(LEDGER_TMP), self.root.join(LEDGER));
         if matches!(self.fs.kind(&tmp), Ok(Kind::File)) {
             self.fs
@@ -222,7 +318,7 @@ impl<F: Fs> Ledger<F> {
                 .map_err(io_at(Point::Cleanup))?;
         }
         self.fs
-            .write_new(Point::LedgerRewrite, &tmp, &kept)
+            .write_new(Point::LedgerRewrite, &tmp, kept)
             .map_err(io_at(Point::LedgerRewrite))?;
         self.fs
             .sync_file(Point::LedgerRewriteSync, &tmp)
@@ -235,7 +331,7 @@ impl<F: Fs> Ledger<F> {
             .sync_dir(Point::LedgerDirSync, &self.root)
             .map_err(io_at(Point::LedgerDirSync))?;
         self.dir_synced.set(true);
-        Ok(dropped)
+        Ok(())
     }
 }
 
@@ -609,5 +705,76 @@ mod tests {
             },
             Timestamp::MAX
         ));
+    }
+
+    /// ⟨M08 U2b-3a⟩ An append at the expected length reads nothing, however long the ledger
+    /// is; one at another length (a torn tail, a change made from outside) writes nothing and
+    /// says so, and the caller's load then checks the ledger whole.
+    #[test]
+    fn an_append_at_the_known_length_reads_nothing() {
+        let dir = tempfile::tempdir().expect("a scratch directory");
+        let ledger = Ledger::new(RealFs, dir.path());
+        let loaded = ledger.load().expect("an empty ledger");
+        assert_eq!(loaded.aligned_len(), 0);
+        let mut len = loaded.aligned_len();
+        for n in 0..300u32 {
+            let before = ledger.bytes_read();
+            len = ledger
+                .append_at(entry(1, &n.to_be_bytes()), len)
+                .expect("append")
+                .expect("at the expected length");
+            assert_eq!(ledger.bytes_read(), before, "append {n} read nothing");
+        }
+        assert_eq!(len, 300 * RECORD_LEN as u64);
+        // A torn tail: nothing is written, and the caller is told to load again.
+        let path = dir.path().join(LEDGER);
+        let mut bytes = std::fs::read(&path).expect("read");
+        bytes.extend_from_slice(&entry(2, b"torn").encode()[..9]);
+        std::fs::write(&path, &bytes).expect("write");
+        assert_eq!(ledger.append_at(entry(2, b"x"), len), Ok(None));
+        assert_eq!(
+            std::fs::read(&path).expect("read"),
+            bytes,
+            "nothing was written"
+        );
+        let reloaded = ledger.load().expect("a torn tail is not damage");
+        assert_eq!(
+            (
+                reloaded.entries.len(),
+                reloaded.torn_tail,
+                reloaded.aligned_len()
+            ),
+            (300, 9, len)
+        );
+        assert_eq!(ledger.append(entry(2, b"x")), Ok(len + RECORD_LEN as u64));
+        assert_eq!(ledger.read().expect("read").torn_tail, 0);
+        // A misaligned expectation is never appended at.
+        assert_eq!(ledger.append_at(entry(2, b"y"), 7), Ok(None));
+    }
+
+    /// ⟨M08 U2b-3a⟩ The trim reports what it dropped and the ledger's length afterwards; with
+    /// nothing to drop it rewrites nothing.
+    #[test]
+    fn trim_entries_reports_what_it_dropped() {
+        let dir = tempfile::tempdir().expect("a scratch directory");
+        let ledger = Ledger::new(RealFs, dir.path());
+        for key in [b"a", b"b", b"c"] {
+            ledger.append(entry(1, key)).expect("append");
+        }
+        let none = ledger.trim_entries(|_| false).expect("trim");
+        assert_eq!((none.dropped.len(), none.len), (0, 3 * RECORD_LEN as u64));
+        let trimmed = ledger
+            .trim_entries(|e| e.digest != key_digest(b"b"))
+            .expect("trim");
+        assert_eq!(trimmed.dropped, vec![entry(1, b"a"), entry(1, b"c")]);
+        assert_eq!(trimmed.len, RECORD_LEN as u64);
+        assert_eq!(ledger.read().expect("read").entries, vec![entry(1, b"b")]);
+        // The next append at the reported length reads nothing.
+        let before = ledger.bytes_read();
+        assert_eq!(
+            ledger.append_at(entry(1, b"d"), trimmed.len),
+            Ok(Some(2 * RECORD_LEN as u64))
+        );
+        assert_eq!(ledger.bytes_read(), before);
     }
 }

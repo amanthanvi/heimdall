@@ -51,7 +51,7 @@ use heimdall_localenv::env::{Env, Platform};
 use heimdall_localenv::local_query::LocalQueries;
 use heimdall_localenv::paths::SshPaths;
 
-use crate::cli::{RunArgs, fresh_request_id};
+use crate::cli::{RunArgs, fresh_request_id, retry_args};
 use crate::client::{Ctx, connect_as};
 use crate::launch_flow::{self, Failure};
 use crate::output;
@@ -150,13 +150,18 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
         .map(|p| scope_pair(p))
         .collect::<Result<_, _>>()
         .map_err(none)?;
-    let request_id = match args.request_id.as_deref() {
-        Some(r) => RequestId::parse(r).map_err(|_| none(Failure::usage("invalid request ID")))?,
-        None => {
-            let minted = fresh_request_id().map_err(|d| none(Failure::of(d.env)))?;
-            output::diagnostic(&format!("heimdall: request ID {minted}"));
-            minted
-        }
+    // ⟨M08 W4 U2b-3a⟩ A minted request ID is reported once connected, with the restore epoch
+    // its requests are bound to beside it, as `run` reports it and a retry passes them back
+    // (`--request-id <id> --request-epoch <n>`).
+    let (request_id, minted) = match args.request_id.as_deref() {
+        Some(r) => (
+            RequestId::parse(r).map_err(|_| none(Failure::usage("invalid request ID")))?,
+            false,
+        ),
+        None => (
+            fresh_request_id().map_err(|d| none(Failure::of(d.env)))?,
+            true,
+        ),
     };
     let work_id = WorkId::parse(args.work_id.as_deref().unwrap_or(request_id.as_str()))
         .map_err(|_| none(Failure::usage("invalid work ID")))?;
@@ -180,6 +185,12 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
         let mut client = connect_as(ctx, true, &[], interaction)
             .await
             .map_err(|e| none(Failure::of(output::error_value(*e))))?;
+        if minted {
+            output::diagnostic(&format!(
+                "heimdall: request ID {request_id}; retry with {}",
+                retry_args(&request_id, client.bound_epoch())
+            ));
+        }
         // 1. delegate: the child key and certificate, or `DELEGATION_EXCEEDS_PARENT`.
         let delegated = client.request(Request::Delegate(request)).await;
         if delegated.code != Code::AccessReady {

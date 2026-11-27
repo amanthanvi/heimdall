@@ -2529,7 +2529,7 @@ fn migration_0005_to_0006_keeps_m01_m02_rows_byte_identical() {
 
     let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
     assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 15); // 0015 adds the generated live column and replaces the deadline index.
+    assert_eq!(SCHEMA_VERSION, 16); // 0015: the live column; 0016: the terminal records.
     let mut backup = db.as_os_str().to_owned();
     backup.push(".v5.backup");
     assert!(PathBuf::from(backup).exists(), "v5 file backed up first");

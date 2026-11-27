@@ -25,6 +25,18 @@
 //!   (`marker_until`), when [`Txn::purge_markers_before`] removes it. U2b-3's restore and
 //!   repair write them; this slice's tests write them through
 //!   [`Txn::insert_request_fence`] and [`fence_ledger_for_test`].
+//! * ⟨M08 U2b-3a⟩ **Terminal records by the ledger's digest** (`request_terminals`, migration
+//!   0016, [`RequestTerminal`]): a request key that reached its end. The purge of a settled
+//!   journaled operation writes one beside its expired-key marker (whose key hash is another
+//!   digest), so the ledger entry's settlement stays findable after the operation and its
+//!   idempotency record are gone; the runtime writes one when a request-ID request the journal
+//!   does not hold has answered with success ([`Txn::record_request_terminal`]); the purge of a
+//!   settled fence writes one too. [`Txn::terminal_request_digests`] counts them as terminal
+//!   records, so a restore fences none of those keys. The retention pass marks a row
+//!   `trimmable` once its `trim_after` has passed, on checked time
+//!   ([`Txn::purge_markers_before`]); only then may the request ledger's trim drop the key's
+//!   entry (ADR-0006 §7.4: after its settled key's marker window), and the trim removes the
+//!   row once it has ([`Txn::remove_trimmed_request_terminals`]).
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -43,6 +55,8 @@ use crate::{META_RESTORE_EPOCH, Result, Store, StoreError, Txn, codec};
 
 /// The schema version that added the restore epoch (migration 0014).
 const EPOCH_SCHEMA_VERSION: u32 = 14;
+/// ⟨M08 U2b-3a⟩ The schema version that added the terminal records (migration 0016).
+const TERMINALS_SCHEMA_VERSION: u32 = 16;
 
 /// The canonical bytes of a request's full idempotency key: the canonical JSON (keys sorted,
 /// no whitespace; `heimdall_contract::canonical`) of `{"caller", "kind", "request_id"}`, where
@@ -86,6 +100,13 @@ pub fn idempotency_digest(key: &IdempotencyKey) -> Result<[u8; 32]> {
 #[must_use]
 pub fn digest_hex(digest: &[u8; 32]) -> String {
     heimdall_contract::canonical::RequestHash(*digest).to_hex()
+}
+
+/// A stored digest ([`digest_hex`]); anything else is a malformed row.
+fn parse_digest(hex: &str) -> Result<[u8; 32]> {
+    heimdall_contract::canonical::RequestHash::from_hex(hex)
+        .map(|h| h.0)
+        .map_err(|_| codec::doc_error("a stored request key digest is malformed"))
 }
 
 /// The answer a fence written at a restore or a repair stores: `REQUEST_STALE`, reason
@@ -143,6 +164,21 @@ pub enum FenceVerdict {
     Expired,
     /// The marker window ended: the fence no longer answers (it is purged).
     Lapsed,
+}
+
+/// ⟨M08 U2b-3a⟩ A request key's terminal record by the ledger's digest (`request_terminals`;
+/// module docs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequestTerminal {
+    /// The key's [`ledger_digest`].
+    pub key_digest: [u8; 32],
+    /// When the key settled (the latest settlement recorded).
+    pub settled_at: Timestamp,
+    /// When its marker window ends: the ledger entry may be dropped after this.
+    pub trim_after: Timestamp,
+    /// The retention pass found `trim_after` passed on checked time: the ledger's trim may
+    /// drop the entry.
+    pub trimmable: bool,
 }
 
 impl RequestFence {
@@ -309,7 +345,10 @@ impl Txn<'_> {
 
     /// The [`ledger_digest`] of every key whose operation is terminal (succeeded, failed or
     /// cancelled): the terminal records a restore checks ledger entries against
-    /// (`heimdall_stategen::ledger::unfenced`).
+    /// (`heimdall_stategen::ledger::unfenced`). ⟨M08 U2b-3a⟩ With every key that has a
+    /// terminal record by its digest ([`RequestTerminal`]): a settled journaled key purged
+    /// since, and a completed request of a request-ID kind the journal does not hold (M06's
+    /// and `release`), so a restore replays those instead of fencing them.
     ///
     /// # Errors
     /// A database error, or a malformed row.
@@ -332,7 +371,161 @@ impl Txn<'_> {
                 .map_err(|_| codec::doc_error("stored request id is malformed"))?;
             out.insert(ledger_digest(&caller, &kind, &request_id)?);
         }
+        if self.has_request_terminals()? {
+            out.extend(self.digests("SELECT key_digest FROM request_terminals")?);
+        }
         Ok(out)
+    }
+
+    /// The digests one query's first column holds (lowercase hex).
+    fn digests(&mut self, sql: &str) -> Result<Vec<[u8; 32]>> {
+        let rows: Vec<String> = {
+            let mut stmt = self.tx.prepare(sql)?;
+            let rows = stmt.query_map([], |r| r.get(0))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        rows.iter().map(|hex| parse_digest(hex)).collect()
+    }
+
+    /// ⟨M08 U2b-3a⟩ The terminal record of `digest`, if any (module docs).
+    ///
+    /// # Errors
+    /// A database error, or a malformed row.
+    pub fn request_terminal(&mut self, digest: &[u8; 32]) -> Result<Option<RequestTerminal>> {
+        let row: Option<(String, String, i64)> = self
+            .tx
+            .query_row(
+                "SELECT settled_at, trim_after, trimmable FROM request_terminals
+                 WHERE key_digest = ?1",
+                [digest_hex(digest)],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        row.map(|(settled, trim_after, trimmable)| {
+            Ok(RequestTerminal {
+                key_digest: *digest,
+                settled_at: codec::parse_ts(&settled)?,
+                trim_after: codec::parse_ts(&trim_after)?,
+                trimmable: trimmable != 0,
+            })
+        })
+        .transpose()
+    }
+
+    /// ⟨M08 U2b-3a⟩ Record that the key `digest` settled at `settled_at`, its marker window
+    /// ending at `trim_after`. A key recorded again keeps the later settlement and the later
+    /// window, and is no longer trimmable: its ledger entry stays until the new window ends.
+    ///
+    /// # Errors
+    /// A database error.
+    pub fn record_request_terminal(
+        &mut self,
+        digest: &[u8; 32],
+        settled_at: Timestamp,
+        trim_after: Timestamp,
+    ) -> Result<()> {
+        self.tx.execute(
+            "INSERT INTO request_terminals (key_digest, settled_at, trim_after, trimmable)
+             VALUES (?1, ?2, ?3, 0)
+             ON CONFLICT(key_digest) DO UPDATE SET
+                 settled_at = max(settled_at, excluded.settled_at),
+                 trim_after = max(trim_after, excluded.trim_after),
+                 trimmable = 0",
+            rusqlite::params![
+                digest_hex(digest),
+                codec::ts(settled_at),
+                codec::ts(trim_after)
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// ⟨M08 U2b-3a⟩ The ledger entry of `digest` is in use again (a request with its key was
+    /// admitted with its entry already in the ledger): a terminal record whose window has
+    /// ended (`trimmable`, or `trim_after` at or before `now`) must not let the trim drop it.
+    /// For a journaled kind the record is removed (a new operation is the key's record now,
+    /// and its own purge writes a new one); for any other kind it is kept, not trimmable,
+    /// with its window moved to at least `extend_to` (its completion records it again).
+    ///
+    /// # Errors
+    /// A database error.
+    pub fn touch_request_terminal(
+        &mut self,
+        digest: &[u8; 32],
+        journaled: bool,
+        now: Timestamp,
+        extend_to: Timestamp,
+    ) -> Result<()> {
+        let hex = digest_hex(digest);
+        if journaled {
+            self.tx.execute(
+                "DELETE FROM request_terminals
+                 WHERE key_digest = ?1 AND (trimmable = 1 OR trim_after <= ?2)",
+                rusqlite::params![hex, codec::ts(now)],
+            )?;
+        } else {
+            self.tx.execute(
+                "UPDATE request_terminals
+                 SET trimmable = 0, trim_after = max(trim_after, ?3)
+                 WHERE key_digest = ?1 AND (trimmable = 1 OR trim_after <= ?2)",
+                rusqlite::params![hex, codec::ts(now), codec::ts(extend_to)],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// ⟨M08 U2b-3a⟩ The digests whose terminal record the retention pass marked trimmable: the
+    /// ledger entries the trim may drop.
+    ///
+    /// # Errors
+    /// A database error, or a malformed row.
+    pub fn trimmable_request_terminals(&mut self) -> Result<Vec<[u8; 32]>> {
+        self.digests("SELECT key_digest FROM request_terminals WHERE trimmable = 1")
+    }
+
+    /// ⟨M08 U2b-3a⟩ Remove the trimmable terminal records of `digests`, once the trim has
+    /// dropped their ledger entries (or found none). A record made not trimmable since it was
+    /// read stays. Returns how many were removed.
+    ///
+    /// # Errors
+    /// A database error.
+    pub fn remove_trimmed_request_terminals(&mut self, digests: &[[u8; 32]]) -> Result<u64> {
+        let mut removed = 0u64;
+        for digest in digests {
+            removed += self.tx.execute(
+                "DELETE FROM request_terminals WHERE key_digest = ?1 AND trimmable = 1",
+                [digest_hex(digest)],
+            )? as u64;
+        }
+        Ok(removed)
+    }
+
+    /// ⟨M08 U2b-3a⟩ The retention pass's part (`Txn::purge_markers_before`, on checked time):
+    /// a settled fence whose marker ends is recorded as a trimmable terminal record before it
+    /// goes, and every terminal record whose window has ended becomes trimmable.
+    pub(crate) fn mark_request_terminals_trimmable(&mut self, now: Timestamp) -> Result<()> {
+        if !self.has_request_terminals()? {
+            return Ok(());
+        }
+        let now = codec::ts(now);
+        self.tx.execute(
+            "INSERT INTO request_terminals (key_digest, settled_at, trim_after, trimmable)
+             SELECT key_digest, settled_at, marker_until, 1 FROM request_fences
+             WHERE settled_at IS NOT NULL AND marker_until IS NOT NULL AND marker_until <= ?1
+             ON CONFLICT(key_digest) DO NOTHING",
+            [now.as_str()],
+        )?;
+        self.tx.execute(
+            "UPDATE request_terminals SET trimmable = 1 WHERE trimmable = 0 AND trim_after <= ?1",
+            [now.as_str()],
+        )?;
+        Ok(())
+    }
+
+    /// Whether this store has the terminal records' table (schema version 16 on). A store
+    /// opened at an earlier version for a test of an older build has none.
+    pub(crate) fn has_request_terminals(&mut self) -> Result<bool> {
+        Ok(crate::migrations::user_version(&self.tx)? >= TERMINALS_SCHEMA_VERSION)
     }
 
     /// The epoch a decision reference was minted under, if the decision is recorded.
@@ -664,5 +857,160 @@ mod tests {
             .unwrap();
         assert!(terminal.contains(&idempotency_digest(&before.key).unwrap()));
         assert_eq!(terminal.len(), 2);
+    }
+
+    /// ⟨M08 U2b-3a; ADR-0014 §3.6 step 4, ADR-0006 §7.4⟩ A settled journaled key keeps a
+    /// terminal record by the ledger's digest after its operation and idempotency record are
+    /// purged (the expired-key marker is keyed by another hash), so a restore still counts it
+    /// as terminal and the ledger's trim can still find its settlement. The record becomes
+    /// trimmable only once its marker window has ended, on the retention pass's time; a
+    /// settled fence purged after its marker becomes one too; an unresolved fence never does.
+    #[test]
+    fn terminal_records_keep_the_settlement_findable_after_the_purge() {
+        let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        let (op, mut idem) = operation(1, OperationKind::Ensure);
+        let settled = op.updated_at;
+        let expires = settled
+            .checked_add(jiff::SignedDuration::from_hours(7 * 24))
+            .unwrap();
+        idem.expires_at = Some(expires);
+        let digest = idempotency_digest(&op.key).unwrap();
+        let until = heimdall_domain::idempotency::marker_until(expires);
+        let second = jiff::SignedDuration::from_secs(1);
+        store
+            .transaction(|tx| tx.insert_operation(&op, &idem))
+            .unwrap();
+        let terminal = |s: &Store| s.transaction(|tx| tx.request_terminal(&digest)).unwrap();
+        assert_eq!(
+            terminal(&store),
+            None,
+            "settled, not purged: the journal is the record"
+        );
+        assert_eq!(
+            store
+                .transaction(|tx| tx.purge_operations_before(expires))
+                .unwrap(),
+            1
+        );
+        let kept = terminal(&store).expect("the settlement is kept by the ledger's digest");
+        assert_eq!(
+            (kept.settled_at, kept.trim_after, kept.trimmable),
+            (settled, until, false)
+        );
+        assert!(
+            store
+                .transaction(|tx| tx.terminal_request_digests())
+                .unwrap()
+                .contains(&digest),
+            "a restore counts it as terminal"
+        );
+        // Not trimmable inside the marker window; trimmable once it has ended.
+        store
+            .transaction(|tx| tx.purge_markers_before(until.checked_sub(second).unwrap()))
+            .unwrap();
+        assert!(!terminal(&store).unwrap().trimmable);
+        assert!(
+            store
+                .transaction(|tx| tx.trimmable_request_terminals())
+                .unwrap()
+                .is_empty()
+        );
+        store
+            .transaction(|tx| tx.purge_markers_before(until))
+            .unwrap();
+        assert!(terminal(&store).unwrap().trimmable);
+        assert_eq!(
+            store
+                .transaction(|tx| tx.trimmable_request_terminals())
+                .unwrap(),
+            vec![digest]
+        );
+        // The key is used again after its window: a journaled kind's record goes (a new
+        // operation is its record now); another kind's stays, not trimmable, its window moved.
+        let later = until.checked_add(second).unwrap();
+        let far = ts("2027-06-01T00:00:00Z");
+        store
+            .transaction(|tx| tx.touch_request_terminal(&digest, true, later, far))
+            .unwrap();
+        assert_eq!(terminal(&store), None);
+        let other = [9u8; 32];
+        store
+            .transaction(|tx| {
+                tx.record_request_terminal(&other, settled, until)?;
+                tx.purge_markers_before(until)?;
+                tx.touch_request_terminal(&other, false, later, far)
+            })
+            .unwrap();
+        let touched = store
+            .transaction(|tx| tx.request_terminal(&other))
+            .unwrap()
+            .unwrap();
+        assert_eq!((touched.trim_after, touched.trimmable), (far, false));
+        // Inside its window a touch changes nothing.
+        let fresh = [10u8; 32];
+        store
+            .transaction(|tx| {
+                tx.record_request_terminal(&fresh, settled, far)?;
+                tx.touch_request_terminal(&fresh, true, later, far)
+            })
+            .unwrap();
+        assert!(
+            store
+                .transaction(|tx| tx.request_terminal(&fresh))
+                .unwrap()
+                .is_some()
+        );
+        // Fences: a settled one purged after its marker becomes a trimmable terminal record;
+        // an unresolved one is never purged and never becomes one.
+        let settled_fence = [3u8; 32];
+        let unresolved = [4u8; 32];
+        store
+            .transaction(|tx| {
+                tx.insert_request_fence(&fence(
+                    settled_fence,
+                    Some(FenceSettlement {
+                        settled_at: settled,
+                        expires_at: expires,
+                        marker_until: until,
+                    }),
+                ))?;
+                tx.insert_request_fence(&fence(unresolved, None))?;
+                tx.purge_markers_before(until)
+            })
+            .unwrap();
+        let from_fence = store
+            .transaction(|tx| tx.request_terminal(&settled_fence))
+            .unwrap()
+            .unwrap();
+        assert!(from_fence.trimmable);
+        assert_eq!(
+            store
+                .transaction(|tx| tx.request_terminal(&unresolved))
+                .unwrap(),
+            None
+        );
+        // The trim removes only what is still trimmable.
+        assert_eq!(
+            store
+                .transaction(|tx| tx.remove_trimmed_request_terminals(&[
+                    settled_fence,
+                    other,
+                    fresh
+                ]))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            store
+                .transaction(|tx| tx.request_terminal(&settled_fence))
+                .unwrap(),
+            None
+        );
+        assert!(
+            store
+                .transaction(|tx| tx.request_terminal(&other))
+                .unwrap()
+                .is_some()
+        );
     }
 }

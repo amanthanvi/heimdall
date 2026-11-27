@@ -6126,6 +6126,14 @@ impl Operations {
         self.inner.config.limits.operation_retention
     }
 
+    /// ⟨M08 W4 U2b-3a⟩ The configured retention of settled operations (ADR-0006 §7.4): the
+    /// runtime's terminal records of the request-ID kinds the journal does not hold run their
+    /// window from it (`heimdall_runtime::request_fence::RequestFence::record_terminal`).
+    #[must_use]
+    pub fn operation_retention(&self) -> Duration {
+        self.retention()
+    }
+
     fn clock(&self) -> Arc<dyn Clock> {
         Arc::clone(&self.inner.config.clock)
     }

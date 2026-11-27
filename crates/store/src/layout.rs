@@ -250,6 +250,12 @@ pub fn open_locked(
 /// No generation was ever published: adopt the flat family when there is one, else install.
 /// `interrupted` is the operation an earlier start left unfinished (its staged leftover is
 /// already gone).
+///
+/// ⟨M08 W4 U2b-3a; W3-R05⟩ An interrupted install whose home then got a flat family (a build
+/// that predates generations created it) is recovered: the flat family is adopted, its
+/// adoption's intent replacing the stale install's. Only an **unfenced** family: one fenced
+/// for an adoption that no adoption intent explains is refused (`adoption_intent_missing`),
+/// and nothing is changed.
 fn first_publication(
     state: &StateDir<&dyn Fs>,
     interrupted: Option<Operation>,

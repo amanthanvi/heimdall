@@ -313,6 +313,8 @@ const REQUIRED_TABLES: &[&str] = &[
     "remote_lift_acks",
     // schema version 14 (revision 7: the request fences; ADR-0014 H9, §3.6)
     "request_fences",
+    // schema version 16 (M08 U2b-3a: the request keys' terminal records; ADR-0014 §3.6 step 4)
+    "request_terminals",
 ];
 
 /// Columns added to existing tables that the current schema must contain
@@ -1233,6 +1235,13 @@ impl Txn<'_> {
                      marker_until = max(marker_until, excluded.marker_until)",
                 rusqlite::params![key_hash.0.to_hex(), codec::ts(expired_at), codec::ts(until)],
             )?;
+            // ⟨M08 U2b-3a; ADR-0014 §3.6 step 4⟩ The marker's key hash is not the request
+            // ledger's digest: the key's settlement is kept by that digest too, so the ledger's
+            // trim can find it once this record is gone (`crate::fence`, module docs).
+            if self.has_request_terminals()? {
+                let digest = crate::fence::idempotency_digest(&op.key)?;
+                self.record_request_terminal(&digest, op.updated_at, until)?;
+            }
             let n = self
                 .tx
                 .execute("DELETE FROM operations WHERE id = ?1", [id.as_str()])?;
@@ -2230,7 +2239,8 @@ mod tests {
         // ⟨M06 wave 5⟩ 0013 rebuilds `remote_widening` with its origin (rows kept).
         // ⟨rev7⟩ 0014 adds four defaulted columns, one table and two indexes.
         // M08 GRANT-LIVE: 0015 adds the generated live column and replaces the deadline index.
-        assert_eq!(migrations::SCHEMA_VERSION, 15);
+        // ⟨M08 U2b-3a⟩ 0016 adds one table and two partial indexes.
+        assert_eq!(migrations::SCHEMA_VERSION, 16);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"
