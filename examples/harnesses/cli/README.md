@@ -44,7 +44,10 @@ one JSON handoff record with `operation_id` and `decision_ref` to stderr. The
 driver handles approval in an attended fixture terminal and then writes
 `continue` followed by a newline to H1's stdin. H1 resumes its operation-scoped
 NDJSON subscription from the cursor captured before the handoff and observes
-the result of the same operation.
+the result of the same operation. The resumed head must count its backlog
+(`backlog`). Every gap ends the stream: a `resync_required` line, then exit 6.
+H1 then fails the task and names the gap's reason (`subscriber_lagged`,
+`history_trimmed` or `event_too_large`). It applies nothing after the gap.
 
 Stdout contains one JSON summary. Calls and round trips count CLI subprocess
 invocations. Discovery bytes count raw stdout bytes from the discovery calls.

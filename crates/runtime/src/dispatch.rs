@@ -1389,6 +1389,7 @@ impl OperationsDispatcher {
                     cursor: start.cursor,
                     boundary_seq: start.boundary_seq,
                     snapshot: start.snapshot,
+                    resync_reason: start.resync_reason,
                     backlog: start.backlog,
                     live,
                     cursor_for: start.cursor_for,

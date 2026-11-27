@@ -2305,11 +2305,15 @@ mod u8b {
             subscription,
             cursor: boundary,
             snapshot,
+            backlog,
+            resync_reason,
         } = c.subscribe(EventFilter::default(), None).await.unwrap()
         else {
             panic!("subscription refused");
         };
         assert!(snapshot.is_some());
+        // ⟨rev7; D6⟩ A snapshot start without a cursor: no backlog count, no reason.
+        assert_eq!((backlog, resync_reason), (None, None));
 
         // Ensure with the fake adapter.
         let env = c

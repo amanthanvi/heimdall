@@ -106,6 +106,19 @@ class RealBinarySmoke(unittest.TestCase):
                 self.assertEqual((data["operations"], data["pending_decisions"]), ([], []))
                 self.assertNotIn("operation", data)
                 self.assertNotIn("boundary_seq", data)
+                self.assertNotIn("backlog", head)
+                self.assertNotIn("resync_reason", head)
+                self.assertTrue(code_defaults(client.unsubscribe()).success)
+                # A backlog start from that cursor counts the frames that follow exactly
+                # (ADR-0013 §5.3); a cursor it cannot resume restarts from a snapshot that
+                # says why.
+                resumed = client.subscribe(cursor=head["cursor"])
+                self.assertNotIn("snapshot", resumed)
+                self.assertIsInstance(resumed["backlog"], int)
+                self.assertTrue(code_defaults(client.unsubscribe()).success)
+                restarted = client.subscribe(cursor="AAAA")
+                self.assertEqual(restarted["resync_reason"], "cursor_invalid")
+                self.assertEqual(restarted["snapshot"]["cursor"], restarted["cursor"])
                 self.assertTrue(code_defaults(client.unsubscribe()).success)
         finally:
             stop_code = None

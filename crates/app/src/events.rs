@@ -7,8 +7,12 @@
 //! transactionally consistent boundary: the live receiver is created first, then
 //! one store transaction reads the backlog after the client's cursor (or takes a
 //! snapshot when there is no usable cursor) together with the head sequence; live
-//! events at or below that head are dropped (overlap deduplicated); a lagging
-//! subscriber receives one `ResyncRequired` event and must snapshot again.
+//! events at or below that head are dropped (overlap deduplicated). ⟨rev7; PC6, PC9⟩ Every
+//! gap ends the subscription with one `ResyncRequired` event (`subscription_ended: true`)
+//! whose reason tells the gaps apart: `subscriber_lagged` when the subscriber's bounded live
+//! buffer overran, `history_trimmed` when retention removed events before they were fanned
+//! out ([`EventPublisher::announce`]). The reader resubscribes from its last applied cursor
+//! (ADR-0013 §5.4).
 //!
 //! Event payloads carry identifiers, states and codes only (no credential
 //! material, no request text), so nothing secret can reach a subscriber.
@@ -17,7 +21,9 @@ use std::sync::Arc;
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::envelope::ResourceRef;
-use heimdall_contract::event::{Cursor, Event, EventFilter, EventType, Snapshot};
+use heimdall_contract::event::{
+    BACKLOG_MAX, Cursor, Event, EventFilter, EventType, ResyncReason, Snapshot,
+};
 use heimdall_contract::ids::{BindingId, EnvironmentId, EventId, GrantId, OperationId};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::time::Clock;
@@ -25,9 +31,10 @@ use heimdall_store::{Store, Txn};
 use tokio::sync::broadcast;
 
 /// Most retained events a subscription backlog may carry; a cursor further behind
-/// starts from a snapshot instead (or `RESYNC_REQUIRED` for a strict caller), so a
-/// subscription start is always bounded (spec §11.5, R-RT-06).
-pub const MAX_SUBSCRIPTION_BACKLOG: u32 = 500;
+/// starts from a snapshot instead (`resync_reason: backlog_too_long`, or `RESYNC_REQUIRED`
+/// for a strict caller), so a subscription start is always bounded (spec §11.5, R-RT-06).
+/// ⟨rev7⟩ The contract's [`BACKLOG_MAX`] (ADR-0013 §5.3).
+pub const MAX_SUBSCRIPTION_BACKLOG: u32 = BACKLOG_MAX;
 
 /// A persisted event with its neutral sequence number (what the live channel and
 /// the store carry; the wire `Event.cursor` is filled at delivery).
@@ -137,7 +144,13 @@ pub struct SubscriptionStart {
     pub boundary_seq: u64,
     /// Consistent snapshot when the client had no usable cursor.
     pub snapshot: Option<Snapshot<serde_json::Value>>,
-    /// Retained events after the client's cursor, already cursor-personalized.
+    /// ⟨rev7; D6, PC6⟩ With `snapshot`, why the client's cursor could not be resumed
+    /// (`Subscribed.resync_reason`, ADR-0013 §5.3): `cursor_invalid`, `history_trimmed`,
+    /// `backlog_too_long` or `event_too_large`. `None` without a cursor or without a snapshot.
+    pub resync_reason: Option<ResyncReason>,
+    /// Retained events after the client's cursor, already cursor-personalized: exactly the
+    /// visible, filter-matching events, each checked to fit one event frame (so
+    /// `Subscribed.backlog` is their count).
     pub backlog: Vec<Event>,
     /// Live receiver created **before** the boundary was read.
     pub live: broadcast::Receiver<Arc<SequencedEvent>>,
@@ -259,8 +272,10 @@ enum CatchUp {
 
 /// How a subscription's start was resolved inside the boundary transaction.
 enum StartFrom {
-    Backlog(Vec<heimdall_store::StoredEvent>),
-    Snapshot(serde_json::Value),
+    /// The visible, filter-matching backlog, cursor-personalized and checked to fit a frame.
+    Backlog(Vec<Event>),
+    /// A whole snapshot, and why the client's cursor was not resumed (if it sent one).
+    Snapshot(serde_json::Value, Option<ResyncReason>),
     Refused,
     TooLarge(SnapshotTooLarge),
 }
@@ -393,9 +408,11 @@ impl EventPublisher {
     /// catch-up read checks the retained tail against the delivery boundary in the
     /// same transaction. If retention removed an event that was never fanned out
     /// (for example `N` while `N + 1` was held back), nothing past the gap is
-    /// fanned out as continuous: every subscriber gets one explicit
-    /// `ResyncRequired` carrying its last delivered cursor (every live receiver
-    /// is made to lag), and the stream continues after the gap.
+    /// fanned out as continuous: ⟨rev7; PC6, PC9⟩ one `history_trimmed` marker goes to
+    /// every live receiver ([`Self::announce_trim`]), so every subscriber the gap reaches
+    /// gets one explicit `ResyncRequired` (`history_trimmed`, `subscription_ended: true`)
+    /// carrying its last delivered cursor, and its subscription ends. The publisher's
+    /// fan-out continues after the gap, for subscriptions started after it.
     pub fn announce(&self, event: SequencedEvent) {
         let mut st = self
             .announced
@@ -452,12 +469,14 @@ impl EventPublisher {
                     // Retention removed an event no subscriber has received
                     // (ADR-0006 §13.8 item 3): continuity is not claimed.
                     // Nothing at or below the gap is fanned out; every receiver
-                    // is made to lag, so each subscriber gets one explicit
-                    // `ResyncRequired` at its own last delivered cursor, which
+                    // gets the trim marker, so each subscriber whose boundary
+                    // precedes the gap gets one explicit `ResyncRequired`
+                    // (`history_trimmed`) at its own last delivered cursor, which
                     // precedes the gap (and is below the retained tail, so a
-                    // strict resume from it is refused).
-                    self.force_resync();
-                    st.last = Some(target.max(tail));
+                    // resume from it starts from a snapshot), and its stream ends.
+                    let through = target.max(tail);
+                    self.announce_trim(through);
+                    st.last = Some(through);
                     st.held = None;
                     return;
                 }
@@ -540,33 +559,36 @@ impl EventPublisher {
         }
     }
 
-    /// Make every live receiver lag: one burst of
-    /// `EVENT_BUFFER_PER_SUBSCRIPTION + 1` sequence-0 placeholders, sent without
-    /// yielding. Each receiver's unread position is overwritten, so its next
-    /// receive reports lag, which the relay and the session turn into exactly one
-    /// `ResyncRequired` at that subscriber's last delivered cursor (ADR-0006 §8).
-    /// The placeholders themselves are never delivered: a receiver that does not
-    /// lag drops them as covered by its boundary (every boundary is `>= 0`). Like
-    /// the relay's burst, this relies on the current-thread executor (overview
-    /// §4): no receiver drains the burst concurrently.
-    fn force_resync(&self) {
-        let filler = Arc::new(SequencedEvent {
-            seq: 0,
+    /// ⟨rev7; ADR-0013 §5.4, D6; PC6, PC9⟩ Tell every live receiver that retention removed
+    /// events at or below `through` before they were fanned out: one `resync_required`
+    /// **trim marker** at sequence `through`, payload `{reason: "history_trimmed",
+    /// subscription_ended: true}`. It is never stored. A live `ResyncRequired` above a
+    /// subscription's boundary is a gap: the session (and any reader of
+    /// [`Self::live_receiver`]) ends that subscription with one `ResyncRequired` carrying the
+    /// marker's reason at the subscriber's own last delivered cursor, and sends nothing after
+    /// it. A subscription whose boundary is at or above `through` read its snapshot or
+    /// backlog after the gap, so it drops the marker as overlap. The trim is never forced
+    /// through a lag, so the wire tells `history_trimmed` from `subscriber_lagged`.
+    fn announce_trim(&self, through: u64) {
+        let marker = Arc::new(SequencedEvent {
+            seq: through,
             event: Event {
                 schema_version: heimdall_contract::SchemaVersion::current(),
+                // The session gives each delivered copy its own event ID.
                 event_id: EventId::from_random_bytes([0; 16]),
                 event_type: EventType::ResyncRequired,
                 environment_id: self.environment.clone(),
                 operation_id: None,
                 resource: None,
-                timestamp: Timestamp::UNIX_EPOCH,
+                timestamp: self.now(),
                 cursor: Cursor(String::new()),
-                payload: serde_json::json!({ "reason": "history_trimmed" }),
+                payload: serde_json::json!({
+                    "reason": ResyncReason::HistoryTrimmed.as_str(),
+                    "subscription_ended": true,
+                }),
             },
         });
-        for _ in 0..=heimdall_contract::ipc::EVENT_BUFFER_PER_SUBSCRIPTION {
-            let _ = self.live.send(filler.clone());
-        }
+        let _ = self.live.send(marker);
     }
 
     /// A live receiver (bounded; lag yields `RecvError::Lagged`).
@@ -595,8 +617,10 @@ impl EventPublisher {
 
     /// Start a subscription for `caller` (ADR-0006 §8): live receiver first, then
     /// one transaction for backlog-or-snapshot plus head. A `from` cursor that is
-    /// foreign, malformed or below the retained tail yields `ResyncRequired` when
-    /// `strict`, else a fresh snapshot.
+    /// foreign, malformed, beyond the head or below the retained tail, more than
+    /// [`BACKLOG_MAX`] events behind, or followed by an event that does not fit one frame
+    /// yields `ResyncRequired` when `strict`, else a fresh snapshot with that
+    /// [`SubscriptionStart::resync_reason`] (⟨rev7; D6⟩ ADR-0013 §5.3).
     pub async fn subscribe(
         &self,
         caller: &CallerContext,
@@ -614,11 +638,24 @@ impl EventPublisher {
         if from.is_some() && from_seq.is_none() && strict {
             return Err(SubscribeRefusal::ResyncRequired);
         }
+        // ⟨rev7; D6⟩ A cursor that does not decode for this reader and environment.
+        let unusable =
+            (from.is_some() && from_seq.is_none()).then_some(ResyncReason::CursorInvalid);
+        let environment = self.environment.clone();
+        let cursor_for: CursorBuilder = Arc::new(move |seq| {
+            cursor::encode(&CursorParts {
+                reader_tag: tag,
+                environment: environment.clone(),
+                seq,
+            })
+        });
         let me = self.clone();
         let reader = caller.clone();
+        let personalize = Arc::clone(&cursor_for);
         let joined = tokio::task::spawn_blocking(move || {
             me.store.transaction(|tx| {
                 let (generation, head) = tx.snapshot_boundary(&me.environment)?;
+                let mut resync_reason = unusable;
                 if let Some(seq) = from_seq {
                     let page = tx.stored_events_after(
                         &me.environment,
@@ -626,20 +663,34 @@ impl EventPublisher {
                         &filter,
                         MAX_SUBSCRIPTION_BACKLOG + 1,
                     )?;
-                    let usable = seq >= page.tail_seq
-                        && seq <= head
-                        && page.events.len() <= MAX_SUBSCRIPTION_BACKLOG as usize;
-                    if usable {
+                    resync_reason = if seq > head {
+                        Some(ResyncReason::CursorInvalid)
+                    } else if seq < page.tail_seq {
+                        Some(ResyncReason::HistoryTrimmed)
+                    } else if page.events.len() > MAX_SUBSCRIPTION_BACKLOG as usize {
+                        Some(ResyncReason::BacklogTooLong)
+                    } else {
                         // ⟨M06-W0-R03⟩ A resumed subscription carries only what this
-                        // reader may see.
+                        // reader may see; ⟨rev7; D6⟩ and only events that fit one frame,
+                        // so `Subscribed.backlog` counts exactly the frames that follow.
                         let mut visible = Vec::with_capacity(page.events.len());
+                        let mut undeliverable = false;
                         for stored in page.events {
                             if event_visible_in(tx, &stored.event, &reader)? {
-                                visible.push(stored);
+                                let mut e = stored.event;
+                                e.cursor = personalize(stored.seq);
+                                if !fits_one_frame(&e) {
+                                    undeliverable = true;
+                                    break;
+                                }
+                                visible.push(e);
                             }
                         }
-                        return Ok((StartFrom::Backlog(visible), head));
-                    }
+                        if !undeliverable {
+                            return Ok((StartFrom::Backlog(visible), head));
+                        }
+                        Some(ResyncReason::EventTooLarge)
+                    };
                     if strict {
                         return Ok((StartFrom::Refused, head));
                     }
@@ -647,7 +698,7 @@ impl EventPublisher {
                 // ⟨rev7; PC1⟩ Whole or refused, in this transaction.
                 match snapshot_data(tx, &me.environment, &reader, &filter, generation)? {
                     Ok(data) => match serde_json::to_value(&data) {
-                        Ok(data) => Ok((StartFrom::Snapshot(data), head)),
+                        Ok(data) => Ok((StartFrom::Snapshot(data, resync_reason), head)),
                         Err(_) => Err(heimdall_store::StoreError::Corrupt(
                             "a snapshot did not serialize".into(),
                         )),
@@ -661,35 +712,18 @@ impl EventPublisher {
             Ok(Ok(v)) => v,
             _ => return Err(SubscribeRefusal::StateUnavailable),
         };
-        let environment = self.environment.clone();
-        let cursor_for: CursorBuilder = Arc::new(move |seq| {
-            cursor::encode(&CursorParts {
-                reader_tag: tag,
-                environment: environment.clone(),
-                seq,
-            })
-        });
         let boundary = cursor_for(head);
-        let (snapshot, backlog) = match start {
+        let (snapshot, resync_reason, backlog) = match start {
             StartFrom::Refused => return Err(SubscribeRefusal::ResyncRequired),
             StartFrom::TooLarge(over) => return Err(SubscribeRefusal::TooLarge(over)),
-            StartFrom::Backlog(events) => (
-                None,
-                events
-                    .into_iter()
-                    .map(|stored| {
-                        let mut e = stored.event;
-                        e.cursor = cursor_for(stored.seq);
-                        e
-                    })
-                    .collect(),
-            ),
-            StartFrom::Snapshot(data) => (
+            StartFrom::Backlog(events) => (None, None, events),
+            StartFrom::Snapshot(data, reason) => (
                 Some(Snapshot {
                     data,
                     cursor: boundary.clone(),
                     taken_at: self.now(),
                 }),
+                reason,
                 Vec::new(),
             ),
         };
@@ -697,6 +731,7 @@ impl EventPublisher {
             cursor: boundary,
             boundary_seq: head,
             snapshot,
+            resync_reason,
             backlog,
             live,
             cursor_for,
@@ -728,6 +763,19 @@ impl EventPublisher {
             .transaction(|tx| tx.snapshot_boundary(&self.environment))?;
         Ok(self.cursor_at(caller, head))
     }
+}
+
+/// ⟨rev7; ADR-0013 §5.3, §5.6, D6⟩ Whether `event` (its cursor already personalized) fits one
+/// control frame as a subscription's event frame. The handle is counted at its widest, and a
+/// paired session's delivery only removes keys, so a backlog event that passes is delivered
+/// whole.
+fn fits_one_frame(event: &Event) -> bool {
+    let frame = heimdall_contract::ipc::ServerMessage::Event {
+        subscription: u64::MAX,
+        event: event.clone(),
+    };
+    serde_json::to_vec(&frame)
+        .is_ok_and(|body| body.len() <= heimdall_contract::ipc::MAX_CONTROL_FRAME_BYTES)
 }
 
 /// Whether `caller` may see an operation created by `owner`: the same caller, or

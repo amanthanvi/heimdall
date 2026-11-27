@@ -3229,65 +3229,122 @@ async fn confirm_time_flow<S: Session, P: Prompter>(s: &mut S, p: &mut P, ctx: &
 
 /// `operation events --follow`: the subscription envelope, then one event per
 /// line until `--max-events`, Ctrl-C (exit 0), the runtime going away (exit 5,
-/// `SERVICE_UNAVAILABLE`) or a subscription-ending resync (exit 6).
+/// `SERVICE_UNAVAILABLE`) or a resync (exit 6). ⟨rev7; PC9⟩ Every gap ends the stream
+/// (ADR-0013 §4, §5.4): a `resync_required` event (`subscriber_lagged`, `history_trimmed`
+/// or `event_too_large`) is the last line. ⟨D6⟩ The head carries `backlog` (a backlog
+/// start: exactly the backlog lines that follow) or, for a snapshot start from a cursor,
+/// `resync_reason`.
 async fn follow_events(
     ctx: &Ctx,
     cursor: Option<String>,
     operation: Option<String>,
     max_events: Option<u64>,
 ) -> ExitCode {
-    let fail = |env: Envelope<serde_json::Value>| {
-        output::emit(&env, ctx.json);
+    let json = ctx.json;
+    let mut print = |line: FollowLine<'_>| match line {
+        FollowLine::Envelope(env) => output::emit(env, json),
+        FollowLine::Event(value, human) => output::emit_line(value, human, json),
+    };
+    let fail = |env: Envelope<serde_json::Value>, print: &mut dyn FnMut(FollowLine<'_>)| {
+        print(FollowLine::Envelope(&env));
         output::exit_code_for(env.code, false)
     };
     let operation_id = match operation.as_deref().map(OperationId::parse).transpose() {
         Ok(o) => o,
-        Err(_) => return fail(usage("invalid operation ID")),
+        Err(_) => return fail(usage("invalid operation ID"), &mut print),
     };
     let mut client = match connect(ctx, false).await {
         Ok(c) => c,
-        Err(e) => return fail(error_value(*e)),
+        Err(e) => return fail(error_value(*e), &mut print),
     };
     let filter = EventFilter {
         operation_id,
         types: Vec::new(),
     };
-    let start = match client.raw().subscribe(filter, cursor.map(Cursor)).await {
+    follow_stream(
+        client.raw(),
+        filter,
+        cursor.map(Cursor),
+        max_events,
+        &mut print,
+    )
+    .await
+}
+
+/// One line `operation events --follow` prints: an envelope (the head, or the one error),
+/// or an event with its human form.
+enum FollowLine<'a> {
+    Envelope(&'a Envelope<serde_json::Value>),
+    Event(&'a serde_json::Value, &'a str),
+}
+
+/// `--follow` on a connected session (ADR-0013 §4 stream grammar): subscribe, print the
+/// head, then one line per event until `--max-events` or Ctrl-C (0), a transport failure
+/// or `Goodbye` (its terminal error envelope and class), or a `resync_required` event,
+/// which is the last line (exit 6).
+async fn follow_stream<S>(
+    client: &mut heimdall_ipc::session::ControlClient<S>,
+    filter: EventFilter,
+    from: Option<Cursor>,
+    max_events: Option<u64>,
+    print: &mut dyn FnMut(FollowLine<'_>),
+) -> ExitCode
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
+{
+    let mut fail = |env: Envelope<serde_json::Value>| {
+        print(FollowLine::Envelope(&env));
+        output::exit_code_for(env.code, false)
+    };
+    let start = match client.subscribe(filter, from).await {
         Ok(s) => s,
         Err(e) => return fail(error_value(transport_failure_envelope(&e, false))),
     };
-    let (subscription, boundary, snapshot) = match start {
+    let (subscription, boundary, snapshot, backlog, resync_reason) = match start {
         SubscribeOutcome::Refused(env) => return fail(*env),
         SubscribeOutcome::Subscribed {
             subscription,
             cursor,
             snapshot,
-        } => (subscription, cursor, snapshot),
+            backlog,
+            resync_reason,
+        } => (subscription, cursor, snapshot, backlog, resync_reason),
     };
-    let mut head = Envelope::ok(serde_json::json!({
+    let mut data = serde_json::json!({
         "subscription": subscription,
         "cursor": boundary,
         "snapshot": snapshot,
-    }));
+    });
+    if let Some(n) = backlog {
+        data["backlog"] = n.into();
+    }
+    if let Some(reason) = resync_reason {
+        data["resync_reason"] = reason.as_str().into();
+    }
+    let mut head = Envelope::ok(data);
     head.state = OperationState::Running;
     head.next = Some(NextAction {
         action: "observe".to_owned(),
         cursor: Some(boundary.clone()),
         ..NextAction::default()
     });
-    output::emit(&head, ctx.json);
+    print(FollowLine::Envelope(&head));
     let mut printed: u64 = 0;
     loop {
         if max_events.is_some_and(|m| printed >= m) {
             return ExitCode::Success;
         }
         let next = tokio::select! {
-            r = client.raw().next_event() => r,
+            r = client.next_event() => r,
             _ = tokio::signal::ctrl_c() => return ExitCode::Success,
         };
         let event = match next {
             Ok((_, event)) => event,
-            Err(e) => return fail(error_value(transport_failure_envelope(&e, false))),
+            Err(e) => {
+                let env = error_value(transport_failure_envelope(&e, false));
+                print(FollowLine::Envelope(&env));
+                return output::exit_code_for(env.code, false);
+            }
         };
         let value = serde_json::to_value(&event).unwrap_or_default();
         let kind = value.get("type").and_then(|t| t.as_str()).unwrap_or("?");
@@ -3301,11 +3358,10 @@ async fn follow_events(
                 .map_or_else(String::new, |o| format!("operation={o}")),
             event.cursor.0
         );
-        output::emit_line(&value, &human, ctx.json);
+        print(FollowLine::Event(&value, &human));
         printed += 1;
-        if event.event_type == EventType::ResyncRequired
-            && event.payload.get("subscription_ended") == Some(&serde_json::Value::Bool(true))
-        {
+        // ⟨rev7; PC9⟩ Every gap ends the stream: the resync is the last line, exit 6.
+        if event.event_type == EventType::ResyncRequired {
             return Code::ResyncRequired.exit_code();
         }
     }
@@ -3435,6 +3491,202 @@ mod tree_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ⟨rev7; ADR-0013 §4, §5.4; PC6, PC9⟩ `--follow` over a real session whose dispatcher
+    /// starts every subscription with `backlog` events after the cursor and hands the test
+    /// its live channel.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    mod follow {
+        use std::sync::Arc;
+
+        use heimdall_contract::SchemaVersion;
+        use heimdall_contract::envelope::ErrorData;
+        use heimdall_contract::event::{Event, ResyncReason};
+        use heimdall_contract::ids::{EnvironmentId, EventId};
+        use heimdall_contract::ipc::{PeerInfo, PrincipalInfo};
+        use heimdall_contract::request::{InteractionMode, Request};
+        use heimdall_ipc::session::{
+            ConnectionLimits, ControlClient, ControlConnection, Dispatcher, LiveEvent, SessionInfo,
+            SubscriptionStart,
+        };
+        use tokio::sync::broadcast;
+        use tokio_util::sync::CancellationToken;
+
+        use super::*;
+
+        fn env() -> EnvironmentId {
+            EnvironmentId::from_random_bytes([7; 16])
+        }
+
+        fn event(seq: u64, event_type: EventType, payload: serde_json::Value) -> Event {
+            let mut id = [0u8; 16];
+            id[..8].copy_from_slice(&seq.to_be_bytes());
+            Event {
+                schema_version: SchemaVersion::current(),
+                event_id: EventId::from_random_bytes(id),
+                event_type,
+                environment_id: env(),
+                operation_id: None,
+                resource: None,
+                timestamp: Timestamp::UNIX_EPOCH,
+                cursor: Cursor(format!("c{seq}")),
+                payload,
+            }
+        }
+
+        #[derive(Clone)]
+        struct Stream {
+            live: broadcast::Sender<Arc<LiveEvent>>,
+            backlog: u64,
+        }
+
+        #[async_trait::async_trait]
+        impl Dispatcher for Stream {
+            async fn dispatch(&self, _: &SessionInfo, _: Request) -> Envelope<serde_json::Value> {
+                Envelope::ok(serde_json::json!({}))
+            }
+
+            async fn subscribe(
+                &self,
+                _: &SessionInfo,
+                _: EventFilter,
+                from: Option<Cursor>,
+            ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>> {
+                let backlog: Vec<Event> = (1..=self.backlog)
+                    .map(|n| event(n, EventType::GrantStateChanged, serde_json::json!({})))
+                    .collect();
+                Ok(SubscriptionStart {
+                    cursor: Cursor(format!("c{}", self.backlog)),
+                    boundary_seq: self.backlog,
+                    snapshot: None,
+                    resync_reason: from.is_none().then_some(ResyncReason::CursorInvalid),
+                    backlog,
+                    live: self.live.subscribe(),
+                    cursor_for: Arc::new(|seq| Cursor(format!("c{seq}"))),
+                })
+            }
+        }
+
+        /// Run `--follow` from `c0` against [`Stream`]; `feed` sends live events once the
+        /// head is out. Every printed line, and the exit.
+        async fn follow(
+            backlog: u64,
+            feed: impl FnOnce(&broadcast::Sender<Arc<LiveEvent>>) + Send + 'static,
+        ) -> (Vec<serde_json::Value>, ExitCode) {
+            let (live, _) =
+                broadcast::channel(heimdall_contract::ipc::EVENT_BUFFER_PER_SUBSCRIPTION);
+            let dispatcher = Stream {
+                live: live.clone(),
+                backlog,
+            };
+            let (server, stream) = tokio::io::duplex(1 << 20);
+            let stop = CancellationToken::new();
+            let serving = stop.clone();
+            tokio::spawn(async move {
+                let _ = ControlConnection::new(server, ConnectionLimits::default())
+                    .with_server_identity(
+                        env(),
+                        PeerInfo {
+                            name: "heimdall".into(),
+                            version: "test".into(),
+                        },
+                    )
+                    .serve(PrincipalInfo::OsUserUnix { uid: 501 }, dispatcher, serving)
+                    .await;
+            });
+            let mut client = ControlClient::handshake(
+                stream,
+                PeerInfo {
+                    name: "follow-test".into(),
+                    version: "0".into(),
+                },
+                std::collections::BTreeSet::new(),
+                InteractionMode::NonInteractive,
+            )
+            .await
+            .unwrap();
+            let mut lines = Vec::new();
+            let mut feed = Some(feed);
+            let exit = follow_stream(
+                &mut client,
+                EventFilter::default(),
+                Some(Cursor("c0".into())),
+                None,
+                &mut |line| {
+                    match line {
+                        FollowLine::Envelope(env) => {
+                            lines.push(serde_json::to_value(env).unwrap());
+                        }
+                        FollowLine::Event(value, _) => lines.push(value.clone()),
+                    }
+                    if let Some(feed) = feed.take() {
+                        feed(&live);
+                    }
+                },
+            )
+            .await;
+            stop.cancel();
+            (lines, exit)
+        }
+
+        /// A trim marker ends the stream: the head (with `backlog`), the backlog, the one
+        /// `resync_required` (`history_trimmed`), then nothing; exit 6.
+        #[tokio::test]
+        async fn a_trim_is_the_last_line_and_exits_6() {
+            let (lines, exit) = follow(2, |live| {
+                let mut marker = event(
+                    9,
+                    EventType::ResyncRequired,
+                    serde_json::json!({ "reason": "history_trimmed", "subscription_ended": true }),
+                );
+                marker.cursor = Cursor(String::new());
+                live.send(Arc::new(LiveEvent {
+                    seq: 9,
+                    event: marker,
+                }))
+                .unwrap();
+                // Never printed: the stream ended at the gap.
+                let later = event(10, EventType::GrantStateChanged, serde_json::json!({}));
+                live.send(Arc::new(LiveEvent {
+                    seq: 10,
+                    event: later,
+                }))
+                .unwrap();
+            })
+            .await;
+            assert_eq!(exit, ExitCode::Conflict, "exit 6");
+            assert_eq!(lines.len(), 4, "{lines:?}");
+            assert_eq!(lines[0]["data"]["backlog"], 2, "{}", lines[0]);
+            assert!(lines[0]["data"].get("resync_reason").is_none());
+            assert_eq!(lines[1]["cursor"], "c1");
+            assert_eq!(lines[2]["cursor"], "c2");
+            assert_eq!(lines[3]["type"], "resync_required");
+            assert_eq!(
+                lines[3]["payload"],
+                serde_json::json!({ "reason": "history_trimmed", "subscription_ended": true })
+            );
+            assert_eq!(lines[3]["cursor"], "c2", "the last delivered cursor");
+        }
+
+        /// A lag ends the stream too, told apart from a trim; exit 6.
+        #[tokio::test]
+        async fn a_lag_is_the_last_line_and_exits_6() {
+            let (lines, exit) = follow(0, |live| {
+                for n in 1..=300 {
+                    let e = event(n, EventType::GrantStateChanged, serde_json::json!({}));
+                    live.send(Arc::new(LiveEvent { seq: n, event: e })).unwrap();
+                }
+            })
+            .await;
+            assert_eq!(exit, ExitCode::Conflict, "exit 6");
+            assert_eq!(lines.len(), 2, "{lines:?}");
+            assert_eq!(lines[0]["data"]["backlog"], 0);
+            assert_eq!(lines[1]["type"], "resync_required");
+            assert_eq!(lines[1]["payload"]["reason"], "subscriber_lagged");
+            assert_eq!(lines[1]["payload"]["subscription_ended"], true);
+            assert_eq!(lines[1]["cursor"], "c0");
+        }
+    }
 
     /// ⟨M08 U2b-2; ASK-FLAGS⟩ Every command that takes `--request-id` takes `--request-epoch`,
     /// which needs `--request-id`, and the given command's epoch is the invocation's kept one

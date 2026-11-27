@@ -64,14 +64,26 @@
 //! a [`SubscriptionStart`]: the live receiver (created before the boundary was
 //! read), the boundary as the reader's cursor and as a neutral sequence, and either
 //! a consistent snapshot or the retained backlog after the client's cursor. The
-//! session replies `Subscribed { cursor, snapshot }`, then sends every backlog
-//! event (already cursor-personalized by the dispatcher), then live events with
-//! `seq > boundary_seq` only, each personalized by the subscription's `cursor_for`
+//! session replies `Subscribed { cursor, snapshot, backlog, resync_reason }`, then sends
+//! every backlog event (already cursor-personalized by the dispatcher), then live events
+//! with `seq > boundary_seq` only, each personalized by the subscription's `cursor_for`
 //! at delivery. Overlap between the boundary read and the live receiver is
-//! therefore deduplicated here. A subscriber that lags its bounded broadcast
-//! buffer gets exactly one `ResyncRequired` event per lag episode; the backlog is
-//! dropped, never buffered without bound. The backlog itself is bounded by the
-//! dispatcher (store retention and paging), not by this module.
+//! therefore deduplicated here. ⟨rev7; D6, PC6⟩ Without a snapshot, `Subscribed.backlog`
+//! is exactly the number of backlog event frames that follow it; with one,
+//! `resync_reason` is the dispatcher's reason for not resuming the client's cursor
+//! (ADR-0013 §5.3). The backlog itself is bounded by the dispatcher (store retention
+//! and paging), not by this module.
+//!
+//! **Every gap ends the stream** (⟨rev7; PC9⟩ ADR-0013 §5.4). A subscriber that lags its
+//! bounded broadcast buffer gets exactly one `ResyncRequired` event (`subscriber_lagged`,
+//! with `dropped`), never a buffer without bound. A live `ResyncRequired` above the
+//! subscription's boundary is the publisher's trim marker (retention removed events
+//! before they were fanned out): the subscriber gets exactly one `ResyncRequired` with
+//! the marker's reason (`history_trimmed`). Either carries the subscriber's last
+//! delivered cursor and `subscription_ended: true`, and the subscription ends after it:
+//! nothing more is sent for it, and `Unsubscribe` of it answers `NOT_FOUND`. A live
+//! `ResyncRequired` at or below the boundary (a relay's sequence-0 filler, a trim the
+//! subscription's own snapshot or backlog already covers) is overlap and dropped.
 //!
 //! **Paired sessions** (⟨M06 W2⟩ ADR-0012 §3.6–§3.11; ADR-0006 §18.5 readings 1, 5, 17).
 //! The offer is the dispatcher's ([`Dispatcher::offered_capabilities`]: a runner adds
@@ -92,8 +104,10 @@
 //! [`Delivery::Replaced`], the subscription's cursor stays at the last event
 //! actually delivered, one `ResyncRequired` event carrying that cursor (payload
 //! `reason: "event_too_large"`, `subscription_ended: true`) is sent, and the
-//! subscription **ends**. Recovery is a fresh snapshot (subscribe without a
-//! cursor); resubscribing from the carried cursor meets the same event again.
+//! subscription **ends**. Recovery is a fresh snapshot: ⟨rev7; D6⟩ the runtime's
+//! dispatcher checks every backlog event's frame in the subscribe transaction, so a
+//! resubscription from the carried cursor starts from a whole snapshot with
+//! `resync_reason: event_too_large` (ADR-0013 §5.3) instead of meeting the event again.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::future::Future;
@@ -106,7 +120,9 @@ use futures_util::{SinkExt, StreamExt};
 use heimdall_contract::envelope::{
     EffectStatus, Envelope, ErrorData, ErrorDetail, NextAction, reason,
 };
-use heimdall_contract::event::{Cursor, Event, EventFilter, EventType, MAX_CURSOR_LEN, Snapshot};
+use heimdall_contract::event::{
+    Cursor, Event, EventFilter, EventType, MAX_CURSOR_LEN, ResyncReason, Snapshot,
+};
 use heimdall_contract::ids::{EnvironmentId, EventId, RequestId};
 use heimdall_contract::ipc::{
     ClientHello, ClientMessage, EVENT_BUFFER_PER_SUBSCRIPTION, HELLO_TIMEOUT_MS,
@@ -491,8 +507,12 @@ pub struct SubscriptionStart {
     /// Consistent snapshot taken at the boundary, when the client had no usable
     /// cursor.
     pub snapshot: Option<Snapshot<serde_json::Value>>,
+    /// ⟨rev7; D6, PC6⟩ With `snapshot`, why the client's cursor was not resumed
+    /// (`Subscribed.resync_reason`, ADR-0013 §5.3); `None` otherwise.
+    pub resync_reason: Option<ResyncReason>,
     /// Retained events after the client's cursor up to the boundary, in order and
-    /// already cursor-personalized for this reader.
+    /// already cursor-personalized for this reader: the visible ones, each fitting one
+    /// frame. The ones matching the filter are `Subscribed.backlog`'s count.
     pub backlog: Vec<Event>,
     /// Live receiver created **before** the boundary was read.
     pub live: broadcast::Receiver<Arc<LiveEvent>>,
@@ -724,12 +744,34 @@ fn session_event_id() -> EventId {
 }
 
 /// A `ResyncRequired` event whose cursor is the last position the subscriber
-/// was delivered (before the gap): resuming from it never skips the gap.
+/// was delivered (before the gap): resuming from it never skips the gap. ⟨rev7; PC9⟩ The
+/// lag ends the subscription.
 fn resync_event(environment: &EnvironmentId, cursor: &Cursor, dropped: u64) -> Event {
     resync_event_with(
         environment,
         cursor,
-        serde_json::json!({ "reason": "subscriber_lagged", "dropped": dropped }),
+        serde_json::json!({
+            "reason": ResyncReason::SubscriberLagged.as_str(),
+            "dropped": dropped,
+            "subscription_ended": true,
+        }),
+    )
+}
+
+/// ⟨rev7; PC6, PC9⟩ The `ResyncRequired` event for a live gap marker above the
+/// subscription's boundary (the publisher's trim marker): the marker's reason
+/// (`history_trimmed`) at the subscriber's last delivered cursor, with its own event ID
+/// and `subscription_ended: true`. The subscription ends after it.
+fn gap_event(environment: &EnvironmentId, cursor: &Cursor, marker: &Event) -> Event {
+    let reason = marker
+        .payload
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(ResyncReason::HistoryTrimmed.as_str());
+    resync_event_with(
+        environment,
+        cursor,
+        serde_json::json!({ "reason": reason, "subscription_ended": true }),
     )
 }
 
@@ -739,7 +781,10 @@ fn oversized_resync_event(environment: &EnvironmentId, cursor: &Cursor) -> Event
     resync_event_with(
         environment,
         cursor,
-        serde_json::json!({ "reason": "event_too_large", "subscription_ended": true }),
+        serde_json::json!({
+            "reason": ResyncReason::EventTooLarge.as_str(),
+            "subscription_ended": true,
+        }),
     )
 }
 
@@ -1201,9 +1246,26 @@ where
                 Some(Some(poll)) = sub_polls.next(), if !sub_polls.is_empty() => {
                     let SubPoll { id, mut rx, result } = poll;
                     let Some(state) = subs.get_mut(&id) else { continue };
+                    // ⟨rev7; PC9⟩ Whether the frame is a gap's `ResyncRequired`, after which
+                    // the subscription ends (ADR-0013 §5.4).
+                    let mut gap = false;
                     let msg = match result {
                         // Covered by the snapshot/backlog: overlap, not sent.
                         Ok(live) if live.seq <= state.boundary_seq => None,
+                        // ⟨rev7; PC6⟩ A trim marker: retention removed events this
+                        // subscriber had not received. Never filtered: the gap may hold
+                        // any event the filter admits.
+                        Ok(live) if live.event.event_type == EventType::ResyncRequired => {
+                            gap = true;
+                            Some((
+                                ServerMessage::Event {
+                                    subscription: id,
+                                    event: gap_event(&environment, &state.last_cursor, &live.event),
+                                },
+                                state.last_cursor.clone(),
+                                None,
+                            ))
+                        }
                         Ok(live) => {
                             let mut event = live.event.clone();
                             event.cursor = (state.cursor_for)(live.seq);
@@ -1221,8 +1283,10 @@ where
                             }
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
+                            gap = true;
                             let mut dropped = n;
-                            // Drop the retained backlog; bounded by the channel capacity.
+                            // The retained backlog is never delivered either: counted as
+                            // dropped; bounded by the channel capacity.
                             for _ in 0..=EVENT_BUFFER_PER_SUBSCRIPTION {
                                 match rx.try_recv() {
                                     Ok(_) => dropped += 1,
@@ -1249,6 +1313,13 @@ where
                         continue;
                     };
                     match send_event(&mut wire, msg, &environment, &before).await {
+                        // ⟨rev7; PC9⟩ The gap's resync went out: the subscription ends, and
+                        // nothing more is sent for it.
+                        Ok(Delivery::Delivered) if gap => {
+                            if let Some(state) = subs.remove(&id) {
+                                state.stop.cancel();
+                            }
+                        }
                         Ok(Delivery::Delivered) => {
                             if let Some(cursor) = advance_to {
                                 state.last_cursor = cursor;
@@ -1434,15 +1505,30 @@ where
         cursor,
         boundary_seq,
         snapshot,
+        resync_reason,
         backlog,
         live,
         cursor_for,
     } = start;
+    // ⟨rev7; D6, PC6⟩ Exactly the backlog frames that follow (ADR-0013 §5.3): the filter's
+    // events, counted before `Subscribed` goes out. A backlog start only; a snapshot start
+    // carries the reason it was not one.
+    let sent = backlog
+        .iter()
+        .filter(|e| filter_matches(&filter, e))
+        .count();
+    let (backlog_count, resync_reason) = if snapshot.is_some() {
+        (None, resync_reason)
+    } else {
+        (Some(u32::try_from(sent).unwrap_or(u32::MAX)), None)
+    };
     let reply = ServerMessage::Subscribed {
         in_reply_to: seq,
         subscription: id,
         cursor: cursor.clone(),
         snapshot,
+        backlog: backlog_count,
+        resync_reason,
     };
     if send_or_internal(wire, reply).await? == Sent::Replaced {
         return Ok(None);
@@ -1459,7 +1545,9 @@ where
             };
             if send_event(wire, msg, environment, &last).await? == Delivery::Replaced {
                 // N03: `last` stays at the last delivered event; the resync carried
-                // it; the subscription ends here (no live state is returned).
+                // it; the subscription ends here (no live state is returned). The
+                // dispatcher checks each backlog event's frame before it counts it, so
+                // this is a defence only.
                 stop.cancel();
                 return Ok(None);
             }
@@ -1759,6 +1847,12 @@ pub enum SubscribeOutcome {
         /// Consistent view at `cursor`, when the server started from a snapshot
         /// (no cursor sent, or an expired/foreign one the server resynced).
         snapshot: Option<Snapshot<serde_json::Value>>,
+        /// ⟨rev7; D6⟩ Without a snapshot: exactly how many backlog events follow
+        /// before live events (`Subscribed.backlog`).
+        backlog: Option<u32>,
+        /// ⟨rev7; D6⟩ With a snapshot started although a cursor was sent: why
+        /// (`Subscribed.resync_reason`).
+        resync_reason: Option<ResyncReason>,
     },
     /// The server refused (e.g. `BACKPRESSURE`, `RESYNC_REQUIRED`).
     Refused(Box<Envelope<serde_json::Value>>),
@@ -2022,11 +2116,15 @@ where
                 subscription,
                 cursor,
                 snapshot,
+                backlog,
+                resync_reason,
                 ..
             } => Ok(SubscribeOutcome::Subscribed {
                 subscription,
                 cursor,
                 snapshot,
+                backlog,
+                resync_reason,
             }),
             ServerMessage::Response { envelope, .. } => {
                 Ok(SubscribeOutcome::Refused(Box::new(envelope)))
@@ -2657,6 +2755,7 @@ mod tests {
                 cursor: Cursor("c0".into()),
                 boundary_seq: 0,
                 snapshot: None,
+                resync_reason: None,
                 backlog: Vec::new(),
                 live: self.live.subscribe(),
                 cursor_for: Arc::new(|seq| Cursor(format!("c{seq}"))),
@@ -2919,6 +3018,7 @@ mod tests {
             cursor: Cursor(canary),
             boundary_seq: 9,
             snapshot: None,
+            resync_reason: None,
             backlog: Vec::new(),
             live,
             cursor_for: Arc::new(|seq| Cursor(format!("c{seq}"))),

@@ -366,6 +366,13 @@ class WrapperTests(unittest.TestCase):
         self.assertFalse(stale.success)
 
     def test_gap_freezes_cursor_closes_old_stream_and_resumes_same_filter(self):
+        # Every gap ends the stream (ADR-0013 §5.4); lag and trim are told apart by the
+        # resync's reason, and nothing after it is applied.
+        for reason in ("history_trimmed", "subscriber_lagged"):
+            with self.subTest(reason=reason):
+                self._gap_ends_the_stream(reason)
+
+    def _gap_ends_the_stream(self, reason):
         applied, persisted = [], []
         operation = {"operation_id": "fixture-operation", "types": ["operation_state_changed"]}
 
@@ -378,7 +385,8 @@ class WrapperTests(unittest.TestCase):
             send_event(conn, event("one", "c1", new_field=True))
             send_event(conn, event("unknown", "c2", "new_event_type"))
             send_event(conn, event("one", "c1"))  # Replay must not rewind the cursor.
-            gap = event("gap", "unapplied", "resync_required", payload={"subscription_ended": False})
+            gap = event("gap", "unapplied", "resync_required",
+                        payload={"reason": reason, "subscription_ended": True})
             later = event("old", "late")
             frames = [json.dumps({"type": "event", "subscription": 1, "event": e}).encode()
                       for e in (gap, later)]
@@ -405,10 +413,11 @@ class WrapperTests(unittest.TestCase):
             for _ in range(3):
                 self.assertTrue(stream.step())
             self.assertFalse(stream.step())
-            self.assertEqual(stream.ending, "resync_required")
+            self.assertEqual((stream.ending, stream.gap), ("resync_required", reason))
             self.assertEqual(applied, ["snapshot", "one"])
             self.assertEqual(persisted, ["base", "c1", "c2"])
             stream.start()
+            self.assertEqual((stream.gap, stream.resync_reason), (None, None))
             self.assertEqual(stream.cursor, "c2")
             self.assertTrue(stream.step())
             self.assertEqual(stream.cursor, "c3")
@@ -417,6 +426,44 @@ class WrapperTests(unittest.TestCase):
             stream.stop()
         self.assertEqual(applied, ["snapshot", "one", "two", "three"])
         self.assertEqual(persisted, ["base", "c1", "c2", "c3", "c4", "h2"])
+
+    def test_restart_from_a_snapshot_names_its_reason(self):
+        # A cursor the runtime cannot resume (here, below the retained tail) restarts from
+        # a whole snapshot whose head says why; the snapshot's cursor is the checkpoint.
+        persisted = []
+
+        def script(conn):
+            hello(conn)
+            message = receive(conn)
+            self.assertEqual(message["from_cursor"], "trimmed")
+            head(conn, message, "fresh", snapshot={"cursor": "fresh", "data": DATA},
+                 resync_reason="history_trimmed")
+            closed(conn)
+
+        with server(script) as endpoint:
+            stream = Subscription(partial(Client, endpoint, ENVIRONMENT), lambda _: None,
+                                  lambda _: None, persisted.append, cursor="trimmed")
+            self.addCleanup(stream.stop)
+            stream.start()
+            self.assertEqual(stream.resync_reason, "history_trimmed")
+            self.assertEqual(persisted, ["fresh"])
+            stream.stop()
+
+    def test_a_gap_without_a_reason_is_a_protocol_error(self):
+        def script(conn):
+            hello(conn)
+            head(conn, receive(conn), "h", backlog=0)
+            send_event(conn, event("gap", "h", "resync_required", payload={}))
+            closed(conn)
+
+        with server(script) as endpoint:
+            stream = Subscription(partial(Client, endpoint, ENVIRONMENT), lambda _: None,
+                                  lambda _: None, lambda _: None, cursor="saved")
+            self.addCleanup(stream.stop)
+            stream.start()
+            with self.assertRaises(ProtocolError):
+                stream.step()
+            self.assertEqual((stream.ending, stream.cursor), ("read_failed", "h"))
 
     def test_revocation_disconnect_and_early_stop_freeze_unapplied_head(self):
         for ending in ("revoked", "disconnected", "stopped"):

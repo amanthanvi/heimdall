@@ -466,13 +466,18 @@ class Client:
 
 
 class Subscription:
-    """Apply one stream at a time. Call start again after an ending to resume."""
+    """Apply one stream at a time. Call start again after an ending to resume.
+
+    Every gap ends the stream: a `resync_required` event is its last frame. Then `ending`
+    is "resync_required" and `gap` is the event's reason ("subscriber_lagged",
+    "history_trimmed" or "event_too_large"). A head that restarted from a whole snapshot
+    although a cursor was sent names why in `resync_reason`."""
 
     def __init__(self, connect, apply_snapshot, apply_event, persist, *, filter=None, cursor=None):
         self._connect = connect
         self._apply_snapshot, self._apply_event, self._persist = apply_snapshot, apply_event, persist
         self._filter = copy.deepcopy({} if filter is None else filter)
-        self.cursor, self.ending = cursor, None
+        self.cursor, self.ending, self.gap, self.resync_reason = cursor, None, None, None
         self._client, self._seen = None, set()
 
     def _checkpoint(self, cursor):
@@ -483,12 +488,14 @@ class Subscription:
     def start(self):
         if self._client is not None:
             raise ValueError("stop the current stream before starting another")
-        self.ending = None
+        self.ending, self.gap, self.resync_reason = None, None, None
         try:
             self._client = self._connect()
             head = self._client.subscribe(filter=self._filter, cursor=self.cursor)
             self._head = head["cursor"]
             self._backlog = None
+            if "resync_reason" in head:
+                self.resync_reason = _string(head, "resync_reason")
             snapshot = head.get("snapshot")
             if snapshot is not None:
                 if _string(_object(snapshot, "snapshot"), "cursor") != self._head:
@@ -521,6 +528,8 @@ class Subscription:
                 return False
             kind = event["type"]
             if kind == "resync_required":
+                # Every gap ends the stream; nothing after it is applied.
+                self.gap = _string(_object(event.get("payload"), "payload"), "reason")
                 self.stop(kind)
                 return False
             if kind == "client" and _string(_object(event.get("payload"), "payload"), "kind") == "revoked":

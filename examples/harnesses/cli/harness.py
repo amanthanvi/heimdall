@@ -16,6 +16,10 @@ class HarnessError(Exception):
     pass
 
 
+# The reasons a resync_required event ends a stream with (ADR-0013 §5.4).
+GAP_REASONS = frozenset(("subscriber_lagged", "history_trimmed", "event_too_large"))
+
+
 def require(condition, message):
     if not condition:
         raise HarnessError(message)
@@ -217,12 +221,25 @@ class Journey:
                                    "--follow", "--max-events", str(limit), *extra)
         lines = records(output)
         require(bool(lines), "expected a subscription envelope")
+        if len(lines) > 1 and lines[-1].get("type") == "resync_required":
+            # Every gap ends the stream (ADR-0013 §5.4): the resync is the last line and
+            # the CLI exits 6. Nothing after the gap is applied.
+            payload = lines[-1].get("payload")
+            reason = payload.get("reason") if isinstance(payload, dict) else None
+            ended = isinstance(payload, dict) and payload.get("subscription_ended") is True
+            require(status == 6 and ended and reason in GAP_REASONS,
+                    "a resync_required line must end the stream with exit 6")
+            raise HarnessError(f"the subscription ended on a gap ({reason}); "
+                               "resubscribe from the last applied cursor")
         head = object_field(check_reply(status, lines[0], 0, "OK"), "data")
         head_cursor = text_field(head, "cursor")
         require(type(head.get("subscription")) is int and len(lines) == limit + 1,
                 "unexpected subscription head or event count")
         if limit:
             require(head.get("snapshot") is None, "subscription resume replaced the expected backlog")
+            # A backlog start counts the frames that follow exactly (ADR-0013 §5.3).
+            backlog = head.get("backlog")
+            require(type(backlog) is int and backlog >= 0, "missing or invalid backlog integer")
             event = lines[1]
             require(event.get("operation_id") == operation
                     and text_field(event, "type") != "resync_required",

@@ -100,7 +100,15 @@ elif args == ["operation", "wait", op, "--timeout-ms", "30000"]:
           operation_id=op)
 elif args[:5] == ["operation", "events", "--operation", op, "--follow"]:
     if args[5:] == ["--max-events", "1", "--cursor=cursor-fixture"]:
-        reply(data={"subscription": 1, "cursor": "cursor-next", "snapshot": None}, state="running")
+        head = {"subscription": 1, "cursor": "cursor-next", "snapshot": None}
+        if mode != "no-backlog":
+            head["backlog"] = 1
+        reply(data=head, state="running")
+        if mode in ("trim-gap", "lag-gap"):
+            reason = "history_trimmed" if mode == "trim-gap" else "subscriber_lagged"
+            emit(type="resync_required", event_id="evt_gap", cursor="cursor-fixture",
+                 payload={"reason": reason, "subscription_ended": True})
+            sys.exit(6)
         emit(type="operation_state_changed", event_id="evt_fixture", cursor="cursor-next",
              operation_id="op_other" if mode == "bad-event" else op, payload={"state": "succeeded"})
     else:
@@ -285,6 +293,7 @@ class HarnessTests(unittest.TestCase):
             ("capability-refusal", "effect", ("existing-access",), 1),
             ("approval", "bad-event", ("wider", "destination:account", lambda *_: True), 3),
             ("approval", "wide-snapshot", ("wider", "destination:account", lambda *_: True), 2),
+            ("approval", "no-backlog", ("wider", "destination:account", lambda *_: True), 3),
         )
         for task, mode, args, expected_calls in cases:
             with self.subTest(task=task, mode=mode):
@@ -293,6 +302,19 @@ class HarnessTests(unittest.TestCase):
                 self.assertFalse(result["success"], result)
                 self.assertEqual(result["calls"], expected_calls)
                 self.assertEqual(result["invalid_retries"], 0)
+
+    def test_a_gap_ends_the_follow_and_is_reported_with_its_reason(self):
+        # Every gap ends the stream (ADR-0013 §5.4): the resubscription meets a
+        # resync_required line and exit 6; H1 reports the gap, lag and trim apart, and
+        # applies nothing after it.
+        for mode, reason in (("trim-gap", "history_trimmed"), ("lag-gap", "subscriber_lagged")):
+            with self.subTest(mode=mode):
+                result = run_task("approval", self.journey(mode).approval, "wider",
+                                  "destination:account", lambda *_: True)
+                self.assertFalse(result["success"], result)
+                self.assertEqual(result["calls"], 3)
+                self.assertEqual(result["invalid_retries"], 0)
+                self.assertIn(f"ended on a gap ({reason})", result["detail"])
 
     def test_missing_fixture_home_prevents_spawn(self):
         (self.root / "ssh-home" / "etc-ssh").rmdir()

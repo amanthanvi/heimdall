@@ -33,7 +33,7 @@ use heimdall_app::ports::{
     AdapterDescriptor, CredentialAdapter, InteractionRequirement, LockContinuity, PrepareOutcome,
 };
 use heimdall_app::{Caller, Operations, OperationsConfig};
-use heimdall_contract::event::{Cursor, Event, EventFilter, EventType};
+use heimdall_contract::event::{BACKLOG_MAX, Cursor, Event, EventFilter, EventType, ResyncReason};
 use heimdall_contract::ids::{
     AccountName, DestinationId, DeviceId, EnvironmentId, PolicyId, ProfileId, RequestId, WorkId,
 };
@@ -301,13 +301,17 @@ impl World {
 
 /// The session-side merge rule applied to a `SubscriptionStart` (ADR-0006 §8):
 /// backlog first, then live events strictly after the boundary, personalized for
-/// the reader; a lag becomes one `ResyncRequired` carrying the last delivered
-/// cursor.
+/// the reader. ⟨rev7; PC6, PC9⟩ Every gap ends the stream (ADR-0013 §5.4): a lag becomes
+/// one `ResyncRequired` (`subscriber_lagged`), a live trim marker above the boundary one
+/// `ResyncRequired` (`history_trimmed`), each carrying the last delivered cursor, and
+/// nothing is delivered after it.
 struct Consumer {
     start: SubscriptionStart,
     delivered: Vec<Event>,
     last_cursor: Cursor,
     resyncs: usize,
+    /// The reason of the gap that ended the stream.
+    ended: Option<ResyncReason>,
 }
 
 impl Consumer {
@@ -316,6 +320,7 @@ impl Consumer {
             last_cursor: start.cursor.clone(),
             delivered: Vec::new(),
             resyncs: 0,
+            ended: None,
             start,
         };
         let backlog = std::mem::take(&mut c.start.backlog);
@@ -327,11 +332,20 @@ impl Consumer {
     }
 
     fn drain(&mut self) {
-        loop {
+        while self.ended.is_none() {
             match self.start.live.try_recv() {
                 Ok(ev) => {
                     if ev.seq <= self.start.boundary_seq {
                         continue; // overlap with the snapshot/backlog: drop
+                    }
+                    if ev.event.event_type == EventType::ResyncRequired {
+                        // A trim marker: the gap ends the stream.
+                        self.resyncs += 1;
+                        self.ended = Some(
+                            serde_json::from_value(ev.event.payload["reason"].clone()).unwrap(),
+                        );
+                        assert_eq!(ev.event.payload["subscription_ended"], true);
+                        return;
                     }
                     let mut e = ev.event.clone();
                     e.cursor = (self.start.cursor_for)(ev.seq);
@@ -339,9 +353,9 @@ impl Consumer {
                     self.delivered.push(e);
                 }
                 Err(TryRecvError::Lagged(_)) => {
+                    // Backlog dropped; the stream ends; the consumer resubscribes.
                     self.resyncs += 1;
-                    // Backlog dropped; the consumer must snapshot again.
-                    while self.start.live.try_recv().is_ok() {}
+                    self.ended = Some(ResyncReason::SubscriberLagged);
                     return;
                 }
                 Err(TryRecvError::Empty | TryRecvError::Closed) => return,
@@ -442,6 +456,7 @@ async fn foreign_malformed_and_expired_cursors_require_a_resync() {
         .await
         .unwrap();
     assert!(lenient.snapshot.is_some());
+    assert_eq!(lenient.resync_reason, Some(ResyncReason::CursorInvalid));
     // Malformed, oversize and wrong-environment cursors.
     for bad in [
         Cursor("!!".into()),
@@ -658,7 +673,13 @@ async fn lag_past_the_256_event_buffer_yields_one_resync_required() {
     w.publish(257);
     c.drain();
     assert_eq!(c.resyncs, 1, "one ResyncRequired, backlog dropped");
+    // ⟨rev7; PC6, PC9⟩ A lag, told apart from a trim; the stream ends there.
+    assert_eq!(c.ended, Some(ResyncReason::SubscriberLagged));
     assert!(c.delivered.is_empty());
+    w.publish(1);
+    c.drain();
+    assert!(c.delivered.is_empty(), "nothing after the gap");
+    assert_eq!(c.resyncs, 1);
     // At exactly the buffer size nothing is lost.
     let start = w
         .publisher()
@@ -1052,23 +1073,35 @@ async fn r03_retention_between_a_failed_catch_up_and_its_retry_requires_a_resync
         "explicit resync, nothing delivered past the trimmed event: {:?}",
         c.ids()
     );
+    // ⟨rev7; PC6, PC9⟩ A trim, told apart from a lag, and the stream ends.
+    assert_eq!(c.ended, Some(ResyncReason::HistoryTrimmed));
     assert_eq!(c.last_cursor, before_gap, "the last delivered cursor");
     assert_resume_is_refused(&w, &c).await;
-    // Later announcements continue after the resynchronized position; the
-    // trimmed history is never reported again.
+    // A started-after subscriber is past the gap: later announcements reach it, and
+    // the trimmed history is never reported again. The ended stream gets nothing more.
+    let after = w
+        .publisher()
+        .subscribe(&reader(501), EventFilter::default(), None, false)
+        .await
+        .unwrap();
+    let mut d = Consumer::new(after);
     assert!(w.publisher().retry_held(), "nothing is held back any more");
     let n2 = commit_unannounced(&w, 3);
     w.publisher().announce(n2.clone());
     c.drain();
-    assert_eq!(c.ids(), vec![n2.event.event_id.to_string()]);
+    d.drain();
+    assert!(c.delivered.is_empty());
     assert_eq!(c.resyncs, 1);
+    assert_eq!(d.ids(), vec![n2.event.event_id.to_string()]);
+    assert_eq!((d.resyncs, d.ended), (0, None));
 }
 
-/// §13.8 item 3 through the runtime's relay: the retention gap reaches every
-/// session's receiver as a lag (which the session turns into one
-/// `ResyncRequired` at its last delivered cursor), never as the surviving event.
+/// §13.8 item 3 through the runtime's relay: ⟨rev7; PC6⟩ the retention gap reaches every
+/// session's receiver as one `history_trimmed` marker above its boundary (which the session
+/// turns into one `ResyncRequired` at its last delivered cursor, ending the stream), never
+/// as a lag and never as the surviving event.
 #[tokio::test]
-async fn r03_retention_gap_reaches_session_receivers_through_the_relay_as_a_lag() {
+async fn r03_retention_gap_reaches_session_receivers_through_the_relay_as_a_trim() {
     use tokio::sync::broadcast::error::TryRecvError as SessionRecv;
     let w = World::new().await;
     let shutdown = tokio_util::sync::CancellationToken::new();
@@ -1090,9 +1123,13 @@ async fn r03_retention_gap_reaches_session_receivers_through_the_relay_as_a_lag(
         tokio::task::yield_now().await;
     }
     let mut lagged = false;
+    let mut markers = Vec::new();
     let mut after_boundary = Vec::new();
     loop {
         match session.try_recv() {
+            Ok(e) if e.seq > boundary && e.event.event_type == EventType::ResyncRequired => {
+                markers.push(e);
+            }
             Ok(e) if e.seq > boundary => after_boundary.push(e.event.event_id.to_string()),
             Ok(_) => {}
             Err(SessionRecv::Lagged(_)) => lagged = true,
@@ -1100,9 +1137,13 @@ async fn r03_retention_gap_reaches_session_receivers_through_the_relay_as_a_lag(
         }
     }
     shutdown.cancel();
+    assert!(!lagged, "a trim is never forced through a lag");
+    assert_eq!(markers.len(), 1, "one trim marker");
+    assert_eq!(markers[0].event.payload["reason"], "history_trimmed");
+    assert_eq!(markers[0].event.payload["subscription_ended"], true);
     assert!(
-        lagged,
-        "the session receiver lags, so it emits ResyncRequired"
+        markers[0].seq >= n.seq,
+        "the marker covers the trimmed event"
     );
     assert!(
         after_boundary.is_empty(),
@@ -1140,6 +1181,7 @@ async fn r03_age_retention_before_an_announcement_requires_a_resync() {
     w.publisher().announce(n1.clone());
     c.drain();
     assert_eq!((c.delivered.len(), c.resyncs), (0, 1), "{:?}", c.ids());
+    assert_eq!(c.ended, Some(ResyncReason::HistoryTrimmed));
     assert_eq!(c.last_cursor, before_gap);
     assert!(retained_tail(&w) > cursor::decode(&before_gap).unwrap().seq);
     assert_resume_is_refused(&w, &c).await;
@@ -1289,22 +1331,28 @@ mod props_announce {
         })
     }
 
-    /// The live receiver as a subscriber sees it: deliveries until a lag, which
-    /// is the explicit resync (the session turns it into one `ResyncRequired` at
-    /// the last delivered cursor and drops the buffered rest).
+    /// The live receiver as a subscriber sees it: deliveries until the trim marker,
+    /// which is the explicit resync (⟨rev7; PC6, PC9⟩ the session turns it into one
+    /// `ResyncRequired`, `history_trimmed`, at the last delivered cursor and ends the
+    /// stream). A trace this short never lags, so a lag would be a trim forced through it.
     struct Live {
         rx: tokio::sync::broadcast::Receiver<Arc<SequencedEvent>>,
         delivered: Vec<SequencedEvent>,
         resynced: bool,
+        lagged: bool,
     }
 
     impl Live {
         fn drain(&mut self) {
             loop {
                 match self.rx.try_recv() {
-                    Ok(e) if !self.resynced => self.delivered.push((*e).clone()),
-                    Ok(_) => {}
-                    Err(TryRecvError::Lagged(_)) => self.resynced = true,
+                    Ok(_) if self.resynced => {}
+                    Ok(e) if e.event.event_type == EventType::ResyncRequired => {
+                        assert_eq!(e.event.payload["reason"], "history_trimmed");
+                        self.resynced = true;
+                    }
+                    Ok(e) => self.delivered.push((*e).clone()),
+                    Err(TryRecvError::Lagged(_)) => self.lagged = true,
                     Err(TryRecvError::Empty) => return,
                     Err(e) => panic!("unexpected receiver state: {e:?}"),
                 }
@@ -1329,6 +1377,7 @@ mod props_announce {
             rx: publisher.live_receiver(),
             delivered: Vec::new(),
             resynced: false,
+            lagged: false,
         };
         let committed: Vec<SequencedEvent> = (0..n)
             .map(|i| {
@@ -1390,6 +1439,7 @@ mod props_announce {
             };
             let was_resynced = live.resynced;
             live.drain();
+            prop_assert!(!live.lagged, "a trim is forced through a lag");
             // Until the resync: a gap-free, strictly increasing prefix of the
             // committed events, never beyond what was announced.
             prop_assert!(live.delivered.len() <= committed.len());
@@ -2089,5 +2139,276 @@ async fn snapshot_is_one_transaction_with_its_boundary() {
             usize::from(!before_boundary),
             "never doubled"
         );
+    }
+}
+
+// =====================================================================================
+// ⟨rev7; ADR-0013 §5.3, §5.4, D6; PC6, PC9⟩ Every gap ends the stream, lag and trim apart
+// on the wire; `Subscribed.backlog` exact; `Subscribed.resync_reason` names the restart.
+// =====================================================================================
+
+/// `backlog` is exactly the visible, filter-matching events after the cursor, up to
+/// [`BACKLOG_MAX`]; past it, and for every other cursor a backlog cannot serve, the start is
+/// a whole snapshot whose `resync_reason` says why.
+#[tokio::test]
+async fn subscribe_backlog_is_exact_and_capped_and_a_restart_names_its_reason() {
+    let w = World::new().await;
+    let me = reader(501);
+    let start = |from: Cursor, filter: EventFilter| {
+        let p = w.publisher().clone();
+        let me = me.clone();
+        async move { p.subscribe(&me, filter, Some(from), false).await.unwrap() }
+    };
+    let from = w.publisher().head_cursor(&me).unwrap();
+    w.publish(7);
+    let s = start(from.clone(), EventFilter::default()).await;
+    assert!(s.snapshot.is_none());
+    assert_eq!((s.backlog.len(), s.resync_reason), (7, None), "N behind: N");
+    // Only the filter's events count.
+    let s = start(from.clone(), types(&[EventType::OperationStateChanged])).await;
+    assert!(s.snapshot.is_none());
+    assert_eq!((s.backlog.len(), s.resync_reason), (0, None));
+    // Exactly BACKLOG_MAX behind: still a backlog start.
+    let from = w.publisher().head_cursor(&me).unwrap();
+    w.publish(BACKLOG_MAX as usize);
+    let s = start(from.clone(), EventFilter::default()).await;
+    assert!(s.snapshot.is_none());
+    assert_eq!(s.backlog.len(), BACKLOG_MAX as usize);
+    // One more: a whole snapshot, `backlog_too_long`.
+    w.publish(1);
+    let s = start(from, EventFilter::default()).await;
+    assert!(s.snapshot.is_some() && s.backlog.is_empty());
+    assert_eq!(s.resync_reason, Some(ResyncReason::BacklogTooLong));
+    // Beyond the head, another reader's, malformed: `cursor_invalid`.
+    let head = cursor::decode(&w.publisher().head_cursor(&me).unwrap())
+        .unwrap()
+        .seq;
+    for bad in [
+        w.publisher().cursor_at(&me, head + 5),
+        w.publisher().head_cursor(&reader(502)).unwrap(),
+        Cursor("!!".into()),
+    ] {
+        let s = start(bad, EventFilter::default()).await;
+        assert!(s.snapshot.is_some() && s.backlog.is_empty());
+        assert_eq!(s.resync_reason, Some(ResyncReason::CursorInvalid));
+    }
+    // An event that does not fit one frame in the backlog: `event_too_large`, never a
+    // backlog that would end at it.
+    let from = w.publisher().head_cursor(&me).unwrap();
+    w.publish(1);
+    w.publisher()
+        .publish(
+            EventType::ResourceChanged,
+            None,
+            serde_json::json!({ "pad": "x".repeat(heimdall_contract::ipc::MAX_CONTROL_FRAME_BYTES) }),
+        )
+        .unwrap();
+    let s = start(from.clone(), EventFilter::default()).await;
+    assert!(s.snapshot.is_some() && s.backlog.is_empty());
+    assert_eq!(s.resync_reason, Some(ResyncReason::EventTooLarge));
+    // The events before it are not enough to make it a backlog start, and a strict
+    // caller is refused.
+    let strict = w
+        .publisher()
+        .subscribe(&me, EventFilter::default(), Some(from), true)
+        .await;
+    assert_eq!(strict.unwrap_err(), SubscribeRefusal::ResyncRequired);
+    // Below the retained tail: `history_trimmed`.
+    let old = w.publisher().cursor_at(&me, 1);
+    w.store
+        .transaction(|tx| tx.trim_events(&env_id(), t0(), 1))
+        .unwrap();
+    assert!(retained_tail(&w) > 1);
+    let s = start(old, EventFilter::default()).await;
+    assert!(s.snapshot.is_some() && s.backlog.is_empty());
+    assert_eq!(s.resync_reason, Some(ResyncReason::HistoryTrimmed));
+    // No cursor: a snapshot start with no reason.
+    let s = w
+        .publisher()
+        .subscribe(&me, EventFilter::default(), None, false)
+        .await
+        .unwrap();
+    assert!(s.snapshot.is_some());
+    assert_eq!(s.resync_reason, None);
+}
+
+mod wire_gaps {
+    use super::*;
+    use heimdall_contract::ipc::{PeerInfo, PrincipalInfo};
+    use heimdall_ipc::session::{
+        ConnectionLimits, ControlClient, ControlConnection, SubscribeOutcome,
+    };
+    use heimdall_runtime::dispatch::{EventRelay, OperationsDispatcher};
+    use tokio_util::sync::CancellationToken;
+
+    /// A real session over a duplex stream, served by the runtime's dispatcher and relay
+    /// on `w`'s publisher (so retention and lag reach it exactly as in the service).
+    async fn session(
+        w: &World,
+        stop: &CancellationToken,
+    ) -> ControlClient<tokio::io::DuplexStream> {
+        let relay = EventRelay::spawn(&w.ops, stop.clone());
+        let dispatcher = OperationsDispatcher::new(w.ops.clone(), relay, w.clock.clone());
+        let (server, stream) = tokio::io::duplex(4 << 20);
+        let stop = stop.clone();
+        tokio::spawn(async move {
+            let _ = ControlConnection::new(server, ConnectionLimits::default())
+                .with_server_identity(
+                    env_id(),
+                    PeerInfo {
+                        name: "heimdall".into(),
+                        version: "test".into(),
+                    },
+                )
+                .serve(PrincipalInfo::OsUserUnix { uid: 501 }, dispatcher, stop)
+                .await;
+        });
+        ControlClient::handshake(
+            stream,
+            PeerInfo {
+                name: "heimdall-pc6-test".into(),
+                version: "0".into(),
+            },
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap()
+    }
+
+    /// Subscribe; the handle, the head cursor, and the backlog count.
+    async fn subscribe(
+        c: &mut ControlClient<tokio::io::DuplexStream>,
+        from: Option<Cursor>,
+    ) -> (u64, Cursor, Option<u32>, Option<ResyncReason>) {
+        match c.subscribe(EventFilter::default(), from).await.unwrap() {
+            SubscribeOutcome::Subscribed {
+                subscription,
+                cursor,
+                backlog,
+                resync_reason,
+                ..
+            } => (subscription, cursor, backlog, resync_reason),
+            SubscribeOutcome::Refused(env) => panic!("refused: {env:?}"),
+        }
+    }
+
+    /// Let the relay and the session run (current-thread runtime).
+    async fn settle() {
+        for _ in 0..64 {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    /// The gap ended the stream: nothing more for `ended` (an event published now goes only
+    /// to a fresh subscription, which is the next frame on the wire), and `Unsubscribe` of it
+    /// answers `NOT_FOUND`.
+    async fn assert_ended(w: &World, c: &mut ControlClient<tokio::io::DuplexStream>, ended: u64) {
+        assert_eq!(c.unsubscribe(ended).await.unwrap().code, Code::NotFound);
+        let (fresh, _, _, _) = subscribe(c, None).await;
+        let later = w.publish(1);
+        let (sub, ev) = c.next_event().await.unwrap();
+        assert_eq!(sub, fresh, "nothing was sent for the ended subscription");
+        assert_eq!(ev.event_id, later[0].event.event_id);
+    }
+
+    /// The ruled test: with a subscriber behind, retention trims past its position; the
+    /// stream delivers exactly one `resync_required` with reason `history_trimmed` and
+    /// `subscription_ended: true` at its last delivered cursor, then nothing.
+    #[tokio::test]
+    async fn a_trim_ends_the_stream_visibly() {
+        let w = World::new().await;
+        let stop = CancellationToken::new();
+        let mut c = session(&w, &stop).await;
+        let (subscription, head, _, _) = subscribe(&mut c, None).await;
+        // The subscriber is behind `N`: `N + 1` is held back while `N` cannot be read,
+        // then retention removes `N` before the retry.
+        let n = commit_unannounced(&w, 1);
+        let n1 = commit_unannounced(&w, 2);
+        w.hook.fail_commits.store(1, Ordering::SeqCst);
+        w.publisher().announce(n1.clone());
+        w.store
+            .transaction(|tx| tx.trim_events(&env_id(), t0(), 1))
+            .unwrap();
+        assert!(retained_tail(&w) >= n.seq);
+        w.publisher().retry_held();
+        settle().await;
+        let (sub, ev) = c.next_event().await.unwrap();
+        assert_eq!(sub, subscription);
+        assert_eq!(ev.event_type, EventType::ResyncRequired);
+        assert_eq!(
+            ev.payload,
+            serde_json::json!({ "reason": "history_trimmed", "subscription_ended": true }),
+            "a trim, never forced through a lag"
+        );
+        assert_eq!(ev.cursor, head, "the last delivered cursor");
+        assert_eq!(ev.environment_id, env_id());
+        assert_no_canary(&serde_json::to_string(&ev).unwrap());
+        assert_ended(&w, &mut c, subscription).await;
+        // Resuming from the frozen cursor restarts from a whole snapshot, and says why.
+        let (_, _, backlog, reason) = subscribe(&mut c, Some(head)).await;
+        assert_eq!(
+            (backlog, reason),
+            (None, Some(ResyncReason::HistoryTrimmed))
+        );
+        stop.cancel();
+    }
+
+    /// A lagging subscriber (its buffer overflows) gets exactly one `resync_required` with
+    /// reason `subscriber_lagged`, `dropped` and `subscription_ended: true`, and the stream
+    /// ends.
+    #[tokio::test]
+    async fn a_lag_ends_the_stream_told_apart_from_a_trim() {
+        let w = World::new().await;
+        let stop = CancellationToken::new();
+        let mut c = session(&w, &stop).await;
+        let (subscription, _, _, _) = subscribe(&mut c, None).await;
+        let first = w.publish(1);
+        let (_, ev) = c.next_event().await.unwrap();
+        assert_eq!(ev.event_id, first[0].event.event_id);
+        let delivered = ev.cursor;
+        // 300 events with no yield: the 256-event buffer overflows.
+        w.publish(300);
+        settle().await;
+        let (sub, ev) = c.next_event().await.unwrap();
+        assert_eq!(sub, subscription);
+        assert_eq!(ev.event_type, EventType::ResyncRequired);
+        assert_eq!(ev.payload["reason"], "subscriber_lagged");
+        assert_eq!(ev.payload["subscription_ended"], true);
+        assert!(ev.payload["dropped"].as_u64().unwrap() >= 300 - 256);
+        assert_eq!(ev.cursor, delivered, "the last delivered cursor");
+        assert_ended(&w, &mut c, subscription).await;
+        stop.cancel();
+    }
+
+    /// `Subscribed.backlog` on the wire: exactly the frames that follow before live ones.
+    #[tokio::test]
+    async fn the_backlog_count_is_the_frames_that_follow() {
+        let w = World::new().await;
+        let stop = CancellationToken::new();
+        let mut c = session(&w, &stop).await;
+        let from = w.publisher().head_cursor(&reader(501)).unwrap();
+        let missed = w.publish(5);
+        let (subscription, head, backlog, reason) = subscribe(&mut c, Some(from)).await;
+        assert_eq!((backlog, reason), (Some(5), None));
+        let live = w.publish(1);
+        let mut got = Vec::new();
+        for _ in 0..6 {
+            let (sub, ev) = c.next_event().await.unwrap();
+            assert_eq!(sub, subscription);
+            got.push(ev);
+        }
+        let ids: Vec<_> = got.iter().map(|e| e.event_id.clone()).collect();
+        let expected: Vec<_> = missed
+            .iter()
+            .chain(&live)
+            .map(|e| e.event.event_id.clone())
+            .collect();
+        assert_eq!(ids, expected);
+        assert_eq!(
+            got[4].cursor, head,
+            "the head is the last backlog event's cursor"
+        );
+        stop.cancel();
     }
 }

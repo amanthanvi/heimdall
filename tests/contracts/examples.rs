@@ -788,11 +788,15 @@ fn attend_and_subscribed_examples_parse_to_the_documented_shapes() {
         subscription,
         cursor,
         snapshot,
+        backlog,
+        resync_reason,
     } = serde_json::from_value(subscribed.clone()).unwrap()
     else {
         panic!("not a subscribed frame");
     };
     assert_eq!((in_reply_to, subscription), (2, 1));
+    // ⟨rev7; D6⟩ A snapshot start without a cursor: neither a backlog count nor a reason.
+    assert_eq!((backlog, resync_reason), (None, None));
     let snapshot: Snapshot<Value> = snapshot.expect("snapshot present");
     // With a snapshot, the stream continues after the snapshot's own boundary.
     assert_eq!(snapshot.cursor, cursor);
@@ -803,4 +807,24 @@ fn attend_and_subscribed_examples_parse_to_the_documented_shapes() {
     assert_eq!(back, resumed);
     assert!(back.get("snapshot").is_none(), "omitted, not null");
     assert!(validate(&schema_doc(Kind::ServerMessage), &resumed).is_ok());
+    // ⟨rev7; D6, PC6⟩ A backlog start says exactly how many event frames follow; a snapshot
+    // start from a cursor says why the cursor was not resumed. Both validate and
+    // round-trip; an unknown reason does not validate.
+    let mut backlog = resumed;
+    backlog["backlog"] = serde_json::json!(3);
+    assert_eq!(Kind::ServerMessage.round_trip(&backlog), backlog);
+    assert!(validate(&schema_doc(Kind::ServerMessage), &backlog).is_ok());
+    let (_, mut restarted) = load("ipc.server-message.subscribed.json");
+    for reason in [
+        "history_trimmed",
+        "backlog_too_long",
+        "event_too_large",
+        "cursor_invalid",
+    ] {
+        restarted["resync_reason"] = serde_json::json!(reason);
+        assert_eq!(Kind::ServerMessage.round_trip(&restarted), restarted);
+        assert!(validate(&schema_doc(Kind::ServerMessage), &restarted).is_ok());
+    }
+    restarted["resync_reason"] = serde_json::json!("not_a_reason");
+    assert!(validate(&schema_doc(Kind::ServerMessage), &restarted).is_err());
 }

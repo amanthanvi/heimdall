@@ -850,6 +850,14 @@ fn event_checkpoint_survives_disconnect_and_resumes_the_same_filter() {
     assert!(resumed["sent"][0]["filter"] == filter);
     assert!(resumed["sent"][0]["from_cursor"] == previous);
     assert!(resumed["head"]["snapshot"].is_null());
+    // ⟨rev7; D6⟩ A backlog start: the head counts the missed frames exactly (at least the
+    // offline ensure's), and names no restart reason.
+    assert!(
+        resumed["head"]["backlog"].as_u64().is_some_and(|n| n >= 1),
+        "{}",
+        resumed["head"]
+    );
+    assert!(resumed["head"].get("resync_reason").is_none());
     assert!(resumed["cursor"] == previous);
     assert_eq!(resumed["applied"], json!([]));
     let checkpoint = applied_event(&mut driver, field(&second, "operation_id"));

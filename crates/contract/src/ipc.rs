@@ -358,6 +358,9 @@ pub enum ServerMessage {
     /// backlog after the client's cursor (or nothing when a snapshot was taken),
     /// then live events strictly after `cursor`; overlap is deduplicated by the
     /// server, so a consumer may still deduplicate by `event_id` but need not.
+    /// ⟨rev7; PC9⟩ Every gap ends the subscription: one `resync_required` event with
+    /// `subscription_ended: true` (`subscriber_lagged`, `history_trimmed` or
+    /// `event_too_large`), and nothing after it (ADR-0013 §5.4).
     Subscribed {
         /// Echoed sequence number.
         in_reply_to: u64,
@@ -379,6 +382,21 @@ pub enum ServerMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[schemars(with = "Option<crate::event::Snapshot<crate::event::EventSnapshotData>>")]
         snapshot: Option<crate::event::Snapshot<serde_json::Value>>,
+        /// ⟨rev7; D6, PC6⟩ A backlog start (no `snapshot`): exactly how many event frames
+        /// follow this one before live delivery begins, at most
+        /// [`crate::event::BACKLOG_MAX`]. They are the visible, filter-matching events after
+        /// the client's cursor, read, checked and counted in the subscribe transaction; no
+        /// control frame is counted (ADR-0013 §5.3). Omitted with a snapshot.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        backlog: Option<u32>,
+        /// ⟨rev7; D6, PC6⟩ Why the subscription started from a whole snapshot although the
+        /// client sent a cursor (ADR-0013 §5.3): `history_trimmed` (below the retained
+        /// tail), `backlog_too_long` (more than [`crate::event::BACKLOG_MAX`] events
+        /// behind), `event_too_large` (an undeliverable event in the backlog) or
+        /// `cursor_invalid` (beyond the head, malformed, of an unknown version, or another
+        /// reader's or environment's). Omitted otherwise.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resync_reason: Option<crate::event::ResyncReason>,
     },
     /// An event for a subscription.
     Event {

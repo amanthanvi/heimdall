@@ -171,6 +171,7 @@ impl Dispatcher for TestDispatcher {
             cursor: from.unwrap_or_else(|| Cursor("c0".into())),
             boundary_seq: 0,
             snapshot: None,
+            resync_reason: None,
             backlog: Vec::new(),
             live: self.events.subscribe(),
             cursor_for: Arc::new(|seq| Cursor(format!("c{seq}"))),
@@ -355,6 +356,7 @@ impl Dispatcher for LogDispatcher {
             cursor,
             boundary_seq,
             snapshot,
+            resync_reason: None,
             backlog,
             live,
             cursor_for,
@@ -1213,9 +1215,13 @@ async fn fifth_subscription_gets_backpressure_and_events_flow() {
                     subscription,
                     cursor,
                     snapshot,
+                    backlog,
+                    resync_reason,
                 } => {
                     assert_eq!(cursor, Cursor("c0".into()));
                     assert_eq!(snapshot, None);
+                    // ⟨rev7; D6⟩ No snapshot: a backlog start with nothing to replay.
+                    assert_eq!((backlog, resync_reason), (Some(0), None));
                     subs.push(subscription);
                 }
                 other => panic!("{other:?}"),
@@ -1298,14 +1304,106 @@ async fn lagging_subscriber_gets_one_resync_and_the_backlog_is_dropped() {
         assert_eq!(resync.event_type, EventType::ResyncRequired);
         // Boundary: the last event delivered before the gap.
         assert_eq!(resync.cursor, Cursor("c1".into()));
+        assert_eq!(resync.payload["reason"], "subscriber_lagged");
         assert!(resync.payload["dropped"].as_u64().unwrap() >= 300 - 256);
         assert_eq!(resync.environment_id, env_id());
-        // Live delivery resumes after the resync; nothing from the backlog.
+        // ⟨rev7; PC9⟩ Every gap ends the stream (ADR-0013 §5.4): the lag says so, and
+        // nothing more is sent for the subscription.
+        assert_eq!(resync.payload["subscription_ended"], true);
+        assert_eq!(
+            c.unsubscribe(subscription).await.unwrap().code,
+            Code::NotFound
+        );
+        let SubscribeOutcome::Subscribed {
+            subscription: fresh,
+            ..
+        } = c.subscribe(EventFilter::default(), None).await.unwrap()
+        else {
+            panic!("refused")
+        };
         events
             .send(event(302, EventType::GrantStateChanged, None))
             .unwrap();
-        let (_, next) = c.next_event().await.unwrap();
-        assert_eq!(next.cursor, Cursor("c302".into()));
+        let (sub, next) = c.next_event().await.unwrap();
+        assert_eq!((sub, next.cursor), (fresh, Cursor("c302".into())));
+        drop(c);
+    };
+    let (r, ()) = tokio::join!(server, client);
+    r.unwrap();
+}
+
+/// ⟨rev7; ADR-0013 §5.4, D6; PC6, PC9⟩ A live `resync_required` above the subscription's
+/// boundary is the publisher's trim marker: the subscriber gets exactly one
+/// `resync_required` with the marker's reason (`history_trimmed`, not `subscriber_lagged`)
+/// at its last delivered cursor, with `subscription_ended: true` and its own event ID,
+/// whatever its filter; then nothing. A marker at or below the boundary (a relay's
+/// sequence-0 filler) is overlap and dropped.
+#[tokio::test]
+async fn a_trim_marker_ends_the_stream_with_history_trimmed() {
+    let f = fixture();
+    let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+    let d = TestDispatcher::new();
+    let events = d.events.clone();
+    let server = serve_one(&l, d, ConnectionLimits::default(), CancellationToken::new());
+    let client = async {
+        let s = connect(&f.paths.control).await.unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
+        let op = OperationId::from_random_bytes([4; 16]);
+        let filter = EventFilter {
+            operation_id: Some(op.clone()),
+            types: vec![EventType::OperationStateChanged],
+        };
+        let SubscribeOutcome::Subscribed { subscription, .. } =
+            c.subscribe(filter, None).await.unwrap()
+        else {
+            panic!("refused")
+        };
+        events
+            .send(event(1, EventType::OperationStateChanged, Some(op.clone())))
+            .unwrap();
+        let (_, first) = c.next_event().await.unwrap();
+        assert_eq!(first.cursor, Cursor("c1".into()));
+        let marker = |seq: u64| {
+            let mut e = neutral(seq, EventType::ResyncRequired, None);
+            e.payload =
+                serde_json::json!({ "reason": "history_trimmed", "subscription_ended": true });
+            Arc::new(LiveEvent { seq, event: e })
+        };
+        // A filler at sequence 0 is covered by every boundary: not delivered.
+        events.send(marker(0)).unwrap();
+        events.send(marker(5)).unwrap();
+        let (sub, gap) = c.next_event().await.unwrap();
+        assert_eq!(sub, subscription);
+        assert_eq!(gap.event_type, EventType::ResyncRequired);
+        assert_eq!(
+            gap.payload,
+            serde_json::json!({ "reason": "history_trimmed", "subscription_ended": true })
+        );
+        assert_eq!(gap.cursor, Cursor("c1".into()), "the last delivered cursor");
+        assert_ne!(gap.event_id, marker(5).event.event_id, "its own event ID");
+        assert_eq!(
+            c.unsubscribe(subscription).await.unwrap().code,
+            Code::NotFound
+        );
+        let SubscribeOutcome::Subscribed {
+            subscription: fresh,
+            ..
+        } = c.subscribe(EventFilter::default(), None).await.unwrap()
+        else {
+            panic!("refused")
+        };
+        events
+            .send(event(6, EventType::OperationStateChanged, Some(op)))
+            .unwrap();
+        let (sub, next) = c.next_event().await.unwrap();
+        assert_eq!((sub, next.cursor), (fresh, Cursor("c6".into())));
         drop(c);
     };
     let (r, ()) = tokio::join!(server, client);
@@ -1763,8 +1861,13 @@ async fn publish_during_replay_to_live_is_delivered_exactly_once_in_order() {
                 subscription,
                 cursor,
                 snapshot,
+                backlog,
+                resync_reason,
             } => {
                 assert_eq!(*in_reply_to, 1);
+                // ⟨rev7; D6⟩ Exactly the two backlog frames that follow (seq 2 and the
+                // raced seq 3), and no restart reason.
+                assert_eq!((*backlog, *resync_reason), (Some(2), None));
                 assert_eq!(
                     cursor,
                     &Cursor("r0:3".into()),
@@ -1855,6 +1958,7 @@ async fn no_cursor_starts_from_a_snapshot_at_the_boundary() {
             subscription,
             cursor,
             snapshot,
+            ..
         } = c.subscribe(EventFilter::default(), None).await.unwrap()
         else {
             panic!("refused")
@@ -2056,6 +2160,7 @@ async fn after_oversized_resync(
         subscription: fresh,
         cursor,
         snapshot,
+        ..
     } = c.subscribe(EventFilter::default(), None).await.unwrap()
     else {
         panic!("refused")

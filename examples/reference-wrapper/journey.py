@@ -82,7 +82,8 @@ class Journey:
         return {**self.stream_state(), "head": head, "sent": self.stream_client.sent}
 
     def stream_state(self):
-        return {"cursor": self.stream.cursor, "ending": self.stream.ending, "applied": self.applied}
+        return {"cursor": self.stream.cursor, "ending": self.stream.ending, "gap": self.stream.gap,
+                "applied": self.applied}
 
     def step(self):
         self.applied.clear()

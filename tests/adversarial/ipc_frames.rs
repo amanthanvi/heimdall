@@ -77,6 +77,7 @@ impl Dispatcher for EchoDispatcher {
             cursor: Cursor("c0".into()),
             boundary_seq: 0,
             snapshot: None,
+            resync_reason: None,
             backlog: Vec::new(),
             live: self.events.subscribe(),
             cursor_for: Arc::new(|seq| Cursor(format!("c{seq}"))),

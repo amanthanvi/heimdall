@@ -57,9 +57,18 @@
       ]
     },
     {
-      "description": "Subscription established (ADR-0006 §8). Delivery order afterwards: retained\nbacklog after the client's cursor (or nothing when a snapshot was taken),\nthen live events strictly after `cursor`; overlap is deduplicated by the\nserver, so a consumer may still deduplicate by `event_id` but need not.",
+      "description": "Subscription established (ADR-0006 §8). Delivery order afterwards: retained\nbacklog after the client's cursor (or nothing when a snapshot was taken),\nthen live events strictly after `cursor`; overlap is deduplicated by the\nserver, so a consumer may still deduplicate by `event_id` but need not.\n⟨rev7; PC9⟩ Every gap ends the subscription: one `resync_required` event with\n`subscription_ended: true` (`subscriber_lagged`, `history_trimmed` or\n`event_too_large`), and nothing after it (ADR-0013 §5.4).",
       "type": "object",
       "properties": {
+        "backlog": {
+          "description": "⟨rev7; D6, PC6⟩ A backlog start (no `snapshot`): exactly how many event frames\nfollow this one before live delivery begins, at most\n[`crate::event::BACKLOG_MAX`]. They are the visible, filter-matching events after\nthe client's cursor, read, checked and counted in the subscribe transaction; no\ncontrol frame is counted (ADR-0013 §5.3). Omitted with a snapshot.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
         "cursor": {
           "description": "Head boundary read in the subscription transaction: live events follow\nstrictly after it. With `snapshot`, it is the snapshot's consistent\nboundary; without, it is the boundary **after** the backlog that\nfollows (not the client's cursor), so a consumer resumes from the\ncursor of the last event it processed, not from this value, until the\nbacklog has been consumed.",
           "$ref": "#/$defs/Cursor"
@@ -69,6 +78,17 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0
+        },
+        "resync_reason": {
+          "description": "⟨rev7; D6, PC6⟩ Why the subscription started from a whole snapshot although the\nclient sent a cursor (ADR-0013 §5.3): `history_trimmed` (below the retained\ntail), `backlog_too_long` (more than [`crate::event::BACKLOG_MAX`] events\nbehind), `event_too_large` (an undeliverable event in the backlog) or\n`cursor_invalid` (beyond the head, malformed, of an unknown version, or another\nreader's or environment's). Omitted otherwise.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResyncReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "snapshot": {
           "description": "Present when the client sent no cursor, or sent an expired/foreign one\nand the server chose to resync it: a transactionally consistent view\ntaken at `cursor`, whole or refused (⟨rev7; PC1⟩ its `data` is a typed\n[`crate::event::EventSnapshotData`], ADR-0013 §5.5). Carried as the\ndocument the runtime built from that type (so a paired session's\ndelivery can remove its decision handles); the schema is the type's.",
@@ -1582,6 +1602,36 @@
       "type": "integer",
       "format": "uint64",
       "minimum": 0
+    },
+    "ResyncReason": {
+      "description": "⟨rev7⟩ Why a subscription started from a whole snapshot, or why a stream or a page ended\n(ADR-0013 §5.3, §5.4). Every gap ends the stream.",
+      "oneOf": [
+        {
+          "description": "The live buffer (256 events) overran.",
+          "type": "string",
+          "const": "subscriber_lagged"
+        },
+        {
+          "description": "Retention removed events the reader had not received.",
+          "type": "string",
+          "const": "history_trimmed"
+        },
+        {
+          "description": "An event does not fit one frame.",
+          "type": "string",
+          "const": "event_too_large"
+        },
+        {
+          "description": "The missed backlog is longer than [`BACKLOG_MAX`] visible events.",
+          "type": "string",
+          "const": "backlog_too_long"
+        },
+        {
+          "description": "The cursor is beyond the head, malformed, of an unknown version, or another reader's\nor environment's.",
+          "type": "string",
+          "const": "cursor_invalid"
+        }
+      ]
     },
     "Role": {
       "description": "A paired client's role on a runner (ADR-0012 §3.8). The local same-user caller is\nalways `owner` (ADR-0006 §2.1); `requester` and `viewer` are defined here and unused\nuntil the role table lands (m06-plan U1).",

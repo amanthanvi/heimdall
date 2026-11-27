@@ -71,8 +71,12 @@ For a live stream, pass a factory for a fresh authenticated `Client` to
 `Subscription` along with callbacks `apply_snapshot(snapshot)`,
 `apply_event(event)` and `persist(cursor)`. Initialize with the durable
 cursor, if available. Call `start()`, then `step()` until it returns
-`False` or you stop. After an ending, call `start()` again to resume from
-`subscription.cursor` with the same filter. Call `stop()` in a `finally`
+`False` or you stop. Every gap ends the stream with one `resync_required`
+event. `ending` is then `"resync_required"` and `gap` holds the event's
+reason: `subscriber_lagged`, `history_trimmed` or `event_too_large`. Nothing
+after the gap is applied. A head that restarts from a whole snapshot although
+you sent a cursor names why in `resync_reason`. After an ending, call
+`start()` again to resume from `subscription.cursor` with the same filter. Call `stop()` in a `finally`
 block when leaving a stream early. Application callbacks should support replay
 if saving a checkpoint fails. The sample keeps seen event IDs in memory until
 the next snapshot. A long-running consumer should coordinate deduplication and

@@ -1157,6 +1157,9 @@ fn operation_events_follow_resumes_from_cursor() {
     assert_eq!(head["state"], "running");
     assert_eq!(head["data"]["cursor"], c1.as_str());
     assert!(head["data"]["snapshot"].is_null());
+    // ⟨rev7; D6⟩ A backlog start says exactly how many backlog lines follow: none yet.
+    assert_eq!(head["data"]["backlog"], 0, "{head}");
+    assert!(head["data"].get("resync_reason").is_none());
     let e3 = home.run(&ensure_args("req-e3", "work-e3", "h1:deploy"));
     let op3 = e3.json()["operation_id"].as_str().unwrap().to_owned();
     let live = f.until_succeeded(&op3);
@@ -1175,6 +1178,9 @@ fn operation_events_follow_resumes_from_cursor() {
     let head2 = f2.next();
     assert_eq!(head2["code"], "OK");
     assert!(head2["data"]["snapshot"].is_null());
+    // ⟨rev7; D6⟩ The missed work is the backlog, counted exactly in the head.
+    let backlog = head2["data"]["backlog"].as_u64().expect("a backlog count");
+    assert!(backlog >= 1, "{head2}");
     let resumed = f2.until_succeeded(&op4);
     assert!(ids(&resumed).is_disjoint(&before));
     let page4 = home.run(&["operation", "events", "--cursor", &last_cursor, "--json"]);
@@ -1198,6 +1204,22 @@ fn operation_events_follow_resumes_from_cursor() {
     assert_eq!(bad.code, 6, "{bad:?}");
     assert_eq!(bad.code_str(), "RESYNC_REQUIRED");
     assert!(bad.json()["next"]["cursor"].is_string());
+    // ⟨rev7; D6⟩ Followed, it starts from a whole snapshot whose head says why.
+    let restarted = home.run(&[
+        "operation",
+        "events",
+        "--follow",
+        "--cursor",
+        "AAAA",
+        "--max-events",
+        "0",
+        "--json",
+    ]);
+    assert_eq!(restarted.code, 0, "{restarted:?}");
+    let head = restarted.json();
+    assert_eq!(head["data"]["resync_reason"], "cursor_invalid", "{head}");
+    assert!(head["data"]["snapshot"].is_object());
+    assert!(head["data"].get("backlog").is_none());
     svc.stop(&home);
 }
 

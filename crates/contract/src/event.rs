@@ -213,6 +213,22 @@ pub enum ResyncReason {
     CursorInvalid,
 }
 
+impl ResyncReason {
+    /// ⟨rev7; PC6⟩ The wire name (the `resync_required` payload's `reason`, a subscribe's
+    /// `resync_reason`): one of [`crate::envelope::reason`]'s resync reasons.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        use crate::envelope::reason;
+        match self {
+            Self::SubscriberLagged => reason::SUBSCRIBER_LAGGED,
+            Self::HistoryTrimmed => reason::HISTORY_TRIMMED,
+            Self::EventTooLarge => reason::EVENT_TOO_LARGE,
+            Self::BacklogTooLong => reason::BACKLOG_TOO_LONG,
+            Self::CursorInvalid => reason::CURSOR_INVALID,
+        }
+    }
+}
+
 /// ⟨rev7⟩ The typed `data` of a whole snapshot (ADR-0013 §5.5, D4; PC1): read in one store
 /// transaction at the head boundary, whole or refused. Each section holds exactly what the
 /// subscription's log and visibility deliver, and a section the filter cannot maintain is
@@ -281,6 +297,21 @@ pub struct SnapshotDecision {
 mod tests {
     use super::*;
     use crate::ipc::capability;
+
+    /// ⟨rev7; PC6⟩ `ResyncReason::as_str` is the wire name, and every resync reason is one.
+    #[test]
+    fn resync_reason_names_are_the_wire_names() {
+        use ResyncReason as R;
+        for r in [
+            R::SubscriberLagged,
+            R::HistoryTrimmed,
+            R::EventTooLarge,
+            R::BacklogTooLong,
+            R::CursorInvalid,
+        ] {
+            assert_eq!(serde_json::to_value(r).unwrap(), r.as_str());
+        }
+    }
 
     /// ⟨M06-W0-R10⟩ The revision-6 families name the capability that produces them; every
     /// earlier type needs none.
