@@ -3323,10 +3323,14 @@ pub(crate) fn environment(ctx: &Ctx, command: EnvironmentCommand) -> ExitCode {
                     .collect();
                 let mut views = remote_status_views(ctx, &ids);
                 for e in &mut report.environments {
-                    e.remote = views
+                    if let Some(i) = views
                         .iter()
-                        .position(|v| v.environment == e.record.environment)
-                        .map(|i| views.swap_remove(i));
+                        .position(|(v, _)| v.environment == e.record.environment)
+                    {
+                        let (view, hold) = views.swap_remove(i);
+                        e.remote = Some(view);
+                        e.restore_hold = hold;
+                    }
                 }
                 let mut human = format!("management: {}", report.management);
                 for e in &report.environments {
@@ -3334,6 +3338,10 @@ pub(crate) fn environment(ctx: &Ctx, command: EnvironmentCommand) -> ExitCode {
                     human.push_str(&record_line(&e.record));
                     if let Some(v) = &e.remote {
                         human.push_str(&remote_lines(v));
+                    }
+                    if e.restore_hold.is_some() {
+                        human.push_str("\n    Issuance is held after state restore. Restore management \
+                            connectivity and let the controller runtime reconcile with the runner.");
                     }
                 }
                 let mut data = serde_json::to_value(&report).unwrap_or_default();
@@ -3617,7 +3625,13 @@ fn acknowledge_shown(
 fn remote_status_views(
     ctx: &Ctx,
     environments: &[EnvironmentId],
-) -> Vec<heimdall_app::remote_status::RemoteStatus> {
+) -> Vec<(
+    heimdall_app::remote_status::RemoteStatus,
+    Option<heimdall_contract::views::environment::EnvironmentRestoreHold>,
+)> {
+    use heimdall_app::remote_status::{IssuanceGate, status_of_recorded};
+    use heimdall_contract::views::environment::EnvironmentRestoreHold;
+    use heimdall_store::restore::HoldKind;
     let Ok(paths) = ctx.paths() else {
         return Vec::new();
     };
@@ -3638,7 +3652,16 @@ fn remote_status_views(
             environments
                 .iter()
                 .map(|e| {
-                    heimdall_app::remote_status::status_of_recorded(tx, e, live.as_deref(), now)
+                    let view = status_of_recorded(tx, e, live.as_deref(), now)?;
+                    let hold = (view.issuance == IssuanceGate::AwaitingResync
+                        && tx
+                            .restore_hold(HoldKind::Environment, e.as_str())?
+                            .is_some())
+                    .then(|| EnvironmentRestoreHold {
+                        reason: "state_restored".to_owned(),
+                        next_action: "reconcile_runner".to_owned(),
+                    });
+                    Ok((view, hold))
                 })
                 .collect()
         })

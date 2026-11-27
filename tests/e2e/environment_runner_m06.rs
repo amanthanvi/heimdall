@@ -1364,6 +1364,7 @@ mod driver_e2e {
         let entry = serde_json::to_value(heimdall_app::remote_env::EnvironmentStatus {
             record: pin.clone(),
             remote: Some(back),
+            restore_hold: None,
         })
         .unwrap();
         assert_eq!(entry["environment"], environment.as_str());

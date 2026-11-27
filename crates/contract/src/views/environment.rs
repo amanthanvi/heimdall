@@ -90,10 +90,22 @@ pub struct EnvironmentStatusEntry {
     /// All absent when the controller's state cannot be read.
     #[serde(flatten, default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<RemoteStatusView>,
+    /// Why issuance is waiting after a controller restore, and what to do next.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore_hold: Option<EnvironmentRestoreHold>,
     /// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ The runner's own view, read over one management
     /// session, for a limited-role record named on the command line. Omitted otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runner_view: Option<RunnerViewEntry>,
+}
+
+/// A controller-side restore hold shown until reconciliation opens issuance.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EnvironmentRestoreHold {
+    /// The reason issuance is held (`state_restored`).
+    pub reason: String,
+    /// What releases the hold (`reconcile_runner`).
+    pub next_action: String,
 }
 
 /// ⟨M06⟩ The controller's view of one runner (ADR-0012 §7.1).

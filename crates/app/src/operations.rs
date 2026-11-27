@@ -2252,6 +2252,22 @@ fn authority_changed(msg: &str) -> OpError {
     OpError::new(Code::CredentialExpired, msg.to_owned()).with_resource("grant", None)
 }
 
+fn restored_grant_use_refusal(
+    tx: &mut Txn<'_>,
+    grant: &GrantId,
+) -> heimdall_store::Result<Option<OpError>> {
+    Ok(tx
+        .restore_hold(heimdall_store::restore::HoldKind::Grant, grant.as_str())?
+        .map(|_| {
+            OpError::new(
+                Code::CredentialExpired,
+                "the state restore ended this grant",
+            )
+            .with_reason(heimdall_contract::envelope::reason::STATE_RESTORED_AUTHORITY_ENDED)
+            .with_resource("grant", Some(grant.to_string()))
+        }))
+}
+
 /// What an activation check admits (ADR-0006 §13.6 item 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Activation {
@@ -4640,6 +4656,9 @@ fn resolve_in(
             if let Some(e) =
                 stop_m05::work_stop_refusal(tx, &binding.environment, &binding.work_id)?
             {
+                refuse!(e);
+            }
+            if let Some(e) = restored_grant_use_refusal(tx, &binding.grant)? {
                 refuse!(e);
             }
             let Some(snapshot) = tx.profile_snapshot(&binding.profile, binding.profile_revision)?
@@ -10799,6 +10818,9 @@ impl Operations {
                     }
                 }
                 if b.state != BindingState::Active {
+                    if let Some(e) = restored_grant_use_refusal(tx, &b.grant)? {
+                        return fail(tx, emit, &mut op, e);
+                    }
                     // ⟨M02⟩ ADR-0007 §12.26 item 3(a): a released binding names its
                     // reason.
                     return fail(

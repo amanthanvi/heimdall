@@ -1108,6 +1108,47 @@ async fn a_damaged_ledger_refuses_every_request_with_a_request_id() {
     running.stop().await;
 }
 
+#[tokio::test]
+async fn repair_that_cuts_the_ledger_refuses_pre_repair_request_ids() {
+    use heimdall_store::layout::stategen::ledger::RECORD_LEN;
+    let rig = Rig::new();
+    let running = rig.start(None).await;
+    let mut owner = client(&running.control, InteractionMode::NonInteractive).await;
+    let requests = [ensure("r-kept"), ensure("r-cut"), ensure("r-after")];
+    for request in &requests {
+        let first = owner.request(request.clone()).await.unwrap();
+        assert_eq!(first.code, Code::AccessReady);
+        assert_eq!(first.request_epoch, Some(RestoreEpoch(0)));
+    }
+    running.stop().await;
+    let path = rig.state_dir().join(LEDGER);
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes[RECORD_LEN + 20] ^= 1;
+    std::fs::write(&path, &bytes).unwrap();
+    {
+        let _lock = heimdall_runtime::InstanceLock::try_acquire(&rig.state_dir()).unwrap();
+        let repaired =
+            heimdall_runtime::state_store::repair_locked(&rig.state_dir(), at(30)).unwrap();
+        assert_eq!(repaired.dropped_records, 1);
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), &bytes[..RECORD_LEN]);
+    let running = rig.start(None).await;
+    let mut owner = client(&running.control, InteractionMode::NonInteractive).await;
+    owner.keep_epoch(Some(RestoreEpoch(0)));
+    for request in requests {
+        let refusal = owner.request(request.clone()).await.unwrap();
+        assert_refused(
+            &refusal,
+            &Code::RequestStale,
+            reason::RESTORE_EPOCH_STALE,
+            &request,
+            RestoreEpoch(0),
+        );
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), &bytes[..RECORD_LEN]);
+    running.stop().await;
+}
+
 // --- ⟨M08 U2b-2 follow-up A⟩ authorization and admission before the request ledger -----------
 
 fn req(v: serde_json::Value) -> Request {
@@ -3119,6 +3160,44 @@ async fn restore_keeps_a_later_revoked_grant_ended() {
         })
         .unwrap();
     assert_eq!(effects(&rig), executed, "nothing ran again");
+}
+
+#[tokio::test]
+async fn binding_use_reports_that_restore_ended_its_grant() {
+    let rig = Rig::new();
+    let running = rig.start(None).await;
+    let mut owner = attended(&running.control).await;
+    let made = owner.request(ensure("r-grant")).await.unwrap();
+    assert!(made.code.is_success(), "{made:?}");
+    let binding = made.data["binding_id"].as_str().unwrap();
+    running.stop().await;
+    let backup = take_backup(&rig, "backup.db");
+    let restored = restore_from(&rig, &backup);
+    assert_eq!(restored.ended.grants_ended.len(), 1);
+    let running = rig.start(None).await;
+    let mut owner = attended(&running.control).await;
+    let request = req(serde_json::json!({"op": "bind", "binding_id": binding,
+        "form": {"form": "materialize"}, "request_id": "r-bind-restored"}));
+    let reply = owner.request(request).await.unwrap();
+    let delegated = owner
+        .request(req(serde_json::json!({
+            "op": "delegate", "parent_binding_id": binding,
+            "work_id": "child", "scope": [{"destination": "h1", "account": "deploy"}],
+            "request_id": "r-delegate-restored",
+        })))
+        .await
+        .unwrap();
+    running.stop().await;
+    assert_eq!(reply.code, Code::CredentialExpired, "{reply:?}");
+    assert_eq!(
+        error_of(&reply).error.reason.as_deref(),
+        Some(reason::STATE_RESTORED_AUTHORITY_ENDED)
+    );
+    assert_eq!(delegated.code, Code::CredentialExpired, "{delegated:?}");
+    assert_eq!(
+        error_of(&delegated).error.reason.as_deref(),
+        Some(reason::STATE_RESTORED_AUTHORITY_ENDED)
+    );
 }
 
 /// A paired session's hello of `client`, its refusal kept (`Runner::connect` unwraps it).

@@ -719,6 +719,41 @@ fn restore_disables_exposure_and_closes_pending_widening_decisions() {
     });
 }
 
+#[test]
+fn restore_settles_runner_local_widening_as_stale() {
+    use heimdall_contract::decision::{RemoteWidening, WideningOrigin};
+    let home = Home::new();
+    let mut pending = decision(1);
+    pending.kind = DecisionKind::RemoteWidening(Box::new(RemoteWidening {
+        origin: WideningOrigin::Local,
+        client: None,
+        request_kind: "transport.enable".into(),
+        request_id: RequestId::parse("held-enable").unwrap(),
+        request: serde_json::from_value(serde_json::json!({"op":"transport", "action":"enable", "serve":false, "request_id":"held-enable"})).unwrap(),
+        invite: None,
+        exposure: None,
+    }));
+    let digest = "ab".repeat(32);
+    home.write(|tx| tx.insert_remote_widening(&pending, &digest, Some(&digest)));
+    let backup = home.backup("backup.db");
+    let restored = home.restore(&backup).unwrap();
+    assert_eq!(restored.ended.decisions_closed, vec![pending.id.clone()]);
+    home.read(|tx| {
+        let (record, row) = tx.remote_widening(&pending.id)?.unwrap();
+        assert_eq!(record.state, DecisionState::Stale);
+        assert!(
+            record.decided_at.is_some(),
+            "the restore settled the widening"
+        );
+        assert_eq!(row.result, None);
+        assert!(
+            tx.pending_local_widening("transport.enable", &digest)?
+                .is_none()
+        );
+        Ok(())
+    });
+}
+
 /// A completed request made after the backup replays after the restore, from its carried
 /// terminal record; one that never completed is fenced from the ledger; an open one in the
 /// backup is closed as stale. This holds for the journal's records and for the request

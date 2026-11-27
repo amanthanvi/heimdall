@@ -332,6 +332,31 @@ pub struct StateStatus {
     /// A staged generation that never became current (removed at start-up).
     #[serde(default)]
     pub staged_leftover: bool,
+    /// Restore holds recorded in the current store, ordered by kind and reference.
+    #[serde(default)]
+    pub holds: Vec<StateRestoreHold>,
+    /// Whether damage to the request ledger blocks new requests that would change state.
+    #[serde(default)]
+    pub ledger_damaged: bool,
+    /// Whether the current state is corrupt.
+    #[serde(default)]
+    pub state_corrupt: bool,
+    /// The most recent modification time recorded for a local migration backup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_backup_at: Option<Timestamp>,
+}
+
+/// A restore hold in the current state store.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct StateRestoreHold {
+    /// What is held (`client`, `invitation`, `exposure`, `environment` or `grant`).
+    pub kind: String,
+    /// The ID of the held item, or the exposure kind.
+    pub reference: String,
+    /// The epoch at which the hold was recorded.
+    pub epoch: RestoreEpoch,
+    /// When the hold was recorded.
+    pub created_at: Timestamp,
 }
 
 /// ⟨H3⟩ `heimdall state restore --backup <file>`: attended, typed confirmation. It recovers
