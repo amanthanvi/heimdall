@@ -1483,7 +1483,15 @@ impl<'a> Builder<'a> {
         }
         let mut steps = Vec::new();
         match blocks.as_slice() {
-            [] => {}
+            [] => {
+                // ⟨M08 U2b-4; ADR-0014 §3.4; ADR-0007 §12.41 Git residual 1⟩ The recorded file
+                // holds no block: check the other global Git file so a block the owner moved
+                // there is reported, never silently lost. Rollback still removes P_git alone
+                // and never edits the other file.
+                if let Some(recorded) = self.recorded_include_file() {
+                    self.report_moved_git_block(&recorded)?;
+                }
+            }
             [only] => {
                 let target = self.absolute_path(&p_git_path)?;
                 let newline = block_newline(&bytes, only);
@@ -1520,6 +1528,64 @@ impl<'a> Builder<'a> {
             steps.push(step);
         }
         self.steps.extend(steps);
+        Ok(())
+    }
+
+    /// ⟨M08 U2b-4; ADR-0014 §3.4; ADR-0007 §12.41 Git residual 1⟩ When a rollback's recorded
+    /// global Git file holds no Heimdall block, inspect the other global Git file and report a
+    /// `git_block_moved` warning finding if the owner moved the block there. Never edits the
+    /// other file and never blocks the removal of `P_git`.
+    fn report_moved_git_block(&mut self, recorded: &Path) -> Result<(), PreviewError> {
+        let recorded_canon = crate::fs::canonical_path(recorded).ok();
+        let files = crate::git::global_files(&self.config.env);
+        for other in files.xdg.into_iter().chain(files.home) {
+            if other == recorded {
+                continue;
+            }
+            if let (Some(rc), Ok(oc)) = (&recorded_canon, crate::fs::canonical_path(&other))
+                && *rc == oc
+            {
+                continue;
+            }
+            let Some(other_bytes) = read_file(&other)? else {
+                continue;
+            };
+            let moved = gitedit::find_blocks(&other_bytes);
+            if moved.is_empty() {
+                continue;
+            }
+            let start = moved[0].range.start.min(other_bytes.len());
+            let line =
+                u32::try_from(other_bytes[..start].iter().filter(|&&b| b == b'\n').count() + 1)
+                    .unwrap_or(u32::MAX);
+            let other_display = self.display(&other);
+            let recorded_display = self.display(recorded);
+            self.findings.push(Finding {
+                code: heimdall_contract::lifecycle::residue_kind::GIT_BLOCK_MOVED.to_owned(),
+                severity: FindingSeverity::Warning,
+                subject: ResourceRef {
+                    kind: "projection".to_owned(),
+                    id: Some("git".to_owned()),
+                },
+                level: ProbeLevel::Static,
+                provenance: Some(ConfigProvenance {
+                    path_display: other_display.clone(),
+                    line,
+                }),
+                message: format!(
+                    "Heimdall's Git include block was not in {recorded_display} (where setup wrote \
+                     it) and was found in {other_display} instead; rollback removes Heimdall's \
+                     managed Git file and leaves the moved block for you to remove by hand"
+                ),
+                next: NextAction {
+                    action: "owner_decision".to_owned(),
+                    ..NextAction::default()
+                },
+                reason: Some(
+                    heimdall_contract::lifecycle::residue_kind::GIT_BLOCK_MOVED.to_owned(),
+                ),
+            });
+        }
         Ok(())
     }
 
@@ -3913,5 +3979,111 @@ mod own_removal {
         ] {
             assert_eq!(is_own_file(role), own, "{role:?}");
         }
+    }
+
+    /// ⟨M08 U2b-4; ADR-0014 §3.4; ADR-0007 §12.41 Git residual 1⟩ When the owner moved
+    /// Heimdall's Git include block out of the recorded global file into the other global
+    /// Git file, rollback preview reports `git_block_moved` naming the other file instead of
+    /// silently losing it, and still plans only `P_git`'s removal (never editing the other
+    /// file).
+    #[test]
+    fn rollback_reports_a_moved_git_block() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let ssh_dir = home.join(".ssh");
+        let etc_ssh = dir.path().join("etc-ssh");
+        let config_dir = dir.path().join("heimdall-config");
+        let xdg = dir.path().join("xdg");
+        for d in [&ssh_dir, &etc_ssh, &config_dir, &xdg.join("git")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let recorded = home.join(".gitconfig");
+        let moved = xdg.join("git/config");
+        let p_git = config_dir.join(crate::git::MANAGED_GIT_FILE);
+        std::fs::write(&p_git, b"[core]\n\tsshCommand = ssh\n").unwrap();
+        std::fs::write(&recorded, b"[user]\n\tname = Owner\n").unwrap();
+        let target = if cfg!(windows) {
+            RenderPath::windows(&p_git).unwrap()
+        } else {
+            RenderPath::unix(&p_git).unwrap()
+        };
+        let marker = MarkerId::parse("hm-0123456789abcdef").unwrap();
+        let block = render::render_git_include_block(&marker, &target, Newline::Lf).unwrap();
+        let mut moved_bytes = b"[user]\n\tname = Xdg\n".to_vec();
+        moved_bytes.extend_from_slice(&block);
+        std::fs::write(&moved, &moved_bytes).unwrap();
+
+        let paths = crate::paths::SshPaths::with_test_override(home.clone(), etc_ssh);
+        let env = crate::env::Env::from_vars([
+            ("HOME", home.display().to_string()),
+            ("XDG_CONFIG_HOME", xdg.display().to_string()),
+        ]);
+        let mut config = ProjectionConfig::new(paths, crate::env::Platform::current(), config_dir);
+        config.env = env;
+        config.queries = crate::local_query::LocalQueries::Disabled;
+
+        let env_id = heimdall_contract::ids::EnvironmentId::from_random_bytes([1; 16]);
+        let mut items = BTreeMap::new();
+        items.insert(
+            ProjectionItem::Git,
+            ItemRecord {
+                generation: 1,
+                files: vec![heimdall_domain::projection::ProjectionLocator {
+                    role: FileRole::GitManaged,
+                    path: p_git.display().to_string(),
+                    sha256: Sha256Hex::of(b"[core]\n\tsshCommand = ssh\n"),
+                    identity: heimdall_domain::projection::FileIdentity::Unix {
+                        dev: 1,
+                        ino: 1,
+                        birth: None,
+                    },
+                }],
+                aliases: Vec::new(),
+                include_file: Some(recorded.display().to_string()),
+                operation: heimdall_contract::ids::OperationId::from_random_bytes([2; 16]),
+                committed_at: "2026-11-27T00:00:00Z".parse().unwrap(),
+            },
+        );
+        let spec = ProjectionSpec {
+            environment: env_id.clone(),
+            aliases: Vec::new(),
+            record: Some(heimdall_domain::projection::ProjectionRecord {
+                environment: env_id,
+                items,
+            }),
+            consent: ConsentRecord::default(),
+        };
+        let intent = PreviewIntent::Rollback {
+            keep_key_files: true,
+            items: [ProjectionItem::Git].into_iter().collect(),
+            distribution: None,
+        };
+        let plan = preview(&config, &spec, &intent).unwrap();
+        assert_eq!(
+            plan.files.iter().map(|s| s.role).collect::<Vec<_>>(),
+            vec![FileRole::GitManaged],
+            "rollback still plans only P_git's removal and never edits the other global file"
+        );
+        let found = plan
+            .view
+            .findings
+            .iter()
+            .find(|f| f.code == heimdall_contract::lifecycle::residue_kind::GIT_BLOCK_MOVED)
+            .expect("git_block_moved finding must be reported");
+        assert_eq!(found.severity, FindingSeverity::Warning);
+        assert_eq!(found.subject.kind, "projection");
+        assert_eq!(found.subject.id.as_deref(), Some("git"));
+        assert_eq!(found.provenance.as_ref().map(|p| p.line), Some(3));
+        assert!(
+            found.message.contains("remove by hand")
+                || found.message.contains("leaves the moved block"),
+            "{}",
+            found.message
+        );
+        assert_eq!(
+            std::fs::read(&moved).unwrap(),
+            moved_bytes,
+            "preview never edits the other global file"
+        );
     }
 }

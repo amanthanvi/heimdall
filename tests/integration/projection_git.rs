@@ -4867,3 +4867,109 @@ fn native_writer_refuses_a_distribution_intent() {
     ));
     assert_eq!(fx.tree(), before, "nothing was written");
 }
+
+/// ⟨M08 U2b-4; ADR-0014 §3.4; ADR-0007 §12.41 Git residual 1⟩ When the owner moved
+/// Heimdall's Git include block from the recorded global file to the other global Git file
+/// (in either direction, and whether the recorded file was restored or deleted), rollback
+/// reports `git_block_moved` with provenance, removes `P_git` alone, and leaves the moved
+/// block untouched for the owner to remove by hand.
+#[test]
+fn rollback_reports_a_moved_git_block() {
+    use heimdall_contract::doctor::FindingSeverity;
+    use heimdall_contract::lifecycle::residue_kind::GIT_BLOCK_MOVED;
+
+    // Direction 1: applied to ~/.gitconfig, owner moved B_git to $XDG_CONFIG_HOME/git/config.
+    for delete_recorded in [false, true] {
+        let fx = Fx::new();
+        let original = b"[user]\n\tname = Scratch\n";
+        std::fs::write(fx.global(), original).unwrap();
+        let (intent, sink) = apply_git(&fx);
+        let with_block = std::fs::read(fx.global()).unwrap();
+        let xdg = create_xdg(&fx, &with_block);
+        if delete_recorded {
+            std::fs::remove_file(fx.global()).unwrap();
+        } else {
+            std::fs::write(fx.global(), original).unwrap();
+        }
+
+        let plan = rollback_git(&fx, &intent, &sink);
+        assert_eq!(
+            git_steps(&plan),
+            vec![FileRole::GitManaged],
+            "delete_recorded={delete_recorded}: rollback plans P_git removal only"
+        );
+        let finding = plan
+            .view
+            .findings
+            .iter()
+            .find(|f| f.code == GIT_BLOCK_MOVED)
+            .unwrap_or_else(|| {
+                panic!(
+                    "delete_recorded={delete_recorded}: expected {GIT_BLOCK_MOVED} finding, got {:?}",
+                    plan.view.findings
+                )
+            });
+        assert_eq!(finding.severity, FindingSeverity::Warning);
+        assert!(finding.provenance.is_some(), "{finding:?}");
+        assert!(
+            finding
+                .provenance
+                .as_ref()
+                .unwrap()
+                .path_display
+                .contains("git/config")
+                || finding
+                    .provenance
+                    .as_ref()
+                    .unwrap()
+                    .path_display
+                    .contains("git\\config"),
+            "{:?}",
+            finding.provenance
+        );
+
+        let r = fx
+            .writer()
+            .apply(&plan.intent(), &mut Sink::default())
+            .unwrap();
+        assert!(applied_git(&r.items), "{r:?}");
+        assert_eq!(
+            std::fs::read(&xdg).unwrap(),
+            with_block,
+            "rollback never edits the other global file where the owner moved B_git"
+        );
+    }
+
+    // Direction 2: applied to $XDG_CONFIG_HOME/git/config, owner moved B_git to ~/.gitconfig.
+    let fx = Fx::new();
+    let original = b"[user]\n\tname = Xdg\n";
+    let xdg = create_xdg(&fx, original);
+    let (intent, sink) = apply_git(&fx);
+    let with_block = std::fs::read(&xdg).unwrap();
+    write_private(&fx.global(), &with_block);
+    write_private(&xdg, original);
+
+    let plan = rollback_git(&fx, &intent, &sink);
+    assert_eq!(git_steps(&plan), vec![FileRole::GitManaged]);
+    let finding = plan
+        .view
+        .findings
+        .iter()
+        .find(|f| f.code == GIT_BLOCK_MOVED)
+        .unwrap_or_else(|| panic!("expected {GIT_BLOCK_MOVED}, got {:?}", plan.view.findings));
+    assert_eq!(finding.severity, FindingSeverity::Warning);
+    assert!(
+        finding
+            .provenance
+            .as_ref()
+            .is_some_and(|p| p.path_display.contains(".gitconfig")),
+        "{:?}",
+        finding.provenance
+    );
+    let r = fx
+        .writer()
+        .apply(&plan.intent(), &mut Sink::default())
+        .unwrap();
+    assert!(applied_git(&r.items), "{r:?}");
+    assert_eq!(std::fs::read(fx.global()).unwrap(), with_block);
+}

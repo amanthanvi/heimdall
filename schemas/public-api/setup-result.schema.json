@@ -260,6 +260,26 @@
           "description": "The quarantine directory.",
           "type": "string",
           "const": "quarantine"
+        },
+        {
+          "description": "A pre-migration backup (`<store>.v<N>.backup*`): old state with public metadata.",
+          "type": "string",
+          "const": "migration_backup"
+        },
+        {
+          "description": "An earlier store generation kept by a restore or reset: the old state in full,\nwith its operation record.",
+          "type": "string",
+          "const": "earlier_store_generation"
+        },
+        {
+          "description": "The previous binary kept by an update (`heimdall.previous`).",
+          "type": "string",
+          "const": "previous_binary"
+        },
+        {
+          "description": "A Heimdall Git include block the owner moved to the other global Git file.",
+          "type": "string",
+          "const": "git_block_moved"
         }
       ]
     }

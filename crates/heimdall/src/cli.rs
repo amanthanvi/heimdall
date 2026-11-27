@@ -811,13 +811,13 @@ pub enum AccessCommand {
     /// Pause automatic activation for a policy, a profile, a workspace or all (owner
     /// channel; narrowing).
     Pause {
-        /// What to pause: a policy ID, or one target (M05).
+        /// What to pause: a policy ID, or one target.
         #[command(flatten)]
         target: AccessTarget,
     },
     /// Resume automatic activation (widening: needs an owner decision).
     Resume {
-        /// What to resume: a policy ID, or one target (M05).
+        /// What to resume: a policy ID, or one target.
         #[command(flatten)]
         target: AccessTarget,
     },
@@ -825,7 +825,7 @@ pub enum AccessCommand {
     /// Schedule (or clear) a hard stop for a policy, a profile, a workspace or all. An
     /// earlier cutoff applies at once; a later one or `--clear` needs an owner decision.
     Cutoff {
-        /// What to cut off: a policy ID, or one target (M05).
+        /// What to cut off: a policy ID, or one target.
         #[command(flatten)]
         target: AccessTarget,
         /// RFC 3339 instant with explicit offset.
@@ -1464,7 +1464,7 @@ pub enum ServiceCommand {
     Status,
     /// Ask the runtime to drain and stop.
     Stop {
-        // ⟨rev7⟩ ADR-0014 H2: a skeleton until its unit lands (`rev7_cmd`).
+        // ⟨M08 U2b-4⟩ ADR-0014 H2 (`service_cmd::stop_preview`).
         /// Only list what stopping would interrupt; change nothing.
         #[arg(long)]
         preview: bool,
@@ -1693,10 +1693,9 @@ pub enum SupportCommand {
     },
 }
 
-/// ⟨rev7⟩ `state` subcommands (ADR-0014 H3, U0-Q8). ⟨M08 U2b-3b⟩ Restore, reset and repair
-/// are built (`state_cmd`): attended, with a typed confirmation, and never run under
-/// `--non-interactive`. `state status` is still a skeleton answering "not available in this
-/// build".
+/// ⟨rev7⟩ `state` subcommands (ADR-0014 H3, U0-Q8). ⟨M08 U2b-3b⟩ Status, restore, reset
+/// and repair are built (`state_cmd`): status is read-only; restore, reset and repair are
+/// attended, with a typed confirmation, and never run under `--non-interactive`.
 #[derive(Debug, Subcommand)]
 pub enum StateCommand {
     /// The state store's health, its current generation, earlier generations and backups
@@ -1861,9 +1860,9 @@ pub fn dispatch(cli: Cli) -> ExitCode {
             return service_cmd::run(&ctx, detach, login, runner);
         }
         Some(Command::Service(ServiceCommand::Status)) => return service_cmd::status(&ctx),
-        // ⟨rev7⟩ ADR-0014 H2: the preview answers "not available" until its unit lands.
+        // ⟨M08 U2b-4⟩ ADR-0014 H2: read-only stop preview; changes nothing.
         Some(Command::Service(ServiceCommand::Stop { preview: true })) => {
-            return crate::rev7_cmd::not_available(&ctx);
+            return service_cmd::stop_preview(&ctx);
         }
         Some(Command::Service(ServiceCommand::Stop { preview: false })) => {
             return service_cmd::stop(&ctx);
