@@ -1181,7 +1181,9 @@ impl Operations {
 impl Operations {
     /// ⟨§17.16 R1⟩ The policy write of `Operations::policy`: every action commits
     /// through the narrowing protocol over [`policy_reader`]'s set (empty, so the
-    /// zero-gate commit, unless the action narrows the stored policy).
+    /// zero-gate commit, unless the action narrows the stored policy). ⟨M08 W4 SEC-4,
+    /// S3-03⟩ The commit gets the protocol's [`CommitCtx`], so the grants a cutoff
+    /// withdraws have their keys destroyed under the gates, as the targeted form's do.
     pub(super) async fn policy_commit<R, F>(
         &self,
         req: &PolicyAction,
@@ -1190,18 +1192,16 @@ impl Operations {
     ) -> Result<R, OpError>
     where
         R: Send + 'static,
-        F: FnOnce(&mut Txn<'_>, &mut Emit) -> heimdall_store::Result<R> + Send + 'static,
+        F: FnOnce(&mut Txn<'_>, &mut Emit, &mut CommitCtx) -> heimdall_store::Result<R>
+            + Send
+            + 'static,
     {
         let kind = match req {
             PolicyAction::Cutoff { .. } => NarrowingKind::Cutoff,
             _ => NarrowingKind::Policy,
         };
         let reader = policy_reader(self.environment().clone(), req.clone());
-        let n = self
-            .narrow(kind, requested_at, reader, move |tx, emit, _| {
-                commit(tx, emit)
-            })
-            .await?;
+        let n = self.narrow(kind, requested_at, reader, commit).await?;
         Ok(n.value)
     }
 }

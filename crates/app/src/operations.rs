@@ -1791,6 +1791,28 @@ fn first_validation_anchor(
     Ok(())
 }
 
+/// ⟨M08 W4 SEC-4, S3-03⟩ A cutoff's own transaction shortens the persisted anchor of every
+/// grant in its narrowing set `set` to the grant's bound now ([`bound_of`], which reads the
+/// cutoff just written; ADR-0005 §3.6 "an earlier cutoff set later shortens it"). It runs on
+/// safe and on uncertain time alike: `heimdall_domain::time::shorten` subtracts the bound's
+/// reduction from the budget and needs no trusted reading, so while time stays uncertain the
+/// continuous budget still ends a grant whose cutoff has passed. Never lengthens; a grant
+/// without an anchor is left to its first validation.
+fn shorten_anchors_in(tx: &mut Txn<'_>, set: &[GrantId]) -> heimdall_store::Result<()> {
+    for id in set {
+        let (Some(g), Some(current)) = (tx.grant(id)?, tx.grant_anchor(id)?) else {
+            continue;
+        };
+        let ctx = grant_context(tx, &g)?;
+        let bound = bound_of(tx, &g, ctx.profile.as_ref())?;
+        let shortened = dtime::shorten(&current, bound);
+        if shortened != current {
+            tx.set_grant_anchor(&shortened)?;
+        }
+    }
+    Ok(())
+}
+
 /// What a resolution over an existing grant still needs from an owner decision:
 /// the delta, empty when the standing policy covers everything, `None` when
 /// denied.
@@ -12081,8 +12103,15 @@ impl Operations {
         // ⟨M03⟩ U0b rows 20 and 27 (G; reading E6c): a cutoff commits through the
         // narrowing protocol, its set the grants whose bound it lowers.
         let requested_at = self.inner.config.clock.wall();
-        let r = self
-            .policy_commit(&req, requested_at, move |tx, emit| {
+        // ⟨M08 W4 SEC-4, S3-03⟩ A cutoff ends and shortens what the targeted form does: its
+        // set (re-read in the commit before the policy is written), the time gate, and what
+        // `end_in` needs; what it ends is completed after the commit.
+        let reader = narrowing::policy_reader(self.environment().clone(), req.clone());
+        let own = self.environment().clone();
+        let adapters = self.adapter_infos();
+        let retention = self.retention();
+        let (r, ended) = self
+            .policy_commit(&req, requested_at, move |tx, emit, ctx| {
                 let assessed = gate.check(tx)?;
                 let now = match &assessed {
                     Ok(s) => s.wall(),
@@ -12090,13 +12119,19 @@ impl Operations {
                 };
                 // ⟨M05⟩ Only M01–M03 forms reach here (`is_m05` refused above).
                 let Some(pid) = action.policy_id().cloned() else {
-                    return Ok(Err(OpError::driver_unavailable(
-                        "this policy action is not available in this build",
-                    )));
+                    return Ok((
+                        Err(OpError::driver_unavailable(
+                            "this policy action is not available in this build",
+                        )),
+                        Ended::default(),
+                    ));
                 };
                 let Some(mut p) = tx.policy(&pid)? else {
-                    return Ok(Err(OpError::new(Code::NotFound, "unknown policy")
-                        .with_resource("policy", None)));
+                    return Ok((
+                        Err(OpError::new(Code::NotFound, "unknown policy")
+                            .with_resource("policy", None)),
+                        Ended::default(),
+                    ));
                 };
                 let widening = match &action {
                     PolicyAction::Pause { .. } => false,
@@ -12123,7 +12158,10 @@ impl Operations {
                     _ => false,
                 };
                 if unchanged {
-                    return Ok(Ok(PolicyOutcome::Applied(Box::new(p), false)));
+                    return Ok((
+                        Ok(PolicyOutcome::Applied(Box::new(p), false)),
+                        Ended::default(),
+                    ));
                 }
                 if widening {
                     // ⟨M06 W5 `w5u`; ADR-0012 §7.4 ⟨2026-11-23⟩⟩ A paired session's
@@ -12132,11 +12170,11 @@ impl Operations {
                     if paired {
                         let ids = std::iter::once(pid.clone()).collect();
                         if let Some(e) = stop_m05::paired_lift_refusal(tx, &action, &ids)? {
-                            return Ok(Err(e));
+                            return Ok((Err(e), Ended::default()));
                         }
                     }
                     if let Err(u) = &assessed {
-                        return Ok(Err(uncertain(u)));
+                        return Ok((Err(uncertain(u)), Ended::default()));
                     }
                     // One logical decision, one record (spec §5.5): reuse an
                     // unexpired pending record for the same verbatim action.
@@ -12146,7 +12184,7 @@ impl Operations {
                             && now < d.expires_at
                             && d.generation == current
                     }) {
-                        return Ok(Ok(PolicyOutcome::Decision(existing.id)));
+                        return Ok((Ok(PolicyOutcome::Decision(existing.id)), Ended::default()));
                     }
                     let d = DecisionRecord {
                         id: decision_id,
@@ -12161,8 +12199,12 @@ impl Operations {
                     };
                     tx.insert_decision(&d)?;
                     emit.decision(tx, &d, None)?;
-                    return Ok(Ok(PolicyOutcome::Decision(d.id)));
+                    return Ok((Ok(PolicyOutcome::Decision(d.id)), Ended::default()));
                 }
+                // ⟨M08 W4 SEC-4, S3-03⟩ The grants whose bound the cutoff lowers, read before
+                // it is written (the commit's own re-read of the narrowing set).
+                let cutoff = matches!(action, PolicyAction::Cutoff { .. });
+                let set = if cutoff { reader(tx)? } else { Vec::new() };
                 match &action {
                     PolicyAction::Pause { .. } => p.pause = PauseState::Paused { since: now },
                     PolicyAction::Cutoff { at, .. } => p.cutoff_at = Some(*at),
@@ -12181,9 +12223,31 @@ impl Operations {
                     heimdall_domain::workspace::PolicyChangeCause::Narrowing,
                     now,
                 )?;
-                Ok(Ok(PolicyOutcome::Applied(Box::new(p), true)))
+                // ⟨M08 W4 SEC-4, S3-03⟩ As the targeted form: the anchors are shortened on
+                // either time, and on safe time a grant whose bound the cutoff has passed ends
+                // now, like expiry (its keys are destroyed after the commit; a descendant that
+                // is withdrawn with it has its keys destroyed under the gates).
+                let mut ended = Ended::default();
+                if cutoff {
+                    shorten_anchors_in(tx, &set)?;
+                    if let Ok(safe) = &assessed {
+                        for g in &set {
+                            ended.extend(end_in(
+                                tx, emit, &own, &adapters, &gate, g, safe, None, retention,
+                            )?);
+                        }
+                    }
+                    ctx.destroy = ended
+                        .withdrawn
+                        .iter()
+                        .flat_map(|(_, all)| all.iter().cloned())
+                        .collect();
+                }
+                Ok((Ok(PolicyOutcome::Applied(Box::new(p), true)), ended))
             })
-            .await??;
+            .await?;
+        self.complete_withdrawals(ended).await;
+        let r = r?;
         match r {
             PolicyOutcome::Applied(p, changed) => {
                 let mut done = Completed::ok(Code::Ok, policy_view(&p, changed, &req));
@@ -12275,6 +12339,10 @@ impl Operations {
         // back; its error travels out through this slot.
         let m03_refused: Arc<Mutex<Option<OpError>>> = Arc::new(Mutex::new(None));
         let m03_refused2 = Arc::clone(&m03_refused);
+        // ⟨M08 W4 SEC-4, S3-06⟩ A policy widening that cannot be applied after completion
+        // rolls the transaction back too; its own error, unchanged, travels out here.
+        let widen_refused: Arc<Mutex<Option<OpError>>> = Arc::new(Mutex::new(None));
+        let widen_refused2 = Arc::clone(&widen_refused);
         let r = self
             .write(move |tx, emit| {
                 let now = match deny_now {
@@ -12564,9 +12632,15 @@ impl Operations {
                             }
                         }
                     }
+                    // ⟨M08 W4 SEC-4, S3-06⟩ A widening that cannot be applied rolls the
+                    // transaction back, as the M03 and M05 kinds do: the record stays pending
+                    // (not consumed) and no decision event is committed.
                     (DecisionKind::WidenPolicy { action }, Verdict::Approve) => {
                         if let Err(e) = apply_widening(tx, emit, action, &record.id, now)? {
-                            return Ok(Err(e));
+                            *widen_refused2
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner) = Some(e);
+                            return Err(conflict("the policy widening was refused when applied"));
                         }
                     }
                     // ⟨M02⟩ U0b row 1, phase 2 (§5 item 17): explicit arms, never
@@ -12715,6 +12789,13 @@ impl Operations {
             .take()
         {
             return Err(e.with_resource("decision", Some(req.decision_id.to_string())));
+        }
+        if let Some(e) = widen_refused
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
+            return Err(e);
         }
         let (record, op_id, resume) = r??;
         if record.kind.is_m03() {

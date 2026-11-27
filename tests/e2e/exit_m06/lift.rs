@@ -34,7 +34,7 @@ use heimdall_store::{NoFaults, Store};
 use serde_json::Value;
 
 use super::m06::{blocked, observe, runner_json};
-use super::world::{HOUR, Journey, journey as start, on_terminal, state_db};
+use super::world::{HOUR, Journey, journey as start, on_terminal, state_db, wait_settled};
 
 const CASE: &str = "lift";
 
@@ -54,12 +54,23 @@ pub(crate) fn at_runner(j: &Journey, args: &[&str]) -> (i32, Value) {
     )
 }
 
+/// How [`ensure`] waits for a request the runner admitted (`ACCEPTED`).
+#[derive(Debug, Clone, Copy)]
+enum Wait {
+    /// ⟨M08 W4 SEC-4, item 5⟩ Until it settles ([`wait_settled`]): the step expects it
+    /// issued, and an answer from a wait that ran out is not the result.
+    Settled,
+    /// One short wait: the step expects it still pending (`ACCEPTED`, awaiting the
+    /// controller's issuer while the cutoff is in force), which never settles.
+    Short,
+}
+
 /// The controller's forwarded `ensure` for fresh work, taken as far as it goes. A runner
 /// with no standing policy holds the request for its own owner's decision (the grant is
 /// beyond standing policy): that decision is approved on the runner's terminal and the
-/// request repeated with the same request ID. The answer as it stands after a short wait:
-/// issued (`OK`), or whatever kept it from being issued.
-fn ensure(j: &Journey, n: u8) -> Value {
+/// request repeated with the same request ID. The answer after `wait`: issued (`OK`), or
+/// whatever kept it from being issued.
+fn ensure(j: &Journey, n: u8, wait: Wait) -> Value {
     let (work, request) = (format!("job-lift-{n}"), format!("lift-{n}"));
     let args = [
         "access",
@@ -87,8 +98,13 @@ fn ensure(j: &Journey, n: u8) -> Value {
         return answer;
     }
     let operation = answer["operation_id"].as_str().unwrap().to_owned();
-    j.controller
-        .json(&["operation", "wait", &operation, "--timeout-ms", "8000"])
+    match wait {
+        Wait::Settled => wait_settled(|args| j.controller.json(args), &operation),
+        Wait::Short => {
+            j.controller
+                .json(&["operation", "wait", &operation, "--timeout-ms", "8000"])
+        }
+    }
 }
 
 /// What an answer is, for comparing two of them: its code and its reason.
@@ -140,7 +156,7 @@ pub(crate) fn journey() {
         .wait_for(&environment, "the controller did not reconnect", |e| {
             e["connectivity"]["state"] == "connected"
         });
-    let baseline = ensure(&j, 0);
+    let baseline = ensure(&j, 0, Wait::Settled);
     assert_eq!(
         baseline["code"],
         "OK",
@@ -171,7 +187,7 @@ pub(crate) fn journey() {
         });
     std::thread::sleep(std::time::Duration::from_secs(3));
     assert_eq!(in_force(&j), vec![true]);
-    let refused = ensure(&j, 1);
+    let refused = ensure(&j, 1, Wait::Short);
     // Admitted by the runner's own owner, and then not issued: it awaits the issuer.
     assert_eq!(refused["code"], "ACCEPTED", "{refused}");
     assert_eq!(
@@ -192,7 +208,7 @@ pub(crate) fn journey() {
         Some("yes"),
     );
     assert_eq!(acked["code"], "OK", "exit {exit}: {acked}");
-    let still = ensure(&j, 2);
+    let still = ensure(&j, 2, Wait::Short);
     assert_eq!(still["code"], "ACCEPTED", "{still}");
     assert_eq!(in_force(&j), vec![true]);
     observe(
@@ -210,7 +226,7 @@ pub(crate) fn journey() {
     );
     assert_ne!(unattended["code"], "OK", "{unattended}");
     assert_eq!(in_force(&j), vec![true]);
-    assert_eq!(ensure(&j, 3)["code"], "ACCEPTED");
+    assert_eq!(ensure(&j, 3, Wait::Short)["code"], "ACCEPTED");
     observe(
         CASE,
         "paired-cannot-lift",
@@ -224,7 +240,7 @@ pub(crate) fn journey() {
     let (exit, lifted) = at_runner(&j, &["access", "cutoff", "--clear", "--all"]);
     assert_eq!(lifted["code"], "OK", "exit {exit}: {lifted}");
     assert_eq!(in_force(&j), vec![false]);
-    let resumed = ensure(&j, 4);
+    let resumed = ensure(&j, 4, Wait::Settled);
     assert_eq!(
         shape(&resumed),
         shape(&baseline),

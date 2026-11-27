@@ -865,6 +865,140 @@ async fn a_cutoff_fired_under_uncertain_time_stays_fired_and_says_why() {
     );
 }
 
+/// ⟨M08 W4 SEC-4, S3-01⟩ A cutoff that fired under uncertain time stays fired after the
+/// runner's wall clock, which was **ahead**, is corrected to safe time: no trusted reading
+/// after the correction finds the fired instant in the future, so readiness, activation, the
+/// scheduler's tick and signing (which all read the policy's cutoff) keep it in force until the
+/// runner's attended `clear_cutoff`. `skew` is how far ahead the wall clock was when the effect
+/// arrived; the owner's instant is an hour after true time. Uncertain time still ends nothing
+/// at the apply; the first tick on safe time ends the grant.
+async fn cutoff_survives_clock_correction(skew: Duration) {
+    use heimdall_contract::managed::DestinationClock;
+
+    let r = rig().await;
+    let initial = r.ops.timegate().check().await.unwrap().wall();
+    let owner_at = plus(initial, HOUR);
+    r.w.clock.set_wall(plus(initial, skew));
+    assert_eq!(
+        r.ops.timegate().check().await.unwrap_err().code,
+        Code::TimeUncertain
+    );
+    let target = EffectTarget::PolicyCutoff {
+        scope: PolicyTarget::All,
+        at: owner_at,
+        revision: 1,
+    };
+    let ack = r
+        .deliver(&controller_b(), &effect(32), &target)
+        .await
+        .unwrap();
+    assert!(matches!(
+        ack.record,
+        AppliedRecord::PolicyRevision { fired: true, .. }
+    ));
+    assert_eq!(
+        r.grant_state(),
+        GrantState::Active,
+        "uncertain time ends nothing at the apply"
+    );
+
+    // The correction (synchronization steps the clock back): time is safe again.
+    r.w.clock.set_wall(initial);
+    r.w.clock.advance(MINUTE);
+    let corrected = r.ops.timegate().check().await.unwrap().wall();
+    assert!(corrected < owner_at, "the owner's instant is still ahead");
+    let cut = r.policy();
+    assert!(
+        cut.cutoff_at.is_some_and(|c| c <= corrected),
+        "corrected time {corrected} put the fired cutoff {:?} back in the future",
+        cut.cutoff_at
+    );
+    assert!(
+        cut.blocks_activation_at(corrected).is_some(),
+        "new activations stay refused"
+    );
+    let readiness =
+        r.w.runner
+            .readiness(&r.w.grant, DestinationClock::Unmeasured, None)
+            .unwrap();
+    assert!(
+        readiness.usable_until <= corrected,
+        "corrected time {corrected} reopened a fired cutoff until {}",
+        readiness.usable_until
+    );
+    // Reported as fired early, also when the wall clock had passed the owner's instant.
+    let reported = r.w.store.transaction(early_cutoffs).unwrap();
+    assert_eq!(reported.len(), 1, "the uncertain fire is reported");
+    assert_eq!(reported[0].1.at, owner_at);
+    assert_eq!(Some(reported[0].1.fired_at), cut.cutoff_at);
+
+    r.ops.tick().await.unwrap();
+    assert_eq!(r.grant_state(), GrantState::Expired);
+    // Only the runner's attended lift clears it.
+    lift_at_the_runner(
+        &r,
+        PolicyAction::ClearCutoff {
+            policy_id: None,
+            target: Some(PolicyTarget::All),
+        },
+    )
+    .await;
+    assert_eq!(r.policy().cutoff_at, None);
+    let rows =
+        r.w.store
+            .transaction(|tx| tx.remote_policy_revisions())
+            .unwrap();
+    assert!(!rows[0].in_force);
+}
+
+/// S3-01 example A: the wall clock jumped two hours ahead, past the owner's instant.
+#[tokio::test]
+async fn a_cutoff_fired_under_a_forward_jump_survives_the_correction() {
+    cutoff_survives_clock_correction(2 * HOUR).await;
+}
+
+/// S3-01 example B: the wall clock is ten minutes fast, before the owner's instant.
+#[tokio::test]
+async fn a_cutoff_fired_under_a_fast_clock_survives_the_correction() {
+    cutoff_survives_clock_correction(10 * MINUTE).await;
+}
+
+/// ⟨M08 W4 SEC-4, S3-01⟩ A cutoff that fired under uncertain time is reported so whatever
+/// instant it fired at, its owner's own included: here the owner's instant had passed before
+/// the runner's time became uncertain, so the cutoff fires at that instant, and the runner's
+/// report (`environment status`, `doctor`) still says it fired under uncertain time.
+#[tokio::test]
+async fn a_cutoff_fired_under_uncertain_time_at_the_owners_instant_is_reported() {
+    let r = rig().await;
+    let initial = r.ops.timegate().check().await.unwrap().wall();
+    let owner_at = initial
+        .checked_sub(jiff::SignedDuration::from_mins(1))
+        .unwrap();
+    r.w.clock.set_wall(plus(initial, 2 * HOUR));
+    assert_eq!(
+        r.ops.timegate().check().await.unwrap_err().code,
+        Code::TimeUncertain
+    );
+    let target = EffectTarget::PolicyCutoff {
+        scope: PolicyTarget::All,
+        at: owner_at,
+        revision: 1,
+    };
+    let ack = r
+        .deliver(&controller_b(), &effect(33), &target)
+        .await
+        .unwrap();
+    assert!(matches!(
+        ack.record,
+        AppliedRecord::PolicyRevision { fired: true, .. }
+    ));
+    assert_eq!(r.policy().cutoff_at, Some(owner_at));
+    let reported = r.w.store.transaction(early_cutoffs).unwrap();
+    assert_eq!(reported.len(), 1, "fired under uncertain time: reported");
+    assert_eq!(reported[0].1.at, owner_at);
+    assert_eq!(reported[0].1.fired_at, owner_at);
+}
+
 /// ⟨W3.1 re-check, low finding 1⟩ A cutoff this controller delivered that **fired early**
 /// (the runner's time was uncertain) blocks issuance outright from the controller's own
 /// record of the acknowledgement, although the owner's instant is still hours ahead: a
