@@ -101,7 +101,8 @@ pub struct CredentialLifecycle {
     pub grant_id: GrantId,
     /// What happened.
     pub event: String,
-    /// Why (`revoked_locally`, `authority_withdrawn`).
+    /// Why (`revoked_locally`, `authority_withdrawn`, or on `expired`: `policy_cutoff`,
+    /// `cutoff_fired_while_time_uncertain`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cause: Option<String>,
     /// The grants ended with it (`authority_withdrawn`).

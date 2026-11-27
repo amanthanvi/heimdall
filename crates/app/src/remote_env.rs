@@ -476,8 +476,11 @@ impl SessionStanding {
 ///
 /// * [`SessionStanding::Owner`] and [`SessionStanding::Joining`] **require**
 ///   [`MANAGEMENT_CAPABILITY`] and offer `runner/1` (which the runner negotiates for an
-///   owner session only). A runner whose role table gives this client less refuses the
-///   hello (`role_insufficient`): an owner record never opens a session without it.
+///   owner session only) and ⟨M08 W4 SEC-5F, item 5; U2b-3a held item 4⟩ `request-epoch/1`
+///   (never required, so a runner that offers it binds frames to the kept or hello epoch
+///   while an older runner still negotiates cleanly). A runner whose role table gives this
+///   client less refuses the hello (`role_insufficient`): an owner record never opens a
+///   session without it.
 /// * [`SessionStanding::Limited`] requires nothing and offers the base capabilities only:
 ///   neither `remote-control/1` nor `runner/1` is offered, so no form that needs one can be
 ///   dispatched on that session whatever the runner would grant. The session gets the
@@ -505,6 +508,7 @@ impl SessionCapabilities {
                 required.insert(MANAGEMENT_CAPABILITY.to_owned());
                 offered.insert(MANAGEMENT_CAPABILITY.to_owned());
                 offered.insert(heimdall_contract::ipc::capability::RUNNER_V1.to_owned());
+                offered.insert(heimdall_contract::ipc::capability::REQUEST_EPOCH_V1.to_owned());
             }
             SessionStanding::Limited => {}
         }
@@ -917,6 +921,23 @@ pub struct StatusReport {
     pub environments: Vec<EnvironmentStatus>,
 }
 
+/// ⟨M08 W4 SEC-5F, item 2⟩ What happened on the runner during `environment remove`: the
+/// controller always completes its local forget, whatever the runner answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteRemoveOutcome {
+    /// The runner confirmed this device's client was revoked.
+    Revoked,
+    /// No revocation ran on the runner (a limited record that cannot revoke a client, a
+    /// runner that could not be reached, or a refusal with `effect_status: none`): this
+    /// device's client may still be enrolled on the runner.
+    Pending,
+    /// The revoke request was sent and the runner's answer was lost or unreadable (or
+    /// reported an unconfirmed effect): this device's client may or may not have been
+    /// revoked on the runner.
+    Unknown,
+}
+
 /// `remove`'s outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RemoveOutcome {
@@ -926,10 +947,18 @@ pub struct RemoveOutcome {
     pub client: ClientId,
     /// The role the record held.
     pub role: Role,
-    /// Whether this device's client was revoked on the runner first. `false` for a
-    /// limited record: it is forgotten here only, and an owner must still revoke that
-    /// client on the runner.
+    /// Whether this device's client was confirmed revoked on the runner first. `false` for
+    /// a limited record (forgotten here only) or ⟨M08 W4 SEC-5F, item 2⟩ when an owner
+    /// record's remote revoke was not confirmed (`remote_outcome` is `pending` or `unknown`).
     pub revoked_on_runner: bool,
+    /// ⟨M08 W4 SEC-5F, item 2⟩ Outcome of the remote revocation step (`revoked`, `pending`,
+    /// or `unknown`).
+    pub remote_outcome: RemoteRemoveOutcome,
+    /// ⟨M08 W4 SEC-5F, item 2⟩ Overall effect status: `applied` when both remote revoke and
+    /// local forget succeeded; `partial` when local forget succeeded and the remote revoke
+    /// did not run (`pending`); `unknown` when local forget succeeded and the remote
+    /// revoke's outcome could not be confirmed (`unknown`).
+    pub effect_status: heimdall_contract::envelope::EffectStatus,
 }
 
 /// `retire`'s outcome.
@@ -1720,29 +1749,78 @@ impl<'a> RemoteEnvController<'a> {
         crate::remote_ingress::screen_recheck_answer(raw, environment, &record.client)
     }
 
-    /// `environment remove`: revoke this device's client on that runner, then forget the
-    /// record (pins included). K_mgmt is kept: it may serve other runners.
+    /// `environment remove`: attempt to revoke this device's client on that runner, then
+    /// forget the record (pins included). K_mgmt is kept: it may serve other runners.
     ///
     /// ⟨M06 W5; ADR-0006 §18.9 item 6⟩ A record whose role is limited is forgotten
     /// **locally, without the revoke**: revoking a client is an owner's form, so this
     /// device cannot remove its own line. No session is opened and K_mgmt is not needed;
     /// the outcome says the client is still enrolled on the runner
-    /// ([`RemoveOutcome::revoked_on_runner`] is `false`), and an owner must revoke it there.
+    /// ([`RemoveOutcome::revoked_on_runner`] is `false`, [`RemoveOutcome::remote_outcome`]
+    /// is [`RemoteRemoveOutcome::Pending`], [`RemoveOutcome::effect_status`] is `partial`),
+    /// and an owner must revoke it there.
+    ///
+    /// ⟨M08 W4 SEC-5F, item 2⟩ For an owner record, once K_mgmt is ready, the local forget
+    /// **always completes whatever the runner answers**: an unreadable, unknown, or lost
+    /// runner reply never traps a controller with a stale record. When the runner confirms
+    /// the revocation, `remote_outcome` is `revoked` (`effect_status: applied`). When no
+    /// revocation ran (the runner could not be reached, rejected the hello, or refused with
+    /// `effect_status: none`), `remote_outcome` is `pending` (`effect_status: partial`).
+    /// When the revoke was sent and its answer was unreadable, lost, or unconfirmed,
+    /// `remote_outcome` is `unknown` (`effect_status: unknown`).
     ///
     /// # Errors
-    /// [`OpError`]: the revocation failed (nothing is forgotten, so it can be retried).
+    /// [`OpError`]: no such record, a locked or unavailable K_mgmt store (for an owner
+    /// record, before any session opens), or a local registry write failure.
     pub async fn remove(&self, environment: &EnvironmentId) -> Result<RemoveOutcome, OpError> {
+        use heimdall_contract::envelope::EffectStatus;
         let record = self.record(environment)?;
-        let revoked_on_runner = record.role == Role::Owner;
-        if revoked_on_runner {
-            self.revoke_client(environment, &record.client).await?;
-        }
+        let (revoked_on_runner, remote_outcome, effect_status) = if record.role == Role::Owner {
+            self.key_ready().await?;
+            match self.open_recorded(&record).await {
+                Err(_) => (false, RemoteRemoveOutcome::Pending, EffectStatus::Partial),
+                Ok(mut session) => {
+                    let remote = async {
+                        let raw = runner_result(
+                            session
+                                .call(ManagementCall::Environment(
+                                    RemoteEnvironmentRequest::RevokeClient {
+                                        environment: environment.clone(),
+                                        client: record.client.clone(),
+                                    },
+                                ))
+                                .await?,
+                        )?;
+                        crate::remote_ingress::screen_revoke_client_answer(
+                            raw,
+                            environment,
+                            &record.client,
+                        )
+                    }
+                    .await;
+                    match remote {
+                        Ok(_) => (true, RemoteRemoveOutcome::Revoked, EffectStatus::Applied),
+                        Err(e)
+                            if e.code != Code::OutcomeUnknown
+                                && e.effect_status == EffectStatus::None =>
+                        {
+                            (false, RemoteRemoveOutcome::Pending, EffectStatus::Partial)
+                        }
+                        Err(_) => (false, RemoteRemoveOutcome::Unknown, EffectStatus::Unknown),
+                    }
+                }
+            }
+        } else {
+            (false, RemoteRemoveOutcome::Pending, EffectStatus::Partial)
+        };
         self.ports.registry.remove(environment).await?;
         Ok(RemoveOutcome {
             environment: environment.clone(),
             client: record.client,
             role: record.role,
             revoked_on_runner,
+            remote_outcome,
+            effect_status,
         })
     }
 

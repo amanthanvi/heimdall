@@ -735,7 +735,7 @@
           }
         },
         "cause": {
-          "description": "Why (`revoked_locally`, `authority_withdrawn`).",
+          "description": "Why (`revoked_locally`, `authority_withdrawn`, or on `expired`: `policy_cutoff`,\n`cutoff_fired_while_time_uncertain`).",
           "type": [
             "string",
             "null"
