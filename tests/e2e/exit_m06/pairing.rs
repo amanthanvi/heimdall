@@ -40,6 +40,126 @@ fn management_lines(lines: &[String]) -> Vec<&String> {
         .collect()
 }
 
+#[test]
+fn restores_runner_then_bootstraps_a_fresh_owner_to_repair_pairings() {
+    use heimdall_runtime::Paths;
+    use heimdall_store::restore::HoldKind;
+    use heimdall_store::{NoFaults, Store, layout};
+    use std::sync::Arc;
+
+    let w = match CliWorld::start() {
+        Ok(w) => w,
+        Err(why) => {
+            blocked("restore-repair-pairings", &why);
+            return;
+        }
+    };
+    assert_eq!(w.verify_enrollment(), "verified");
+    // The fresh controller has the fixture's verified bootstrap access, but a separate
+    // state home and an empty K_mgmt store. Snapshot the catalog before any pairing exists.
+    let scratch = Scratch::new().unwrap();
+    let fresh = Device::new(&scratch, "fresh");
+    let paths = Paths::under(&fresh.home);
+    paths.ensure().unwrap();
+    let controller_state = Paths::under(&w.controller.hh).state_dir;
+    Store::open_read_only(
+        &layout::db_path(&controller_state).unwrap(),
+        Arc::new(NoFaults),
+    )
+    .unwrap()
+    .vacuum_into(&paths.state_dir.join(layout::DB_FILE))
+    .unwrap();
+    let initial = w.environment_add("yes", "yes");
+    assert_eq!(initial.code, Some(0), "{}", initial.text);
+    let record = initial.json();
+    let environment = record["data"]["environment"].as_str().unwrap();
+    let old = record["data"]["client"].as_str().unwrap();
+    assert!(w.runner_stop());
+    let state = Paths::under(&w.runner.home).state_dir;
+    let backup = scratch.path().join("runner-backup.db");
+    Store::open_read_only_quiescent(&layout::db_path(&state).unwrap(), Arc::new(NoFaults))
+        .unwrap()
+        .vacuum_into(&backup)
+        .unwrap();
+    let restore = w.runner_typed(
+        &["state", "restore", "--backup", backup.to_str().unwrap()],
+        &[("Type `restore`", "restore")],
+    );
+    assert_eq!(restore.code, Some(0), "{}", restore.text);
+    let holds =
+        Store::open_read_only_quiescent(&layout::db_path(&state).unwrap(), Arc::new(NoFaults))
+            .unwrap()
+            .transaction(|tx| tx.restore_holds(Some(HoldKind::Client)))
+            .unwrap();
+    assert_eq!(holds.len(), 1);
+    assert_eq!(holds[0].reference, old);
+
+    let mut env = fresh.env();
+    let ssh_home = w.controller.home.git_home.to_string_lossy();
+    env.iter_mut()
+        .find(|(k, _)| k == "HEIMDALL_TEST_SSH_HOME")
+        .unwrap()
+        .1 = ssh_home.into_owned();
+    let bootstrapped = w.environment_add_from(&env, "yes", "yes");
+    assert_eq!(bootstrapped.answered, 2, "{}", bootstrapped.text);
+    assert_eq!(bootstrapped.code, Some(0), "{}", bootstrapped.text);
+    let fresh_record = bootstrapped.json();
+    assert_eq!(fresh_record["data"]["environment"], environment);
+    assert_eq!(fresh_record["data"]["role"], "owner");
+    assert_ne!(fresh_record["data"]["client"], old);
+
+    let revoke = ["environment", "revoke-client", environment, old];
+    assert_ne!(
+        w.controller_json(&revoke).0,
+        0,
+        "old owner reached the restored runner"
+    );
+    let (code, revoked) = fresh.json(&revoke);
+    assert_eq!(code, 0, "{revoked}");
+    assert_eq!(revoked["data"]["state"], "revoked");
+
+    let joining = Device::new(&scratch, "joining");
+    let (code, shown) = joining.json(&["environment", "join", "--show-key"]);
+    assert_eq!(code, 0, "{shown}");
+    let key = shown["data"]["public_key"].as_str().unwrap();
+    let mut invite = vec![
+        "environment",
+        "invite",
+        environment,
+        "--role",
+        "owner",
+        "--public-key",
+        key,
+        "--request-id",
+        "re-pair-owner",
+    ];
+    let held = fresh.typed(&invite, &[(CONFIRMATION, "yes")]);
+    let pending = held.json();
+    assert_eq!(pending["code"], "APPROVAL_REQUIRED", "{}", held.text);
+    let decision = pending["next"]["decision_ref"].as_str().unwrap();
+    let approved = w.runner_typed(&["decision", "approve", decision], &[("[y/N]:", "yes")]);
+    assert_eq!(approved.code, Some(0), "{}", approved.text);
+    invite.extend(["--request-epoch", "1"]);
+    let created = fresh.typed(&invite, &[(CONFIRMATION, "yes")]);
+    assert_eq!(created.code, Some(0), "{}", created.text);
+    let bundle = scratch.path().join("re-pair.json");
+    std::fs::write(&bundle, created.json()["data"].to_string()).unwrap();
+    let joined = joining.typed(
+        &["environment", "join", bundle.to_str().unwrap()],
+        &[(CONFIRMATION, "yes")],
+    );
+    assert_eq!(joined.code, Some(0), "{}", joined.text);
+    let new = joined.json();
+    assert_eq!(new["data"]["role"], "owner");
+    assert_eq!(new["data"]["environment"], environment);
+    assert_ne!(new["data"]["client"], old);
+    assert_ne!(
+        w.controller_json(&revoke).0,
+        0,
+        "revoked owner reached the runner"
+    );
+}
+
 pub(crate) fn journey() {
     let mut w = match CliWorld::start() {
         Ok(w) => w,

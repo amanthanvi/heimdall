@@ -593,6 +593,24 @@
         "permissions"
       ]
     },
+    "EnvironmentRestoreHold": {
+      "description": "A controller-side restore hold shown until reconciliation opens issuance.",
+      "type": "object",
+      "properties": {
+        "next_action": {
+          "description": "What releases the hold (`reconcile_runner`).",
+          "type": "string"
+        },
+        "reason": {
+          "description": "The reason issuance is held (`state_restored`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "next_action"
+      ]
+    },
     "EnvironmentState": {
       "description": "An environment's state (m04-plan §5 item 4).",
       "oneOf": [
@@ -709,6 +727,17 @@
           "items": {
             "$ref": "#/$defs/GrantResidual"
           }
+        },
+        "restore_hold": {
+          "description": "Why issuance is waiting after a controller restore, and what to do next.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvironmentRestoreHold"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "role": {
           "description": "This device's role there.",

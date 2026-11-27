@@ -1982,14 +1982,6 @@ pub fn peek_schema_version(db: &Path) -> Result<Option<u32>> {
     }
 }
 
-/// The database of the generation `state_dir`'s pointer names (for the repair's open).
-///
-/// # Errors
-/// The layout's.
-pub fn current_db(state_dir: &Path) -> Result<PathBuf> {
-    crate::layout::db_path(state_dir)
-}
-
 #[cfg(test)]
 #[path = "restore_tests.rs"]
 mod tests;

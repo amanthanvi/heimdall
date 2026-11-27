@@ -806,13 +806,31 @@ impl TransportOps<'_> {
         now: Timestamp,
     ) -> Result<RotateResult, OpError> {
         let (state, recorded_rotation, recorded) = self.store.transaction(|tx| {
+            let state = endpoint_state(tx)?;
+            if state.key.is_none()
+                && let Some(hold) = tx.restore_hold(
+                    heimdall_store::restore::HoldKind::Exposure,
+                    heimdall_store::restore::EXPOSURE_TRANSPORT,
+                )?
+                && !tx
+                    .transport_keys()?
+                    .iter()
+                    .any(|key| key.created_at > hold.created_at)
+            {
+                return Ok(Err(OpError::new(
+                    Code::CapabilityUnavailable,
+                    "state restore disabled the transport; enable it again before rotating it",
+                )
+                .with_reason(reason::EXPOSURE_DISABLED_AFTER_RESTORE)
+                .with_effect(EffectStatus::None)));
+            }
             let recorded: Vec<EnvironmentId> = tx
                 .remote_environment_pins()?
                 .into_iter()
                 .map(|(environment, _)| environment)
                 .collect();
-            Ok((endpoint_state(tx)?, tx.transport_rotation()?, recorded))
-        })?;
+            Ok(Ok((state, tx.transport_rotation()?, recorded)))
+        })??;
         let Some(active) = state.key else {
             return Err(
                 OpError::new(Code::CapabilityUnavailable, "the transport is not enabled")

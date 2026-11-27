@@ -49,11 +49,26 @@ Short, and meant to be read once.
     switch to owner-only, but only if it handles a paired session while this release is
     adopting that home's store for the first time. To avoid it, do not run a pre-release build
     on a home that this release will adopt.
-- **After `heimdall state restore` on a remote runner, its paired clients stay refused.** A
-  restore recovers no access (ADR-0014 §3.6): every paired controller and limited client of the
-  runner is quarantined until its owner reauthorizes it at the runner, and this build has no
-  command for that yet. Every grant also ends, every standing policy is paused with a cutoff,
-  and the Iroh transport's exposure is disabled; `heimdall state restore` lists each.
+- **After `heimdall state restore` on a remote runner, re-pair to recover management access.**
+  Restore quarantines all previous clients, including owners (ADR-0014 §3.6). Use a fresh
+  controller with its own management key and verified SSH access to the runner account.
+  `reauthorize_client` is planned for after 1.0.
+
+  1. On the fresh controller, run `heimdall environment add --destination <destination> --account <account> --runner-program <path> --runner-home <path> --runner-sha256 <sha256>`.
+     Confirm the new owner at the runner's prompt and start the runner if prompted.
+  2. On that owner controller, run `heimdall environment revoke-client <environment> <old-client>`
+     for each quarantined client you are replacing.
+  3. On the replacement device, use a fresh management key. Run `heimdall environment join --show-key`
+     to get its public key. On the owner controller, run `heimdall environment invite <environment> --role <owner|requester|viewer> --public-key '<key>'`.
+  4. At the runner's terminal, run `heimdall decision approve <decision>` and confirm it.
+     On the owner controller, repeat the invite with `--request-id <id> --request-epoch <epoch>`
+     from the pending response. Save the returned invitation bundle as a JSON file and give it
+     to the replacement device.
+  5. On the replacement device, run `heimdall environment join <bundle>` and confirm the
+     runner's host key and environment ID. The revoked identity stays refused.
+
+  Restore also ends every grant, pauses standing policies with a cutoff, and disables Iroh
+  exposure. `heimdall state restore` lists each change.
 - **A certificate request reserved just before the runtime restarts can be signed again within
   60 s of the restart,** for the same key and with the same limits. The second certificate is
   never published, and it is still counted as issued.

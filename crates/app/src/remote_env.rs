@@ -905,6 +905,9 @@ pub struct EnvironmentStatus {
     /// them from.
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub remote: Option<crate::remote_status::RemoteStatus>,
+    /// A controller-side restore hold while issuance is waiting for reconciliation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restore_hold: Option<heimdall_contract::views::environment::EnvironmentRestoreHold>,
 }
 
 /// `status`' report: the controller's own view (no session is opened).
@@ -1903,6 +1906,7 @@ impl<'a> RemoteEnvController<'a> {
                 .map(|record| EnvironmentStatus {
                     record,
                     remote: None,
+                    restore_hold: None,
                 })
                 .collect(),
         })

@@ -57,7 +57,6 @@ mod tests {
                 "@OUT",
                 "--include-identifiers",
             ],
-            &["state", "status"],
             &["service", "stop", "--preview"],
             &["inspect", "request", "req-0123456789abcdef"],
         ];

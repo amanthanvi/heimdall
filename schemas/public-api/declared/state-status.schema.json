@@ -27,9 +27,30 @@
       "description": "The store's health.",
       "$ref": "#/$defs/StateHealth"
     },
+    "holds": {
+      "description": "Restore holds recorded in the current store, ordered by kind and reference.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/StateRestoreHold"
+      }
+    },
+    "last_backup_at": {
+      "description": "The most recent modification time recorded for a local migration backup.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
     "ledger": {
       "description": "The request ledger's state.",
       "$ref": "#/$defs/LedgerHealth"
+    },
+    "ledger_damaged": {
+      "description": "Whether damage to the request ledger blocks new requests that would change state.",
+      "type": "boolean",
+      "default": false
     },
     "migration_backups": {
       "description": "Migration backups present.",
@@ -49,6 +70,11 @@
     },
     "staged_leftover": {
       "description": "A staged generation that never became current (removed at start-up).",
+      "type": "boolean",
+      "default": false
+    },
+    "state_corrupt": {
+      "description": "Whether the current state is corrupt.",
       "type": "boolean",
       "default": false
     }
@@ -194,6 +220,35 @@
           "type": "string",
           "const": "newer_than_build"
         }
+      ]
+    },
+    "StateRestoreHold": {
+      "description": "A restore hold in the current state store.",
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "description": "When the hold was recorded.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "epoch": {
+          "description": "The epoch at which the hold was recorded.",
+          "$ref": "#/$defs/RestoreEpoch"
+        },
+        "kind": {
+          "description": "What is held (`client`, `invitation`, `exposure`, `environment` or `grant`).",
+          "type": "string"
+        },
+        "reference": {
+          "description": "The ID of the held item, or the exposure kind.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reference",
+        "epoch",
+        "created_at"
       ]
     }
   }

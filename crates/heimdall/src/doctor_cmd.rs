@@ -1322,7 +1322,21 @@ fn ca_registered(ctx: &Ctx) -> bool {
 /// persisted. Empty when the store cannot be read.
 pub(crate) fn pending_chores(ctx: &Ctx) -> Vec<PendingChore> {
     use std::sync::Arc;
-    let Ok(store) = open_store(ctx) else {
+    let Ok(paths) = ctx.paths() else {
+        return Vec::new();
+    };
+    let live = heimdall_runtime::instance::InstanceInfo::read_valid(&paths.runtime_dir)
+        .ok()
+        .flatten()
+        .is_some();
+    let Ok(store) = heimdall_store::layout::db_path(&paths.state_dir).and_then(|db| {
+        let faults = Arc::new(heimdall_store::NoFaults);
+        if live {
+            Store::open_read_only(&db, faults)
+        } else {
+            Store::open_read_only_quiescent(&db, faults)
+        }
+    }) else {
         return Vec::new();
     };
     let store = Arc::new(store);

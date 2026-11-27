@@ -1875,9 +1875,10 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         }
         Some(Command::State(StateCommand::Reset)) => return crate::state_cmd::reset(&ctx),
         Some(Command::State(StateCommand::Repair)) => return crate::state_cmd::repair(&ctx),
+        Some(Command::State(StateCommand::Status)) => return crate::state_cmd::status(&ctx),
         // ⟨rev7⟩ ADR-0014 H1, H3, U0-Q7: skeletons, whatever their flags (the ruling on
         // ASK-H3), before any runtime contact, home creation or file read.
-        Some(Command::Support(_) | Command::State(StateCommand::Status)) => {
+        Some(Command::Support(_)) => {
             return crate::rev7_cmd::not_available(&ctx);
         }
         Some(Command::Inspect { ref subject, .. }) if subject == "request" => {

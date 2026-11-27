@@ -224,6 +224,7 @@ This is the `data` of the head line of `operation events --follow` (`heimdall/sr
 | `environments[].label` | string | omitted when unset (contract skip) | same | no |
 | remote keys (`connectivity`, `remote_pending`, `issuance`) | `Connectivity`, `RemotePending[]`, enum | all omitted when the controller's state cannot be read (`m06_cmd.rs:3479-3510`), else present | same | no |
 | `environments[].last_seen_at` | timestamp | omitted when never seen | same | no |
+| `environments[].restore_hold` | `EnvironmentRestoreHold` | omitted unless a controller restore hold exists and issuance awaits reconciliation | same | no (additive) |
 | `environments[].remote_pending_count` | int | not emitted | **declared** (ADR-0013 §6.4): the full count; `remote_pending` then holds at most the first 16 | no (new) |
 | `environments[].last_known_readiness`, `.residuals`, `.cutoffs_fired_early`, `.issuance_failures` | arrays | omitted when empty (`remote_status.rs:183-211`) | same | no |
 | `environments[].runner_view` | `{read, view?, code?, message?, reason?}` | omitted unless the command names one limited-role record (`m06_cmd.rs:2964-2979`, `:3212-3227`) | same | no |

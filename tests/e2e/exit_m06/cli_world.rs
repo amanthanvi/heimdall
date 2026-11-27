@@ -168,6 +168,10 @@ impl Device {
             ("HEIMDALL_HOME".to_owned(), text(&self.home)),
             ("HEIMDALL_TEST_SSH_HOME".to_owned(), text(&self.account)),
             (
+                "HEIMDALL_TEST_SECRET_STORE".to_owned(),
+                "scratch".to_owned(),
+            ),
+            (
                 "HEIMDALL_TEST_TIME_SYNC".to_owned(),
                 "synchronized".to_owned(),
             ),
@@ -286,10 +290,10 @@ impl CliWorld {
         std::fs::write(
             &runner_program,
             format!(
-                "#!/bin/sh\nHEIMDALL_TEST_SSH_HOME={} HEIMDALL_TEST_TIME_SYNC=synchronized \
+                "#!/bin/sh\nHOME={account} HEIMDALL_HOME={home} HEIMDALL_TEST_SSH_HOME={account} \
+                 HEIMDALL_TEST_SECRET_STORE=scratch HEIMDALL_TEST_TIME_SYNC=synchronized \
                  HEIMDALL_TEST_RUNNER_SSHD_CONFIG={} HEIMDALL_TEST_MGMT_STORE={} \
                  HEIMDALL_TEST_IROH_KEY_STORE={} exec {} \"$@\"\n",
-                quoted(&runner.account),
                 quoted(&sshd_policy),
                 heimdall_testkit::home::sh_quote(std::ffi::OsStr::new(&format!(
                     "fixture-file:{}",
@@ -297,6 +301,8 @@ impl CliWorld {
                 ))),
                 quoted(runner.iroh_store.as_deref().unwrap()),
                 quoted(Path::new(&bin())),
+                account = quoted(&runner.account),
+                home = quoted(&runner.home),
             ),
         )
         .unwrap();
@@ -403,21 +409,35 @@ impl CliWorld {
     /// `environment add` on a pseudo-terminal, typing `confirm` at the runner's
     /// confirmation and `start` at the offer to start the runner's runtime.
     pub(crate) fn environment_add(&self, confirm: &str, start: &str) -> Typed {
-        self.controller_typed(
-            &[
-                "environment",
-                "add",
-                "--destination",
-                &self.destination,
-                "--account",
-                &self.account,
-                "--runner-program",
-                &text(&self.runner_program),
-                "--runner-home",
-                &text(&self.runner.home),
-                "--runner-sha256",
-                &self.runner_sha256,
-            ],
+        self.environment_add_from(&self.controller_env(), confirm, start)
+    }
+
+    pub(crate) fn environment_add_from(
+        &self,
+        env: &[(String, String)],
+        confirm: &str,
+        start: &str,
+    ) -> Typed {
+        let args = [
+            "--json",
+            "environment",
+            "add",
+            "--destination",
+            &self.destination,
+            "--account",
+            &self.account,
+            "--runner-program",
+            &text(&self.runner_program),
+            "--runner-home",
+            &text(&self.runner.home),
+            "--runner-sha256",
+            &self.runner_sha256,
+        ]
+        .map(str::to_owned);
+        typed(
+            Path::new(&bin()),
+            &args,
+            env,
             &[(CONFIRMATION, confirm), (RUNTIME_OFFER, start)],
         )
     }

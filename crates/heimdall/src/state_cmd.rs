@@ -13,7 +13,7 @@
 //! * **`state restore`** (ADR-0014 §3.6): the backup must be one of this installation's own,
 //!   bound to its environment (`heimdall_store::restore`). It recovers identity and
 //!   configuration and no authority: grants end, policies pause with a cutoff, paired clients
-//!   are quarantined until reauthorized, invitations are void, the transport's exposure is
+//!   are quarantined and must re-pair, invitations are void, the transport's exposure is
 //!   disabled, and every request the ledger saw without a recorded end is fenced. The owner
 //!   types `restore`. From a damaged state (no trusted record of the identity) the owner is
 //!   shown the backup's environment ID and types it instead: the identity binding and the epoch
@@ -30,17 +30,19 @@
 //!
 //! Every earlier generation is kept, whole, under its own name.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use heimdall_contract::envelope::{EffectStatus, Envelope, ErrorData, NextAction, reason};
 use heimdall_contract::lifecycle::{
-    GenerationOperation, GenerationRecord, RepairReport, ResetReport, RestoreEpoch, RestoreReport,
+    GenerationOperation, GenerationRecord, LedgerHealth, RepairReport, ResetReport, RestoreEpoch,
+    RestoreReport, StateHealth, StateRestoreHold, StateStatus,
 };
 use heimdall_contract::{Code, ExitCode, Timestamp};
 use heimdall_runtime::Paths;
-use heimdall_store::StoreError;
-use heimdall_store::layout::stategen::{Operation, OperationRecord};
+use heimdall_store::layout::stategen::{Ledger, Operation, OperationRecord, RealFs, StateDir};
 use heimdall_store::restore::{NO_INVENTORY_SENTENCE, Refusal, RestoreError};
+use heimdall_store::{NoFaults, Store, StoreError, layout};
 
 use crate::client::Ctx;
 use crate::output;
@@ -230,6 +232,178 @@ pub(crate) fn ledger_refusal(state_dir: &Path) -> Option<Envelope<ErrorData>> {
 }
 
 // --- the commands ---------------------------------------------------------------------------------
+
+/// `heimdall state status`: an observation of the state directory, with no runtime contact.
+pub(crate) fn status(ctx: &Ctx) -> ExitCode {
+    let paths = match ctx.paths() {
+        Ok(paths) => paths,
+        Err(e) => return Outcome::of(output::error_value(*e)).emit(ctx),
+    };
+    let report = status_of(&paths.state_dir);
+    ok_outcome(&report, status_lines(&report)).emit(ctx)
+}
+
+fn status_of(state_dir: &Path) -> StateStatus {
+    use layout::stategen::generations::Startup;
+    let dir = StateDir::new(RealFs, state_dir);
+    let opened = dir.inspect();
+    let staged_leftover = matches!(opened, Ok(Startup::FirstPublicationPending { .. }));
+    let mut report = StateStatus {
+        health: StateHealth::Ok,
+        current: None,
+        schema_version: None,
+        ledger: ledger_health(state_dir),
+        earlier_generations: Vec::new(),
+        migration_backups: 0,
+        staged_leftover,
+        holds: Vec::new(),
+        ledger_damaged: false,
+        state_corrupt: false,
+        last_backup_at: None,
+    };
+    let mut backup_dirs = vec![state_dir.to_path_buf()];
+    match opened {
+        Ok(Startup::Serving(current)) => {
+            report.current = generation_record(&current.record).ok().map(|mut record| {
+                record.migrations = dir
+                    .migrations(&current)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|note| note.to)
+                    .collect();
+                record
+            });
+            if report.current.is_some() {
+                read_state_status(&current.dir.join(layout::DB_FILE), true, &mut report);
+            } else {
+                report.health = StateHealth::Corrupt;
+            }
+            backup_dirs.push(current.dir);
+        }
+        Ok(Startup::Empty | Startup::FirstPublicationPending { .. }) => {
+            read_state_status(&state_dir.join(layout::DB_FILE), false, &mut report);
+        }
+        Err(_) => report.health = StateHealth::Corrupt,
+    }
+    for residue in dir.residue().unwrap_or_default() {
+        if let Some(record) = residue.record {
+            backup_dirs.push(dir.generation_dir(&record.generation));
+            if let Ok(record) = generation_record(&record) {
+                report.earlier_generations.push(record);
+            }
+        }
+    }
+    (report.migration_backups, report.last_backup_at) = backup_status(state_dir, &backup_dirs);
+    report.ledger_damaged = report.ledger == LedgerHealth::Damaged;
+    report.state_corrupt = report.health == StateHealth::Corrupt;
+    report
+}
+
+fn read_state_status(db: &Path, required: bool, report: &mut StateStatus) {
+    match std::fs::symlink_metadata(db) {
+        Ok(meta) if meta.is_file() => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && !required => return,
+        _ => {
+            report.health = StateHealth::Corrupt;
+            return;
+        }
+    }
+    match Store::open_read_only_quiescent(db, Arc::new(NoFaults)) {
+        Ok(store) => {
+            report.schema_version = Some(heimdall_store::SCHEMA_VERSION);
+            match store.transaction(|tx| tx.restore_holds(None)) {
+                Ok(holds) => {
+                    report.holds = holds
+                        .into_iter()
+                        .map(|hold| StateRestoreHold {
+                            kind: hold.kind.as_str().to_owned(),
+                            reference: hold.reference,
+                            epoch: hold.epoch,
+                            created_at: hold.created_at,
+                        })
+                        .collect();
+                }
+                Err(_) => report.health = StateHealth::Corrupt,
+            }
+        }
+        Err(StoreError::OlderSchema { found, .. }) => report.schema_version = Some(found),
+        Err(StoreError::AdoptionFenced) => {}
+        Err(StoreError::NewerSchema { found, .. }) => {
+            report.schema_version = Some(found);
+            report.health = StateHealth::NewerThanBuild;
+        }
+        Err(_) => report.health = StateHealth::Corrupt,
+    }
+}
+
+fn ledger_health(state_dir: &Path) -> LedgerHealth {
+    use layout::stategen::ledger::LEDGER;
+    if std::fs::symlink_metadata(state_dir.join(LEDGER))
+        .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+    {
+        return LedgerHealth::Absent;
+    }
+    match Ledger::new(RealFs, state_dir).read() {
+        Ok(read) if read.torn_tail > 0 => LedgerHealth::TornTail,
+        Ok(_) => LedgerHealth::Ok,
+        Err(_) => LedgerHealth::Damaged,
+    }
+}
+
+fn backup_status(state_dir: &Path, dirs: &[PathBuf]) -> (u64, Option<Timestamp>) {
+    let mut count = 0;
+    let mut last = None;
+    for dir in dirs {
+        let Ok(files) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for file in files.flatten() {
+            if !heimdall_store::restore::is_own_backup(state_dir, &file.path()) {
+                continue;
+            }
+            count += 1;
+            let modified = file.metadata().and_then(|m| m.modified()).ok();
+            let at = modified.and_then(|t| Timestamp::try_from(t).ok());
+            last = last.max(at);
+        }
+    }
+    (count, last)
+}
+
+fn status_lines(report: &StateStatus) -> String {
+    let generation = report
+        .current
+        .as_ref()
+        .map_or("none recorded", |g| g.generation.as_str());
+    let schema = report
+        .schema_version
+        .map_or_else(|| "unavailable".to_owned(), |v| v.to_string());
+    let mut human = format!("Current generation: {generation}\nSchema version: {schema}\n");
+    human.push_str(match report.health {
+        StateHealth::Ok => "State is healthy.\n",
+        StateHealth::Corrupt => "State is corrupt.\n",
+        StateHealth::NewerThanBuild => "State is newer than this build.\n",
+        _ => "State health is unknown.\n",
+    });
+    human.push_str(match report.ledger {
+        LedgerHealth::Ok => "Request ledger is healthy.\n",
+        LedgerHealth::Damaged => "Request ledger is damaged.\n",
+        LedgerHealth::Absent => "Request ledger is absent.\n",
+        LedgerHealth::TornTail => "Request ledger has a torn tail.\n",
+        _ => "Request ledger health is unknown.\n",
+    });
+    if let Some(at) = report.last_backup_at {
+        human.push_str(&format!("Last migration backup: {at}\n"));
+    }
+    for hold in &report.holds {
+        let reference = output::sanitize_for_terminal(&hold.reference);
+        human.push_str(&format!(
+            "Restore hold: {} {reference} (epoch {})\n",
+            hold.kind, hold.epoch.0
+        ));
+    }
+    human
+}
 
 /// `heimdall state restore --backup <file>`.
 pub(crate) fn restore(ctx: &Ctx, backup: &Path) -> ExitCode {
@@ -435,7 +609,7 @@ pub(crate) async fn restore_with<T: TypedLine>(
          - every grant ends; its bindings are released;\n\
          - every standing policy is paused, with a cutoff now; workspace trust must be given again;\n\
          - every pending decision is closed; every unfinished operation is closed and never resumed;\n\
-         - every paired client of this runner is quarantined until you reauthorize it here;\n\
+         - every paired client of this runner is quarantined; re-pair using a fresh controller with verified access;\n\
          - every invitation in the backup is void;\n\
          - the Iroh transport's exposure is disabled (enable it again as the first time);\n\
          - every request received but not recorded as finished is refused for good.\n\
@@ -553,6 +727,9 @@ const RESIDUE_PLACES: &str = "remote enrollments are Heimdall-marked lines in \
      a paired runner keeps this device's management line in its account's \
      `~/.ssh/authorized_keys`; a controller you paired with keeps this machine's pin";
 
+const RESET_INVENTORY_LOSS: &str = "You lose this installation's records of remote enrollments, \
+     pairings, and management lines.";
+
 /// `state reset` with its line reader and its time (module docs).
 pub(crate) async fn reset_with<T: TypedLine>(ctx: &Ctx, typed: &mut T, now: Timestamp) -> Outcome {
     let (paths, _lock) = match exclusive(ctx, "reset") {
@@ -579,8 +756,8 @@ pub(crate) async fn reset_with<T: TypedLine>(ctx: &Ctx, typed: &mut T, now: Time
         }
     } else {
         shown.push_str(&format!(
-            "{NO_INVENTORY_SENTENCE}: the state that would list it cannot be read. Where such \
-             residue would live: {RESIDUE_PLACES}.\n"
+            "{RESET_INVENTORY_LOSS} {NO_INVENTORY_SENTENCE}: the state that would list it \
+             cannot be read. Where such residue would live: {RESIDUE_PLACES}.\n"
         ));
     }
     shown.push_str("Type `reset` to confirm.\n");
@@ -589,8 +766,8 @@ pub(crate) async fn reset_with<T: TypedLine>(ctx: &Ctx, typed: &mut T, now: Time
             "A reset creates a new identity".to_owned()
         } else {
             format!(
-                "A reset creates a new identity. {NO_INVENTORY_SENTENCE}: where such residue \
-                 would live: {RESIDUE_PLACES}"
+                "A reset creates a new identity. {RESET_INVENTORY_LOSS} {NO_INVENTORY_SENTENCE}: \
+                 where such residue would live: {RESIDUE_PLACES}"
             )
         };
         return needs_attendance("reset", shown, &said);
@@ -863,6 +1040,8 @@ mod tests {
         ));
         assert_eq!(out.exit, ExitCode::InteractionRequired);
         assert!(out.human.contains(NO_INVENTORY_SENTENCE), "{}", out.human);
+        let lost = "You lose this installation's records of remote enrollments, pairings, and management lines.";
+        assert!(out.human.contains(lost), "{}", out.human);
         let message = out.env.data["error"]["message"]
             .as_str()
             .unwrap()
@@ -871,6 +1050,7 @@ mod tests {
             message.contains(NO_INVENTORY_SENTENCE) && message.contains("new identity"),
             "the envelope says so too: {message}"
         );
+        assert!(message.contains(lost), "{message}");
         assert!(
             out.human.contains("authorized_keys"),
             "names where residue lives"

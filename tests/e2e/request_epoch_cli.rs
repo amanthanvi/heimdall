@@ -48,6 +48,10 @@ impl Scratch {
     /// `heimdall --json --non-interactive <args>` in the scratch environment, waited for at
     /// most a minute (then killed).
     fn heimdall(&self, args: &[&str]) -> Output {
+        self.heimdall_with_output(args, true)
+    }
+
+    fn heimdall_with_output(&self, args: &[&str], json: bool) -> Output {
         let root = self.dir.path();
         let bin = std::env::var("HEIMDALL_E2E_BIN")
             .ok()
@@ -71,8 +75,7 @@ impl Scratch {
             .env("LANG", "C")
             .env("TERM", "dumb")
             .current_dir(root)
-            .args(["--json", "--non-interactive"])
-            .args(args)
+            .arg("--non-interactive")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -87,7 +90,10 @@ impl Scratch {
                 .env("TEMP", root)
                 .env("TMP", root);
         }
-        let mut child = cmd.spawn().unwrap();
+        if json {
+            cmd.arg("--json");
+        }
+        let mut child = cmd.args(args).spawn().unwrap();
         let started = Instant::now();
         while child.try_wait().unwrap().is_none() {
             if started.elapsed() > Duration::from_secs(60) {
@@ -615,10 +621,7 @@ fn stale_epoch_is_refused_before_any_write_through_the_wrapper() {
     );
 }
 
-/// Every file under `dir` with its bytes, but the instance lock, SQLite's index file (`-shm`)
-/// and an empty write-ahead log, which hold no state: a read-only open of a store with no log
-/// creates both (the status answer's own chores read the store so, as they did before this
-/// slice); a log with content would be a write and is compared.
+/// Every file under `dir` with its bytes. Keep SQLite's sidecars in the comparison.
 fn tree(dir: &std::path::Path) -> std::collections::BTreeMap<String, Vec<u8>> {
     fn walk(
         base: &std::path::Path,
@@ -630,20 +633,246 @@ fn tree(dir: &std::path::Path) -> std::collections::BTreeMap<String, Vec<u8>> {
             if p.is_dir() {
                 walk(base, &p, out);
             } else {
-                let name = p.file_name().unwrap().to_string_lossy().into_owned();
-                let empty_log = name.ends_with("-wal") && std::fs::metadata(&p).unwrap().len() == 0;
-                if name != "service.lock" && !name.ends_with("-shm") && !empty_log {
-                    out.insert(
-                        p.strip_prefix(base).unwrap().to_string_lossy().into_owned(),
-                        std::fs::read(&p).unwrap(),
-                    );
-                }
+                out.insert(
+                    p.strip_prefix(base).unwrap().to_string_lossy().into_owned(),
+                    std::fs::read(&p).unwrap(),
+                );
             }
         }
     }
     let mut out = std::collections::BTreeMap::new();
     walk(dir, dir, &mut out);
     out
+}
+
+#[test]
+fn status_chores_leave_the_stopped_store_byte_identical() {
+    let scratch = Scratch::new();
+    let state = scratch.state_dir();
+    std::fs::create_dir_all(&state).unwrap();
+    drop(
+        heimdall_runtime::state_store::open_locked(
+            &state,
+            Arc::new(NoFaults),
+            heimdall_contract::Timestamp::now(),
+        )
+        .unwrap(),
+    );
+    let before = tree(&state);
+    let _ = scratch.heimdall(&["status"]);
+    let after = tree(&state);
+    assert_eq!(
+        after.keys().collect::<Vec<_>>(),
+        before.keys().collect::<Vec<_>>()
+    );
+    assert!(after == before, "status changed the stopped store");
+}
+
+#[test]
+fn state_status_reports_healthy_and_damaged_state_without_writes() {
+    use heimdall_store::layout::stategen::ledger::{LEDGER, RECORD_LEN};
+    let scratch = Scratch::new();
+    let state = scratch.state_dir();
+    std::fs::create_dir_all(&state).unwrap();
+    let opened = heimdall_runtime::state_store::open_locked(
+        &state,
+        Arc::new(NoFaults),
+        heimdall_contract::Timestamp::now(),
+    )
+    .unwrap();
+    let current = opened.current.name.as_str().to_owned();
+    drop(opened);
+    let before = tree(&state);
+    let out = scratch.heimdall(&["state", "status"]);
+    let env = envelope(&out);
+    assert!(out.status.success(), "{env}");
+    let data = &env["data"];
+    assert_eq!(data["current"]["generation"], current);
+    assert_eq!(data["schema_version"], heimdall_store::SCHEMA_VERSION);
+    assert_eq!(data["health"], "ok");
+    assert_eq!(data["ledger"], "absent");
+    assert_eq!(data["ledger_damaged"], false);
+    assert_eq!(data["state_corrupt"], false);
+    assert_eq!(data["holds"], serde_json::json!([]));
+    let human = scratch.heimdall_with_output(&["state", "status"], false);
+    assert!(human.status.success());
+    let human = String::from_utf8(human.stdout).unwrap();
+    assert!(
+        human.contains(&current) && human.contains("Schema version"),
+        "{human}"
+    );
+    assert!(tree(&state) == before, "state status changed healthy state");
+
+    let db = heimdall_store::layout::db_path(&state).unwrap();
+    std::fs::write(&db, b"damaged beyond reading").unwrap();
+    std::fs::write(state.join(LEDGER), [1; RECORD_LEN]).unwrap();
+    let before = tree(&state);
+    let out = scratch.heimdall(&["state", "status"]);
+    let env = envelope(&out);
+    assert!(out.status.success(), "{env}");
+    assert_eq!(env["data"]["current"]["generation"], current);
+    assert_eq!(env["data"]["health"], "corrupt");
+    assert_eq!(env["data"]["ledger"], "damaged");
+    assert_eq!(env["data"]["ledger_damaged"], true);
+    assert_eq!(env["data"]["state_corrupt"], true);
+    let human = scratch.heimdall_with_output(&["state", "status"], false);
+    assert!(human.status.success());
+    let human = String::from_utf8(human.stdout).unwrap();
+    assert!(
+        human.contains("State is corrupt") && human.contains("Request ledger is damaged"),
+        "{human}"
+    );
+    assert!(tree(&state) == before, "state status changed damaged state");
+}
+
+fn restored_store(scratch: &Scratch) -> (heimdall_contract::ids::EnvironmentId, String) {
+    use heimdall_contract::controller_record::{
+        ManagementHop, ManagementRoute, RemoteEnvironmentPin,
+    };
+    use heimdall_contract::ids::{
+        AccountName, ClientId, DestinationId, EnvironmentId, IrohEndpointId, KeyFingerprint,
+    };
+    use heimdall_contract::remote::Role;
+    use heimdall_store::ext_transport::{TransportKeyRecord, TransportKeyState};
+    let state = scratch.state_dir();
+    std::fs::create_dir_all(&state).unwrap();
+    let at: heimdall_contract::Timestamp = "2026-11-27T09:00:00Z".parse().unwrap();
+    let _lock = heimdall_runtime::InstanceLock::try_acquire(&state).unwrap();
+    let opened =
+        heimdall_runtime::state_store::open_locked(&state, Arc::new(NoFaults), at).unwrap();
+    let environment = EnvironmentId::from_random_bytes([8; 16]);
+    let pin = RemoteEnvironmentPin {
+        environment: environment.clone(),
+        destination: DestinationId::parse("runner1").unwrap(),
+        route: ManagementRoute {
+            runner: ManagementHop {
+                hostname: "runner.example".into(),
+                port: None,
+                account: AccountName::parse("deploy").unwrap(),
+                host_keys: vec!["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA".into()],
+            },
+            jump: None,
+        },
+        client: ClientId::from_random_bytes([9; 16]),
+        role: Role::Owner,
+        key_fingerprint: KeyFingerprint::parse(&format!("SHA256:{}", "K".repeat(43))).unwrap(),
+        label: None,
+        pinned_at: at,
+    };
+    opened
+        .store
+        .transaction(|tx| {
+            tx.put_remote_environment_pin(
+                &environment,
+                &pin.destination,
+                &pin.route.runner.account,
+                &pin.key_fingerprint,
+                &serde_json::to_string(&pin).unwrap(),
+                at,
+            )?;
+            tx.insert_transport_key(&TransportKeyRecord {
+                endpoint: IrohEndpointId::parse(&"a".repeat(64)).unwrap(),
+                store_kind: "fixture".into(),
+                store_ref: "fixture-item".into(),
+                state: TransportKeyState::Active,
+                created_at: at,
+                destroyed_at: None,
+            })
+        })
+        .unwrap();
+    let backup = opened.current.dir.join(format!(
+        "{}.v{}.backup",
+        heimdall_store::layout::DB_FILE,
+        heimdall_store::SCHEMA_VERSION
+    ));
+    let db = opened.current.dir.join(heimdall_store::layout::DB_FILE);
+    drop(opened);
+    Store::open_read_only_quiescent(&db, Arc::new(NoFaults))
+        .unwrap()
+        .vacuum_into(&backup)
+        .unwrap();
+    let backup_at = std::fs::metadata(&backup).unwrap().modified().unwrap();
+    let backup_at = heimdall_contract::Timestamp::try_from(backup_at)
+        .unwrap()
+        .to_string();
+    heimdall_runtime::state_store::restore_locked(
+        &state,
+        &backup,
+        at,
+        false,
+        Duration::from_secs(7 * 86400),
+    )
+    .unwrap();
+    (environment, backup_at)
+}
+
+#[test]
+fn state_status_lists_restore_holds_and_last_backup() {
+    let scratch = Scratch::new();
+    let (environment, backup_at) = restored_store(&scratch);
+    let before = tree(&scratch.state_dir());
+    let out = scratch.heimdall(&["state", "status"]);
+    let env = envelope(&out);
+    assert!(out.status.success(), "{env}");
+    let holds = env["data"]["holds"].as_array().unwrap();
+    assert!(
+        holds
+            .iter()
+            .any(|h| h["kind"] == "environment" && h["reference"] == environment.as_str())
+    );
+    assert!(
+        holds
+            .iter()
+            .any(|h| h["kind"] == "exposure" && h["reference"] == "transport")
+    );
+    assert_eq!(env["data"]["last_backup_at"], backup_at);
+    let human = scratch.heimdall_with_output(&["state", "status"], false);
+    assert!(human.status.success());
+    let human = String::from_utf8(human.stdout).unwrap();
+    assert!(
+        human.contains(environment.as_str()) && human.contains(&backup_at),
+        "{human}"
+    );
+    assert!(
+        tree(&scratch.state_dir()) == before,
+        "state status changed restored state"
+    );
+}
+
+#[test]
+fn environment_status_explains_a_controller_restore_hold() {
+    let scratch = Scratch::new();
+    let (environment, _) = restored_store(&scratch);
+    let args = &["environment", "status", environment.as_str()];
+    let out = scratch.heimdall(args);
+    let env = envelope(&out);
+    assert!(out.status.success(), "{env}");
+    let entry = &env["data"]["environments"][0];
+    assert_eq!(entry["issuance"], "awaiting_resync", "{entry}");
+    assert_eq!(entry["restore_hold"]["reason"], "state_restored", "{entry}");
+    assert_eq!(
+        entry["restore_hold"]["next_action"], "reconcile_runner",
+        "{entry}"
+    );
+    let human = scratch.heimdall_with_output(args, false);
+    assert!(human.status.success());
+    let human = String::from_utf8(human.stdout).unwrap();
+    assert!(
+        human.contains("held after state restore") && human.contains("reconcile with the runner"),
+        "{human}"
+    );
+}
+
+#[test]
+fn rotating_exposure_disabled_by_restore_answers_the_restore_reason() {
+    let scratch = Scratch::new();
+    restored_store(&scratch);
+    let env = envelope(&scratch.heimdall(&["transport", "rotate"]));
+    assert_eq!(env["code"], "CAPABILITY_UNAVAILABLE", "{env}");
+    assert_eq!(
+        env["data"]["error"]["reason"], "exposure_disabled_after_restore",
+        "{env}"
+    );
 }
 
 /// ⟨M08 U2b-3b; ADR-0014 H4; m08-plan U2b⟩ `corrupt_store_stops_unsafe_operations_and_offers_recovery`
@@ -717,7 +946,7 @@ fn corrupt_store_stops_unsafe_operations_and_offers_recovery() {
                     "{damage} {argv:?}: {message}"
                 );
             }
-            assert_eq!(tree(&state), before, "{damage} {argv:?}: nothing written");
+            assert!(tree(&state) == before, "{damage} {argv:?}: state changed");
         }
         let out = scratch.heimdall(&["doctor", "--no-local-exec"]);
         let env = envelope(&out);
@@ -737,6 +966,17 @@ fn corrupt_store_stops_unsafe_operations_and_offers_recovery() {
         } else {
             assert_eq!(finding["reason"], "state_newer_than_build", "{finding}");
         }
-        assert_eq!(tree(&state), before, "{damage}: doctor wrote nothing");
+        // Doctor's own SQLite readers may create the empty log and index. They do not
+        // belong to the `status` chores and are outside this read-only regression.
+        let without_sidecars = |mut files: std::collections::BTreeMap<String, Vec<u8>>| {
+            files.retain(|name, bytes| {
+                !name.ends_with("-shm") && !(name.ends_with("-wal") && bytes.is_empty())
+            });
+            files
+        };
+        assert!(
+            without_sidecars(tree(&state)) == without_sidecars(before),
+            "{damage}: doctor changed state"
+        );
     }
 }
