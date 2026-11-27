@@ -1570,8 +1570,8 @@ integrator flips the switch if the ruling differs.
   * ⟨r3⟩ `git_xdg_created_after_apply_shadowed_value_reported`. Only `~/.gitconfig`
     existed at apply. The user then creates the XDG file with a value. Heimdall's value
     wins, as disclosed, and doctor reports `git_user_value_shadowed` with both origins;
-  * `git_spaced_client_path_is_quoted_and_runs` (Windows native: `[clients] ssh` at a spaced
-    scratch copy of the verified client; `git ls-remote` reaches the fixture sshd).
+  * `git_spaced_client_path_is_quoted_and_runs` is deferred to post-1.0 with the
+    `[clients].ssh` override it requires (ADR-0007 §8, 2026-11-26 amendment).
 * **Depends on:** U2, U3 (`sys`, `git`), U7 (ScratchHome).
 
 ### U5: Setup and catalog operations (app, store, runtime wiring)
@@ -2967,8 +2967,9 @@ is not frozen, §1). Every new enum is `#[non_exhaustive]` and `snake_case` on t
       pass. U0b row 23 calls it.
     * `Store::open_read_only`.
 19. **Config.**
-    * An optional `[clients]` table (`ssh`, `scp`, `sftp`, `git`, `ssh_keygen`: absolute
-      paths to existing regular files) with `deny_unknown_fields`.
+    * The optional `[clients]` path overrides (`ssh`, `scp`, `sftp`, `git`, `ssh_keygen`)
+      are deferred to post-1.0. The 1.0 reader refuses the table (ADR-0007 §8,
+      2026-11-26 amendment).
     * ⟨r2⟩ `[setup] declaration_validity_days` (default 30, range 1–90; QR1).
     * `FORBIDDEN_KEYS` is unchanged, and config still carries no socket paths.
 

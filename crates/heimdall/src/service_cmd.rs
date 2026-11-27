@@ -127,7 +127,7 @@ pub(crate) fn state_dir_unsafe(e: &ConfigError) -> Envelope<ErrorData> {
     .into_envelope()
 }
 
-fn load_config(paths: &Paths) -> Result<Config, ConfigError> {
+pub(crate) fn load_config(paths: &Paths) -> Result<Config, ConfigError> {
     use std::io::Read as _;
     let path = paths.config_dir.join("config.toml");
     // ⟨M05; review M05-W4-R02⟩ A regular file only, opened without waiting (a FIFO refuses).
@@ -225,6 +225,9 @@ pub fn run(ctx: &Ctx, detach: bool, login: bool, runner: bool) -> ExitCode {
     }
     let config = match load_config(&paths) {
         Ok(c) => c,
+        Err(e @ ConfigError::RetiredStrictDisconnect) => {
+            return fail(ctx, error(Code::UsageError, &e.to_string()));
+        }
         Err(e) => return fail(ctx, error(Code::ConfigConflict, &e.to_string())),
     };
     let rt = match Service::runtime() {

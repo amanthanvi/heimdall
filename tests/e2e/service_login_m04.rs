@@ -121,13 +121,20 @@ impl World {
     /// (`USERPROFILE` on Windows) that is also `HEIMDALL_TEST_SSH_HOME`, the three fixture
     /// key stores, this world's `HEIMDALL_HOME` and its `HEIMDALL_TEST_LOGIN_ROOT`.
     fn command(&self, args: &[&str]) -> Command {
+        self.command_with_output(args, true)
+    }
+
+    fn command_with_output(&self, args: &[&str], json: bool) -> Command {
         let account = self.scratch.path().join("account");
         let iroh = self.scratch.path().join("iroh");
         for dir in [&account, &iroh] {
             std::fs::create_dir_all(dir).unwrap();
         }
         let mut cmd = Command::new(bin());
-        cmd.arg("--json").args(args).env_clear();
+        if json {
+            cmd.arg("--json");
+        }
+        cmd.args(args).env_clear();
         let carried: &[&str] = if cfg!(windows) {
             &[
                 "SystemRoot",
@@ -154,6 +161,7 @@ impl World {
         cmd.env("HOME", &account)
             .env("USERPROFILE", &account)
             .env("HEIMDALL_TEST_SSH_HOME", &account)
+            .env("HEIMDALL_TEST_TIME_SYNC", "synchronized")
             .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
             .env(
                 "HEIMDALL_TEST_MGMT_STORE",
@@ -167,6 +175,18 @@ impl World {
             .env("HEIMDALL_TEST_LOGIN_ROOT", &self.root.path)
             .stdin(Stdio::null());
         cmd
+    }
+
+    fn write_config(&self, contents: &str) {
+        let config = self.home.path().join("config");
+        std::fs::create_dir_all(&config).unwrap();
+        std::fs::write(config.join("config.toml"), contents).unwrap();
+    }
+
+    fn setup_summary(&self) -> String {
+        let out = self.finish(self.command_with_output(&["--non-interactive", "setup"], false));
+        assert_eq!(out.code, 0, "{out:?}");
+        out.stdout
     }
 
     fn run(&self, args: &[&str]) -> Out {
@@ -243,6 +263,96 @@ impl Drop for World {
             .stderr(Stdio::null())
             .output();
     }
+}
+
+#[test]
+fn service_refuses_retired_strict_disconnect_config_key() {
+    let world = World::new();
+    world.write_config(
+        "schema_version = 1\n[session]\nmax_window = \"8h\"\nstrict_disconnect = true\n",
+    );
+    let out = world.run(&["service", "run"]);
+    assert_eq!(out.code, 2, "{out:?}");
+    let env = out.json();
+    assert_eq!(env["code"], "USAGE_ERROR");
+    let message = env["data"]["error"]["message"].as_str().unwrap();
+    for text in [
+        "session.strict_disconnect",
+        "heimdall access ensure --strict",
+        "heimdall access connection-policy --policy <id> --existing strict",
+    ] {
+        assert!(message.contains(text), "missing {text:?} in {message:?}");
+    }
+}
+
+#[test]
+fn fresh_setup_discloses_configured_window_and_leaves_login_unregistered() {
+    use heimdall_runtime::autostart::EntryState;
+
+    let world = World::new();
+    world.write_config("schema_version = 1\n[session]\nmax_window = \"90m\"\n");
+    let runtime = world.start(&["service", "run"]);
+    let summary = world.setup_summary();
+    for text in [
+        "ceiling: 90m",
+        "`session.max_window`",
+        "`config.toml`",
+        "`set_max_window`",
+    ] {
+        assert!(summary.contains(text), "missing {text:?} in {summary:?}");
+    }
+    assert!(!summary.contains("service autostart enable"), "{summary}");
+    assert_eq!(world.host().observe().unwrap(), EntryState::Absent);
+    world.stop(runtime);
+}
+
+#[test]
+fn managed_setup_suggests_autostart_only_when_registration_is_off() {
+    use heimdall_contract::Timestamp;
+    use heimdall_contract::issuer::{CaState, StoreKind};
+    use heimdall_credential::cert::SecretCaKey;
+    use heimdall_runtime::autostart::EntryState;
+    use heimdall_store::{IssuerRecord, NoFaults, Store, layout};
+    use std::sync::Arc;
+
+    let world = World::new();
+    world.stop(world.start(&["service", "run"]));
+    // Seed a CA registration using ephemeral public material. Setup only needs the record.
+    let ca = SecretCaKey::generate().unwrap();
+    let now = Timestamp::now();
+    let db = layout::db_path(&world.state_dir()).unwrap();
+    let store = Store::open(&db, Arc::new(NoFaults)).unwrap();
+    store
+        .transaction(|tx| {
+            tx.insert_issuer(&IssuerRecord {
+                ca_fingerprint: ca.fingerprint().unwrap(),
+                public_key: ca.public_openssh().unwrap(),
+                state: CaState::Active,
+                store_kind: StoreKind::LinuxSecretService,
+                backup_sha256: "00".repeat(32),
+                backup_created_at: now,
+                restored_without_log: false,
+                created_at: now,
+                retired_at: None,
+            })
+        })
+        .unwrap();
+    drop(store);
+
+    let runtime = world.start(&["service", "run"]);
+    let host = world.host();
+    let hint = "heimdall service autostart enable";
+    let summary = world.setup_summary();
+    assert!(summary.contains(hint), "{summary}");
+    assert_eq!(host.observe().unwrap(), EntryState::Absent);
+
+    host.install(&own_command()).unwrap();
+    let installed = host.observe().unwrap();
+    assert!(matches!(installed, EntryState::Owned(_)));
+    let summary = world.setup_summary();
+    assert!(!summary.contains(hint), "{summary}");
+    assert_eq!(host.observe().unwrap(), installed);
+    world.stop(runtime);
 }
 
 /// Every path under `dir`, relative and sorted.

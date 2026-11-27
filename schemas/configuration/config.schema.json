@@ -23,8 +23,7 @@
       "$ref": "#/$defs/SessionConfig",
       "default": {
         "lock_behavior": "continue",
-        "max_window": "12h",
-        "strict_disconnect": false
+        "max_window": "12h"
       }
     },
     "setup": {
@@ -94,11 +93,6 @@
         "max_window": {
           "description": "Maximum window for new trusted work, as a duration string (`12h`).",
           "type": "string"
-        },
-        "strict_disconnect": {
-          "description": "Strict disconnect at expiry (spec §6.6).",
-          "type": "boolean",
-          "default": false
         }
       },
       "additionalProperties": false,
