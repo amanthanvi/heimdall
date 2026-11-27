@@ -109,6 +109,19 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
       again with only the fix reverted.
     - **Ruling of 2026-11-27:** paired owners stay share-limited; only the local owner is exempt
       (ADR-0006 §19.3).
+  - **U2b-3b's rulings (2026-11-27).**
+    - The wiring edits are ratified.
+    - **Reauthorizing a quarantined client:** this stays a 1.0 limitation. The recovery path is
+      to revoke the client and invite it again, documented and tested in U2b-3b-F.
+      `reauthorize_client` is post-1.0.
+    - **The `state-restore`, `state-reset` and `state-repair` schemas stay declared.** They are
+      due to be published in M07's end-of-U3-3 promotion commit (P), after W4 reaches main.
+    - **Repair advances the request epoch;** it does not re-append the records it cut.
+    - **Reset keeps its disclosure for 1.0;** `--bundle` is post-1.0.
+    - **`state status`, which is in the frozen tree, gets a minimal read-only version.**
+    - **U2b-3b-F** carries the reasons emitted at their use sites, the controller-side holds in
+      `environment status`, the read-only status chores, and the minor items. It lands before
+      U2b-4.
   - **A W4 load flake:** `e2e_tui_m07` `pty::a20_key_latency` (M07's A20, debug build) failed the
     gate at `95043b74`. The search keystroke's completed-frame P95 was 105.5 ms against a 100 ms
     budget; Tab and PageDown were well inside it.
