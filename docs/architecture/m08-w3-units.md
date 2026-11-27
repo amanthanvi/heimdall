@@ -289,6 +289,38 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
       SEC-3a or SEC-4 (both touch the runtime).
   - The blocking and must-fix units land before U2b-4, U6b and U7b.
 
+**The W4 candidate plan (drafted 2026-11-27).** It runs once U6b, SEC-3b-F and U7b's final half
+have landed.
+1. **One gate at the W4 tip**, under heavy-gate, at its full 23 steps.
+2. **The native candidate runs, all at that SHA:**
+   - **The full m02 Windows harness on the PC.** This is the largest PC job yet. It runs under a
+     fresh root, with the standing limits: `-NoProfile`, not elevated, BelowNormal priority,
+     `CARGO_BUILD_JOBS=4`, scratch toolchain homes, every new TEMP name recorded, Credential
+     Manager and DWM counts before and after, and no firewall prompt.
+     - It includes `e2e_deadline_m03 windows::` and `e2e_enroll_m03`, with the harness fixture
+       sshd (`AllowAgentForwarding no`).
+     - It also runs the A20 latency test serially.
+   - **The devbox batch:** the native Linux sets for W4's units. These are the store switch,
+     restore and fault sets, the request ledger, the runner authority-history bound, and the
+     S2-06 agent cap. It runs under the free-space rules.
+   - **The W4 PC rows:**
+     - the payload self-test from both parent shells, which re-verifies job 72;
+     - SEC-2's S4-03, S4-04 and S4-05 rows, which re-verify job 68;
+     - U2b-4's stop preview, and the moved executable's WSL helper path;
+     - U6b's bundle on Windows.
+3. **W4's cross-family review,** split by the author's family as ruled:
+   - **Gemini** reviews the Opus-written units: W4-T1, SEC-1, U2b-3a, U2b-3b, SEC-4's finish,
+     SEC-5's finish, SEC-3b and U6b.
+   - **Opus** reviews the GPT-written and Gemini-written units: GRANT-LIVE, SEC-2, SEC-3a, SEC-5F,
+     U2b-3a-F, U2b-3b-F, U2b-4, SEC-3b-F, the candidate tooling, the matrix and the installer
+     fixes.
+   - **GPT** is the fallback for Gemini-written units if Opus is limited, and never reviews
+     GPT-written code.
+   - Each half gets a scoped re-check of its fixes.
+   - The review brief is defensive. It flags `lift_shown_among` as a publish-path change, and
+     includes the integration merges and the migration numbering, 0015 to 0018.
+4. **The orchestrator merges `m08/w4` into main.**
+
 **H13's reader side and M07.** H13 is one change, owned by U2b-2. Its readers today are M07's:
 - the TUI's request paths (`crates/heimdall/src/tui/worker.rs`, `tui/m05.rs`, `tui/m07.rs`);
 - the reference wrapper (`examples/reference-wrapper/reference_wrapper.py`);
