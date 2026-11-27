@@ -967,6 +967,100 @@ async fn a_decision_minted_under_an_older_epoch_is_stale() {
     );
 }
 
+/// ⟨M08 W4 U2b-3a-F; orchestrator ruling 2026-11-26, option A⟩ Once the restore epoch is above
+/// 0, a `dec_` reference with no recorded decision answers `DECISION_STALE` /
+/// `restore_epoch_stale` (never `NOT_FOUND`), with nothing written. At epoch 0 an unrecorded
+/// reference keeps `NOT_FOUND`, and a recorded decision minted under the current epoch keeps
+/// its existing answers.
+#[tokio::test]
+async fn an_unrecorded_decision_reference_is_stale_once_the_epoch_is_above_zero() {
+    let rig = Rig::new();
+    let unknown = DecisionId::from_random_bytes([0xee; 16]);
+    let decide = |id: &DecisionId, verdict: &str| -> Request {
+        serde_json::from_value(serde_json::json!({
+            "op": "decide", "decision_id": id, "verdict": verdict,
+        }))
+        .unwrap()
+    };
+    // At epoch 0: an unrecorded `dec_` reference keeps `NOT_FOUND` (both approve and deny),
+    // and writes nothing.
+    let running = rig.start(None).await;
+    let mut owner = attended(&running.control).await;
+    let before = rig.footprint();
+    for verdict in ["approve", "deny"] {
+        let env = owner.request(decide(&unknown, verdict)).await.unwrap();
+        assert_eq!(env.code, Code::NotFound, "epoch 0 {verdict}: {env:?}");
+        assert_eq!(env.request_epoch, Some(RestoreEpoch(0)));
+        assert_eq!(error_of(&env).error.effect_status, EffectStatus::None);
+    }
+    assert_eq!(
+        rig.footprint(),
+        before,
+        "epoch 0 unknown decide wrote nothing"
+    );
+    running.stop().await;
+
+    // Raise the restore epoch (test seam) and record one decision minted under epoch 1.
+    let current_id = DecisionId::from_random_bytes([0x22; 16]);
+    let store = rig.store();
+    store
+        .transaction(|tx| {
+            tx.raise_restore_epoch_for_test(RestoreEpoch(1))?;
+            let generation = tx.authority_generation()?;
+            tx.insert_decision(&heimdall_domain::decision::DecisionRecord {
+                id: current_id.clone(),
+                kind: heimdall_domain::decision::DecisionKind::WidenPolicy {
+                    action: heimdall_contract::request::PolicyAction::Resume {
+                        policy_id: Some(PolicyId::parse("pol").unwrap()),
+                        target: None,
+                    },
+                },
+                generation,
+                created_at: t0(),
+                expires_at: at(3600),
+                state: heimdall_domain::decision::DecisionState::Pending,
+                decided_at: None,
+            })
+        })
+        .unwrap();
+    drop(store);
+
+    // At epoch 1: the same unrecorded `dec_` reference answers `DECISION_STALE` /
+    // `restore_epoch_stale` with effect `none`, next `fix_request`, and writes nothing.
+    let running = rig.start(None).await;
+    let mut owner = attended(&running.control).await;
+    let before = rig.footprint();
+    let before_db = db_files_bytes(&rig.state_dir());
+    let before_ledger = ledger_bytes(&rig.state_dir());
+    for verdict in ["approve", "deny"] {
+        let request = decide(&unknown, verdict);
+        let env = owner.request(request.clone()).await.unwrap();
+        assert_refused(
+            &env,
+            &Code::DecisionStale,
+            reason::RESTORE_EPOCH_STALE,
+            &request,
+            RestoreEpoch(1),
+        );
+        let error = error_of(&env).error;
+        assert!(!error.retryable);
+        assert_eq!(error.next.action, "fix_request");
+    }
+    assert_eq!(
+        rig.footprint(),
+        before,
+        "stale unknown decide wrote nothing"
+    );
+    assert_eq!(ledger_bytes(&rig.state_dir()), before_ledger);
+    assert_eq!(db_files_bytes(&rig.state_dir()), before_db);
+
+    // A recorded decision minted under the current epoch keeps its existing answer.
+    let recorded = owner.request(decide(&current_id, "deny")).await.unwrap();
+    assert_eq!(recorded.code, Code::Ok, "{recorded:?}");
+    assert_eq!(recorded.request_epoch, Some(RestoreEpoch(1)));
+    running.stop().await;
+}
+
 /// The damaged-ledger refusal (ruled 2026-11-23) at the runtime: a request ledger with damage
 /// before its tail refuses every request that carries a request ID, `STATE_UNAVAILABLE` /
 /// `ledger_damaged`, next `owner_decision` (the attended `state repair`), before anything is
@@ -1062,6 +1156,7 @@ struct RunnerSetup {
     hook: Option<FenceHook>,
     lines: bool,
     routes: bool,
+    fake_adapter: bool,
 }
 
 impl Runner {
@@ -1074,13 +1169,25 @@ impl Runner {
     async fn start_with(rig: &Rig, setup: RunnerSetup) -> Runner {
         let store = Arc::new(rig.store());
         assert_eq!(init_runner(&store).unwrap(), env_id());
+        let adapters: Vec<Arc<dyn CredentialAdapter>> = if setup.fake_adapter {
+            vec![
+                FakeCredentialAdapter::with_ledger(
+                    descriptor(),
+                    vec![FakeStep::Prepare(outcome()); 40],
+                    &rig.effects,
+                )
+                .unwrap(),
+            ]
+        } else {
+            Vec::new()
+        };
         let ops = Operations::start(OperationsConfig {
             store: store.clone(),
             clock: rig.clock.clone(),
             time_sync: ScriptedTimeSync::new(SyncStatus::Synchronized),
             time_policy: TimePolicy::default(),
             environment: env_id(),
-            adapters: Vec::new(),
+            adapters,
             stage_hook: Arc::new(NoStageHook),
             limits: Limits::default(),
             default_window: 12 * HOUR,
@@ -2238,6 +2345,160 @@ async fn a_flood_of_distinct_keys_keeps_the_ledger_bounded() {
     assert_ledger_full(&c.request(after.clone()).await.unwrap(), &after);
     assert_eq!(rig.ledger().len(), limits.limit);
     drop(c);
+    runner.stop().await;
+}
+
+/// ⟨M08 W4 U2b-3a-F; orchestrator ruling 2026-11-26⟩ The per-caller share covers every
+/// non-owner caller, local requester principals included, keyed by the caller identity the
+/// session carries (principal plus client):
+/// - a local requester principal (`ClientRole::LimitedConsumer`, `remote_client: None`) that
+///   fills its share gets `BACKPRESSURE` with no append (the ledger is byte-identical), while
+///   a retry of one of its keys still succeeds without appending;
+/// - another local requester principal (and a paired requester) still succeed;
+/// - a local requester sharing the local owner's OS principal is bounded by its own share,
+///   while the local owner still succeeds and keeps the full owner reserve.
+#[tokio::test]
+async fn a_local_requester_principal_is_bounded_by_its_share() {
+    use heimdall_app::Caller;
+    use heimdall_runtime::request_fence::LedgerLimits;
+    let rig = Rig::new();
+    let limits = LedgerLimits {
+        limit: 32,
+        owner_reserve: 6,
+        client_share: 8,
+    };
+    let runner = Runner::start_with(
+        &rig,
+        RunnerSetup {
+            limits: Some(limits),
+            fake_adapter: true,
+            ..RunnerSetup::default()
+        },
+    )
+    .await;
+    let local_requester = |uid: u32| {
+        Caller::unattended(CallerContext::local(
+            PrincipalRef::UnixUser { uid },
+            ClientRole::LimitedConsumer,
+        ))
+    };
+    let req_a = local_requester(502);
+    let req_b = local_requester(503);
+    let req_same_uid = local_requester(501);
+    let paired = runner.seed(1, Role::Requester, true);
+    let opened = runner.fence.ledger_bytes_read();
+
+    let assert_ready = |env: &Envelope<serde_json::Value>, id: &str, expected_len: usize| {
+        assert_eq!(env.code, Code::AccessReady, "{id}: {env:?}");
+        assert_eq!(env.request_id, Some(rid(id)), "{id}");
+        assert_eq!(env.request_epoch, Some(RestoreEpoch(0)), "{id}");
+        assert_eq!(
+            rig.ledger().len(),
+            expected_len,
+            "{id}: one entry per new key"
+        );
+        assert_eq!(
+            runner.fence.ledger_bytes_read(),
+            opened,
+            "{id}: an append reads nothing"
+        );
+    };
+
+    // Local requester A fills its share (8 entries).
+    for n in 0..8 {
+        let id = format!("r-la-{n}");
+        let env = runner.dispatcher.handle_as(&req_a, ensure(&id)).await;
+        assert_ready(&env, &id, n + 1);
+    }
+    // Past its share: refused BACKPRESSURE with no append and no adapter effect.
+    let before_ledger = ledger_bytes(&rig.state_dir());
+    let before_effects = rig.footprint().2;
+    let over_a = ensure("r-la-8");
+    let refused_a = runner.dispatcher.handle_as(&req_a, over_a.clone()).await;
+    assert_ledger_full(&refused_a, &over_a);
+    assert_eq!(
+        ledger_bytes(&rig.state_dir()),
+        before_ledger,
+        "nothing appended"
+    );
+    assert_eq!(rig.footprint().2, before_effects, "no adapter effect");
+
+    // A retry of an already-admitted key from requester A still succeeds, appending nothing.
+    let retry_a = runner.dispatcher.handle_as(&req_a, ensure("r-la-3")).await;
+    assert_eq!(retry_a.code, Code::AccessReady, "{retry_a:?}");
+    assert_eq!(
+        ledger_bytes(&rig.state_dir()),
+        before_ledger,
+        "retry appends nothing"
+    );
+
+    // Another local requester principal (B) still succeeds up to its own share.
+    for n in 0..8 {
+        let id = format!("r-lb-{n}");
+        let env = runner.dispatcher.handle_as(&req_b, ensure(&id)).await;
+        assert_ready(&env, &id, 9 + n);
+    }
+    let before_ledger = ledger_bytes(&rig.state_dir());
+    let over_b = ensure("r-lb-8");
+    assert_ledger_full(
+        &runner.dispatcher.handle_as(&req_b, over_b.clone()).await,
+        &over_b,
+    );
+    assert_eq!(ledger_bytes(&rig.state_dir()), before_ledger);
+
+    // A local requester on the same OS principal as the local owner (uid 501) has its own share.
+    for n in 0..8 {
+        let id = format!("r-lc-{n}");
+        let env = runner
+            .dispatcher
+            .handle_as(&req_same_uid, ensure(&id))
+            .await;
+        assert_ready(&env, &id, 17 + n);
+    }
+    let before_ledger = ledger_bytes(&rig.state_dir());
+    let over_c = ensure("r-lc-8");
+    assert_ledger_full(
+        &runner
+            .dispatcher
+            .handle_as(&req_same_uid, over_c.clone())
+            .await,
+        &over_c,
+    );
+    assert_eq!(ledger_bytes(&rig.state_dir()), before_ledger);
+
+    // A paired requester on uid 501 has its own (principal, client) key, until the owner reserve line (32 - 6 = 26).
+    let mut paired_session = runner.connect(&paired).await;
+    for n in 0..2 {
+        let id = format!("r-p-{n}");
+        let env = paired_session.request(ensure(&id)).await.unwrap();
+        assert_ne!(env.code, Code::Backpressure, "{id}: {env:?}");
+        assert_eq!(rig.ledger().len(), 25 + n);
+    }
+    let before_ledger = ledger_bytes(&rig.state_dir());
+    let at_reserve = ensure("r-p-2");
+    assert_ledger_full(
+        &paired_session.request(at_reserve.clone()).await.unwrap(),
+        &at_reserve,
+    );
+    assert_eq!(ledger_bytes(&rig.state_dir()), before_ledger);
+
+    // The local owner (uid 501, Owner) still succeeds and fills its 6-entry owner reserve.
+    let mut owner_session = runner.connect_local(false).await;
+    for n in 0..6 {
+        let id = format!("r-o-{n}");
+        let env = owner_session.request(ensure(&id)).await.unwrap();
+        assert_ready(&env, &id, 27 + n);
+    }
+    let before_ledger = ledger_bytes(&rig.state_dir());
+    let at_limit = ensure("r-o-6");
+    assert_ledger_full(
+        &owner_session.request(at_limit.clone()).await.unwrap(),
+        &at_limit,
+    );
+    assert_eq!(ledger_bytes(&rig.state_dir()), before_ledger);
+    assert_eq!(rig.ledger().len(), limits.limit);
+
+    drop((paired_session, owner_session));
     runner.stop().await;
 }
 
