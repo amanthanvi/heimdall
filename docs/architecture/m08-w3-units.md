@@ -354,6 +354,17 @@ have landed.
     W4-RF1 item 8.
   - **Grok is accepted as the fallback reviewer**, recorded as the third family.
   - **One more Grok review:** U6b, as a cross-check beside GPT, once U6b is final.
+- **SEC-4, reviewed by GPT-6.2 Sol:** 4 blocking, 4 non-blocking. The lead verified W4C-1 in
+  the code.
+  - **All four ruled blocking:**
+    - **W4C-1:** restore merges same-key revision and acknowledgement rows toward the stricter
+      one.
+    - **W4C-2:** the time high-water mark is carried forward as the maximum.
+    - **W4C-3:** "cutoff later" is a lift, and must name the effect.
+    - **W4C-4:** one transaction, so a crash cannot separate the cutoff from its marker.
+  - **W4C-5 to W4C-7** are fixed in W4-RF2. **W4C-8** is W4R-06, which W4-RF1 already covers.
+  - **W4-RF2** runs on GPT, in parallel with W4-RF1, with Opus's cross-family re-check. It
+    stops before touching W4-RF1's files.
 - **W4-RF1 also carries W4-T1's two review fixes** (W4T-1 and W4T-2, test only), so the wave
   has one review-fix commit.
 
