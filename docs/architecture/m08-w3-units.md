@@ -86,6 +86,13 @@ one review cycle (ADR-0009), divided so that every unit is reviewed by the other
   - SEC-3b: S2-05's design (Gemini) and its code items.
   - SEC-4 (GPT): cutoff latching (S3-01, S3-03, S3-06, S3-07).
   - S3-04 goes to U2b-3b.
+  - **SEC-3a's record.** Authors: Gemini 4 Neon wrote the WIP (`82f7637b`), and GPT-6.2 Sol
+    finished it (`8c3649ee`). The reviewer is Opus.
+    - The worker's `check.sh` showed 124 failures in the enroll suites. They came from its
+      environment, not from SEC-3a: a temporary release wrapper was shadowing `bash`.
+    - The lead's gate at `e5cab15f` was green, at 4327/0/204, with no enroll failure.
+    - Since then, the worker rules forbid a wrapper ahead of system tools on `PATH` for a gate
+      run.
   - **SEC-1's open items, as ruled on 2026-11-26:**
     - **S2-04:** a real tombstone still bumps the authority generation once. This is accepted
       for 1.0, because it fails safe: a pending decision must be confirmed again. SEC-3b may
