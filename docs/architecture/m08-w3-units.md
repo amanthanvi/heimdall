@@ -319,6 +319,11 @@ have landed.
    - Each half gets a scoped re-check of its fixes.
    - The review brief is defensive. It flags `lift_shown_among` as a publish-path change, and
      includes the integration merges and the migration numbering, 0015 to 0018.
+   - **The brief also says (approved 2026-11-27)** that M09-T03's early security review raised
+     findings in these units, which SEC-1 to SEC-5 and their follow-ups fixed. Both reviewers
+     **check that those fixes still hold as integrated**, with the merges and their interactions
+     (for example SEC-4 with SEC-1's S3-02 test), as well as reviewing the new code. They do not
+     re-review the findings themselves.
 4. **The orchestrator merges `m08/w4` into main.**
 
 **H13's reader side and M07.** H13 is one change, owned by U2b-2. Its readers today are M07's:
