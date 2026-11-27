@@ -62,6 +62,10 @@ Short, and meant to be read once.
 - **A certificate request reserved just before the runtime restarts can be signed again within
   60 s of the restart,** for the same key and with the same limits. The second certificate is
   never published, and it is still counted as issued.
+- **Per-caller request-ID shares reset when the runtime restarts.** Each non-owner caller's
+  share of the request ledger is counted in memory per runtime lifetime, so a principal that
+  floods across restarts can exceed its own share, though never the owner's reserve (and a
+  paired client cannot restart a runner remotely).
 - **A `Host` line of yours that names a managed alias is reported only when it names it
   exactly.** `heimdall doctor` and `heimdall setup` report a user `Host` line naming a managed
   alias as a literal (letter case aside). A wildcard pattern (`Host web*`) or a `Match` block

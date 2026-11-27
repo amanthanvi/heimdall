@@ -2789,29 +2789,46 @@ come before the epoch check and the request ledger, so a frame refused for its r
 admission appends nothing, and a frame refused for its role gets the role refusal (stamped with
 its frame epoch) even when that epoch is stale.
 
-**H13's ledger is bounded (the orchestrator's cap, 2026-11-26; M08 W4 U2b-3a).** The request
-ledger keeps ADR-0014 §3.6 step 4's retention: it drops an entry only after its settled key's
-marker window (a key's settlement is kept by the ledger's digest once its operation is purged),
-and never one whose settlement is unknown. Within the window nothing can be dropped, so a new
-request key is refused before any append, `BACKPRESSURE` (retryable, effect `none`, next
+**H13's ledger is bounded (orchestrator ruling, 2026-11-26; M08 W4 U2b-3a, U2b-3a-F).** The
+request ledger keeps ADR-0014 §3.6 step 4's retention: it drops an entry only after its settled
+key's marker window (a key's settlement is kept by the ledger's digest once its operation is
+purged), and never one whose settlement is unknown. Within the window nothing can be dropped, so a
+new request key is refused before any append, `BACKPRESSURE` (retryable, effect `none`, next
 `retry_after` with `retry_after_ms`), at a hard cap on live entries:
 - **262,144 live entries** (`LEDGER_LIMIT`, about 12 MiB), whoever asks;
-- **an owner reserve of 65,536** (`LEDGER_OWNER_RESERVE`): a caller without the owner role is
-  refused once the ledger holds 196,608, so the last 65,536 entries are the owner role's (the
-  local owner and paired owner clients) whatever another principal has sent. The count is the
-  ledger's own, so this holds across restarts;
-- **a per-principal share of 32,768** (`LEDGER_CLIENT_SHARE`): what one principal other than the
-  local owner (a paired client, by its principal and `remote_client`) may add during one
-  runtime's lifetime, so one requester's flood refuses that requester only, until the reserve
-  line. The ledger holds no identifier, so the share is counted in memory; it starts again at a
-  restart (the stated residual: a principal that floods across restarts can hold more than its
-  share, never more than the reserve line).
+- **the last 65,536 reserved for owner-role callers** (`LEDGER_OWNER_RESERVE`), counted from the
+  ledger's length: a caller without the owner role is refused once the ledger holds 196,608, so
+  the last 65,536 entries are the owner role's (the local owner and paired owner clients)
+  whatever another principal has sent. Because the count is the ledger's own, this holds across
+  restarts;
+- **32,768 per non-owner caller per runtime lifetime** (`LEDGER_CLIENT_SHARE`), counted in memory
+  and keyed by the caller identity the session carries (principal plus client), covering every
+  non-owner caller — local requester principals included — as well as paired clients other than
+  the local owner (so one requester's flood refuses only that caller, until the reserve line);
+- **the residual:** because the ledger holds no identifier, the share is counted in memory and
+  resets at a restart, so a principal that floods across restarts can exceed its share, but never
+  the owner's reserve. Since S2-01, a paired client cannot restart the runtime remotely.
 
 A retry of a key already in the ledger is deduplicated (no append) and still answered at the
 cap. Nothing is evicted to make room. The forms with no request ID (a policy's pause, cutoff or
 stop, a client's revocation) append nothing and are never refused by the cap. With the default retention
 (7 days, then the 30-day marker) the limit allows about 7,000 new request keys a day in the
 steady state.
+
+**H13's unrecorded decision references after a restore (orchestrator ruling, 2026-11-26; M08 W4
+U2b-3a-F, option A).** Once the restore epoch is above 0, a `dec_` reference with no recorded
+decision answers `DECISION_STALE` / `restore_epoch_stale` (effect `none`, next `fix_request`),
+never `NOT_FOUND`, and writes nothing. Every decision minted under the current epoch is recorded
+in the current generation and decision records are never purged (§7.4), so an unrecorded
+reference cannot be current. A recorded decision keeps its existing answers, and at epoch 0 an
+unrecorded reference keeps `NOT_FOUND`. The post-1.0 alternative (option B) is to carry the
+restore epoch in the `dec_` ID format.
+
+**H13's `access release` request IDs (orchestrator ruling, 2026-11-26; M08 W4 U2b-3a,
+U2b-3a-F).** `access release` is idempotent by effect, not journaled: a reused `--request-id`
+that names another binding releases that binding, with no `REQUEST_CONFLICT` (a repeated release
+of an already-released binding answers `already_released`). The CLI mints no request ID when
+`--request-id` is not given. Journaling `access release` is post-1.0, if it is ever wanted.
 
 ### 19.4 The restore rule is an authority rule of this contract (H3)
 

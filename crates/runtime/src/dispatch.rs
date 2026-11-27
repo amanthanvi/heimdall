@@ -886,17 +886,52 @@ impl OperationsDispatcher {
 
     /// [`Self::handle`] for an explicit caller (the role-based refusals are
     /// testable with a `LimitedConsumer` caller, which the control endpoint never
-    /// builds itself before G07).
+    /// builds itself before G07). ⟨M08 W4 U2b-3a-F⟩ When this dispatcher has a
+    /// request fence ([`Self::with_request_fence`]), the request passes it as
+    /// `caller` (epoch bound at receipt, as [`Self::handle_framed`] does with no
+    /// frame epoch), after `pre_fence_refusal` and the uninstall-fence admission.
     #[doc(hidden)]
     pub async fn handle_as(
         &self,
         caller: &Caller,
         request: Request,
     ) -> Envelope<serde_json::Value> {
-        if let Some(refused) = pre_fence_refusal(caller, &request, self.runner.is_some()) {
-            return refused;
+        let Some(fence) = &self.fence else {
+            if let Some(refused) = pre_fence_refusal(caller, &request, self.runner.is_some()) {
+                return refused;
+            }
+            return self.handle_as_gated(caller, request, &Gate::open()).await;
+        };
+        let binding = fence.binding(&request, None);
+        let terminal = fence.terminal_key(&caller.context, &request);
+        let gate = Gate::checked(GateCheck {
+            fence,
+            caller: caller.context.clone(),
+            frame_epoch: None,
+            clock: self.clock.as_ref(),
+        });
+        let mut env =
+            if let Some(refused) = pre_fence_refusal(caller, &request, self.runner.is_some()) {
+                refused
+            } else {
+                self.handle_as_gated(caller, request, &gate).await
+            };
+        if let Some(stamp) = binding {
+            stamp.apply(&mut env);
         }
-        self.handle_as_gated(caller, request, &Gate::open()).await
+        if let Some(digest) = terminal
+            && gate.admitted()
+            && matches!(env.code, Code::Ok | Code::AccessReady)
+        {
+            fence
+                .record_terminal(
+                    digest,
+                    self.clock.wall(),
+                    self.operations.operation_retention(),
+                )
+                .await;
+        }
+        env
     }
 
     /// [`Self::handle_as`], the request passing `gate` where it is about to run.

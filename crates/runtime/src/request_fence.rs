@@ -6,8 +6,13 @@
 //!    current epoch is refused `REQUEST_STALE`, reason `restore_epoch_stale`, effect `none`.
 //!    Nothing is read or written for it. A frame with no epoch is bound to the current epoch
 //!    at receipt.
-//! 2. **A decision reference** (step 2). `decide` on a recorded decision minted under another
-//!    epoch is refused `DECISION_STALE`, reason `restore_epoch_stale`.
+//! 2. **A decision reference** (step 2; ⟨M08 W4 U2b-3a-F, ruling of 2026-11-26, option A⟩).
+//!    `decide` on a recorded decision minted under another epoch is refused `DECISION_STALE`,
+//!    reason `restore_epoch_stale`. Once the restore epoch is above 0, an unrecorded `dec_`
+//!    reference is refused `DECISION_STALE` / `restore_epoch_stale` too (never `NOT_FOUND`):
+//!    every decision minted under the current epoch is recorded in this generation and decisions
+//!    are never purged, so an unrecorded reference cannot be current. At epoch 0 an unrecorded
+//!    reference keeps `NOT_FOUND`, and a recorded decision keeps its existing answers.
 //! 3. **The fence** (step 4, lookup). A request that carries a request ID is keyed by the
 //!    digest of its full idempotency key (`heimdall_store::fence::ledger_digest`: principal,
 //!    caller role, `remote_client`, kind, request ID). A fence record for that digest answers
@@ -63,11 +68,13 @@
 //!     `LEDGER_LIMIT - LEDGER_OWNER_RESERVE`, so the last [`LEDGER_OWNER_RESERVE`] entries are
 //!     the owner role's (the local owner and paired owner clients) whatever any other
 //!     principal has done. The count is the ledger's own, so it holds across restarts;
-//!   - **per-principal share:** from any caller but the local owner (a paired client, by its
-//!     principal and `remote_client`), when it has added [`LEDGER_CLIENT_SHARE`] live entries
-//!     during this runtime's lifetime. One client's flood therefore refuses only that client,
-//!     until the reserve line; the ledger holds no identifier, so the share is counted in
-//!     memory and starts again at a restart (stated residual).
+//!   - **per-caller share:** from any caller other than the local owner (every non-owner
+//!     caller, local requester principals included, and every paired client; keyed by the caller
+//!     identity the session carries, principal plus `remote_client`), when it has added
+//!     [`LEDGER_CLIENT_SHARE`] live entries during this runtime's lifetime. One caller's flood
+//!     therefore refuses only that caller, until the reserve line; the ledger holds no
+//!     identifier, so the share is counted in memory and starts again at a restart (stated
+//!     residual; since S2-01, a paired client cannot restart the runtime remotely).
 //!
 //!   Nothing is ever evicted to make room.
 
@@ -102,8 +109,9 @@ pub const LEDGER_LIMIT: usize = 262_144;
 /// live entries.
 pub const LEDGER_OWNER_RESERVE: usize = 65_536;
 
-/// ⟨M08 W4 U2b-3a⟩ The most live entries one principal other than the local owner (a paired
-/// client, by its principal and `remote_client`) may add during one runtime's lifetime.
+/// ⟨M08 W4 U2b-3a, U2b-3a-F⟩ The most live entries one caller other than the local owner
+/// (every non-owner caller, local requester principals included, and every paired client; keyed
+/// by principal plus `remote_client`) may add during one runtime's lifetime.
 pub const LEDGER_CLIENT_SHARE: usize = 32_768;
 
 /// How often the trim runs at most (module docs).
@@ -166,7 +174,9 @@ pub enum FencePoint {
 #[doc(hidden)]
 pub type FenceHook = Arc<dyn Fn(FencePoint) -> bool + Send + Sync>;
 
-/// A principal the per-principal share counts (module docs): anyone but the local owner.
+/// A caller the per-caller share counts (module docs): every caller other than the local owner
+/// (every non-owner caller, local requester principals included, and every paired client), keyed
+/// by principal plus `remote_client`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Sharer {
     principal: PrincipalRef,
@@ -174,7 +184,7 @@ struct Sharer {
 }
 
 impl Sharer {
-    /// `caller`'s share, or `None` for the local owner, who has none.
+    /// `caller`'s share key, or `None` for the local owner, who has no per-caller share.
     fn of(caller: &CallerContext) -> Option<Self> {
         (!caller.has_global_access()).then(|| Self {
             principal: caller.principal.clone(),
@@ -526,13 +536,19 @@ impl RequestFence {
         decision: Option<heimdall_contract::ids::DecisionId>,
         now: heimdall_contract::Timestamp,
     ) -> Result<bool, OpError> {
-        // Step 2: a decision reference minted under another epoch is stale.
+        // Step 2: a decision reference minted under another epoch is stale; once the restore
+        // epoch is above 0, an unrecorded reference is stale too (option A, ruling of
+        // 2026-11-26: never `NOT_FOUND`).
         if let Some(id) = decision {
             let minted = self
                 .store
                 .transaction(|tx| tx.decision_restore_epoch(&id))
                 .map_err(|_| state_unavailable())?;
-            if minted.is_some_and(|e| e != self.epoch) {
+            let stale = match minted {
+                Some(e) => e != self.epoch,
+                None => self.epoch.0 > 0,
+            };
+            if stale {
                 return Err(OpError::new(
                     Code::DecisionStale,
                     "this decision was raised before the state was restored: it can no longer \
@@ -865,5 +881,48 @@ mod tests {
                 request.kind()
             );
         }
+    }
+
+    /// ⟨M08 W4 U2b-3a-F⟩ Per-caller share keys cover every non-owner caller (local requester
+    /// principals included, both Unix and Windows, keyed by principal plus client), while
+    /// leaving the local owner unshared.
+    #[test]
+    fn sharer_keys_cover_local_and_paired_non_owner_callers_separately() {
+        let local_owner =
+            CallerContext::local(PrincipalRef::UnixUser { uid: 501 }, ClientRole::Owner);
+        let local_req_same_uid = CallerContext::local(
+            PrincipalRef::UnixUser { uid: 501 },
+            ClientRole::LimitedConsumer,
+        );
+        let local_req_other_uid = CallerContext::local(
+            PrincipalRef::UnixUser { uid: 502 },
+            ClientRole::LimitedConsumer,
+        );
+        let local_req_win = CallerContext::local(
+            PrincipalRef::WindowsUser {
+                sid: "S-1-5-21-1-2-3-1001".to_owned(),
+            },
+            ClientRole::LimitedConsumer,
+        );
+        let paired_req = CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 501 },
+            role: ClientRole::LimitedConsumer,
+            remote_client: Some(ClientId::from_random_bytes([1; 16])),
+        };
+        assert_eq!(Sharer::of(&local_owner), None);
+        let keys: HashSet<Sharer> = [
+            &local_req_same_uid,
+            &local_req_other_uid,
+            &local_req_win,
+            &paired_req,
+        ]
+        .into_iter()
+        .map(|c| Sharer::of(c).expect("non-owner caller has a share key"))
+        .collect();
+        assert_eq!(
+            keys.len(),
+            4,
+            "each (principal, client) identity is distinct"
+        );
     }
 }
