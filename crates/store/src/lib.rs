@@ -61,6 +61,8 @@ pub mod fence;
 // the adoption of a flat store, over `heimdall-stategen`.
 pub mod layout;
 pub mod migrations;
+// ⟨M08 U2b-3b⟩ Restore, reset and repair (ADR-0014 §3.6, H3, H9, H10; ADR-0006 §19.4, U0-Q8).
+pub mod restore;
 
 pub use ext::{DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent, StoredEventPage};
 pub use ext_m03::{
@@ -315,6 +317,8 @@ const REQUIRED_TABLES: &[&str] = &[
     "request_fences",
     // schema version 16 (M08 U2b-3a: the request keys' terminal records; ADR-0014 §3.6 step 4)
     "request_terminals",
+    // schema version 17 (M08 U2b-3b: what a restore put on hold; ADR-0014 §3.6, H9, H10)
+    "restore_holds",
 ];
 
 /// Columns added to existing tables that the current schema must contain
@@ -465,6 +469,38 @@ impl Store {
         Self::read_only_from(conn, faults)
     }
 
+    /// ⟨M08 U2b-3b; ADR-0014 H4⟩ [`Store::open_read_only`] that writes **no** file of the
+    /// database family **when no runtime is using it**: with a write-ahead log present, the
+    /// `mode=ro&readonly_shm=1` open of [`Store::open_read_only_no_write`]; with none (a clean
+    /// stop leaves none, and the database file is then the whole family), a
+    /// `mode=ro&immutable=1` open, which takes no lock and creates no log or index file. For
+    /// the CLI's check of a store no runtime serves (`heimdall`'s `state_cmd::state_refusal`),
+    /// which must name a damaged or newer store without touching it. A writer that starts
+    /// while it reads can make it report damage that is not there; it never writes.
+    ///
+    /// # Errors
+    /// As [`Store::open_read_only`]; a path that is not UTF-8.
+    pub fn open_read_only_quiescent(path: &Path, faults: Arc<dyn FaultHook>) -> Result<Self> {
+        let mut wal = path.as_os_str().to_owned();
+        wal.push("-wal");
+        if std::fs::symlink_metadata(std::path::PathBuf::from(wal)).is_ok() {
+            return Self::open_read_only_no_write(path, faults);
+        }
+        let Some(uri) = file_uri(path, "mode=ro&immutable=1") else {
+            return Err(StoreError::Corrupt(
+                "the database path is not UTF-8".to_owned(),
+            ));
+        };
+        let conn = rusqlite::Connection::open_with_flags(
+            uri,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .map_err(codec::classify)?;
+        Self::read_only_from(conn, faults)
+    }
+
     fn read_only_from(conn: rusqlite::Connection, faults: Arc<dyn FaultHook>) -> Result<Self> {
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(codec::classify)?;
@@ -564,15 +600,52 @@ impl Store {
         steps: &[migrations::Migration],
         verify_tables: bool,
     ) -> Result<Self> {
-        Self::open_family(path, faults, steps, verify_tables, true).map(|(store, _)| store)
+        Self::open_family(
+            path,
+            faults,
+            steps,
+            verify_tables,
+            true,
+            BeforeMigration::Backup(&heimdall_stategen::RealFs),
+        )
+        .map(|(store, _)| store)
     }
 
     /// ⟨M08 U2b-1⟩ The store of a generation ([`layout::open_locked`]): an existing database,
     /// never created (a missing file is an error, not a new store), migrated in place with
     /// its backup as [`Store::open`] does. Returns the schema version found before any
-    /// migration, for the generation's migration notes.
-    pub(crate) fn open_generation(path: &Path, faults: Arc<dyn FaultHook>) -> Result<(Self, u32)> {
-        Self::open_family(path, faults, migrations::MIGRATIONS, true, false)
+    /// migration, for the generation's migration notes. ⟨M08 U2b-3b; S3-04⟩ The backup's
+    /// sync and rename go through `fs`, the layout's file system (on Windows the runtime's
+    /// write-through rename).
+    pub(crate) fn open_generation(
+        path: &Path,
+        faults: Arc<dyn FaultHook>,
+        fs: &dyn heimdall_stategen::Fs,
+    ) -> Result<(Self, u32)> {
+        Self::open_family(
+            path,
+            faults,
+            migrations::MIGRATIONS,
+            true,
+            false,
+            BeforeMigration::Backup(fs),
+        )
+    }
+
+    /// ⟨M08 U2b-3b⟩ A restore's staged copy ([`restore`]): an existing database, never
+    /// created, migrated to this build's schema **with no backup of its own**. The copy was
+    /// made through SQLite from the backup the owner named, which is kept as it was; a
+    /// backup in the staged generation would be one more file the generation's record had to
+    /// list, and would hold nothing that file does not.
+    pub(crate) fn open_staged_copy(path: &Path) -> Result<(Self, u32)> {
+        Self::open_family(
+            path,
+            Arc::new(NoFaults),
+            migrations::MIGRATIONS,
+            true,
+            false,
+            BeforeMigration::StagedCopy,
+        )
     }
 
     fn open_family(
@@ -581,6 +654,7 @@ impl Store {
         steps: &[migrations::Migration],
         verify_tables: bool,
         create: bool,
+        before: BeforeMigration<'_>,
     ) -> Result<(Self, u32)> {
         let mut flags =
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
@@ -598,7 +672,12 @@ impl Store {
         integrity_check(&conn)?;
         configure(&conn, true)?;
         if current > 0 && current < migrations::target_version(steps) {
-            backup(&conn, path, current)?;
+            match before {
+                BeforeMigration::Backup(fs) => {
+                    backup(&conn, path, current, fs)?;
+                }
+                BeforeMigration::StagedCopy => {}
+            }
         }
         migrations::apply_steps(&mut conn, faults.as_ref(), steps)?;
         if verify_tables {
@@ -775,50 +854,115 @@ fn verify_schema(conn: &rusqlite::Connection) -> Result<()> {
     Ok(())
 }
 
+/// ⟨M08 U2b-3b⟩ What [`Store::open_family`] does before a pending migration.
+#[derive(Clone, Copy)]
+enum BeforeMigration<'a> {
+    /// Write the pre-migration backup, durably, through this file system.
+    Backup(&'a dyn heimdall_stategen::Fs),
+    /// A restore's staged copy: no backup (the backup it came from is kept).
+    StagedCopy,
+}
+
+/// ⟨M08 U2b-3b; S3-04⟩ The temporary name a pre-migration backup is written under, beside the
+/// database. It is not a backup's name (`<file>.v<version>.backup*`), so a backup cut short
+/// is never taken for one.
+pub(crate) const BACKUP_TEMP_SUFFIX: &str = ".migration-backup.tmp";
+
 /// Consistent copy of the database (`VACUUM INTO`) next to it, named
 /// `<file>.v<version>.backup[.<n>]`, owner-only, never overwriting an older backup.
+///
+/// ⟨M08 U2b-3b; S3-04, the early M09 review⟩ **Written durably before the migration changes
+/// anything:** `VACUUM INTO` a temporary file (`<file>`[`BACKUP_TEMP_SUFFIX`]), the file
+/// synced, renamed to its final name, and the directory synced (Windows has no directory sync:
+/// there `fs`'s rename is the runtime's write-through one, `MOVEFILE_WRITE_THROUGH`). A
+/// temporary file left by an interrupted backup is removed first: it is this store's own, and
+/// the caller holds the instance lock (or owns the file outright). Any failure removes the
+/// temporary file and fails the open, so no migration runs without its backup.
 fn backup(
     conn: &rusqlite::Connection,
     path: &Path,
     from_version: u32,
+    fs: &dyn heimdall_stategen::Fs,
 ) -> Result<std::path::PathBuf> {
+    use heimdall_stategen::{Kind, Point};
     let io_err = |msg: &'static str| {
         StoreError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(
             std::io::Error::other(msg),
         )))
     };
     let base = path.as_os_str().to_owned();
+    let mut tmp_name = base.clone();
+    tmp_name.push(BACKUP_TEMP_SUFFIX);
+    let tmp = std::path::PathBuf::from(tmp_name);
+    match fs.kind(&tmp) {
+        Ok(Kind::Missing) => {}
+        Ok(Kind::File) => fs
+            .remove_file(Point::Cleanup, &tmp)
+            .map_err(|_| io_err("cannot remove an interrupted migration backup"))?,
+        _ => {
+            return Err(io_err(
+                "the migration backup's temporary path is not a file",
+            ));
+        }
+    }
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut target = None;
     for n in 0u32..1000 {
         let mut name = base.clone();
         name.push(format!(".v{from_version}.backup"));
         if n > 0 {
             name.push(format!(".{n}"));
         }
-        let target = std::path::PathBuf::from(name);
-        let mut opts = std::fs::OpenOptions::new();
-        opts.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt as _;
-            opts.mode(0o600);
-        }
-        match opts.open(&target) {
+        let candidate = std::path::PathBuf::from(name);
+        match fs.kind(&candidate) {
+            Ok(Kind::Missing) => {
+                target = Some(candidate);
+                break;
+            }
             Ok(_) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(_) => return Err(io_err("cannot create migration backup file")),
+            Err(_) => return Err(io_err("cannot examine a migration backup name")),
         }
-        let Some(target_str) = target.to_str() else {
-            let _ = std::fs::remove_file(&target);
-            return Err(io_err("backup path is not valid UTF-8"));
-        };
-        if let Err(e) = conn.execute("VACUUM INTO ?1", [target_str]) {
-            let _ = std::fs::remove_file(&target);
-            return Err(codec::classify(e));
-        }
-        tracing::info!(from_version, "state store backed up before migration");
-        return Ok(target);
     }
-    Err(io_err("too many migration backups present"))
+    let Some(target) = target else {
+        return Err(io_err("too many migration backups present"));
+    };
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        opts.mode(0o600);
+    }
+    if opts.open(&tmp).is_err() {
+        return Err(io_err("cannot create migration backup file"));
+    }
+    // Through `fs`, so a stopped process (a fault test's) leaves its temporary file, as a
+    // crash would, for the next open to remove.
+    let discard = |e: StoreError| {
+        let _ = fs.remove_file(Point::Cleanup, &tmp);
+        e
+    };
+    let Some(tmp_str) = tmp.to_str() else {
+        return Err(discard(io_err("backup path is not valid UTF-8")));
+    };
+    conn.execute("VACUUM INTO ?1", [tmp_str])
+        .map_err(|e| discard(codec::classify(e)))?;
+    fs.sync_file(Point::BackupSync, &tmp)
+        .map_err(|_| discard(io_err("cannot sync the migration backup")))?;
+    // Never over an older backup: the name was free above, under the caller's lock.
+    if !matches!(fs.kind(&target), Ok(Kind::Missing)) {
+        return Err(discard(io_err("a migration backup name was taken")));
+    }
+    fs.rename_over(Point::BackupRename, &tmp, &target)
+        .map_err(|_| discard(io_err("cannot rename the migration backup into place")))?;
+    // The backup is in place; its directory entry must be durable before the migration.
+    fs.sync_dir(Point::BackupDirSync, dir)
+        .map_err(|_| io_err("cannot sync the migration backup's directory"))?;
+    tracing::info!(from_version, "state store backed up before migration");
+    Ok(target)
 }
 
 /// Every operation state; the store derives its state sets from the contract's
@@ -1813,6 +1957,10 @@ impl Txn<'_> {
 #[cfg(test)]
 mod grant_live_tests;
 
+// ⟨M08 U2b-3b; S3-04⟩ The durable pre-migration backup.
+#[cfg(test)]
+mod backup_tests;
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -2240,7 +2388,8 @@ mod tests {
         // ⟨rev7⟩ 0014 adds four defaulted columns, one table and two indexes.
         // M08 GRANT-LIVE: 0015 adds the generated live column and replaces the deadline index.
         // ⟨M08 U2b-3a⟩ 0016 adds one table and two partial indexes.
-        assert_eq!(migrations::SCHEMA_VERSION, 16);
+        // ⟨M08 U2b-3b⟩ 0017 adds one table.
+        assert_eq!(migrations::SCHEMA_VERSION, 17);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"

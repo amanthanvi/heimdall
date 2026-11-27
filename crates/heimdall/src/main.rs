@@ -45,7 +45,9 @@ mod prompt;
 mod purge_sweep;
 // ⟨rev7⟩ The skeletons of revision 7's declared commands (ADR-0013 §1.3; ADR-0014 H1–H3).
 mod rev7_cmd;
+// ⟨M08 U2b-3b⟩ `state restore`, `state reset`, `state repair` (ADR-0014 H3, U0-Q8).
 mod run_cmd;
+mod state_cmd;
 // ⟨M05⟩ U9a: `run` without `--profile` (ADR-0011 §3.2, §5.3).
 mod run_m05;
 mod service_cmd;

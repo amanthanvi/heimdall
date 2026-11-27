@@ -200,6 +200,11 @@ pub(crate) async fn doctor<P: Prompter>(
     {
         report.findings.push(f);
     }
+    // ⟨M08 U2b-3b; ADR-0014 H4⟩ A damaged or newer store, or a damaged request ledger, with
+    // its recovery choices (read only; the doctor never repairs it).
+    if let Some(f) = state_store_finding(ctx) {
+        report.findings.insert(0, f);
+    }
     // ⟨M06 W3; ADR-0012 §2.1 ⟨2026-11-21⟩⟩ The Iroh serve port the last start could not bind,
     // read read-only from the store (the runtime recorded it; it is never started here).
     if let Some(f) = transport_port_finding(ctx) {
@@ -1193,6 +1198,34 @@ fn runner_owner_only_finding_of(cause: heimdall_runtime::paired::OwnerOnlyCause)
         },
         reason: None,
     }
+}
+
+/// ⟨M08 U2b-3b; ADR-0014 H4⟩ The finding code for a state store that stops unsafe operations
+/// (proposed for `heimdall_contract::doctor::finding`): its reason is the answer's
+/// (`state_corrupt`, `state_newer_than_build`, `ledger_damaged`).
+pub(crate) const STATE_UNAVAILABLE_FINDING: &str = "state_unavailable";
+
+/// The finding for a store this build refuses, or a damaged request ledger
+/// (`crate::state_cmd::{state_refusal, ledger_refusal}`, read only), with the recovery choices
+/// as its message and next action. `None` for a store it serves.
+fn state_store_finding(ctx: &Ctx) -> Option<Finding> {
+    let paths = ctx.paths().ok()?;
+    let refused = crate::state_cmd::state_refusal(&paths.state_dir)
+        .or_else(|| crate::state_cmd::ledger_refusal(&paths.state_dir))?;
+    let detail = refused.data.error;
+    Some(Finding {
+        code: STATE_UNAVAILABLE_FINDING.to_owned(),
+        severity: FindingSeverity::Problem,
+        subject: ResourceRef {
+            kind: "state_store".to_owned(),
+            id: None,
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: detail.message,
+        next: detail.next,
+        reason: detail.reason,
+    })
 }
 
 /// ⟨ADR-0012 §3.2 "How the downgrade is kept"⟩ The finding code for a runner whose bridge

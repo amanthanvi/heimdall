@@ -42,6 +42,7 @@ use heimdall_domain::idempotency::{IdempotencyKey, KeyHash};
 use heimdall_domain::policy::PolicyRevision;
 use heimdall_store::ext_effects::EffectAck;
 use heimdall_store::ext_m03::META_RECOVERY;
+use heimdall_store::restore::HoldKind;
 use heimdall_store::{NoFaults, Store, Txn};
 
 /// Tables of the migrated schema with no reader an integration test can reach: neither a
@@ -94,6 +95,8 @@ const KEYS: &[(&str, &str)] = &[
         "request_terminals",
         "SELECT key_digest FROM request_terminals",
     ),
+    // ⟨M08 W4 U2b-3b⟩ What a restore put on hold (migration 0017).
+    ("restore_holds", "SELECT kind, ref FROM restore_holds"),
     (
         "profile_snapshots",
         "SELECT profile, CAST(revision AS TEXT) FROM profile_snapshots",
@@ -375,6 +378,22 @@ fn read_tables(tx: &mut Txn<'_>, keys: &BTreeMap<&str, Vec<Row>>, label: &str) -
     let got = k(t).iter().filter(|r| {
         let digest = id(RequestHash::from_hex(col(r, 0)), label, t).0;
         ok(tx.request_terminal(&digest), label, t).is_some()
+    });
+    n.insert(t, got.count());
+    // ⟨M08 W4 U2b-3b⟩ The restore's holds, each by its kind and reference.
+    let t = "restore_holds";
+    let got = k(t).iter().filter(|r| {
+        let kind = [
+            HoldKind::Client,
+            HoldKind::Invitation,
+            HoldKind::Exposure,
+            HoldKind::Environment,
+            HoldKind::Grant,
+        ]
+        .into_iter()
+        .find(|k| k.as_str() == col(r, 0))
+        .unwrap_or_else(|| panic!("{label}: {t}: an unknown hold kind"));
+        ok(tx.restore_hold(kind, col(r, 1)), label, t).is_some()
     });
     n.insert(t, got.count());
     let t = "grant_anchors";
@@ -919,4 +938,125 @@ fn hand_authored(scratch: &Path) {
         "every hand-authored event is read"
     );
     assert_eq!(got.rows["idempotency_markers"], 1, "hand: the marker reads");
+}
+
+/// ⟨M08 W4 U2b-3b; m08-plan U2b; ADR-0014 §3.2 items 3 and 4⟩ What identity and authority a
+/// store holds, read raw: the environment ID, the authority generation, every tombstone, every
+/// policy's pause and cutoff, and every grant's state and deadline.
+fn identity_and_authority(c: &rusqlite::Connection) -> BTreeMap<String, Vec<Row>> {
+    let mut out = BTreeMap::new();
+    out.insert(
+        "environment".to_owned(),
+        rows(
+            c,
+            "SELECT value FROM meta WHERE key = 'self_environment_id'",
+        ),
+    );
+    out.insert(
+        "authority_generation".to_owned(),
+        rows(
+            c,
+            "SELECT value FROM meta WHERE key = 'authority_generation'",
+        ),
+    );
+    out.insert(
+        "tombstones".to_owned(),
+        rows(
+            c,
+            "SELECT grant_id, CAST(generation AS TEXT), revoked_at FROM tombstones ORDER BY grant_id",
+        ),
+    );
+    out.insert(
+        "grants".to_owned(),
+        rows(
+            c,
+            "SELECT id, state, deadline_effective FROM grants ORDER BY id",
+        ),
+    );
+    let policies = rows(c, "SELECT id, record_json FROM policies ORDER BY id")
+        .into_iter()
+        .map(|r| {
+            let doc: serde_json::Value =
+                serde_json::from_str(r[1].as_deref().unwrap_or("{}")).unwrap();
+            vec![
+                r[0].clone(),
+                Some(doc["pause"].to_string()),
+                Some(doc["cutoff_at"].to_string()),
+            ]
+        })
+        .collect();
+    out.insert("policies".to_owned(), policies);
+    out
+}
+
+/// `migration_ladder_keeps_identity_and_authority` (m08-plan U2b, over U0's replay corpus):
+/// each corpus store, written by the M02, M03, M04/M05 and M06 exit builds, is put where such a
+/// build left it, flat in a state directory, and started by this build: adopted into the
+/// generation layout (intent, fence, copy, pointer, completion) and migrated to this build's
+/// schema. Its environment ID, its tombstones, every policy's pause and cutoff, every grant's
+/// state and deadline and the authority generation are unchanged, so no grant is more active
+/// than before; and the adopted generation's record names the same environment.
+#[test]
+fn migration_ladder_keeps_identity_and_authority() {
+    use heimdall_store::layout;
+    use heimdall_store::layout::stategen::RealFs;
+    let root = corpus();
+    let mut builds: Vec<PathBuf> = std::fs::read_dir(&root)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.join("manifest.json").is_file())
+        .collect();
+    builds.sort();
+    let scratch = tempfile::tempdir().unwrap();
+    let mut homes = 0;
+    for build in &builds {
+        let manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(build.join("manifest.json")).unwrap())
+                .unwrap();
+        let name = build.file_name().unwrap().to_string_lossy().into_owned();
+        for home in manifest["homes"].as_array().unwrap() {
+            let h = home["home"].as_str().unwrap();
+            let label = format!("{name}/{h}");
+            let dump = std::fs::read_to_string(build.join(format!("{h}.sql"))).unwrap();
+            let state = scratch.path().join(format!("{name}-{h}"));
+            std::fs::create_dir(&state).unwrap();
+            let flat = state.join(layout::DB_FILE);
+            let version = u32::try_from(home["user_version"].as_u64().unwrap()).unwrap();
+            rebuild(&dump, version, &flat);
+            let before = identity_and_authority(&rusqlite::Connection::open(&flat).unwrap());
+            let opened = layout::open_locked(
+                &state,
+                &RealFs,
+                Arc::new(NoFaults),
+                &|| None,
+                "2026-11-27T00:00:00Z".parse().unwrap(),
+            )
+            .unwrap_or_else(|e| panic!("{label}: the start: {e}"));
+            assert!(
+                matches!(opened.began, layout::Began::Adopted { .. }),
+                "{label}: adopted, {:?}",
+                opened.began
+            );
+            assert_eq!(
+                opened.store.schema_version().unwrap(),
+                heimdall_store::SCHEMA_VERSION,
+                "{label}: migrated to this build's schema"
+            );
+            let db = opened.db.clone();
+            let record_env = opened.current.record.environment_id.clone();
+            drop(opened);
+            let after = identity_and_authority(&rusqlite::Connection::open(&db).unwrap());
+            for (what, rows) in &before {
+                assert_eq!(rows, &after[what], "{label}: {what} is unchanged");
+            }
+            if let Some(Some(env)) = before["environment"].first().map(|r| r[0].clone()) {
+                assert_eq!(
+                    record_env, env,
+                    "{label}: the record names the same environment"
+                );
+            }
+            homes += 1;
+        }
+    }
+    assert!(homes >= 4, "the corpus has {homes} homes");
 }

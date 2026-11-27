@@ -246,6 +246,8 @@ pub enum EventPayload {
     RemoteEffect(crate::remote::RemoteEffectEventPayload),
     /// `route`.
     Route(crate::route::RouteHealthPayload),
+    /// ⟨M08 U2b-3b⟩ `state_restored` (ADR-0014 H4, H10).
+    StateRestored(crate::lifecycle::StateRestoredPayload),
 }
 
 impl EventPayload {
@@ -284,6 +286,7 @@ impl EventPayload {
             EventPayload::Device(_) => T::Device,
             EventPayload::RemoteEffect(_) => T::RemoteEffect,
             EventPayload::Route(_) => T::Route,
+            EventPayload::StateRestored(_) => T::StateRestored,
         }
     }
 }

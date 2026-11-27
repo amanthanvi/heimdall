@@ -10,7 +10,8 @@
 //! * [`Ledger`]: the append-only request ledger outside every generation, with the
 //!   retention rule of ADR-0006 §7.4 ([`ledger::may_trim`]).
 //!   A damaged ledger (anything but a torn tail) refuses every append and writes nothing
-//!   (ruled 2026-11-23); recovery is U0's attended path. ⟨M08 U2b-3a⟩ A caller that keeps
+//!   (ruled 2026-11-23); recovery is the attended `state repair` (⟨M08 U2b-3b⟩
+//!   [`Ledger::scan`] and [`Ledger::cut`]). ⟨M08 U2b-3a⟩ A caller that keeps
 //!   the entries in memory reads it whole once ([`Ledger::load`]) and appends at the length it
 //!   last saw, reading nothing ([`Ledger::append_at`]); [`Ledger::trim_entries`] reports what a
 //!   trim dropped.
@@ -38,12 +39,11 @@
 //! 3. *Migration notes are a separate append-only file* in the generation, so noting a
 //!    migration never rewrites the operation record.
 //! 4. *A missing pointer with generations present is `state_corrupt`,* never an empty
-//!    state. Recovery from `state_corrupt` (restore or reset with no trusted current
-//!    record) is not implemented here: what the epoch and the identity are bound to in
-//!    that case is an authority question, deferred to U0. Until then every operation is
-//!    refused in that state. The expected direction, not built: an attended recovery
-//!    with a typed confirmation, never non-interactive, that says the epoch and the
-//!    identity binding start fresh; restore from a backup the owner names, reset otherwise.
+//!    state. ⟨M08 U2b-3b; ADR-0006 §19.4, the ruling on U0-Q8⟩ Recovery from
+//!    `state_corrupt` is the attended [`StateDir::recover`]: a restore from a backup the
+//!    owner names, or a reset, by the same switch, with the identity binding and the epoch
+//!    the caller chose and the owner confirmed (the store's `restore` module). Nothing picks
+//!    a generation.
 //! 5. *Windows:* [`RealFs`]'s rename is `std::fs::rename` followed by a flush of the
 //!    renamed file. ⟨M08 U2b-1, delta H15⟩ The product does not use it for a write: the
 //!    store's layout (`heimdall_store::layout`) makes every call through the runtime's
@@ -75,5 +75,5 @@ pub use generations::{
     CorruptReason, Current, MigrationNote, Plan, PublishError, Recovered, Refusal, Residue,
     Startup, StateDir, StateError,
 };
-pub use ledger::{Entry, Ledger, LedgerError, LedgerRead, Settlement, Trimmed};
+pub use ledger::{Entry, Ledger, LedgerError, LedgerRead, LedgerScan, Settlement, Trimmed};
 pub use record::{GenerationName, Intent, IntentState, Operation, OperationRecord};

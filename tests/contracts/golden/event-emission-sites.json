@@ -138,6 +138,12 @@
     "type": "runtime_lifecycle"
   },
   {
+    "file": "crates/app/src/state_restore.rs",
+    "form": "persisted",
+    "function": "append",
+    "type": "state_restored"
+  },
+  {
     "file": "crates/ipc/src/session.rs",
     "form": "wire",
     "function": "resync_event_with",

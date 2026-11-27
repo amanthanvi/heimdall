@@ -73,6 +73,15 @@ pub enum Point {
     LedgerDirSync,
     /// Removing a leftover (a staged generation, a temporary file, a finished intent).
     Cleanup,
+    /// ⟨M08 U2b-3b; S3-04⟩ Syncing a pre-migration backup's temporary file, after SQLite's
+    /// `VACUUM INTO` wrote it.
+    BackupSync,
+    /// ⟨M08 U2b-3b; S3-04⟩ Renaming the pre-migration backup's temporary file to its final
+    /// name.
+    BackupRename,
+    /// ⟨M08 U2b-3b; S3-04⟩ Syncing the directory that holds the pre-migration backup, before
+    /// the migration changes the store.
+    BackupDirSync,
 }
 
 /// The calls the crate makes. Paths are absolute and built by the crate from validated

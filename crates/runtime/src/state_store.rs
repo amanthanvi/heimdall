@@ -168,6 +168,106 @@ fn new_environment() -> Option<EnvironmentId> {
     heimdall_app::ids::new_environment_id().ok()
 }
 
+// --- ⟨M08 W4 U2b-3b; ADR-0014 §3.6, H3; ADR-0006 §19.4, U0-Q8⟩ restore, reset and repair ---------
+
+/// ⟨M08 U2b-3b⟩ Check a restore before anything is written (read only):
+/// [`heimdall_store::restore::plan_restore`] through [`PlatformFs`].
+///
+/// # Errors
+/// As `plan_restore`.
+pub fn plan_restore(
+    state_dir: &Path,
+    backup: &Path,
+) -> Result<heimdall_store::restore::RestorePlan, heimdall_store::restore::RestoreError> {
+    heimdall_store::restore::plan_restore(state_dir, &PlatformFs, backup)
+}
+
+/// ⟨M08 U2b-3b⟩ What a reset would orphan (read only):
+/// [`heimdall_store::restore::reset_inventory`] through [`PlatformFs`].
+///
+/// # Errors
+/// As `reset_inventory`.
+pub fn reset_inventory(
+    state_dir: &Path,
+) -> Result<heimdall_store::restore::ResetInventory, heimdall_store::restore::RestoreError> {
+    heimdall_store::restore::reset_inventory(state_dir, &PlatformFs)
+}
+
+/// ⟨M08 U2b-3b; ADR-0014 §3.6 "The restore protocol"⟩ **Restore** `backup` into `state_dir`,
+/// under the runtime's instance lock, **which the caller holds** (taking it is the exclusion
+/// of the protocol's item 2: a runtime holds it while it runs, and the issuer runs only as the
+/// runtime's child), with the layout's calls through [`PlatformFs`] (its Windows rename is
+/// write-through, H15) and the `state_restored` event through the application's publisher.
+/// `retention` is the configured operation retention.
+///
+/// # Errors
+/// As [`heimdall_store::restore::restore_locked`].
+pub fn restore_locked(
+    state_dir: &Path,
+    backup: &Path,
+    now: Timestamp,
+    recovery_confirmed: bool,
+    retention: std::time::Duration,
+) -> Result<heimdall_store::restore::RestoreOutcome, heimdall_store::restore::RestoreError> {
+    heimdall_store::restore::restore_locked(
+        state_dir,
+        &PlatformFs,
+        &heimdall_store::restore::RestoreRequest {
+            backup,
+            now,
+            recovery_confirmed,
+            event: &heimdall_app::state_restore::RestoredEvent,
+            operation_retention: retention,
+        },
+    )
+}
+
+/// ⟨M08 U2b-3b; ADR-0014 §3.6 "Reset is the same switch"⟩ **Reset** `state_dir` under the
+/// runtime's instance lock, **which the caller holds**: a new, empty store with a new
+/// environment ID (from the operating system's randomness) at epoch 0.
+///
+/// # Errors
+/// As [`heimdall_store::restore::reset_locked`]; no randomness.
+pub fn reset_locked(
+    state_dir: &Path,
+    now: Timestamp,
+    recovery_confirmed: bool,
+) -> Result<heimdall_store::restore::ResetOutcome, heimdall_store::restore::RestoreError> {
+    let Some(environment) = new_environment() else {
+        return Err(heimdall_store::StoreError::Corrupt(
+            "operating system randomness is unavailable".to_owned(),
+        )
+        .into());
+    };
+    heimdall_store::restore::reset_locked(
+        state_dir,
+        &PlatformFs,
+        &environment,
+        now,
+        recovery_confirmed,
+    )
+}
+
+/// ⟨M08 U2b-3b; ADR-0006 §19.4, U0-Q8⟩ **Repair** the request ledger of `state_dir` under the
+/// runtime's instance lock, **which the caller holds**: the current generation is opened as a
+/// runtime's start opens it, then [`heimdall_store::restore::repair_locked`].
+///
+/// # Errors
+/// The open's refusal (a damaged or newer store is a restore's or a reset's, not a repair's),
+/// or the repair's.
+pub fn repair_locked(
+    state_dir: &Path,
+    now: Timestamp,
+) -> Result<heimdall_store::restore::RepairOutcome, heimdall_store::restore::RestoreError> {
+    use heimdall_store::restore::RestoreError;
+    let opened =
+        open_locked(state_dir, Arc::new(heimdall_store::NoFaults), now).map_err(|e| match e {
+            ServiceError::Store(s) => RestoreError::Store(s),
+            other => RestoreError::Store(heimdall_store::StoreError::Corrupt(other.to_string())),
+        })?;
+    heimdall_store::restore::repair_locked(state_dir, &PlatformFs, &opened.store, now)
+}
+
 /// Check paths before reading the selector and before SQLite opens the selected family.
 fn check_state_entries(
     root: &Path,

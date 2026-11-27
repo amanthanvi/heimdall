@@ -614,3 +614,129 @@ fn stale_epoch_is_refused_before_any_write_through_the_wrapper() {
         "bound to the hello's epoch: {answer}"
     );
 }
+
+/// Every file under `dir` with its bytes, but the instance lock, SQLite's index file (`-shm`)
+/// and an empty write-ahead log, which hold no state: a read-only open of a store with no log
+/// creates both (the status answer's own chores read the store so, as they did before this
+/// slice); a log with content would be a write and is compared.
+fn tree(dir: &std::path::Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fn walk(
+        base: &std::path::Path,
+        dir: &std::path::Path,
+        out: &mut std::collections::BTreeMap<String, Vec<u8>>,
+    ) {
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                walk(base, &p, out);
+            } else {
+                let name = p.file_name().unwrap().to_string_lossy().into_owned();
+                let empty_log = name.ends_with("-wal") && std::fs::metadata(&p).unwrap().len() == 0;
+                if name != "service.lock" && !name.ends_with("-shm") && !empty_log {
+                    out.insert(
+                        p.strip_prefix(base).unwrap().to_string_lossy().into_owned(),
+                        std::fs::read(&p).unwrap(),
+                    );
+                }
+            }
+        }
+    }
+    let mut out = std::collections::BTreeMap::new();
+    walk(dir, dir, &mut out);
+    out
+}
+
+/// ⟨M08 U2b-3b; ADR-0014 H4; m08-plan U2b⟩ `corrupt_store_stops_unsafe_operations_and_offers_recovery`
+/// (real binary): with the served generation's database damaged, and separately with the
+/// pointer naming a generation that is gone, `status`, `access ensure` and `doctor` each name
+/// the recovery choices (`heimdall state restore`, `heimdall state reset`), `status` and
+/// `ensure` answering `STATE_UNAVAILABLE` / `state_corrupt` (exit 5) with next
+/// `owner_decision`, and nothing under the state directory is written. With the store newer
+/// than this build, the answer is `state_newer_than_build` (next `change_client`).
+#[test]
+fn corrupt_store_stops_unsafe_operations_and_offers_recovery() {
+    for damage in ["database", "pointer", "newer"] {
+        let scratch = Scratch::new();
+        {
+            let _stop = StopOnDrop(&scratch);
+            let (out, made) = run(&scratch, &with(ADD, &[]));
+            assert!(out.status.success(), "{made}");
+            scratch.stop();
+        }
+        let state = scratch.state_dir();
+        let db = heimdall_store::layout::db_path(&state).unwrap();
+        match damage {
+            "database" => {
+                for suffix in ["-wal", "-shm"] {
+                    let mut name = db.as_os_str().to_owned();
+                    name.push(suffix);
+                    let _ = std::fs::remove_file(PathBuf::from(name));
+                }
+                std::fs::write(&db, b"damaged beyond reading").unwrap();
+            }
+            "pointer" => std::fs::remove_dir_all(state.join("generations")).unwrap(),
+            _ => {
+                // A build one schema version ahead wrote it (the store's test support).
+                let ahead = heimdall_store::migrations::Migration {
+                    version: heimdall_store::SCHEMA_VERSION + 1,
+                    name: "ahead",
+                    sql: "CREATE TABLE ahead_of_this_build (x INTEGER) STRICT;",
+                };
+                drop(Store::open_ahead_of_this_build(&db, Arc::new(NoFaults), &[ahead]).unwrap());
+            }
+        }
+        let before = tree(&state);
+        let ensure = [
+            "access",
+            "ensure",
+            "--profile",
+            "p1",
+            "--work-id",
+            "w1",
+            "--until",
+            "1h",
+            "--request-id",
+            "r-e",
+        ];
+        for argv in [&["status"][..], &ensure[..]] {
+            let out = scratch.heimdall(argv);
+            let env = envelope(&out);
+            assert_eq!(out.status.code(), Some(5), "{damage} {argv:?}: {env}");
+            assert_eq!(env["code"], "STATE_UNAVAILABLE", "{damage} {argv:?}: {env}");
+            let error = &env["data"]["error"];
+            if damage == "newer" {
+                assert_eq!(error["reason"], "state_newer_than_build", "{env}");
+                assert_eq!(error["next"]["action"], "change_client", "{env}");
+            } else {
+                assert_eq!(error["reason"], "state_corrupt", "{env}");
+                assert_eq!(error["next"]["action"], "owner_decision", "{env}");
+                let message = error["message"].as_str().unwrap();
+                assert!(
+                    message.contains("heimdall state restore")
+                        && message.contains("heimdall state reset"),
+                    "{damage} {argv:?}: {message}"
+                );
+            }
+            assert_eq!(tree(&state), before, "{damage} {argv:?}: nothing written");
+        }
+        let out = scratch.heimdall(&["doctor", "--no-local-exec"]);
+        let env = envelope(&out);
+        let findings = env["data"]["findings"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let finding = findings
+            .iter()
+            .find(|f| f["code"] == "state_unavailable")
+            .unwrap_or_else(|| panic!("{damage}: no state finding: {env}"));
+        if damage != "newer" {
+            assert_eq!(finding["reason"], "state_corrupt", "{finding}");
+            let message = finding["message"].as_str().unwrap();
+            assert!(message.contains("heimdall state restore"), "{message}");
+            assert!(message.contains("heimdall state reset"), "{message}");
+        } else {
+            assert_eq!(finding["reason"], "state_newer_than_build", "{finding}");
+        }
+        assert_eq!(tree(&state), before, "{damage}: doctor wrote nothing");
+    }
+}

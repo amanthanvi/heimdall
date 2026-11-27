@@ -402,6 +402,69 @@ impl<F: Fs> StateDir<F> {
         self.stage_and_switch(plan, from, populate, intent)
     }
 
+    /// ⟨M08 U2b-3b; ADR-0006 §19.4, the ruling on U0-Q8; item 4 of the crate docs⟩ **The
+    /// attended recovery from `state_corrupt`:** stage a restore or a reset and make it
+    /// current when there is no trusted current generation. That is a pointer that is
+    /// unreadable or names a missing or record-less generation, a missing pointer with
+    /// generations present, or no pointer at all where the caller found a flat store it
+    /// cannot read (ADR-0014 §3.6, the restore protocol's item 1). The caller is attended and
+    /// has made the owner confirm, in so many words, that the identity binding and the epoch
+    /// start from what it names.
+    ///
+    /// It is the same switch as [`StateDir::publish`], with three differences:
+    /// - **No current record to check:** the environment ID and the epoch are the caller's
+    ///   (the caller binds the identity and raises the epoch above everything it could read).
+    /// - **The generation it replaces** is the one the pointer names when the pointer can be
+    ///   decoded, whether or not that generation is there; otherwise none.
+    /// - **A leftover of an earlier operation** that a readable, unfinished intent names (and
+    ///   that the pointer does not name) is removed first, as start-up would. An unreadable
+    ///   intent is replaced; whatever it named stays as residue.
+    ///
+    /// It refuses ([`Refusal::WrongState`]) when the pointer names a complete generation (that
+    /// is [`StateDir::publish`]'s case), for an install or an adoption, and when `CURRENT` is
+    /// there but is not a regular file or a link (a directory is never renamed over). Nothing
+    /// that exists is ever renamed, moved, overwritten or removed but the pointer, which the
+    /// switch replaces, and the leftover above.
+    pub fn recover<E>(
+        &self,
+        plan: Plan,
+        populate: impl FnOnce(&Path) -> Result<Vec<String>, E>,
+    ) -> Result<Current, PublishError<E>> {
+        if !matches!(plan.operation, Operation::Restore | Operation::Reset) {
+            return Err(StateError::Refused(Refusal::WrongState).into());
+        }
+        check_plan(&plan)?;
+        let from = match self.start(false) {
+            Ok(Startup::Serving(_)) => {
+                return Err(StateError::Refused(Refusal::WrongState).into());
+            }
+            Ok(Startup::Empty | Startup::FirstPublicationPending { .. }) => None,
+            Err(StateError::Corrupt(_)) => self.read_pointer().ok().flatten(),
+            Err(other) => return Err(other.into()),
+        };
+        // A directory (or anything but a file or a link) at `CURRENT` is never renamed over.
+        if matches!(
+            self.fs
+                .kind(&self.at(CURRENT))
+                .map_err(plain_io(Point::PointerRename))?,
+            Kind::Dir
+        ) {
+            return Err(StateError::Refused(Refusal::WrongState).into());
+        }
+        self.require_free(&plan.name)?;
+        if let IntentFile::Read(earlier) = self.read_intent()
+            && earlier.state != IntentState::Complete
+            && from.as_ref() != Some(&earlier.generation)
+        {
+            self.discard_staged(&earlier.generation)?;
+        }
+        self.remove_if_file(CURRENT_TMP)?;
+        let intent = Intent::new(plan.operation, plan.name.clone(), None);
+        self.write_intent(&intent)
+            .inspect_err(|_| self.abandon(None, None))?;
+        self.stage_and_switch(plan, from, populate, intent)
+    }
+
     /// Adopt a store an earlier build wrote directly in the state directory, in the order
     /// of ADR-0014 §3.6: **intent, fence, copy, publication, completion,** each durable
     /// before the next.
@@ -705,6 +768,19 @@ impl<F: Fs> StateDir<F> {
         self.read_pointer()
     }
 
+    /// ⟨M08 U2b-3b⟩ The operation record of the generation `name`, read and checked (sealed,
+    /// and its own), **without** checking that the files it lists are there. For a restore's
+    /// identity binding from a damaged state only: the environment ID a damaged generation's
+    /// record names. It never selects what is served.
+    pub fn record_unchecked(&self, name: &GenerationName) -> Option<OperationRecord> {
+        let path = self.generation_dir(name).join(RECORD);
+        if !matches!(self.fs.kind(&path), Ok(Kind::File)) {
+            return None;
+        }
+        let bytes = self.fs.read(&path, SMALL).ok()?;
+        OperationRecord::decode(&bytes).filter(|r| r.generation == *name)
+    }
+
     /// Every generation directory other than the current one, for the uninstall inventory
     /// and the purge. Reads only.
     pub fn residue(&self) -> Result<Vec<Residue>, StateError> {
@@ -913,4 +989,131 @@ fn plain_file_name(name: &str) -> bool {
         && name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::fs::RealFs;
+
+    fn plan(operation: Operation, name: &str, environment: &str, epoch: u64) -> Plan {
+        Plan {
+            name: GenerationName::parse(name).expect("a name"),
+            operation,
+            created_at: Timestamp::UNIX_EPOCH,
+            backup_sha256: (operation == Operation::Restore).then(|| "cd".repeat(32)),
+            environment_id: environment.to_owned(),
+            restore_epoch: epoch,
+        }
+    }
+
+    fn store(tag: &'static str) -> impl FnOnce(&Path) -> Result<Vec<String>, String> {
+        move |dir: &Path| {
+            std::fs::write(dir.join("state.db"), tag).map_err(|e| e.to_string())?;
+            Ok(vec!["state.db".to_owned()])
+        }
+    }
+
+    /// ⟨M08 U2b-3b; the ruling on U0-Q8⟩ The attended recovery replaces a pointer that names a
+    /// missing generation (an interrupted purge's state), and a missing pointer with
+    /// generations present, by the one switch. It refuses a healthy state (that is
+    /// `publish`), an install, and a directory at `CURRENT`; the generation it replaces is the
+    /// one the pointer named; a leftover a readable intent names is removed first; nothing
+    /// else is touched.
+    #[test]
+    fn recover_from_state_corrupt_is_the_one_switch_and_touches_nothing_else() {
+        let dir = tempfile::tempdir().expect("a scratch directory");
+        let state = StateDir::new(RealFs, dir.path());
+        state
+            .publish(plan(Operation::Install, "g-a", "env-1", 0), store("a"))
+            .expect("install");
+        // A healthy state is `publish`'s.
+        assert_eq!(
+            state.recover(plan(Operation::Reset, "g-b", "env-2", 0), store("b")),
+            Err(PublishError::State(StateError::Refused(
+                Refusal::WrongState
+            )))
+        );
+        // An interrupted purge: the generations are gone, the pointer is left.
+        std::fs::remove_dir_all(dir.path().join(GENERATIONS)).expect("remove");
+        assert_eq!(
+            state.open(),
+            Err(StateError::Corrupt(CorruptReason::GenerationMissing))
+        );
+        assert_eq!(
+            state.recover(plan(Operation::Install, "g-b", "env-2", 0), store("b")),
+            Err(PublishError::State(StateError::Refused(
+                Refusal::WrongState
+            )))
+        );
+        let reset = state
+            .recover(plan(Operation::Reset, "g-b", "env-2", 0), store("b"))
+            .expect("the reset recovers it");
+        assert_eq!(reset.record.operation, Operation::Reset);
+        assert_eq!(
+            reset.record.from_generation,
+            GenerationName::parse("g-a"),
+            "the generation the pointer named"
+        );
+        let Startup::Serving(current) = state.open().expect("served") else {
+            panic!("not served");
+        };
+        assert_eq!(current.name.as_str(), "g-b");
+        assert!(!dir.path().join(CURRENT_TMP).exists());
+
+        // A missing pointer with a generation present, and a leftover a pending intent names.
+        std::fs::remove_file(dir.path().join(CURRENT)).expect("remove");
+        let leftover = GenerationName::parse("g-left").expect("a name");
+        std::fs::create_dir(state.generation_dir(&leftover)).expect("a leftover");
+        state
+            .write_intent(&Intent::new(Operation::Restore, leftover.clone(), None))
+            .expect("intent");
+        assert_eq!(
+            state.open(),
+            Err(StateError::Corrupt(CorruptReason::PointerMissing))
+        );
+        let restored = state
+            .recover(plan(Operation::Restore, "g-c", "env-2", 4), store("c"))
+            .expect("the restore recovers it");
+        assert_eq!(
+            restored.record.from_generation, None,
+            "no pointer to name one"
+        );
+        assert!(
+            !state.generation_dir(&leftover).exists(),
+            "the leftover the intent named is removed"
+        );
+        assert!(
+            state.generation_dir(&reset.name).exists(),
+            "the earlier generation is kept"
+        );
+        assert_eq!(
+            std::fs::read(reset.dir.join("state.db")).expect("read"),
+            b"b",
+            "and not overwritten"
+        );
+        let Startup::Serving(current) = state.open().expect("served") else {
+            panic!("not served");
+        };
+        assert_eq!(
+            (current.name.as_str(), current.record.restore_epoch),
+            ("g-c", 4)
+        );
+
+        // A directory at `CURRENT` is never renamed over.
+        std::fs::remove_file(dir.path().join(CURRENT)).expect("remove");
+        std::fs::create_dir(dir.path().join(CURRENT)).expect("a directory");
+        assert_eq!(
+            state.recover(plan(Operation::Reset, "g-d", "env-3", 0), store("d")),
+            Err(PublishError::State(StateError::Refused(
+                Refusal::WrongState
+            )))
+        );
+        assert!(
+            !state
+                .generation_dir(&GenerationName::parse("g-d").expect("a name"))
+                .exists()
+        );
+    }
 }

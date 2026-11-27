@@ -2558,3 +2558,553 @@ async fn m06_request_id_kinds_complete_with_terminal_records_and_only_the_incomp
     drop((owner, paired));
     runner.stop().await;
 }
+
+// --- ⟨M08 W4 U2b-3b⟩ the restore through the real runtime ----------------------------------------
+
+/// A backup of the generation the rig's pointer names, through SQLite, outside the home.
+fn take_backup(rig: &Rig, name: &str) -> PathBuf {
+    let out = rig._tmp.path().join(name);
+    Store::open_read_only(
+        &heimdall_store::layout::db_path(&rig.state_dir()).unwrap(),
+        Arc::new(NoFaults),
+    )
+    .unwrap()
+    .vacuum_into(&out)
+    .unwrap();
+    out
+}
+
+/// The restore, as `heimdall state restore` runs it: under the runtime's instance lock, the
+/// runtime stopped.
+fn restore_from(rig: &Rig, backup: &Path) -> heimdall_store::restore::RestoreOutcome {
+    let _lock = heimdall_runtime::InstanceLock::try_acquire(&rig.state_dir()).unwrap();
+    heimdall_runtime::state_store::restore_locked(
+        &rig.state_dir(),
+        backup,
+        rig.clock_wall(),
+        false,
+        7 * 24 * HOUR,
+    )
+    .unwrap()
+}
+
+/// The served generation's database made unreadable (the old store lost).
+fn lose_the_store(rig: &Rig) {
+    let db = heimdall_store::layout::db_path(&rig.state_dir()).unwrap();
+    for suffix in ["-wal", "-shm"] {
+        let mut name = db.as_os_str().to_owned();
+        name.push(suffix);
+        let _ = std::fs::remove_file(PathBuf::from(name));
+    }
+    std::fs::write(&db, b"this is no longer a database").unwrap();
+}
+
+fn effects(rig: &Rig) -> usize {
+    FakeCredentialAdapter::ledger_entries(&rig.effects)
+        .map(|e| e.len())
+        .unwrap_or(0)
+}
+
+/// `request_completed_after_the_backup_is_never_run_again`, both variants (ADR-0014 §3.6;
+/// m08-plan U2b). A request completes after the backup; the store is restored from the
+/// backup and the runtime started again:
+/// - **the old store unreadable:** a retry with the same request ID, bound at receipt to the
+///   new epoch, is answered `REQUEST_STALE` / `restored_before_completion` from its fence
+///   record, never executed;
+/// - **the old store readable:** the retry is answered from the carried terminal record (the
+///   real recorded answer), never executed.
+///
+/// In both, a retry carrying the epoch the request ID was minted under is `REQUEST_STALE` /
+/// `restore_epoch_stale`; the fixture adapter's ledger shows no second effect; and a request
+/// with a new ID after the fresh hello proceeds. (The local owner has no quarantine to lift;
+/// the paired clients' reauthorization is `restore_quarantines_a_later_revoked_management_client`.)
+#[tokio::test]
+async fn request_completed_after_the_backup_is_never_run_again() {
+    for readable in [false, true] {
+        let rig = Rig::new();
+        rig.start(None).await.stop().await;
+        let backup = take_backup(&rig, "backup.db");
+        let running = rig.start(None).await;
+        let mut owner = attended(&running.control).await;
+        let first = owner.request(ensure("r-done")).await.unwrap();
+        assert!(first.code.is_success(), "{first:?}");
+        assert_eq!(first.request_epoch, Some(RestoreEpoch(0)));
+        running.stop().await;
+        let executed = effects(&rig);
+        assert!(executed > 0, "the request ran once");
+        if !readable {
+            lose_the_store(&rig);
+        }
+        let out = restore_from(&rig, &backup);
+        assert_eq!(out.carried_forward, readable);
+        assert_eq!(out.current.record.restore_epoch, 1);
+        assert_eq!(
+            out.fenced_requests,
+            u64::from(!readable),
+            "readable {readable}"
+        );
+
+        let running = rig.start(None).await;
+        let mut owner = attended(&running.control).await;
+        assert_eq!(owner.server().restore_epoch, Some(RestoreEpoch(1)));
+        let retry = owner.request(ensure("r-done")).await.unwrap();
+        if readable {
+            assert_eq!(
+                retry.code, first.code,
+                "the carried terminal answer: {retry:?}"
+            );
+            assert_eq!(retry.operation_id, first.operation_id);
+        } else {
+            let request = ensure("r-done");
+            assert_refused(
+                &retry,
+                &Code::RequestStale,
+                reason::RESTORED_BEFORE_COMPLETION,
+                &request,
+                RestoreEpoch(1),
+            );
+        }
+        owner.keep_epoch(Some(RestoreEpoch(0)));
+        let kept = owner.request(ensure("r-done")).await.unwrap();
+        assert_refused(
+            &kept,
+            &Code::RequestStale,
+            reason::RESTORE_EPOCH_STALE,
+            &ensure("r-done"),
+            RestoreEpoch(0),
+        );
+        assert_eq!(
+            effects(&rig),
+            executed,
+            "readable {readable}: never executed again"
+        );
+        // A request minted after the fresh hello proceeds: past the epoch and the fence, to
+        // the application, which finds the standing policy the restore paused.
+        owner.keep_epoch(None);
+        let fresh = owner.request(ensure("r-new")).await.unwrap();
+        assert_eq!(fresh.code, Code::PolicyPaused, "{fresh:?}");
+        assert_eq!(fresh.request_epoch, Some(RestoreEpoch(1)));
+        running.stop().await;
+    }
+}
+
+/// `no_duplicate_effect_when_store_and_ledger_are_both_lost` (ADR-0014 §3.6 step 5): the
+/// request completes after the backup, then the store and the request ledger are both
+/// destroyed. After the restore the same request ID with its original epoch is refused
+/// `REQUEST_STALE` / `restore_epoch_stale`, sent attended and sent non-interactive, and the
+/// fixture adapter's ledger shows no second effect; a request minted after a fresh hello
+/// proceeds.
+#[tokio::test]
+async fn no_duplicate_effect_when_store_and_ledger_are_both_lost() {
+    let rig = Rig::new();
+    rig.start(None).await.stop().await;
+    let backup = take_backup(&rig, "backup.db");
+    let running = rig.start(None).await;
+    let mut owner = attended(&running.control).await;
+    let first = owner.request(ensure("r-lost")).await.unwrap();
+    assert!(first.code.is_success(), "{first:?}");
+    running.stop().await;
+    let executed = effects(&rig);
+    lose_the_store(&rig);
+    std::fs::remove_file(rig.state_dir().join(LEDGER)).unwrap();
+    let out = restore_from(&rig, &backup);
+    assert!(!out.carried_forward);
+    assert_eq!(
+        out.fenced_requests, 0,
+        "nothing left to fence: the epoch is the whole fence"
+    );
+    let running = rig.start(None).await;
+    for attended_session in [true, false] {
+        let mut c = if attended_session {
+            attended(&running.control).await
+        } else {
+            client(&running.control, InteractionMode::NonInteractive).await
+        };
+        c.keep_epoch(Some(RestoreEpoch(0)));
+        let retry = c.request(ensure("r-lost")).await.unwrap();
+        assert_refused(
+            &retry,
+            &Code::RequestStale,
+            reason::RESTORE_EPOCH_STALE,
+            &ensure("r-lost"),
+            RestoreEpoch(0),
+        );
+    }
+    assert_eq!(effects(&rig), executed, "no second effect");
+    // A request minted after a fresh hello proceeds: past the epoch and the fence, to the
+    // application, which finds the standing policy the restore paused.
+    let mut fresh = attended(&running.control).await;
+    let new = fresh.request(ensure("r-after")).await.unwrap();
+    assert_eq!(new.code, Code::PolicyPaused, "{new:?}");
+    assert_eq!(new.request_epoch, Some(RestoreEpoch(1)));
+    running.stop().await;
+    assert_eq!(effects(&rig), executed);
+}
+
+/// `old_decision_reference_is_refused_after_restore_and_reauthorization`: a decision raised
+/// after the backup, and one pending in it, are both closed by the restore under the epoch
+/// they were minted in; approving either reference afterwards is refused `DECISION_STALE` /
+/// `restore_epoch_stale`, and nothing is decided. (With the replaced store lost, a reference
+/// minted after the backup has no record at all; that answer is the escalated U2b-3a item 5.)
+#[tokio::test]
+async fn old_decision_reference_is_refused_after_restore_and_reauthorization() {
+    let rig = Rig::new();
+    let decision = |n: u8| heimdall_domain::decision::DecisionRecord {
+        id: DecisionId::from_random_bytes([n; 16]),
+        kind: heimdall_domain::decision::DecisionKind::WidenPolicy {
+            action: heimdall_contract::request::PolicyAction::Resume {
+                policy_id: Some(PolicyId::parse("pol").unwrap()),
+                target: None,
+            },
+        },
+        generation: heimdall_domain::policy::AuthorityGeneration(0),
+        created_at: t0(),
+        expires_at: at(24 * 3600),
+        state: heimdall_domain::decision::DecisionState::Pending,
+        decided_at: None,
+    };
+    rig.start(None).await.stop().await;
+    rig.store()
+        .transaction(|tx| tx.insert_decision(&decision(1)))
+        .unwrap();
+    let backup = take_backup(&rig, "backup.db");
+    rig.store()
+        .transaction(|tx| tx.insert_decision(&decision(2)))
+        .unwrap();
+    let out = restore_from(&rig, &backup);
+    assert_eq!(out.ended.decisions_closed, vec![decision(1).id]);
+    let running = rig.start(None).await;
+    let mut owner = attended(&running.control).await;
+    for n in [1u8, 2] {
+        let approve: Request = serde_json::from_value(serde_json::json!({
+            "op": "decide", "decision_id": decision(n).id, "verdict": "approve",
+        }))
+        .unwrap();
+        let env = owner.request(approve).await.unwrap();
+        assert_eq!(env.code, Code::DecisionStale, "decision {n}: {env:?}");
+        assert_eq!(
+            error_of(&env).error.reason.as_deref(),
+            Some(reason::RESTORE_EPOCH_STALE),
+            "decision {n}"
+        );
+    }
+    running.stop().await;
+    for n in [1u8, 2] {
+        let record = rig
+            .read_only()
+            .transaction(|tx| tx.decision(&decision(n).id))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            record.state,
+            heimdall_domain::decision::DecisionState::Stale,
+            "decision {n} was never approved"
+        );
+    }
+}
+
+/// `restore_keeps_a_later_revoked_grant_ended`, through the runtime: a grant active in the
+/// backup and revoked after it stays ended after the restore and the restart, with its
+/// tombstone; a retry of the request that made it is answered from its record and makes no
+/// new grant; the adapter runs nothing again. (The binding endpoint's refusal of a held
+/// connection across a restart is `adversarial_stale_signing_handle`'s; a restore restarts the
+/// runtime in the same way.)
+#[tokio::test]
+async fn restore_keeps_a_later_revoked_grant_ended() {
+    let rig = Rig::new();
+    let running = rig.start(None).await;
+    let mut owner = attended(&running.control).await;
+    let made = owner.request(ensure("r-grant")).await.unwrap();
+    assert!(made.code.is_success(), "{made:?}");
+    running.stop().await;
+    let grant = rig
+        .read_only()
+        .transaction(|tx| tx.live_grants())
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("the grant is live")
+        .id;
+    let backup = take_backup(&rig, "backup.db");
+    let running = rig.start(None).await;
+    let mut owner = attended(&running.control).await;
+    let revoke: Request = serde_json::from_value(serde_json::json!({
+        "op": "revoke", "grant_id": grant, "request_id": "r-revoke",
+    }))
+    .unwrap();
+    let revoked = owner.request(revoke).await.unwrap();
+    assert!(revoked.code.is_success(), "{revoked:?}");
+    running.stop().await;
+    let executed = effects(&rig);
+    restore_from(&rig, &backup);
+    let running = rig.start(None).await;
+    let mut owner = attended(&running.control).await;
+    let retry = owner.request(ensure("r-grant")).await.unwrap();
+    assert_eq!(
+        retry.operation_id, made.operation_id,
+        "answered from its record"
+    );
+    running.stop().await;
+    let store = rig.read_only();
+    store
+        .transaction(|tx| {
+            assert_eq!(
+                tx.grant(&grant)?.unwrap().state,
+                heimdall_contract::GrantState::Revoked
+            );
+            assert!(tx.tombstone(&grant)?.is_some());
+            assert!(tx.live_grants()?.is_empty(), "no grant came back");
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(effects(&rig), executed, "nothing ran again");
+}
+
+/// A paired session's hello of `client`, its refusal kept (`Runner::connect` unwraps it).
+async fn hello_of(
+    runner: &Runner,
+    client: &ClientId,
+) -> Result<ControlClient<tokio::io::DuplexStream>, Envelope<ErrorData>> {
+    let mut capabilities = client_capabilities();
+    capabilities.insert(capability::REMOTE_CONTROL_V1.to_owned());
+    let (client_end, server_end) = tokio::io::duplex(1 << 20);
+    let conn = ControlConnection::new(server_end, ConnectionLimits::default())
+        .with_server_identity(
+            env_id(),
+            PeerInfo {
+                name: "runner".into(),
+                version: "0".into(),
+            },
+        );
+    let (dispatcher, stop) = (runner.dispatcher.clone(), runner.stop.clone());
+    let session = tokio::spawn(async move {
+        let _ = conn.serve(paired_principal(), dispatcher, stop).await;
+    });
+    runner.sessions.lock().unwrap().push(session);
+    ControlClient::handshake_hello(
+        client_end,
+        ClientHello {
+            protocol: PROTOCOL_VERSION,
+            schema_version: SchemaVersion::current(),
+            client: PeerInfo {
+                name: "restore-test".into(),
+                version: "0".into(),
+            },
+            capabilities,
+            required: BTreeSet::new(),
+            interaction: InteractionMode::NonInteractive,
+            remote_client: Some(client.clone()),
+        },
+    )
+    .await
+    .map_err(|e| heimdall_ipc::session::transport_failure_envelope(&e, false))
+}
+
+fn refused_with(
+    hello: Result<ControlClient<tokio::io::DuplexStream>, Envelope<ErrorData>>,
+    why: &str,
+) {
+    match hello {
+        Ok(_) => panic!("the hello was admitted, expected {why}"),
+        Err(env) => {
+            assert_eq!(env.data.error.reason.as_deref(), Some(why), "{env:?}");
+            assert_eq!(env.data.error.effect_status, EffectStatus::None);
+        }
+    }
+}
+
+/// The rig's flat store adopted into the generation layout, as a runtime's first start does.
+fn adopt(rig: &Rig) {
+    drop(
+        heimdall_runtime::state_store::open_locked(&rig.state_dir(), Arc::new(NoFaults), t0())
+            .unwrap(),
+    );
+}
+
+/// `restore_quarantines_a_later_revoked_management_client`, through a runner's paired
+/// sessions. A client revoked after the backup stays refused: by its carried tombstone
+/// (`client_revoked`) when the replaced store is readable, and quarantined
+/// (`client_quarantined_after_restore`) when it is not. Every other recovered client is
+/// quarantined, its hello refused, until the owner reauthorizes it at the runner. After the
+/// reauthorization a fresh hello is admitted and reports the new epoch, and the client's
+/// pre-restore request ID stays refused: by its epoch, and, retried without one, by its
+/// carried record (readable) or its fence (lost) — never run again.
+#[tokio::test]
+async fn restore_quarantines_a_later_revoked_management_client() {
+    use heimdall_store::ext_m06::RevocationCause;
+    for readable in [true, false] {
+        let rig = Rig::new();
+        adopt(&rig);
+        let runner = Runner::start(&rig).await;
+        let revoked = runner.seed(1, Role::Requester, true);
+        let kept = runner.seed(2, Role::Requester, true);
+        runner.stop().await;
+        let backup = take_backup(&rig, "backup.db");
+        let runner = Runner::start(&rig).await;
+        let mut k = runner.connect(&kept).await;
+        let first = k.request(ensure("r-kept")).await.unwrap();
+        assert_eq!(first.request_epoch, Some(RestoreEpoch(0)));
+        runner.stop().await;
+        rig.store()
+            .transaction(|tx| tx.revoke_remote_client(&revoked, RevocationCause::Revoked, at(60)))
+            .unwrap();
+        if !readable {
+            lose_the_store(&rig);
+        }
+        let out = restore_from(&rig, &backup);
+        assert_eq!(out.carried_forward, readable);
+        let runner = Runner::start(&rig).await;
+        refused_with(
+            hello_of(&runner, &revoked).await,
+            if readable {
+                reason::CLIENT_REVOKED
+            } else {
+                reason::CLIENT_QUARANTINED_AFTER_RESTORE
+            },
+        );
+        refused_with(
+            hello_of(&runner, &kept).await,
+            reason::CLIENT_QUARANTINED_AFTER_RESTORE,
+        );
+        assert!(heimdall_runtime::paired::reauthorize_client(&runner.store, &kept).unwrap());
+        if readable {
+            assert!(
+                !heimdall_runtime::paired::reauthorize_client(&runner.store, &revoked).unwrap(),
+                "a revoked client is never reauthorized"
+            );
+        }
+        let mut k = hello_of(&runner, &kept)
+            .await
+            .expect("admitted after reauthorization");
+        assert_eq!(k.server().restore_epoch, Some(RestoreEpoch(1)));
+        k.keep_epoch(Some(RestoreEpoch(0)));
+        let stale = k.request(ensure("r-kept")).await.unwrap();
+        assert_refused(
+            &stale,
+            &Code::RequestStale,
+            reason::RESTORE_EPOCH_STALE,
+            &ensure("r-kept"),
+            RestoreEpoch(0),
+        );
+        k.keep_epoch(None);
+        let unstamped = k.request(ensure("r-kept")).await.unwrap();
+        if readable {
+            assert_eq!(
+                unstamped.operation_id, first.operation_id,
+                "its carried record"
+            );
+            assert_eq!(unstamped.code, first.code);
+        } else {
+            assert_refused(
+                &unstamped,
+                &Code::RequestStale,
+                reason::RESTORED_BEFORE_COMPLETION,
+                &ensure("r-kept"),
+                RestoreEpoch(1),
+            );
+        }
+        runner.stop().await;
+    }
+}
+
+/// `restore_voids_consumed_and_expired_invitations`, through a runner's paired sessions: an
+/// invitation joined after the backup, and one that expired after it, cannot be joined, and a
+/// join's replay is refused with them. A recovered pending client's hello, the only one that
+/// may send a join, is refused `invitation_void_after_restore`, or, for the expired one when
+/// the replaced store is readable, by its carried tombstone (`invitation_expired`).
+#[tokio::test]
+async fn restore_voids_consumed_and_expired_invitations() {
+    use heimdall_store::ext_m06::{JoinRecord, RevocationCause};
+    for readable in [true, false] {
+        let rig = Rig::new();
+        adopt(&rig);
+        let runner = Runner::start(&rig).await;
+        let joined = runner.seed(1, Role::Requester, false);
+        let expired = runner.seed(2, Role::Requester, false);
+        runner.stop().await;
+        let backup = take_backup(&rig, "backup.db");
+        rig.store()
+            .transaction(|tx| {
+                // The join names the generation its invitation recorded.
+                let inv = tx
+                    .remote_invitation(&InvitationId::from_random_bytes([1; 16]))?
+                    .unwrap();
+                tx.activate_remote_client(&JoinRecord {
+                    environment: env_id(),
+                    invitation: inv.invitation.clone(),
+                    client: joined.clone(),
+                    role: Role::Requester,
+                    generation: inv.generation,
+                    joined_at: at(120),
+                })?;
+                tx.revoke_remote_client(&expired, RevocationCause::InvitationExpired, at(2000))
+                    .map(drop)
+            })
+            .unwrap();
+        if !readable {
+            lose_the_store(&rig);
+        }
+        restore_from(&rig, &backup);
+        let runner = Runner::start(&rig).await;
+        refused_with(
+            hello_of(&runner, &joined).await,
+            reason::INVITATION_VOID_AFTER_RESTORE,
+        );
+        refused_with(
+            hello_of(&runner, &expired).await,
+            if readable {
+                reason::INVITATION_EXPIRED
+            } else {
+                reason::INVITATION_VOID_AFTER_RESTORE
+            },
+        );
+        runner.stop().await;
+    }
+}
+
+/// `reset_then_restart_serves_the_new_generation` (ADR-0014 §3.6, "Reset is the same
+/// switch"): after a reset, the restarted runtime serves the new, empty generation: its hello
+/// names the new environment at epoch 0, and the old generation is kept, whole, with the old
+/// identity.
+#[tokio::test]
+async fn reset_then_restart_serves_the_new_generation() {
+    let rig = Rig::new();
+    let running = rig.start(None).await;
+    let old = client(&running.control, InteractionMode::NonInteractive)
+        .await
+        .server()
+        .environment_id
+        .clone();
+    running.stop().await;
+    assert_eq!(old, env_id());
+    let out = {
+        let _lock = heimdall_runtime::InstanceLock::try_acquire(&rig.state_dir()).unwrap();
+        heimdall_runtime::state_store::reset_locked(&rig.state_dir(), rig.clock_wall(), false)
+            .unwrap()
+    };
+    let running = rig.start(None).await;
+    let served = client(&running.control, InteractionMode::NonInteractive).await;
+    assert_ne!(served.server().environment_id, old, "a new identity");
+    assert_eq!(
+        served.server().environment_id.as_str(),
+        out.current.record.environment_id
+    );
+    assert_eq!(served.server().restore_epoch, Some(RestoreEpoch(0)));
+    drop(served);
+    running.stop().await;
+    let kept = out.left_behind.expect("the replaced generation");
+    let db = rig
+        .state_dir()
+        .join("generations")
+        .join(kept.as_str())
+        .join(heimdall_store::layout::DB_FILE);
+    let kept_env = Store::open_read_only(&db, Arc::new(NoFaults))
+        .unwrap()
+        .transaction(|tx| tx.self_environment())
+        .unwrap();
+    assert_eq!(
+        kept_env,
+        Some(old),
+        "the old generation keeps the old identity"
+    );
+}

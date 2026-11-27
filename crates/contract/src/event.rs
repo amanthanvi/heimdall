@@ -70,6 +70,12 @@ pub enum EventType {
     /// ⟨M06⟩ Revision 6: `route.health` for every attempt, `route.failed_over` its subtype
     /// (payload [`crate::route::RouteHealthPayload`]). Declared, not emitted by wave 0.
     Route,
+    /// ⟨rev7; ADR-0014 H4, H10; M08 U2b-3b⟩ A restore made this generation current: what it
+    /// ended, quarantined and voided (payload [`crate::lifecycle::StateRestoredPayload`];
+    /// [`crate::lifecycle::STATE_RESTORED_EVENT`]). The restore writes it into the restored
+    /// generation before the pointer moves, so it is the first event a restarted runtime
+    /// serves after the restore.
+    StateRestored,
 }
 
 impl EventType {
@@ -100,7 +106,8 @@ impl EventType {
             | EventType::Enrollment
             | EventType::Connection
             | EventType::SessionLock
-            | EventType::Activation => None,
+            | EventType::Activation
+            | EventType::StateRestored => None,
         }
     }
 }

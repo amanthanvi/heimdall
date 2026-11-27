@@ -1693,9 +1693,10 @@ pub enum SupportCommand {
     },
 }
 
-/// ⟨rev7⟩ `state` subcommands (ADR-0014 H3, U0-Q8): skeletons answering "not available in
-/// this build" until their unit lands. Restore, reset and repair are attended, with a typed
-/// confirmation, and never run under `--non-interactive`.
+/// ⟨rev7⟩ `state` subcommands (ADR-0014 H3, U0-Q8). ⟨M08 U2b-3b⟩ Restore, reset and repair
+/// are built (`state_cmd`): attended, with a typed confirmation, and never run under
+/// `--non-interactive`. `state status` is still a skeleton answering "not available in this
+/// build".
 #[derive(Debug, Subcommand)]
 pub enum StateCommand {
     /// The state store's health, its current generation, earlier generations and backups
@@ -1867,9 +1868,16 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Service(ServiceCommand::Stop { preview: false })) => {
             return service_cmd::stop(&ctx);
         }
-        // ⟨rev7⟩ ADR-0014 H1, H3, U0-Q7, Q8: skeletons, whatever their flags (the ruling on
+        // ⟨M08 U2b-3b⟩ ADR-0014 H3, U0-Q8: the attended restore, reset and repair
+        // (`state_cmd`), before any runtime contact.
+        Some(Command::State(StateCommand::Restore { backup })) => {
+            return crate::state_cmd::restore(&ctx, &backup);
+        }
+        Some(Command::State(StateCommand::Reset)) => return crate::state_cmd::reset(&ctx),
+        Some(Command::State(StateCommand::Repair)) => return crate::state_cmd::repair(&ctx),
+        // ⟨rev7⟩ ADR-0014 H1, H3, U0-Q7: skeletons, whatever their flags (the ruling on
         // ASK-H3), before any runtime contact, home creation or file read.
-        Some(Command::Support(_) | Command::State(_)) => {
+        Some(Command::Support(_) | Command::State(StateCommand::Status)) => {
             return crate::rev7_cmd::not_available(&ctx);
         }
         Some(Command::Inspect { ref subject, .. }) if subject == "request" => {

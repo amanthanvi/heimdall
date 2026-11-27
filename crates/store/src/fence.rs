@@ -2,9 +2,10 @@
 //! the epoch and the fence.
 //!
 //! * **The current epoch** ([`Txn::restore_epoch`]) is `meta.restore_epoch` (migration 0014),
-//!   canonical decimal; anything else is `state_corrupt`. Only a restore or a repair raises it
-//!   (U2b-3). In this slice nothing in production raises it: the tests raise it through the
-//!   test seam [`Txn::raise_restore_epoch_for_test`].
+//!   canonical decimal; anything else is `state_corrupt`. Only a restore or a repair raises it:
+//!   ⟨M08 U2b-3b⟩ `crate::restore` (in the staged generation, before the pointer moves, and in
+//!   place for the attended repair). Earlier tests still raise it through the test seam
+//!   [`Txn::raise_restore_epoch_for_test`].
 //! * **Everything minted carries its epoch** (§3.6 step 2): a row inserted into `operations`,
 //!   `decisions` or `remote_effect_outbox` carries the current epoch in its `restore_epoch`, and
 //!   an idempotency row in its `request_epoch` (the epoch its request was bound to: a request
@@ -22,9 +23,9 @@
 //!   are ADR-0006 §7.4's ([`RequestFence::verdict`]): an unresolved key's fence is answered
 //!   after any wait and never purged; a settled key's is answered until its retention ends
 //!   (`expires_at`), then as an expired key (`REQUEST_EXPIRED`) until its 30-day marker ends
-//!   (`marker_until`), when [`Txn::purge_markers_before`] removes it. U2b-3's restore and
-//!   repair write them; this slice's tests write them through
-//!   [`Txn::insert_request_fence`] and [`fence_ledger_for_test`].
+//!   (`marker_until`), when [`Txn::purge_markers_before`] removes it. ⟨M08 U2b-3b⟩ The
+//!   restore and the repair write them (`crate::restore`), through
+//!   [`Txn::insert_request_fence`]; [`fence_ledger_for_test`] stays the earlier tests' seam.
 //! * ⟨M08 U2b-3a⟩ **Terminal records by the ledger's digest** (`request_terminals`, migration
 //!   0016, [`RequestTerminal`]): a request key that reached its end. The purge of a settled
 //!   journaled operation writes one beside its expired-key marker (whose key hash is another

@@ -394,8 +394,8 @@ pub struct RepairReport {
 // --- H4, H10: the restore event ------------------------------------------------------------
 
 /// The event type a restore emits (`state_restored`), one for H4's and H10's (ruling on
-/// ASK-H10). Declared: `EventType` gains it with its emitter (U2b), so the `event` schema is
-/// unchanged now.
+/// ASK-H10). ⟨M08 U2b-3b⟩ Live: `crate::event::EventType::StateRestored`, emitted by the
+/// restore into the restored generation (`heimdall_app::state_restore`).
 pub const STATE_RESTORED_EVENT: &str = "state_restored";
 
 /// ⟨H4, H10⟩ The payload of a `state_restored` event: what the restore ended

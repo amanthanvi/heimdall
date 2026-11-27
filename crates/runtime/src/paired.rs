@@ -465,17 +465,91 @@ pub fn state_db_of_home(home: &Path) -> heimdall_store::Result<PathBuf> {
 /// runner's, the write lock not obtained in time, or the store's failure: nothing was
 /// recorded. The caller refuses its session all the same and notes the failure
 /// ([`note_unrecorded_downgrade`]).
+///
+/// ⟨M08 W4 U2b-3b; W3-R01's W4 half⟩ **The pointer is checked again after the write.** A
+/// restore or a reset makes another generation current by the pointer switch, under the
+/// instance lock the bridge does not hold. The restore reads the replaced generation inside
+/// a `BEGIN IMMEDIATE` transaction it holds until after the switch
+/// (`heimdall_store::restore`), so the bridge's transaction commits either before that read
+/// (the row is in the replaced generation before it is read, and is carried forward) or after
+/// the switch. In the second case the pointer no longer names the generation the bridge opened,
+/// and this fails ([`StoreError::Corrupt`]), so the caller queues the event in the fail-closed
+/// marker and the runtime records it in the generation it serves. A reset is the same switch.
+/// **Stated limit:** that late write lands in the replaced generation, which is residue; the
+/// refusal inside the bridge's own transaction, before it writes, is the store's
+/// (`ext_runner::bridge_record_with`, SEC-3b's file), not made here.
 pub fn record_owner_only_in_home(
     home: &Path,
     cause: OwnerOnlyCause,
     now: Timestamp,
 ) -> heimdall_store::Result<()> {
-    heimdall_store::ext_runner::bridge_record_runner_downgrade(
-        &state_db_of_home(home)?,
-        cause.token(),
-        now,
-    )
-    .map(drop)
+    record_owner_only_in_home_with(home, cause, now, None)
+}
+
+/// Test support (`restore_window_tests`): [`record_owner_only_in_home`] with `faults` as the
+/// hook of the bridge's store (its `BeforeTransaction` fires after the bridge opened the
+/// database and before its transaction: the window a restore can switch in). Never used by
+/// production code.
+///
+/// # Errors
+/// As [`record_owner_only_in_home`].
+#[doc(hidden)]
+pub fn record_owner_only_in_home_with_faults(
+    home: &Path,
+    cause: OwnerOnlyCause,
+    now: Timestamp,
+    faults: Arc<dyn heimdall_store::FaultHook>,
+) -> heimdall_store::Result<()> {
+    record_owner_only_in_home_with(home, cause, now, Some(faults))
+}
+
+fn record_owner_only_in_home_with(
+    home: &Path,
+    cause: OwnerOnlyCause,
+    now: Timestamp,
+    faults: Option<Arc<dyn heimdall_store::FaultHook>>,
+) -> heimdall_store::Result<()> {
+    let state_dir = crate::Paths::under(home).state_dir;
+    let opened = heimdall_store::layout::pointed_generation(&state_dir)?;
+    let db = state_db_of_home(home)?;
+    let written = match faults {
+        None => heimdall_store::ext_runner::bridge_record_runner_downgrade(&db, cause.token(), now),
+        Some(faults) => heimdall_store::ext_runner::bridge_record_runner_downgrade_with_faults(
+            &db,
+            cause.token(),
+            now,
+            faults,
+        ),
+    };
+    if heimdall_store::layout::pointed_generation(&state_dir)? != opened {
+        return Err(heimdall_store::StoreError::Corrupt(
+            "a restore or a reset made another store generation current during the bridge's write"
+                .to_owned(),
+        ));
+    }
+    written.map(drop)
+}
+
+/// ⟨M08 W4 U2b-3b; ADR-0014 §3.6 step 6⟩ **Reauthorize** a paired management client a restore
+/// quarantined: the owner's decision, attended at this machine (the caller confirms it). It
+/// removes the client's hold (`heimdall_store::restore`), so a hello the client sends after it
+/// is admitted again. It reopens nothing else: the client's pre-restore request IDs stay
+/// refused by their epoch and answered by their fences, and its decision references stay
+/// stale. A revoked client is never reauthorized (its tombstone stands). Returns whether a
+/// hold was removed.
+///
+/// # Errors
+/// The store's.
+pub fn reauthorize_client(store: &Store, client: &ClientId) -> heimdall_store::Result<bool> {
+    store.transaction(|tx| {
+        if tx
+            .remote_client(client)?
+            .is_some_and(|c| c.state == ClientState::Revoked)
+        {
+            return Ok(false);
+        }
+        tx.lift_client_hold(client)
+    })
 }
 
 /// ⟨ADR-0012 §3.2 "How the downgrade is kept"⟩ The marker, in a home's log directory, of a
@@ -1708,6 +1782,67 @@ impl PairedRunner {
                 role,
                 pending: state == ClientState::Pending,
             })),
+        }
+    }
+
+    /// ⟨M08 W4 U2b-3b; ADR-0014 §3.6's table, H10⟩ The refusal of a bound session whose client
+    /// or invitation a restore put on hold, or `None`. A management client quarantined by a
+    /// restore is not admitted until reauthorized at this machine (`CAPABILITY_UNAVAILABLE` /
+    /// `client_quarantined_after_restore`, next `owner_decision`); a pending client whose
+    /// invitation the restore voided cannot join it (`invitation_void_after_restore`). A hold
+    /// that cannot be read refuses too (`STATE_UNAVAILABLE`): never admitted on a failed read.
+    /// The dispatcher asks this at the hello, before the session is bound.
+    #[must_use]
+    pub fn hold_refusal(
+        &self,
+        session: &PairedSession,
+    ) -> Option<Envelope<heimdall_contract::envelope::ErrorData>> {
+        use heimdall_contract::envelope::{NextAction, reason};
+        use heimdall_store::restore::HoldKind;
+        let held = self.store.transaction(|tx| {
+            let invitation = tx
+                .remote_client(&session.client)?
+                .and_then(|c| c.invitation)
+                .map(|i| i.as_str().to_owned());
+            let void = match &invitation {
+                Some(id) if session.pending => tx.restore_hold(HoldKind::Invitation, id)?.is_some(),
+                _ => false,
+            };
+            let quarantined = tx
+                .restore_hold(HoldKind::Client, session.client.as_str())?
+                .is_some();
+            Ok((void, quarantined))
+        });
+        let refuse = |reason: &str, message: &str| {
+            OpError::new(Code::CapabilityUnavailable, message.to_owned())
+                .with_reason(reason)
+                .with_effect(EffectStatus::None)
+                .with_next(NextAction {
+                    action: "owner_decision".to_owned(),
+                    ..NextAction::default()
+                })
+                .into_envelope()
+        };
+        match held {
+            Ok((true, _)) => Some(refuse(
+                reason::INVITATION_VOID_AFTER_RESTORE,
+                "this invitation was voided when the runner's state was restored: it cannot be \
+                 joined. Ask the runner's owner for a new invitation",
+            )),
+            Ok((false, true)) => Some(refuse(
+                reason::CLIENT_QUARANTINED_AFTER_RESTORE,
+                "this client was quarantined when the runner's state was restored: it is not \
+                 admitted until the runner's owner reauthorizes it at the runner",
+            )),
+            Ok((false, false)) => None,
+            Err(_) => Some(
+                OpError::new(
+                    Code::StateUnavailable,
+                    "the runner's state store could not be read".to_owned(),
+                )
+                .with_effect(EffectStatus::None)
+                .into_envelope(),
+            ),
         }
     }
 
@@ -3452,5 +3587,164 @@ mod adoption_window_tests {
         drop(policy);
         let restarted = RunnerPolicy::with_store(ManagementPolicy::Verified, served.clone());
         assert_eq!(restarted.current(), ManagementPolicy::OwnerOnly);
+    }
+}
+
+/// ⟨M08 W4 U2b-3b; W3-R01's W4 half⟩ A restore or a reset committed between the bridge's open
+/// of the database and its write.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod restore_window_tests {
+    use std::sync::Mutex;
+
+    use heimdall_store::layout;
+    use heimdall_store::{FaultAction, FaultHook, FaultPoint, NoFaults};
+
+    use super::*;
+
+    /// What runs in the window: a restore of `backup`, or a reset.
+    enum Switch {
+        Restore(PathBuf),
+        Reset,
+    }
+
+    /// The hook of the bridge's store: at `BeforeTransaction` (the bridge has opened the
+    /// database the pointer named and checked its schema; its transaction has not begun) the
+    /// switch runs to completion, under the instance lock this test holds for it.
+    struct SwitchInTheWindow {
+        state_dir: PathBuf,
+        switch: Switch,
+        now: Timestamp,
+        done: Mutex<Option<String>>,
+    }
+
+    impl FaultHook for SwitchInTheWindow {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            let mut done = self.done.lock().unwrap();
+            if point == FaultPoint::BeforeTransaction && done.is_none() {
+                let name = match &self.switch {
+                    Switch::Restore(backup) => {
+                        crate::state_store::restore_locked(
+                            &self.state_dir,
+                            backup,
+                            self.now,
+                            false,
+                            std::time::Duration::from_secs(7 * 24 * 3600),
+                        )
+                        .unwrap_or_else(|e| panic!("the restore: {e}"))
+                        .current
+                        .name
+                    }
+                    Switch::Reset => {
+                        crate::state_store::reset_locked(&self.state_dir, self.now, false)
+                            .unwrap_or_else(|e| panic!("the reset: {e}"))
+                            .current
+                            .name
+                    }
+                };
+                *done = Some(name.as_str().to_owned());
+            }
+            FaultAction::Continue
+        }
+    }
+
+    fn downgrade(store: &Store) -> Option<String> {
+        store
+            .transaction(|tx| tx.runner_downgrade())
+            .unwrap()
+            .map(|d| d.cause)
+    }
+
+    /// `the_bridge_write_after_a_restore_or_reset_switch_fails_to_the_marker`: the pointer
+    /// no longer names the generation the bridge opened, so its write fails and the caller's
+    /// fallback queues the event in the marker; the generation now served carries the
+    /// downgrade once the marker is applied (for the restore, whose store is a runner's: the
+    /// carry-forward read the replaced generation before the bridge's write committed, so the
+    /// marker is the only way the event reaches it).
+    #[test]
+    fn the_bridge_write_after_a_restore_or_reset_switch_fails_to_the_marker() {
+        let at: Timestamp = "2026-11-27T09:00:00Z".parse().unwrap();
+        let cause = OwnerOnlyCause::SessionAgent;
+        for reset in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let home = dir.path().canonicalize().unwrap();
+            let paths = crate::Paths::under(&home);
+            paths.ensure().unwrap();
+            let opened =
+                crate::state_store::open_locked(&paths.state_dir, Arc::new(NoFaults), at).unwrap();
+            init_runner(&opened.store).unwrap();
+            let before = opened.current.name.as_str().to_owned();
+            drop(opened);
+            let backup = dir.path().join("backup.db");
+            Store::open_read_only(
+                &layout::db_path(&paths.state_dir).unwrap(),
+                Arc::new(NoFaults),
+            )
+            .unwrap()
+            .vacuum_into(&backup)
+            .unwrap();
+            let _lock = crate::InstanceLock::try_acquire(&paths.state_dir).unwrap();
+            let hook = Arc::new(SwitchInTheWindow {
+                state_dir: paths.state_dir.clone(),
+                switch: if reset {
+                    Switch::Reset
+                } else {
+                    Switch::Restore(backup)
+                },
+                now: at,
+                done: Mutex::new(None),
+            });
+            let recorded = record_owner_only_in_home_with_faults(&home, cause, at, hook.clone());
+            let switched = hook
+                .done
+                .lock()
+                .unwrap()
+                .take()
+                .expect("the switch ran in the window");
+            assert_ne!(switched, before);
+            assert_eq!(
+                layout::pointed_generation(&paths.state_dir)
+                    .unwrap()
+                    .unwrap()
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy(),
+                switched.as_str(),
+                "reset {reset}: the switch is in place"
+            );
+            assert!(
+                matches!(recorded, Err(heimdall_store::StoreError::Corrupt(_))),
+                "reset {reset}: the bridge's write after the switch did not fail: {recorded:?}"
+            );
+            // The caller's fallback: the event is queued in the marker.
+            note_unrecorded_downgrade(&paths.log_dir, cause, at).unwrap();
+            assert_eq!(
+                unrecorded_downgrade(&paths.log_dir).map(|n| n.cause),
+                Some(cause)
+            );
+            if !reset {
+                let served = Arc::new(
+                    Store::open(
+                        &layout::db_path(&paths.state_dir).unwrap(),
+                        Arc::new(NoFaults),
+                    )
+                    .unwrap(),
+                );
+                assert_eq!(
+                    downgrade(&served),
+                    None,
+                    "not carried: written after the read"
+                );
+                let policy = RunnerPolicy::with_store(ManagementPolicy::Verified, served.clone());
+                assert!(policy.marker_pending(), "the marker lowers the runner");
+                policy.drain_pending(at);
+                assert_eq!(
+                    downgrade(&served).as_deref(),
+                    Some(cause.token()),
+                    "the served generation carries the downgrade"
+                );
+                assert_eq!(policy.current(), ManagementPolicy::OwnerOnly);
+            }
+        }
     }
 }

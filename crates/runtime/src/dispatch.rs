@@ -1538,6 +1538,10 @@ impl Dispatcher for OperationsDispatcher {
             ));
         };
         match runner.bind(hello) {
+            // ⟨M08 U2b-3b⟩ A client or invitation a restore put on hold is not admitted.
+            Ok(Some(session)) if let Some(refusal) = runner.hold_refusal(&session) => {
+                Err(Box::new(refusal))
+            }
             Ok(Some(session)) => {
                 let binding = PairedBinding {
                     role: session.role,
