@@ -38,6 +38,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\packaging\build-releas
 python -I tools\packaging\payload-install-selftest.py --shell powershell
 ```
 
+Repeat the payload command from a PowerShell 7 (`pwsh`) prompt. Each run starts Windows
+PowerShell 5.1 with a clean module path and with a scratch PowerShell 7 module directory
+ahead of its built-in modules. Both cases check a fresh install and a reinstall.
+
 The Windows packager takes the Linux archive and the external `SHA256SUMS` from the release
 build's trusted index. Use `-CheckWSLHelperOnly` to check the pair without compiling and print
 the helper's digest, commit, target and features.

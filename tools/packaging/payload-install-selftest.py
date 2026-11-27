@@ -95,7 +95,7 @@ def print_installer_output(failure, result, paths):
             print(f"{failure} installer {stream} | {safe_line}")
 
 
-def check(shell):
+def check(shell, *, shadow_modules=False):
     shell_name = Path(shell).stem.lower()
     windows = shell_name in ("powershell", "pwsh")
     desktop = os.name == "nt" and shell_name == "powershell"  # Windows PowerShell 5.1
@@ -146,9 +146,28 @@ def check(shell):
             # Its parents are part of the fixture, and only the exact regular file may appear.
             startup_cache = DESKTOP_STARTUP_CACHE if desktop else CORE_STARTUP_CACHE
             (home / startup_cache).parent.mkdir(parents=True)
+        scenario = ""
         if windows:
             # Let command discovery cache normally using a writable file in scratch space.
             env["PSModuleAnalysisCachePath"] = str(root / "ModuleAnalysisCache")
+            env.pop("PSMODULEPATH" if os.name == "nt" else "PSModulePath", None)
+            module_paths = []
+            if desktop:
+                # Windows PowerShell honors an inherited path even when it omits its built-ins.
+                module_paths.append(Path(env["SYSTEMROOT"]) / "System32/WindowsPowerShell/v1.0/Modules")
+            if shadow_modules:
+                modules = root / "PowerShell" / "7" / "Modules"
+                utility = modules / "Microsoft.PowerShell.Utility"
+                utility.mkdir(parents=True)
+                (utility / "Microsoft.PowerShell.Utility.psm1").write_text(
+                    "function Get-FileHash { throw 'fixture PowerShell 7 Get-FileHash was selected' }\n"
+                    "Export-ModuleMember -Function Get-FileHash\n",
+                    encoding="ascii",
+                )
+                module_paths.insert(0, modules)
+            if module_paths:
+                env["PSModulePath"] = os.pathsep.join(map(str, module_paths))
+            scenario = " [pwsh-like PSModulePath]" if shadow_modules else " [clean PSModulePath]"
         diagnostic_paths = [(stage, "<stage>"), (home, "<home>"), (prefix, "<prefix>"), (root, "<scratch>"),
                             (HERE, "<packaging>"), (Path.home(), "<user-home>")]
         for name in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"):
@@ -162,7 +181,7 @@ def check(shell):
         if windows:
             expected_prefix["linux-x86_64"] = None
         for label in ("fresh install", "reinstall"):
-            failure = f"payload-install-selftest: FAIL {installer} {label}"
+            failure = f"payload-install-selftest: FAIL {installer}{scenario} {label}"
             installer_ok = False
             try:
                 result = subprocess.run([shell, *args], cwd=stage, env=env, capture_output=True, timeout=45)
@@ -182,7 +201,7 @@ def check(shell):
             )
             if not installer_ok or not all(trees_ok):
                 return False
-        print(f"payload-install-selftest: PASS {installer} (fresh install and reinstall)")
+        print(f"payload-install-selftest: PASS {installer}{scenario} (fresh install and reinstall)")
         return True
 
 
@@ -190,4 +209,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--shell", choices=("bash", "powershell", "pwsh"), required=True)
     args = parser.parse_args()
-    raise SystemExit(0 if check(args.shell) else 1)
+    clean_ok = check(args.shell)
+    shadow_ok = args.shell == "bash" or check(args.shell, shadow_modules=True)
+    raise SystemExit(0 if clean_ok and shadow_ok else 1)
