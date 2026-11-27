@@ -1,0 +1,4 @@
+fac87a42d647390735398358db487c838760aa31fd32a11f3ce4b8f54904879c  heimdall-0.1.0-m01-x86_64-unknown-linux-gnu.build-record.json  match=True
+d07878f19940cc389c4964e766b81eeac8162b76307df950056aae1c8863648d  heimdall-0.1.0-m01-x86_64-unknown-linux-gnu.cdx.json  match=True
+8182804799c528090a8936f56abaf832e3b5704f48ab45cae1cafe71595dfef4  heimdall-0.1.0-m01-x86_64-unknown-linux-gnu.tar.gz  match=True
+8fb97a840715885d483e6cb165fb7bb0076c148a1fab2517f0516c68e6ced8a5  SHA256SUMS  match=True

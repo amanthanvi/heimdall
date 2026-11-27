@@ -1,0 +1,3 @@
+Comparing files <R>\C1\TARGET\RELEASE-ARTIFACTS\heimdall-0.1.0-m01-x86_64-pc-windows-msvc.zip and <R>\C2-OTHER-PATH\TARGET\RELEASE-ARTIFACTS\HEIMDALL-0.1.0-M01-X86_64-PC-WINDOWS-MSVC.ZIP
+FC: no differences encountered
+

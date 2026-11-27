@@ -1,0 +1,1 @@
+payload-install-selftest: FAIL install.ps1 fresh install (installer exit 0)

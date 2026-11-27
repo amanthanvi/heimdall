@@ -1,0 +1,9 @@
+ok   good -> exit 0
+ok   commit -> exit 1
+ok   target -> exit 1
+ok   features -> exit 1
+ok   digest -> exit 1
+ok   index -> exit 1
+ok   machine -> exit 1
+ok   staged helper and receipt
+build-release-wsl-selftest: PASS (8 checks)
