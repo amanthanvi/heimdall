@@ -162,7 +162,7 @@ impl EventFilter {
     }
 }
 
-// --- ⟨rev7⟩ ADR-0013 §5.3–§5.5, D4, D6: declared, not emitted --------------------------------
+// --- ⟨rev7⟩ ADR-0013 §5.3–§5.5, D4, D6 --------------------------------------------------------
 
 /// ⟨rev7⟩ The most operations an [`EventSnapshot`] holds (ADR-0013 §5.5). Real use stays far
 /// below it: at most 32 operations run at once.
@@ -176,6 +176,23 @@ pub const SNAPSHOT_BUDGET_BYTES: usize = 768 << 10;
 /// ⟨rev7⟩ The most visible events a backlog start delivers (ADR-0013 §5.3); a reader further
 /// behind gets a whole snapshot start with `resync_reason: backlog_too_long`.
 pub const BACKLOG_MAX: u32 = 500;
+
+/// ⟨rev7; PC1⟩ The names a snapshot refusal's `data.error.section` and `data.error.narrow`
+/// carry (ADR-0013 §5.5): the section over its cap, and the filter that leaves it out.
+pub mod snapshot_refusal {
+    /// The `operations` section.
+    pub const OPERATIONS: &str = "operations";
+    /// The `operation` section (the one `filter.operation_id` names).
+    pub const OPERATION: &str = "operation";
+    /// The `pending_decisions` section.
+    pub const PENDING_DECISIONS: &str = "pending_decisions";
+    /// Narrow to one operation: `filter.operation_id`.
+    pub const NARROW_OPERATION_ID: &str = "filter.operation_id";
+    /// Narrow by type: `filter.types`, without the section's event type
+    /// (`operation_state_changed` for an operation section, `decision` for
+    /// `pending_decisions`).
+    pub const NARROW_TYPES: &str = "filter.types";
+}
 
 /// ⟨rev7⟩ Why a subscription started from a whole snapshot, or why a stream or a page ended
 /// (ADR-0013 §5.3, §5.4). Every gap ends the stream.
@@ -196,13 +213,17 @@ pub enum ResyncReason {
     CursorInvalid,
 }
 
-/// ⟨rev7⟩ The typed `data` of a whole snapshot (ADR-0013 §5.5, D4): read in one store
+/// ⟨rev7⟩ The typed `data` of a whole snapshot (ADR-0013 §5.5, D4; PC1): read in one store
 /// transaction at the head boundary, whole or refused. Each section holds exactly what the
 /// subscription's log and visibility deliver, and a section the filter cannot maintain is
 /// omitted: `operations` only if the filter admits `operation_state_changed`,
 /// `pending_decisions` only if it admits `decision` (owner role only), and only `operation`
-/// with `filter.operation_id`. Its items are the typed operation and decision views.
+/// with `filter.operation_id`. Its items are [`SnapshotOperation`] and [`SnapshotDecision`]
+/// ([`EventSnapshotData`]). There is no `boundary_seq` (§5.5) and no partial marker: a
+/// snapshot over a cap is refused `USAGE_ERROR` / `response_too_large`, naming the section and
+/// the filter to use.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(bound(deserialize = "O: Deserialize<'de>, D: Deserialize<'de>"))]
 pub struct EventSnapshot<O, D> {
     /// The environment the snapshot is of.
     pub environment_id: EnvironmentId,
@@ -218,6 +239,41 @@ pub struct EventSnapshot<O, D> {
     /// The pending decisions (owner role only), at most [`SNAPSHOT_DECISIONS_MAX`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_decisions: Option<Vec<D>>,
+}
+
+/// ⟨rev7; PC1⟩ The snapshot every subscribe and cursorless `observe events` sends.
+pub type EventSnapshotData = EventSnapshot<SnapshotOperation, SnapshotDecision>;
+
+/// ⟨rev7; PC1⟩ One operation in an [`EventSnapshot`]: its identity, state and outcome, the
+/// fields its `operation_state_changed` events carry, without the operation view's result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct SnapshotOperation {
+    /// The operation.
+    pub operation_id: OperationId,
+    /// Its kind.
+    pub kind: crate::views::operations::OperationKindView,
+    /// Its state.
+    pub state: crate::state::OperationState,
+    /// Its result code once terminal. Omitted before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<crate::code::Code>,
+    /// Its effect status.
+    pub effect_status: crate::envelope::EffectStatus,
+    /// When it last changed.
+    pub updated_at: Timestamp,
+}
+
+/// ⟨rev7; PC1⟩ One pending decision in an [`EventSnapshot`] (owner role only).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct SnapshotDecision {
+    /// The decision. Always present for the local owner; absent from what a paired reader
+    /// receives (its delivery removes every `decision_id`, as from `decision` events).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_id: Option<crate::ids::DecisionId>,
+    /// What is decided.
+    pub kind: crate::views::access::DecisionKindName,
+    /// After this instant it cannot be completed.
+    pub expires_at: Timestamp,
 }
 
 #[cfg(test)]
@@ -249,5 +305,44 @@ mod tests {
             vec![capability::ROUTES_V1, capability::REMOTE_CONTROL_V1]
         );
         assert_eq!(EventFilter::default().required_capabilities().count(), 0);
+    }
+
+    /// ⟨PC1⟩ The typed snapshot: absent sections and an absent `code` or `decision_id` are
+    /// omitted, never `null`; there is no `boundary_seq`.
+    #[test]
+    fn event_snapshot_omits_what_does_not_apply() {
+        let doc = serde_json::json!({
+            "environment_id": "env_01010101010101010101010101010101",
+            "authority_generation": 3,
+            "operations": [{
+                "operation_id": "op_60606060606060606060606060606060",
+                "kind": "setup.apply",
+                "state": "running",
+                "effect_status": "none",
+                "updated_at": "2026-11-27T10:00:00Z"
+            }],
+            "pending_decisions": [{
+                "kind": "remote_widening",
+                "expires_at": "2026-11-27T10:15:00Z"
+            }]
+        });
+        let typed: EventSnapshotData = serde_json::from_value(doc.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&typed).unwrap(), doc);
+        assert!(typed.operation.is_none());
+        assert!(
+            typed.pending_decisions.as_ref().unwrap()[0]
+                .decision_id
+                .is_none()
+        );
+        let bare: EventSnapshotData = serde_json::from_value(serde_json::json!({
+            "environment_id": "env_01010101010101010101010101010101",
+            "authority_generation": 0
+        }))
+        .unwrap();
+        let text = serde_json::to_string(&bare).unwrap();
+        assert!(
+            !text.contains("null") && !text.contains("boundary_seq"),
+            "{text}"
+        );
     }
 }

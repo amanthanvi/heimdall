@@ -241,6 +241,16 @@ pub struct ErrorDetail {
     /// ⟨rev7⟩ Whether `bound` counts bytes or entries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<BoundUnit>,
+    /// ⟨rev7; PC1⟩ A `USAGE_ERROR` / `response_too_large` refusal's [`ResponseTooLarge`]
+    /// section: a snapshot's section over its cap (`operations`, `operation`,
+    /// `pending_decisions`; ADR-0013 §5.5). Additive: set only on that refusal, omitted
+    /// otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+    /// ⟨rev7; PC1⟩ The [`ResponseTooLarge`] narrowing to use with `section`
+    /// (`filter.operation_id`, or `filter.types` without that section's event type).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub narrow: Option<String>,
 }
 
 impl ErrorDetail {
@@ -270,8 +280,9 @@ pub struct ErrorData {
 }
 
 /// ⟨rev7⟩ The typed detail of a `USAGE_ERROR` / `response_too_large` refusal (ADR-0013 §4,
-/// D19). **Standalone, not attached:** `ErrorDetail` gains these fields in the change that
-/// emits them (U3, PC4), with the CLI and the wrapper.
+/// D19). **Partly attached:** a snapshot over a cap (PC1, §5.5) sets [`ErrorDetail`]'s
+/// `section` and `narrow`; `ErrorDetail` gains `limit_bytes` in the change that emits it (U3,
+/// PC4), with the CLI and the wrapper.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ResponseTooLarge {
     /// The frame or budget limit the answer would exceed, in bytes.

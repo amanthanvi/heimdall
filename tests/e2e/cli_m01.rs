@@ -1127,6 +1127,14 @@ fn operation_events_follow_resumes_from_cursor() {
         .as_str()
         .unwrap()
         .to_owned();
+    // ⟨PC1⟩ The typed whole snapshot: no filter, so both sections (the work settled, so no
+    // open operation; no pending decision); no `operation`, no `boundary_seq`.
+    let data = &snap.json()["data"]["snapshot"]["data"];
+    assert!(data["environment_id"].is_string(), "{data}");
+    assert!(data["authority_generation"].is_u64(), "{data}");
+    assert_eq!(data["operations"], serde_json::json!([]), "{data}");
+    assert_eq!(data["pending_decisions"], serde_json::json!([]), "{data}");
+    assert!(data.get("operation").is_none() && data.get("boundary_seq").is_none());
 
     // A page after the snapshot cursor holds exactly the later work.
     let e2 = home.run(&ensure_args("req-e2", "work-e2", "h2:deploy"));

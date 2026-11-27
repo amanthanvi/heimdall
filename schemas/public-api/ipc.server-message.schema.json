@@ -71,7 +71,7 @@
           "minimum": 0
         },
         "snapshot": {
-          "description": "Present when the client sent no cursor, or sent an expired/foreign one\nand the server chose to resync it: a transactionally consistent view\ntaken at `cursor`.",
+          "description": "Present when the client sent no cursor, or sent an expired/foreign one\nand the server chose to resync it: a transactionally consistent view\ntaken at `cursor`, whole or refused (⟨rev7; PC1⟩ its `data` is a typed\n[`crate::event::EventSnapshotData`], ADR-0013 §5.5). Carried as the\ndocument the runtime built from that type (so a paired session's\ndelivery can remove its decision handles); the schema is the type's.",
           "anyOf": [
             {
               "$ref": "#/$defs/Snapshot"
@@ -347,6 +347,90 @@
       "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
       "type": "string"
     },
+    "DecisionId": {
+      "description": "Server-issued decision record ID (ADR-0006 §3.1 attended confirmation).",
+      "type": "string"
+    },
+    "DecisionKindName": {
+      "description": "A decision's kind, as views and events name it.",
+      "oneOf": [
+        {
+          "description": "Approve the authority delta of an operation.",
+          "type": "string",
+          "const": "approve_authority"
+        },
+        {
+          "description": "Widen a standing policy.",
+          "type": "string",
+          "const": "widen_policy"
+        },
+        {
+          "description": "Confirm the wall time.",
+          "type": "string",
+          "const": "confirm_time"
+        },
+        {
+          "description": "⟨M02⟩ Apply a projection plan.",
+          "type": "string",
+          "const": "apply_projection"
+        },
+        {
+          "description": "⟨M02⟩ Declare an identity's interaction.",
+          "type": "string",
+          "const": "declare_interaction"
+        },
+        {
+          "description": "⟨M03⟩ Register an issuer.",
+          "type": "string",
+          "const": "register_issuer"
+        },
+        {
+          "description": "⟨M04⟩ Add a managed environment.",
+          "type": "string",
+          "const": "add_environment"
+        },
+        {
+          "description": "⟨M03⟩ Retire an issuer.",
+          "type": "string",
+          "const": "retire_issuer"
+        },
+        {
+          "description": "⟨M03⟩ Enroll an account.",
+          "type": "string",
+          "const": "enroll_account"
+        },
+        {
+          "description": "⟨M03⟩ Enroll through the system form.",
+          "type": "string",
+          "const": "enroll_system_form"
+        },
+        {
+          "description": "⟨M05⟩ Trust a workspace.",
+          "type": "string",
+          "const": "trust_workspace"
+        },
+        {
+          "description": "⟨M05⟩ Reconcile a workspace.",
+          "type": "string",
+          "const": "reconcile_workspace"
+        },
+        {
+          "description": "⟨M03⟩ Remove an enrollment.",
+          "type": "string",
+          "const": "remove_enrollment"
+        },
+        {
+          "description": "⟨M03⟩ Approve an enrollment target change.",
+          "type": "string",
+          "const": "approve_target_change"
+        },
+        {
+          "description": "⟨M06⟩ A paired client's widening request, decided runner-locally.",
+          "type": "string",
+          "const": "remote_widening"
+        }
+      ]
+    },
     "DestinationId": {
       "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
       "type": "string"
@@ -608,6 +692,13 @@
           "description": "Human text; may change without breaking callers; never contains secrets.",
           "type": "string"
         },
+        "narrow": {
+          "description": "⟨rev7; PC1⟩ The [`ResponseTooLarge`] narrowing to use with `section`\n(`filter.operation_id`, or `filter.types` without that section's event type).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "next": {
           "description": "Machine next action.",
           "$ref": "#/$defs/NextAction"
@@ -633,6 +724,13 @@
         "retryable": {
           "description": "Whether an unchanged retry may succeed later.",
           "type": "boolean"
+        },
+        "section": {
+          "description": "⟨rev7; PC1⟩ A `USAGE_ERROR` / `response_too_large` refusal's [`ResponseTooLarge`]\nsection: a snapshot's section over its cap (`operations`, `operation`,\n`pending_decisions`; ADR-0013 §5.5). Additive: set only on that refusal, omitted\notherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "unit": {
           "description": "⟨rev7⟩ Whether `bound` counts bytes or entries.",
@@ -722,6 +820,57 @@
     "EventId": {
       "description": "Event ID; consumers deduplicate by it (spec §11.5).",
       "type": "string"
+    },
+    "EventSnapshot": {
+      "description": "⟨rev7⟩ The typed `data` of a whole snapshot (ADR-0013 §5.5, D4; PC1): read in one store\ntransaction at the head boundary, whole or refused. Each section holds exactly what the\nsubscription's log and visibility deliver, and a section the filter cannot maintain is\nomitted: `operations` only if the filter admits `operation_state_changed`,\n`pending_decisions` only if it admits `decision` (owner role only), and only `operation`\nwith `filter.operation_id`. Its items are [`SnapshotOperation`] and [`SnapshotDecision`]\n([`EventSnapshotData`]). There is no `boundary_seq` (§5.5) and no partial marker: a\nsnapshot over a cap is refused `USAGE_ERROR` / `response_too_large`, naming the section and\nthe filter to use.",
+      "type": "object",
+      "properties": {
+        "authority_generation": {
+          "description": "The authority generation at the head boundary.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "environment_id": {
+          "description": "The environment the snapshot is of.",
+          "$ref": "#/$defs/EnvironmentId"
+        },
+        "operation": {
+          "description": "The one operation `filter.operation_id` names.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SnapshotOperation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "operations": {
+          "description": "The open and unresolved operations the reader may see, at most\n[`SNAPSHOT_OPERATIONS_MAX`].",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/SnapshotOperation"
+          }
+        },
+        "pending_decisions": {
+          "description": "The pending decisions (owner role only), at most [`SNAPSHOT_DECISIONS_MAX`].",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/SnapshotDecision"
+          }
+        }
+      },
+      "required": [
+        "environment_id",
+        "authority_generation"
+      ]
     },
     "EventType": {
       "description": "Event types emitted by the runtime (spec §13.6 audit coverage).",
@@ -1071,6 +1220,86 @@
     "OperationId": {
       "description": "Durable operation ID (spec §4.1 \"Operation\").",
       "type": "string"
+    },
+    "OperationKindView": {
+      "description": "An operation's kind, with the dotted names of the setup and enrollment kinds.",
+      "oneOf": [
+        {
+          "description": "`ensure`.",
+          "type": "string",
+          "const": "ensure"
+        },
+        {
+          "description": "`bind`.",
+          "type": "string",
+          "const": "bind"
+        },
+        {
+          "description": "`delegate`.",
+          "type": "string",
+          "const": "delegate"
+        },
+        {
+          "description": "`cancel`.",
+          "type": "string",
+          "const": "cancel"
+        },
+        {
+          "description": "`release`.",
+          "type": "string",
+          "const": "release"
+        },
+        {
+          "description": "`revoke`.",
+          "type": "string",
+          "const": "revoke"
+        },
+        {
+          "description": "An owner policy action.",
+          "type": "string",
+          "const": "policy"
+        },
+        {
+          "description": "An explicit active probe.",
+          "type": "string",
+          "const": "probe"
+        },
+        {
+          "description": "⟨M02⟩ `setup.apply`.",
+          "type": "string",
+          "const": "setup.apply"
+        },
+        {
+          "description": "⟨M02⟩ `setup.rollback`.",
+          "type": "string",
+          "const": "setup.rollback"
+        },
+        {
+          "description": "⟨M02⟩ `setup.repair`.",
+          "type": "string",
+          "const": "setup.repair"
+        },
+        {
+          "description": "⟨M02⟩ `catalog`.",
+          "type": "string",
+          "const": "catalog"
+        },
+        {
+          "description": "⟨M03⟩ `enrollment.apply`.",
+          "type": "string",
+          "const": "enrollment.apply"
+        },
+        {
+          "description": "⟨M03⟩ `enrollment.verify`.",
+          "type": "string",
+          "const": "enrollment.verify"
+        },
+        {
+          "description": "⟨M03⟩ `enrollment.remove`.",
+          "type": "string",
+          "const": "enrollment.remove"
+        }
+      ]
     },
     "OperationState": {
       "description": "Operation states (spec §11.4). A caller timeout is not a state change.",
@@ -1496,7 +1725,8 @@
           "$ref": "#/$defs/Cursor"
         },
         "data": {
-          "description": "Snapshot contents."
+          "description": "Snapshot contents.",
+          "$ref": "#/$defs/EventSnapshot"
         },
         "taken_at": {
           "description": "Runtime time of the snapshot.",
@@ -1508,6 +1738,81 @@
         "data",
         "cursor",
         "taken_at"
+      ]
+    },
+    "SnapshotDecision": {
+      "description": "⟨rev7; PC1⟩ One pending decision in an [`EventSnapshot`] (owner role only).",
+      "type": "object",
+      "properties": {
+        "decision_id": {
+          "description": "The decision. Always present for the local owner; absent from what a paired reader\nreceives (its delivery removes every `decision_id`, as from `decision` events).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecisionId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expires_at": {
+          "description": "After this instant it cannot be completed.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "kind": {
+          "description": "What is decided.",
+          "$ref": "#/$defs/DecisionKindName"
+        }
+      },
+      "required": [
+        "kind",
+        "expires_at"
+      ]
+    },
+    "SnapshotOperation": {
+      "description": "⟨rev7; PC1⟩ One operation in an [`EventSnapshot`]: its identity, state and outcome, the\nfields its `operation_state_changed` events carry, without the operation view's result.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Its result code once terminal. Omitted before.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Code"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "effect_status": {
+          "description": "Its effect status.",
+          "$ref": "#/$defs/EffectStatus"
+        },
+        "kind": {
+          "description": "Its kind.",
+          "$ref": "#/$defs/OperationKindView"
+        },
+        "operation_id": {
+          "description": "The operation.",
+          "$ref": "#/$defs/OperationId"
+        },
+        "state": {
+          "description": "Its state.",
+          "$ref": "#/$defs/OperationState"
+        },
+        "updated_at": {
+          "description": "When it last changed.",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "operation_id",
+        "kind",
+        "state",
+        "effect_status",
+        "updated_at"
       ]
     },
     "Warning": {

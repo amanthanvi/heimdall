@@ -231,6 +231,8 @@ fn error_envelope_golden_json_for_every_code() {
             field: None,
             bound: None,
             unit: None,
+            section: None,
+            narrow: None,
         };
         let env = Envelope::failed(None, detail);
         let v = serde_json::to_value(&env).unwrap();

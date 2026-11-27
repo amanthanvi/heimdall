@@ -804,7 +804,9 @@ fn service_status_today() {
 
 /// `crates/heimdall/src/cli.rs` `operation events --follow`'s head (`tests/e2e/cli_m01.rs`
 /// asserts `data.cursor`, and `data.snapshot` `null` on a resume); a cursorless start's
-/// snapshot as `crates/app/src/events.rs` `snapshot_data` builds it.
+/// snapshot as `crates/app/src/events.rs` `snapshot_data` builds it (⟨PC1⟩ the typed
+/// `event-snapshot`: sections follow the filter, `code` omitted before it is terminal, no
+/// `boundary_seq`).
 #[test]
 fn subscription_head_today() {
     let resume = json!({"subscription": 7, "cursor": "AQEBAAAAAAAB", "snapshot": null});
@@ -821,24 +823,21 @@ fn subscription_head_today() {
             "data": {
                 "environment_id": "env_01010101010101010101010101010101",
                 "authority_generation": 4,
-                "boundary_seq": 12,
                 "operations": [{
                     "operation_id": "op_60606060606060606060606060606060",
                     "kind": "ensure",
                     "state": "running",
-                    "code": null,
                     "effect_status": "none",
                     "updated_at": "2026-11-22T10:00:01Z"
                 }],
-                "operation": null,
                 "pending_decisions": []
             },
             "cursor": "AQEBAAAAAAAC",
             "taken_at": "2026-11-22T10:00:02Z"
         }
     });
-    // The snapshot's own `data` is PC1's (typed by `event-snapshot`), kept verbatim here.
-    today::<SubscriptionHeadView>("head (snapshot)", "subscription-head", &fresh, &[]);
+    // ⟨PC1⟩ The snapshot's own `data` is the typed `event-snapshot`, exactly.
+    exact::<SubscriptionHeadView>("head (snapshot)", "subscription-head", &fresh);
     // Revision 7 (D6), declared: the exact backlog count and the restart reason.
     let rev7 = json!({"subscription": 9, "cursor": "AQEBAAAAAAAD", "backlog": 3});
     exact::<SubscriptionHeadView>("head (revision 7 backlog)", "subscription-head", &rev7);

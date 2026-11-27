@@ -342,6 +342,8 @@ fn hello_reject(code: Code, message: &str, reason: Option<&str>) -> Box<Envelope
             field: None,
             bound: None,
             unit: None,
+            section: None,
+            narrow: None,
         },
     ))
 }
@@ -658,6 +660,8 @@ fn error_envelope(code: Code, effect_status: EffectStatus, message: &str) -> Env
             field: None,
             bound: None,
             unit: None,
+            section: None,
+            narrow: None,
         },
     )
 }

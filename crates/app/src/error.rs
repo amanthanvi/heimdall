@@ -59,6 +59,10 @@ pub struct OpError {
     /// `data.error.field`, `bound`, `unit`; the item is [`Self::resource`]). `None` for every
     /// other error. Boxed so the error stays small.
     pub item_bound: Option<Box<ItemBound>>,
+    /// ⟨rev7; PC1⟩ A snapshot's `response_too_large` refusal's section and narrowing (wire
+    /// `data.error.section`, `narrow`; ADR-0013 §5.5). `None` for every other error. Boxed so
+    /// the error stays small.
+    pub narrowing: Option<Box<Narrowing>>,
     /// ⟨M06 W5 `w5v`, the integrator's item 5⟩ Not on the wire: this controller built the
     /// error itself, for a fault of its own before anything reached the runner
     /// (`remote_env::controller_fault`, `remote_env::on_this_controller`). Never set from
@@ -80,6 +84,16 @@ pub struct ItemBound {
     pub unit: heimdall_contract::envelope::BoundUnit,
 }
 
+/// ⟨rev7; PC1⟩ The section a `response_too_large` refusal names and the filter to narrow
+/// with (the `section` and `narrow` of [`heimdall_contract::envelope::ResponseTooLarge`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Narrowing {
+    /// The section over its cap.
+    pub section: String,
+    /// The filter that leaves it out.
+    pub narrow: String,
+}
+
 impl OpError {
     /// Build from a code with defaults.
     #[must_use]
@@ -94,6 +108,7 @@ impl OpError {
             reason: None,
             entries: Vec::new(),
             item_bound: None,
+            narrowing: None,
             controller_local: false,
         }
     }
@@ -129,6 +144,17 @@ impl OpError {
             field: field.to_owned(),
             bound,
             unit,
+        }));
+        self
+    }
+
+    /// ⟨rev7; PC1⟩ Attach a `response_too_large` refusal's section and narrowing
+    /// (`data.error.section`, `narrow`).
+    #[must_use]
+    pub fn with_narrowing(mut self, section: &str, narrow: &str) -> Self {
+        self.narrowing = Some(Box::new(Narrowing {
+            section: section.to_owned(),
+            narrow: narrow.to_owned(),
         }));
         self
     }
@@ -237,6 +263,8 @@ impl OpError {
             field: self.item_bound.as_ref().map(|b| b.field.clone()),
             bound: self.item_bound.as_ref().map(|b| b.bound),
             unit: self.item_bound.as_ref().map(|b| b.unit),
+            section: self.narrowing.as_ref().map(|n| n.section.clone()),
+            narrow: self.narrowing.as_ref().map(|n| n.narrow.clone()),
         }
     }
 
@@ -259,6 +287,11 @@ impl OpError {
                 (Some(field), Some(bound), Some(unit)) => {
                     Some(Box::new(ItemBound { field, bound, unit }))
                 }
+                _ => None,
+            },
+            // ⟨rev7; PC1⟩ Kept only whole, likewise.
+            narrowing: match (detail.section, detail.narrow) {
+                (Some(section), Some(narrow)) => Some(Box::new(Narrowing { section, narrow })),
                 _ => None,
             },
             // An answer is never this controller's own fault (the field's docs).

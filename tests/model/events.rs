@@ -164,6 +164,10 @@ struct PublishDuringBoundary {
     publisher: OnceLock<EventPublisher>,
     injected: std::sync::Mutex<Option<SequencedEvent>>,
     fail_commits: AtomicUsize,
+    /// ⟨PC1⟩ Run once at the next `BeforeTransaction` (a change committed between the live
+    /// receiver and the boundary read); its event is kept in `acted`.
+    action: std::sync::Mutex<Option<Box<dyn FnOnce() -> SequencedEvent + Send>>>,
+    acted: std::sync::Mutex<Option<SequencedEvent>>,
 }
 
 impl FaultHook for PublishDuringBoundary {
@@ -175,6 +179,12 @@ impl FaultHook for PublishDuringBoundary {
                 .is_ok()
         {
             return FaultAction::Fail;
+        }
+        if point == FaultPoint::BeforeTransaction {
+            let action = self.action.lock().unwrap().take();
+            if let Some(f) = action {
+                *self.acted.lock().unwrap() = Some(f());
+            }
         }
         if point == FaultPoint::BeforeTransaction
             && self.armed.swap(false, Ordering::SeqCst)
@@ -1505,4 +1515,579 @@ async fn subscribed_cursor_is_the_head_boundary_not_the_clients_cursor() {
     let s = snap.snapshot.as_ref().unwrap();
     assert_eq!(s.cursor, snap.cursor);
     assert_eq!(cursor::decode(&snap.cursor).unwrap().seq, head);
+}
+
+// --- ⟨rev7; ADR-0013 §5.5, D4; PC1⟩ whole-or-refuse snapshots --------------------------------
+
+/// An open operation of `caller`, `n`th of its kind, in this world's environment, optionally
+/// with a result document of `pad` bytes (so its stored document is that much larger).
+fn open_op(
+    n: u32,
+    caller: &CallerContext,
+    pad: usize,
+) -> (
+    heimdall_domain::operation::OperationRecord,
+    heimdall_domain::idempotency::IdempotencyRecord,
+) {
+    use heimdall_contract::canonical::RequestHash;
+    use heimdall_contract::envelope::EffectStatus;
+    use heimdall_domain::idempotency::{IdempotencyKey, IdempotencyRecord};
+    use heimdall_domain::operation::{
+        EffectClass, OperationKind, OperationRecord, RecoveryMetadata,
+    };
+    let mut bytes = [0x60; 16];
+    bytes[..4].copy_from_slice(&n.to_be_bytes());
+    let key = IdempotencyKey {
+        caller: caller.clone(),
+        kind: OperationKind::Ensure,
+        request_id: RequestId::parse(&format!("snap-{n}")).unwrap(),
+    };
+    let op = OperationRecord {
+        id: heimdall_contract::ids::OperationId::from_random_bytes(bytes),
+        kind: OperationKind::Ensure,
+        environment: env_id(),
+        key: key.clone(),
+        request_hash: RequestHash([7; 32]),
+        effect_class: EffectClass::Local,
+        state: heimdall_contract::OperationState::AwaitingApproval,
+        code: None,
+        effect_status: EffectStatus::None,
+        result: (pad > 0).then(|| serde_json::json!({ "pad": " ".repeat(pad) })),
+        created_at: t0(),
+        updated_at: t0(),
+        cancellation: None,
+        recovery: RecoveryMetadata::default(),
+    };
+    let idem = IdempotencyRecord {
+        key,
+        request_hash: op.request_hash,
+        operation_id: op.id.clone(),
+        created_at: t0(),
+        expires_at: None,
+    };
+    (op, idem)
+}
+
+/// A pending `confirm_time` decision, `n`th of its kind.
+fn pending_decision(n: u32) -> heimdall_domain::decision::DecisionRecord {
+    use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
+    let mut bytes = [0x70; 16];
+    bytes[..4].copy_from_slice(&n.to_be_bytes());
+    DecisionRecord {
+        id: heimdall_contract::ids::DecisionId::from_random_bytes(bytes),
+        kind: DecisionKind::ConfirmTime {
+            boot_id: heimdall_domain::time::BootId("boot-snapshot".into()),
+            observed_wall: t0(),
+        },
+        generation: heimdall_domain::policy::AuthorityGeneration(0),
+        created_at: t0(),
+        expires_at: "2026-10-02T09:15:00Z".parse().unwrap(),
+        state: DecisionState::Pending,
+        decided_at: None,
+    }
+}
+
+impl World {
+    fn insert_ops(
+        &self,
+        ops: &[(u32, CallerContext, usize)],
+    ) -> Vec<heimdall_contract::ids::OperationId> {
+        self.store
+            .transaction(|tx| {
+                let mut ids = Vec::new();
+                for (n, caller, pad) in ops {
+                    let (op, idem) = open_op(*n, caller, *pad);
+                    tx.insert_operation(&op, &idem)?;
+                    ids.push(op.id);
+                }
+                Ok(ids)
+            })
+            .unwrap()
+    }
+
+    fn insert_decisions(&self, n: u32) {
+        self.store
+            .transaction(|tx| {
+                for i in 0..n {
+                    tx.insert_decision(&pending_decision(i))?;
+                }
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    /// The cursorless `observe events` for `caller` with `filter`: its snapshot `data`, or its
+    /// refusal.
+    async fn observe_snapshot(
+        &self,
+        caller: &CallerContext,
+        filter: EventFilter,
+    ) -> Result<serde_json::Value, heimdall_app::OpError> {
+        self.ops
+            .observe(
+                &Caller::unattended(caller.clone()),
+                ObserveRequest::Events {
+                    cursor: None,
+                    filter,
+                    limit: None,
+                },
+            )
+            .await
+            .map(|done| done.data["snapshot"]["data"].clone())
+    }
+
+    /// The subscribe's snapshot `data` for `caller` with `filter`, or its refusal.
+    async fn subscribe_snapshot(
+        &self,
+        caller: &CallerContext,
+        filter: EventFilter,
+    ) -> Result<serde_json::Value, SubscribeRefusal> {
+        self.publisher()
+            .subscribe(caller, filter, None, false)
+            .await
+            .map(|start| {
+                start
+                    .snapshot
+                    .expect("a cursorless start has a snapshot")
+                    .data
+            })
+    }
+}
+
+fn types(t: &[EventType]) -> EventFilter {
+    EventFilter {
+        operation_id: None,
+        types: t.to_vec(),
+    }
+}
+
+fn only_op(id: &heimdall_contract::ids::OperationId, t: &[EventType]) -> EventFilter {
+    EventFilter {
+        operation_id: Some(id.clone()),
+        types: t.to_vec(),
+    }
+}
+
+/// Both paths refuse with `USAGE_ERROR` / `response_too_large`, effect `none`, next
+/// `narrow_request`, naming `section` and `narrow`, and send nothing else: no head, no
+/// snapshot, no partial marker.
+async fn assert_refused(
+    w: &World,
+    caller: &CallerContext,
+    filter: EventFilter,
+    section: &str,
+    narrow: &str,
+) {
+    use heimdall_app::events::SnapshotTooLarge;
+    use heimdall_contract::envelope::{EffectStatus, reason};
+    match w.subscribe_snapshot(caller, filter.clone()).await {
+        Err(SubscribeRefusal::TooLarge(SnapshotTooLarge {
+            section: s,
+            narrow: n,
+        })) => {
+            assert_eq!((s, n), (section, narrow), "subscribe {filter:?}");
+        }
+        other => panic!("subscribe {filter:?}: {other:?}"),
+    }
+    let refused = w
+        .observe_snapshot(caller, filter.clone())
+        .await
+        .expect_err("observe refuses");
+    let env = refused.into_envelope();
+    assert_eq!(env.code, Code::UsageError);
+    assert_eq!(env.operation_id, None);
+    let doc = serde_json::to_value(&env).unwrap();
+    assert!(
+        doc["data"].get("snapshot").is_none(),
+        "nothing partial: {doc}"
+    );
+    let e = &env.data.error;
+    assert_eq!(e.reason.as_deref(), Some(reason::RESPONSE_TOO_LARGE));
+    assert_eq!(e.effect_status, EffectStatus::None);
+    assert_eq!(e.next.action, "narrow_request");
+    assert_eq!(e.section.as_deref(), Some(section), "observe {filter:?}");
+    assert_eq!(e.narrow.as_deref(), Some(narrow), "observe {filter:?}");
+    assert_eq!(env.state, heimdall_contract::OperationState::Failed);
+}
+
+/// ⟨PC1⟩ Each of the three caps (operations ≤ 1,000, pending decisions ≤ 256, the serialized
+/// document ≤ 768 KiB) refuses the subscribe and the cursorless `observe events`, naming the
+/// section and the filter to use; the narrowing it names then answers whole.
+#[tokio::test]
+async fn snapshot_over_a_cap_refuses_naming_section_and_filter() {
+    use heimdall_contract::event::{SNAPSHOT_DECISIONS_MAX, SNAPSHOT_OPERATIONS_MAX};
+    let me = reader(501);
+    // Operations: one over the count cap.
+    let w = World::new().await;
+    let max = u32::try_from(SNAPSHOT_OPERATIONS_MAX).unwrap();
+    let ids = w.insert_ops(&(0..=max).map(|n| (n, me.clone(), 0)).collect::<Vec<_>>());
+    assert_refused(
+        &w,
+        &me,
+        EventFilter::default(),
+        "operations",
+        "filter.operation_id",
+    )
+    .await;
+    assert_refused(
+        &w,
+        &me,
+        types(&[EventType::OperationStateChanged]),
+        "operations",
+        "filter.operation_id",
+    )
+    .await;
+    let one = w
+        .subscribe_snapshot(&me, only_op(&ids[7], &[]))
+        .await
+        .unwrap();
+    assert_eq!(one["operation"]["operation_id"], ids[7].as_str());
+    let without = w
+        .observe_snapshot(&me, types(&[EventType::Decision]))
+        .await
+        .unwrap();
+    assert!(without.get("operations").is_none());
+    assert_eq!(without["pending_decisions"], serde_json::json!([]));
+    // Exactly at the cap: whole.
+    let w = World::new().await;
+    w.insert_ops(&(0..max).map(|n| (n, me.clone(), 0)).collect::<Vec<_>>());
+    let whole = w
+        .subscribe_snapshot(&me, EventFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        whole["operations"].as_array().unwrap().len(),
+        SNAPSHOT_OPERATIONS_MAX
+    );
+
+    // Pending decisions: one over the count cap.
+    let w = World::new().await;
+    let max = u32::try_from(SNAPSHOT_DECISIONS_MAX).unwrap();
+    w.insert_decisions(max + 1);
+    assert_refused(
+        &w,
+        &me,
+        EventFilter::default(),
+        "pending_decisions",
+        "filter.types",
+    )
+    .await;
+    assert_refused(
+        &w,
+        &me,
+        types(&[EventType::Decision]),
+        "pending_decisions",
+        "filter.types",
+    )
+    .await;
+    let narrowed = w
+        .subscribe_snapshot(&me, types(&[EventType::OperationStateChanged]))
+        .await
+        .unwrap();
+    assert!(narrowed.get("pending_decisions").is_none());
+    // A limited reader's snapshot has no decision section, so no decision cap.
+    let limited = CallerContext {
+        role: ClientRole::LimitedConsumer,
+        ..reader(502)
+    };
+    let theirs = w
+        .subscribe_snapshot(&limited, EventFilter::default())
+        .await
+        .unwrap();
+    assert!(theirs.get("pending_decisions").is_none());
+    let w = World::new().await;
+    w.insert_decisions(max);
+    let whole = w
+        .observe_snapshot(&me, EventFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        whole["pending_decisions"].as_array().unwrap().len(),
+        SNAPSHOT_DECISIONS_MAX
+    );
+
+    // The serialized budget: two operations whose stored documents sum past 768 KiB, far
+    // under the count cap; one of them alone answers whole.
+    let w = World::new().await;
+    let ids = w.insert_ops(&[(1, me.clone(), 400 << 10), (2, me.clone(), 400 << 10)]);
+    assert_refused(
+        &w,
+        &me,
+        EventFilter::default(),
+        "operations",
+        "filter.operation_id",
+    )
+    .await;
+    let one = w
+        .observe_snapshot(&me, only_op(&ids[1], &[]))
+        .await
+        .unwrap();
+    assert_eq!(one["operation"]["operation_id"], ids[1].as_str());
+    assert!(
+        one["operation"].get("result").is_none(),
+        "the item is not the operation view"
+    );
+    // One operation alone over the budget: its own section is refused, by type.
+    let w = World::new().await;
+    let ids = w.insert_ops(&[(1, me.clone(), 800 << 10)]);
+    assert_refused(&w, &me, only_op(&ids[0], &[]), "operation", "filter.types").await;
+    let other = w
+        .observe_snapshot(&me, only_op(&ids[0], &[EventType::Decision]))
+        .await
+        .unwrap();
+    assert!(other.get("operation").is_none());
+    // Operations and decisions together past the budget: the decisions are refused, and
+    // leaving them out answers whole.
+    let w = World::new().await;
+    w.insert_ops(&[(1, me.clone(), 760 << 10)]);
+    w.store
+        .transaction(|tx| {
+            for i in 0..200 {
+                tx.insert_decision(&pending_decision(i))?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    assert_refused(
+        &w,
+        &me,
+        EventFilter::default(),
+        "pending_decisions",
+        "filter.types",
+    )
+    .await;
+    let ops_only = w
+        .subscribe_snapshot(&me, types(&[EventType::OperationStateChanged]))
+        .await
+        .unwrap();
+    assert_eq!(ops_only["operations"].as_array().unwrap().len(), 1);
+}
+
+/// ⟨PC1⟩ The sections follow the filter and the reader, on both paths, and the data is the typed
+/// `event-snapshot` with no `boundary_seq`.
+#[tokio::test]
+async fn snapshot_sections_follow_the_filter() {
+    use heimdall_contract::event::EventSnapshotData;
+    let w = World::new().await;
+    let me = reader(501);
+    let ids = w.insert_ops(&[(1, me.clone(), 0), (2, reader(502), 0)]);
+    w.insert_decisions(1);
+    let keys =
+        |v: &serde_json::Value| -> Vec<String> { v.as_object().unwrap().keys().cloned().collect() };
+    let base = ["authority_generation", "environment_id"];
+    let with = |extra: &[&str]| -> Vec<String> {
+        let mut k: Vec<String> = base.iter().chain(extra).map(|s| (*s).to_owned()).collect();
+        k.sort();
+        k
+    };
+    let limited = CallerContext {
+        role: ClientRole::LimitedConsumer,
+        ..reader(501)
+    };
+    let stranger = CallerContext {
+        role: ClientRole::LimitedConsumer,
+        ..reader(503)
+    };
+    let cases: Vec<(&str, &CallerContext, EventFilter, Vec<String>, usize)> = vec![
+        (
+            "no filter",
+            &me,
+            EventFilter::default(),
+            with(&["operations", "pending_decisions"]),
+            2,
+        ),
+        (
+            "operations",
+            &me,
+            types(&[EventType::OperationStateChanged]),
+            with(&["operations"]),
+            2,
+        ),
+        (
+            "decisions",
+            &me,
+            types(&[EventType::Decision]),
+            with(&["pending_decisions"]),
+            0,
+        ),
+        (
+            "neither",
+            &me,
+            types(&[EventType::ResourceChanged]),
+            with(&[]),
+            0,
+        ),
+        (
+            "both",
+            &me,
+            types(&[EventType::Decision, EventType::OperationStateChanged]),
+            with(&["operations", "pending_decisions"]),
+            2,
+        ),
+        (
+            "one operation",
+            &me,
+            only_op(&ids[0], &[]),
+            with(&["operation"]),
+            0,
+        ),
+        (
+            "one operation, its type",
+            &me,
+            only_op(&ids[0], &[EventType::OperationStateChanged]),
+            with(&["operation"]),
+            0,
+        ),
+        (
+            "one operation, another type",
+            &me,
+            only_op(&ids[0], &[EventType::Decision]),
+            with(&[]),
+            0,
+        ),
+        // A limited role: its own operations (same principal), no decision section.
+        (
+            "limited",
+            &limited,
+            EventFilter::default(),
+            with(&["operations"]),
+            1,
+        ),
+        (
+            "limited, decisions only",
+            &limited,
+            types(&[EventType::Decision]),
+            with(&[]),
+            0,
+        ),
+        (
+            "stranger",
+            &stranger,
+            EventFilter::default(),
+            with(&["operations"]),
+            0,
+        ),
+        // Another caller's operation is not this reader's to see: the section is omitted.
+        (
+            "stranger, one operation",
+            &stranger,
+            only_op(&ids[0], &[]),
+            with(&[]),
+            0,
+        ),
+    ];
+    for (what, caller, filter, want, operations) in cases {
+        let sub = w.subscribe_snapshot(caller, filter.clone()).await.unwrap();
+        let obs = w.observe_snapshot(caller, filter).await.unwrap();
+        for (path, data) in [("subscribe", &sub), ("observe", &obs)] {
+            assert_eq!(keys(data), want, "{what} ({path}): {data}");
+            assert!(data.get("boundary_seq").is_none(), "{what} ({path})");
+            let typed: EventSnapshotData = serde_json::from_value(data.clone()).unwrap();
+            assert_eq!(
+                serde_json::to_value(&typed).unwrap(),
+                *data,
+                "{what} ({path})"
+            );
+            assert_eq!(typed.environment_id, env_id());
+            if let Some(ops) = &typed.operations {
+                assert_eq!(ops.len(), operations, "{what} ({path})");
+            }
+            if let Some(decisions) = &typed.pending_decisions {
+                assert_eq!(decisions.len(), 1, "{what} ({path})");
+                assert!(decisions[0].decision_id.is_some());
+            }
+            if let Some(op) = &typed.operation {
+                assert_eq!(op.operation_id, ids[0]);
+                assert_eq!(
+                    op.state,
+                    heimdall_contract::OperationState::AwaitingApproval
+                );
+                assert_eq!(op.code, None);
+            }
+        }
+        assert_eq!(sub, obs, "{what}: both paths answer the same snapshot");
+    }
+}
+
+/// ⟨PC1⟩ The snapshot is one transaction: an operation changed concurrently with the
+/// subscribe is either in the snapshot, its event then not delivered again, or delivered
+/// after it; never lost, never doubled.
+#[tokio::test]
+async fn snapshot_is_one_transaction_with_its_boundary() {
+    let me = reader(501);
+    for before_boundary in [true, false] {
+        let w = World::new().await;
+        let ids = w.insert_ops(&[(1, me.clone(), 0)]);
+        let id = ids[0].clone();
+        let change = {
+            let store = w.store.clone();
+            let publisher = w.publisher().clone();
+            let id = id.clone();
+            move || {
+                let event = store
+                    .transaction(|tx| {
+                        let mut op = tx.operation(&id)?.unwrap();
+                        op.state = heimdall_contract::OperationState::Running;
+                        tx.update_operation(&op)?;
+                        Ok(publisher
+                            .publish_in(
+                                tx,
+                                EventType::OperationStateChanged,
+                                Some(id.clone()),
+                                serde_json::json!({ "state": "running" }),
+                            )
+                            .unwrap())
+                    })
+                    .unwrap();
+                publisher.announce(event.clone());
+                event
+            }
+        };
+        let (start, event) = if before_boundary {
+            // Committed after the live receiver exists and before the boundary is read.
+            *w.hook.action.lock().unwrap() = Some(Box::new(change));
+            let start = w
+                .publisher()
+                .subscribe(&me, EventFilter::default(), None, false)
+                .await
+                .unwrap();
+            let event = w
+                .hook
+                .acted
+                .lock()
+                .unwrap()
+                .clone()
+                .expect("the change ran");
+            (start, event)
+        } else {
+            let start = w
+                .publisher()
+                .subscribe(&me, EventFilter::default(), None, false)
+                .await
+                .unwrap();
+            let event = change();
+            (start, event)
+        };
+        let data = start.snapshot.clone().unwrap().data;
+        let ops = data["operations"].as_array().unwrap();
+        assert_eq!(ops.len(), 1);
+        let mut c = Consumer::new(start);
+        c.drain();
+        let delivered = c.ids().contains(&event.event.event_id.to_string());
+        if before_boundary {
+            assert_eq!(ops[0]["state"], "running", "in the snapshot");
+            assert!(!delivered, "and not delivered again");
+        } else {
+            assert_eq!(ops[0]["state"], "awaiting_approval", "not in the snapshot");
+            assert!(delivered, "so delivered after it");
+        }
+        assert_eq!(
+            c.delivered
+                .iter()
+                .filter(|e| e.event_id == event.event.event_id)
+                .count(),
+            usize::from(!before_boundary),
+            "never doubled"
+        );
+    }
 }

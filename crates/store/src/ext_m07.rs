@@ -18,6 +18,8 @@ use heimdall_domain::operation::OperationRecord;
 use heimdall_domain::profile::ProfileDefinition;
 use heimdall_domain::resource::{ManagedResource, OwnerRef, ResourceKind};
 
+use heimdall_contract::OperationState;
+
 use crate::{Result, StoreError, Txn, codec, operation_states, sql_in_list};
 
 /// A page's row count as SQLite's `LIMIT`.
@@ -277,6 +279,161 @@ impl Txn<'_> {
     }
 }
 
+/// ⟨rev7; ADR-0013 §5.5, §6.4; D4, PC1⟩ A snapshot section read whole or not at all: its rows
+/// are counted, and their stored documents' lengths summed, in SQL over `LIMIT cap + 1` before
+/// any row is materialized.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SectionRead<T> {
+    /// Every row, at most the cap; `bytes` is the sum of their stored documents' lengths.
+    Whole {
+        /// The rows, in the section's order.
+        rows: Vec<T>,
+        /// Their stored documents' total length in bytes.
+        bytes: u64,
+    },
+    /// More rows than the cap. None was materialized.
+    OverCount,
+    /// The rows' documents sum to more than the budget. None was materialized.
+    OverBytes,
+}
+
+/// ⟨rev7; PC1⟩ Which operations [`Txn::snapshot_operations`] reads.
+#[derive(Debug, Clone, Copy)]
+pub enum SnapshotOperations<'a> {
+    /// The `operations` section: the open operations, then the unresolved
+    /// (`outcome_unknown`) ones, each in creation order, of these environments.
+    Listed(&'a [EnvironmentId]),
+    /// The `operation` section: the one operation `filter.operation_id` names, in any state.
+    One(&'a heimdall_contract::ids::OperationId),
+}
+
+/// What a bounded read of a snapshot section selects (the `WHERE` clause and its parameters).
+struct SectionQuery {
+    /// `FROM <table> WHERE ...` (no `ORDER BY` or `LIMIT`).
+    from_where: String,
+    /// `ORDER BY ...`.
+    order: String,
+    params: Vec<rusqlite::types::Value>,
+}
+
+impl Txn<'_> {
+    /// ⟨rev7; PC1⟩ The operations a snapshot holds, whole or not at all
+    /// ([`SnapshotOperations`]). `callers` restricts them to operations created by one of those
+    /// exact callers (`None`: every caller's, for the local owner's global access). At most
+    /// `cap` rows whose documents sum to at most `budget` bytes, else
+    /// [`SectionRead::OverCount`] / [`SectionRead::OverBytes`] with nothing materialized.
+    pub fn snapshot_operations(
+        &mut self,
+        which: SnapshotOperations<'_>,
+        callers: Option<&[heimdall_domain::principal::CallerContext]>,
+        cap: usize,
+        budget: u64,
+    ) -> Result<SectionRead<OperationRecord>> {
+        fn placeholders(values: Vec<String>, params: &mut Vec<rusqlite::types::Value>) -> String {
+            let mut out = Vec::with_capacity(values.len());
+            for v in values {
+                params.push(rusqlite::types::Value::Text(v));
+                out.push(format!("?{}", params.len()));
+            }
+            out.join(",")
+        }
+        let unresolved = sql_in_list(&operation_states(OperationState::is_unresolved))?;
+        let mut params = Vec::new();
+        let mut from_where = match which {
+            SnapshotOperations::Listed(environments) => {
+                let listed = sql_in_list(&operation_states(|s| !s.is_settled()))?;
+                let envs = placeholders(
+                    environments.iter().map(|e| e.as_str().to_owned()).collect(),
+                    &mut params,
+                );
+                format!("FROM operations WHERE state IN ({listed}) AND environment IN ({envs})")
+            }
+            SnapshotOperations::One(id) => {
+                let id = placeholders(vec![id.as_str().to_owned()], &mut params);
+                format!("FROM operations WHERE id = {id}")
+            }
+        };
+        if let Some(callers) = callers {
+            let mut docs = Vec::with_capacity(callers.len());
+            for c in callers {
+                docs.push(codec::doc(c)?);
+            }
+            let callers = placeholders(docs, &mut params);
+            from_where.push_str(&format!(" AND caller_json IN ({callers})"));
+        }
+        self.section(
+            SectionQuery {
+                from_where,
+                order: format!(
+                    "ORDER BY CASE WHEN state IN ({unresolved}) THEN 1 ELSE 0 END, created_at, id"
+                ),
+                params,
+            },
+            cap,
+            budget,
+        )
+    }
+
+    /// ⟨rev7; PC1⟩ The pending decisions a snapshot holds (as [`Txn::pending_decisions`], oldest
+    /// first), whole or not at all: at most `cap` rows whose documents sum to at most `budget`
+    /// bytes, else [`SectionRead::OverCount`] / [`SectionRead::OverBytes`] with nothing
+    /// materialized.
+    pub fn snapshot_pending_decisions(
+        &mut self,
+        cap: usize,
+        budget: u64,
+    ) -> Result<SectionRead<DecisionRecord>> {
+        self.section(
+            SectionQuery {
+                from_where: "FROM decisions WHERE state = ?1".to_owned(),
+                order: "ORDER BY created_at, id".to_owned(),
+                params: vec![rusqlite::types::Value::Text(codec::enum_str(
+                    &DecisionState::Pending,
+                )?)],
+            },
+            cap,
+            budget,
+        )
+    }
+
+    /// One bounded section read: count and sum over `LIMIT cap + 1` first, then materialize.
+    fn section<T: serde::de::DeserializeOwned>(
+        &mut self,
+        q: SectionQuery,
+        cap: usize,
+        budget: u64,
+    ) -> Result<SectionRead<T>> {
+        let take = limit(cap.saturating_add(1))?;
+        let n = q.params.len();
+        let bounded = format!(
+            "SELECT record_json {} {} LIMIT ?{}",
+            q.from_where,
+            q.order,
+            n + 1
+        );
+        let mut params = q.params;
+        params.push(rusqlite::types::Value::Integer(take));
+        // Lengths in bytes: `length()` of TEXT counts characters.
+        let (count, bytes): (i64, i64) = self.tx.query_row(
+            &format!(
+                "SELECT count(*), coalesce(sum(length(CAST(record_json AS BLOB))), 0)
+                 FROM ({bounded})"
+            ),
+            rusqlite::params_from_iter(params.iter()),
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let (count, bytes) = (codec::uint(count)?, codec::uint(bytes)?);
+        if count > u64::try_from(cap).unwrap_or(u64::MAX) {
+            return Ok(SectionRead::OverCount);
+        }
+        if bytes > budget {
+            return Ok(SectionRead::OverBytes);
+        }
+        let rows = self.docs(&bounded, rusqlite::params_from_iter(params.iter()))?;
+        Ok(SectionRead::Whole { rows, bytes })
+    }
+}
+
 /// Test support (the `test-support` feature, which only dev-dependencies enable): the tables
 /// [`Txn::damage_document_for_test`] damages.
 #[cfg(any(test, feature = "test-support"))]
@@ -372,6 +529,174 @@ mod tests {
             store.transaction(|tx| tx.page_token_key(|| [9; 32])),
             Err(crate::StoreError::Corrupt(_))
         ));
+    }
+
+    /// An operation of `uid` in environment 7, `state`, created at second `n`.
+    fn snapshot_op(
+        n: u8,
+        uid: u32,
+        state: heimdall_contract::OperationState,
+    ) -> (
+        heimdall_domain::operation::OperationRecord,
+        heimdall_domain::idempotency::IdempotencyRecord,
+    ) {
+        use heimdall_contract::canonical::RequestHash;
+        use heimdall_contract::ids::{EnvironmentId, OperationId, RequestId};
+        use heimdall_domain::idempotency::{IdempotencyKey, IdempotencyRecord};
+        use heimdall_domain::operation::{
+            EffectClass, OperationKind, OperationRecord, RecoveryMetadata,
+        };
+        let key = IdempotencyKey {
+            caller: caller(uid, heimdall_domain::principal::ClientRole::Owner),
+            kind: OperationKind::Ensure,
+            request_id: RequestId::parse(&format!("req-{n}")).unwrap(),
+        };
+        let at: heimdall_contract::Timestamp = format!("2026-10-01T00:00:{n:02}Z").parse().unwrap();
+        let op = OperationRecord {
+            id: OperationId::from_random_bytes([n; 16]),
+            kind: OperationKind::Ensure,
+            environment: EnvironmentId::from_random_bytes([7; 16]),
+            key: key.clone(),
+            request_hash: RequestHash([n; 32]),
+            effect_class: EffectClass::Local,
+            state,
+            code: None,
+            effect_status: heimdall_contract::envelope::EffectStatus::None,
+            result: None,
+            created_at: at,
+            updated_at: at,
+            cancellation: None,
+            recovery: RecoveryMetadata::default(),
+        };
+        let idem = IdempotencyRecord {
+            key,
+            request_hash: op.request_hash,
+            operation_id: op.id.clone(),
+            created_at: at,
+            expires_at: None,
+        };
+        (op, idem)
+    }
+
+    fn caller(
+        uid: u32,
+        role: heimdall_domain::principal::ClientRole,
+    ) -> heimdall_domain::principal::CallerContext {
+        heimdall_domain::principal::CallerContext {
+            principal: heimdall_domain::principal::PrincipalRef::UnixUser { uid },
+            role,
+            remote_client: None,
+        }
+    }
+
+    /// ⟨rev7; PC1⟩ A snapshot section is counted and summed in SQL over `LIMIT cap + 1` before
+    /// any row is materialized: over the count or the budget, nothing is decoded (a damaged
+    /// row in the section does not fail the read); within both, every row, open ones first,
+    /// filtered by environment, caller and ID.
+    #[test]
+    fn snapshot_sections_are_bounded_before_any_row_is_materialized() {
+        use heimdall_contract::OperationState as S;
+        use heimdall_contract::ids::{EnvironmentId, OperationId};
+        use heimdall_domain::principal::ClientRole;
+
+        use super::{SectionRead, SnapshotOperations};
+        let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        let env = [EnvironmentId::from_random_bytes([7; 16])];
+        store
+            .transaction(|tx| {
+                for (n, uid, state) in [
+                    (1, 501, S::OutcomeUnknown),
+                    (2, 501, S::Running),
+                    (3, 502, S::AwaitingApproval),
+                    (4, 501, S::Succeeded),
+                ] {
+                    let (op, idem) = snapshot_op(n, uid, state);
+                    tx.insert_operation(&op, &idem)?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        let read = |callers: Option<Vec<heimdall_domain::principal::CallerContext>>,
+                    only: Option<OperationId>,
+                    cap: usize,
+                    budget: u64| {
+            let which = match &only {
+                Some(id) => SnapshotOperations::One(id),
+                None => SnapshotOperations::Listed(&env),
+            };
+            store
+                .transaction(|tx| tx.snapshot_operations(which, callers.as_deref(), cap, budget))
+                .unwrap()
+        };
+        let ids = |r: SectionRead<heimdall_domain::operation::OperationRecord>| match r {
+            SectionRead::Whole { rows, bytes } => {
+                assert!(bytes > 0 || rows.is_empty());
+                rows.iter()
+                    .map(|o| {
+                        (1..=4u8)
+                            .find(|n| o.id == OperationId::from_random_bytes([*n; 16]))
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>()
+            }
+            other => panic!("{other:?}"),
+        };
+        // Open first (creation order), then unresolved; the settled one is not listed.
+        assert_eq!(ids(read(None, None, 3, u64::MAX)), vec![2, 3, 1]);
+        // One caller's, in either role; another environment's, none.
+        let mine = vec![
+            caller(501, ClientRole::Owner),
+            caller(501, ClientRole::LimitedConsumer),
+        ];
+        assert_eq!(ids(read(Some(mine), None, 3, u64::MAX)), vec![2, 1]);
+        let other = store
+            .transaction(|tx| {
+                tx.snapshot_operations(
+                    SnapshotOperations::Listed(&[EnvironmentId::from_random_bytes([8; 16])]),
+                    None,
+                    3,
+                    u64::MAX,
+                )
+            })
+            .unwrap();
+        assert_eq!(ids(other), Vec::<u8>::new());
+        let three = OperationId::from_random_bytes([3; 16]);
+        assert_eq!(ids(read(None, Some(three.clone()), 1, u64::MAX)), vec![3]);
+        // The named operation in any state, settled included; another caller's, none.
+        let four = OperationId::from_random_bytes([4; 16]);
+        assert_eq!(ids(read(None, Some(four.clone()), 1, u64::MAX)), vec![4]);
+        let theirs = vec![caller(502, ClientRole::Owner)];
+        assert_eq!(
+            ids(read(Some(theirs), Some(four), 1, u64::MAX)),
+            Vec::<u8>::new()
+        );
+        // Over the count, and over the budget: refused, with a damaged row not decoded.
+        store
+            .transaction(|tx| {
+                tx.damage_document_for_test(super::PageTable::Operations, three.as_str())
+            })
+            .unwrap();
+        assert_eq!(read(None, None, 2, u64::MAX), SectionRead::OverCount);
+        assert_eq!(read(None, None, 3, 10), SectionRead::OverBytes);
+        assert_eq!(read(None, Some(three), 1, 10), SectionRead::OverBytes);
+        // Within both, the damaged row is materialized, and refused.
+        assert!(
+            store
+                .transaction(|tx| {
+                    tx.snapshot_operations(SnapshotOperations::Listed(&env), None, 3, u64::MAX)
+                })
+                .is_err()
+        );
+        // Decisions: none pending is whole and empty; over the count, refused.
+        assert_eq!(
+            store
+                .transaction(|tx| tx.snapshot_pending_decisions(0, 0))
+                .unwrap(),
+            SectionRead::Whole {
+                rows: Vec::new(),
+                bytes: 0
+            }
+        );
     }
 
     #[test]

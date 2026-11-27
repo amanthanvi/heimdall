@@ -1,5 +1,24 @@
 {
-  "data": {"operations": []},
+  "data": {
+    "environment_id": "env_01010101010101010101010101010101",
+    "authority_generation": 1,
+    "operations": [
+      {
+        "operation_id": "op_60606060606060606060606060606060",
+        "kind": "ensure",
+        "state": "awaiting_approval",
+        "effect_status": "none",
+        "updated_at": "2026-10-31T12:00:01Z"
+      }
+    ],
+    "pending_decisions": [
+      {
+        "decision_id": "dec_70707070707070707070707070707070",
+        "kind": "approve_authority",
+        "expires_at": "2026-10-31T12:15:01Z"
+      }
+    ]
+  },
   "cursor": "AQEBAAAAAAAB",
   "taken_at": "2026-10-31T12:00:02Z"
 }

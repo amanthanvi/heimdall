@@ -386,6 +386,13 @@
           "description": "Human text; may change without breaking callers; never contains secrets.",
           "type": "string"
         },
+        "narrow": {
+          "description": "⟨rev7; PC1⟩ The [`ResponseTooLarge`] narrowing to use with `section`\n(`filter.operation_id`, or `filter.types` without that section's event type).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "next": {
           "description": "Machine next action.",
           "$ref": "#/$defs/NextAction"
@@ -411,6 +418,13 @@
         "retryable": {
           "description": "Whether an unchanged retry may succeed later.",
           "type": "boolean"
+        },
+        "section": {
+          "description": "⟨rev7; PC1⟩ A `USAGE_ERROR` / `response_too_large` refusal's [`ResponseTooLarge`]\nsection: a snapshot's section over its cap (`operations`, `operation`,\n`pending_decisions`; ADR-0013 §5.5). Additive: set only on that refusal, omitted\notherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "unit": {
           "description": "⟨rev7⟩ Whether `bound` counts bytes or entries.",

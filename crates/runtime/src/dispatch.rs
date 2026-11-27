@@ -1406,6 +1406,8 @@ impl OperationsDispatcher {
                     .with_resource("store", None)
                     .into_envelope(),
             )),
+            // ⟨rev7; PC1⟩ A whole snapshot over a cap refuses the subscribe (ADR-0013 §5.5).
+            Err(SubscribeRefusal::TooLarge(over)) => Err(Box::new(over.refusal().into_envelope())),
         }
     }
 }

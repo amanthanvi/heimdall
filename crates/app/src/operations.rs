@@ -11189,15 +11189,19 @@ impl Operations {
                         let (generation, head) = tx.snapshot_boundary(&env)?;
                         match from {
                             None => {
-                                let data = crate::events::snapshot_data(tx, &env, &ctx, &filter, generation, head)?;
-                                Ok(Ok(serde_json::json!({
-                                    "snapshot": Snapshot { data, cursor: p2.cursor_at(&ctx, head), taken_at: snapshot_at },
-                                })))
+                                // ⟨rev7; PC1⟩ The whole snapshot, or its cap's refusal: nothing
+                                // partial (ADR-0013 §5.5).
+                                match crate::events::snapshot_data(tx, &env, &ctx, &filter, generation)? {
+                                    Ok(data) => Ok(Ok(serde_json::json!({
+                                        "snapshot": Snapshot { data, cursor: p2.cursor_at(&ctx, head), taken_at: snapshot_at },
+                                    }))),
+                                    Err(over) => Ok(Err(Some(over))),
+                                }
                             }
                             Some(seq) => {
                                 let page = tx.stored_events_after(&env, seq, &filter, limit)?;
                                 if seq < page.tail_seq || seq > page.head_seq {
-                                    return Ok(Err(()));
+                                    return Ok(Err(None));
                                 }
                                 let full = page.events.len() >= limit as usize;
                                 let next_seq = if full {
@@ -11226,7 +11230,8 @@ impl Operations {
                     .await?;
                 match r {
                     Ok(data) => Ok(Completed::ok(Code::Ok, data)),
-                    Err(()) => Err(self.resync(&caller.context).await),
+                    Err(Some(over)) => Err(over.refusal()),
+                    Err(None) => Err(self.resync(&caller.context).await),
                 }
             }
         }

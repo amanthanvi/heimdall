@@ -98,6 +98,14 @@ class RealBinarySmoke(unittest.TestCase):
                 self.assertIsInstance(destinations["data"]["items"], list)
                 head = client.subscribe()
                 self.assertEqual(head["snapshot"]["cursor"], head["cursor"])
+                # The typed whole snapshot (ADR-0013 §5.5): no filter, so the local owner gets
+                # both sections; no boundary_seq.
+                data = head["snapshot"]["data"]
+                self.assertEqual(data["environment_id"], expected)
+                self.assertIsInstance(data["authority_generation"], int)
+                self.assertEqual((data["operations"], data["pending_decisions"]), ([], []))
+                self.assertNotIn("operation", data)
+                self.assertNotIn("boundary_seq", data)
                 self.assertTrue(code_defaults(client.unsubscribe()).success)
         finally:
             stop_code = None

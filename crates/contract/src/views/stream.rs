@@ -9,7 +9,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::envelope::{Envelope, ErrorData};
-use crate::event::{Cursor, Event, ResyncReason, Snapshot};
+use crate::event::{Cursor, Event, EventSnapshotData, ResyncReason, Snapshot};
 
 /// The head line's `data`: the subscription the server established.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -30,10 +30,11 @@ pub struct SubscriptionHeadView {
     pub resync_reason: Option<ResyncReason>,
     /// The whole snapshot the subscription starts from: present when the client sent no
     /// cursor or the server resnapshotted it. Omitted when resuming from the client's
-    /// cursor (today: `null`). Its `data` is today's untyped snapshot document; PC1 types
-    /// it (`crate::event::EventSnapshot`).
+    /// cursor (today: `null`). ⟨PC1⟩ Its `data` is the typed [`EventSnapshotData`]
+    /// (ADR-0013 §5.5): whole or refused, its sections following the filter, no
+    /// `boundary_seq`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub snapshot: Option<Snapshot<serde_json::Value>>,
+    pub snapshot: Option<Snapshot<EventSnapshotData>>,
 }
 
 /// One NDJSON line after the head: an event, or the one terminal error envelope (a

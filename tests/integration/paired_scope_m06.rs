@@ -371,8 +371,8 @@ async fn a_paired_owner_is_scoped_to_its_own_client_on_every_path() {
         heimdall_domain::binding::BindingState::Active
     );
 
-    // The snapshot: the operation the filter names, and the open operations, only for B
-    // and the local owner.
+    // The snapshot: the operation the filter names (⟨PC1⟩ its only section, ADR-0013 §5.5),
+    // and without a filter the open operations, only for B and the local owner.
     let named = EventFilter {
         operation_id: Some(op.clone()),
         types: Vec::new(),
@@ -380,11 +380,18 @@ async fn a_paired_owner_is_scoped_to_its_own_client_on_every_path() {
     let (a_snap, _) = w.snapshot_of(&a, named.clone()).await;
     let (b_snap, _) = w.snapshot_of(&b, named.clone()).await;
     let (local_snap, _) = w.snapshot_of(&local, named).await;
-    assert!(a_snap["operation"].is_null(), "{a_snap}");
+    assert!(a_snap.get("operation").is_none(), "{a_snap}");
     assert_eq!(b_snap["operation"]["operation_id"], op.to_string());
     assert_eq!(local_snap["operation"]["operation_id"], op.to_string());
-    assert!(!snapshot_ops(&a_snap).contains(&op.to_string()));
-    assert_eq!(snapshot_ops(&b_snap), snapshot_ops(&local_snap));
+    for snap in [&a_snap, &b_snap, &local_snap] {
+        assert!(snap.get("operations").is_none(), "{snap}");
+        assert!(snap.get("pending_decisions").is_none(), "{snap}");
+    }
+    let (a_all, _) = w.snapshot(&a).await;
+    let (b_all, _) = w.snapshot(&b).await;
+    let (local_all, _) = w.snapshot(&local).await;
+    assert!(!snapshot_ops(&a_all).contains(&op.to_string()));
+    assert_eq!(snapshot_ops(&b_all), snapshot_ops(&local_all));
 
     // Event pages.
     let a_page = w.page(&a, a_before.clone()).await;

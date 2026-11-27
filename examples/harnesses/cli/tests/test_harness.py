@@ -105,7 +105,11 @@ elif args[:5] == ["operation", "events", "--operation", op, "--follow"]:
              operation_id="op_other" if mode == "bad-event" else op, payload={"state": "succeeded"})
     else:
         assert args[5:] == ["--max-events", "0"]
-        snapshot = {"data": {"operation": {"operation_id": op, "state": "awaiting_approval"}}}
+        data = {"environment_id": "env_fixture", "authority_generation": 0,
+                "operation": {"operation_id": op, "state": "awaiting_approval"}}
+        if mode == "wide-snapshot":
+            data["operations"] = []
+        snapshot = {"data": data}
         reply(data={"subscription": 1, "cursor": "cursor-fixture", "snapshot": snapshot}, state="running")
 elif args[:2] == ["access", "release"] and args[2:] in ([binding], [observed]):
     reply(data={"binding_id": binding if mode == "other-binding" else args[2],
@@ -280,6 +284,7 @@ class HarnessTests(unittest.TestCase):
             ("timeout", "wrong-operation", ("slow",), 2),
             ("capability-refusal", "effect", ("existing-access",), 1),
             ("approval", "bad-event", ("wider", "destination:account", lambda *_: True), 3),
+            ("approval", "wide-snapshot", ("wider", "destination:account", lambda *_: True), 2),
         )
         for task, mode, args, expected_calls in cases:
             with self.subTest(task=task, mode=mode):

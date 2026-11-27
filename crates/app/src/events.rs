@@ -169,6 +169,46 @@ pub enum SubscribeRefusal {
     ResyncRequired,
     /// The state store could not be read (`STATE_UNAVAILABLE`).
     StateUnavailable,
+    /// ⟨rev7; PC1⟩ The whole snapshot the subscription would start from is over one of its
+    /// caps ([`SnapshotTooLarge::refusal`]): nothing is sent but the refusal.
+    TooLarge(SnapshotTooLarge),
+}
+
+/// ⟨rev7; ADR-0013 §5.5, D4; PC1⟩ A whole snapshot over one of its caps
+/// ([`heimdall_contract::event::SNAPSHOT_OPERATIONS_MAX`], `SNAPSHOT_DECISIONS_MAX`,
+/// `SNAPSHOT_BUDGET_BYTES`): the section over it and the filter that leaves it out
+/// ([`heimdall_contract::event::snapshot_refusal`]). There is no partial snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotTooLarge {
+    /// The section over its cap.
+    pub section: &'static str,
+    /// The filter to narrow with.
+    pub narrow: &'static str,
+}
+
+impl SnapshotTooLarge {
+    /// `USAGE_ERROR` / `response_too_large`, effect `none`, next `narrow_request`, with
+    /// `data.error.section` and `data.error.narrow`: the refusal of the subscribe, and of the
+    /// cursorless `observe events`.
+    #[must_use]
+    pub fn refusal(self) -> crate::OpError {
+        use heimdall_contract::Code;
+        use heimdall_contract::envelope::{EffectStatus, NextAction, reason};
+        crate::OpError::new(
+            Code::UsageError,
+            format!(
+                "the snapshot's {} section is over its cap; narrow the filter with {}",
+                self.section, self.narrow
+            ),
+        )
+        .with_reason(reason::RESPONSE_TOO_LARGE)
+        .with_effect(EffectStatus::None)
+        .with_next(NextAction {
+            action: "narrow_request".to_owned(),
+            ..NextAction::default()
+        })
+        .with_narrowing(self.section, self.narrow)
+    }
 }
 
 /// Publishes events durably and to live subscribers.
@@ -222,6 +262,7 @@ enum StartFrom {
     Backlog(Vec<heimdall_store::StoredEvent>),
     Snapshot(serde_json::Value),
     Refused,
+    TooLarge(SnapshotTooLarge),
 }
 
 impl EventPublisher {
@@ -603,8 +644,16 @@ impl EventPublisher {
                         return Ok((StartFrom::Refused, head));
                     }
                 }
-                let data = snapshot_data(tx, &me.environment, &reader, &filter, generation, head)?;
-                Ok((StartFrom::Snapshot(data), head))
+                // ⟨rev7; PC1⟩ Whole or refused, in this transaction.
+                match snapshot_data(tx, &me.environment, &reader, &filter, generation)? {
+                    Ok(data) => match serde_json::to_value(&data) {
+                        Ok(data) => Ok((StartFrom::Snapshot(data), head)),
+                        Err(_) => Err(heimdall_store::StoreError::Corrupt(
+                            "a snapshot did not serialize".into(),
+                        )),
+                    },
+                    Err(over) => Ok((StartFrom::TooLarge(over), head)),
+                }
             })
         })
         .await;
@@ -623,6 +672,7 @@ impl EventPublisher {
         let boundary = cursor_for(head);
         let (snapshot, backlog) = match start {
             StartFrom::Refused => return Err(SubscribeRefusal::ResyncRequired),
+            StartFrom::TooLarge(over) => return Err(SubscribeRefusal::TooLarge(over)),
             StartFrom::Backlog(events) => (
                 None,
                 events
@@ -768,70 +818,183 @@ pub fn event_visible_in(
     }
 }
 
-/// The snapshot document consistent with a boundary: open and unresolved
-/// operations the reader may see, pending decisions (owner role only), the
-/// operation named by the filter, and the authority generation. Identifiers,
-/// states and codes only.
+/// Whether `filter` admits events of type `t` (no `types`: every type).
+fn admits(filter: &EventFilter, t: EventType) -> bool {
+    filter.types.is_empty() || filter.types.contains(&t)
+}
+
+/// ⟨rev7; PC1⟩ The exact caller contexts whose operations `reader` may see
+/// ([`visible_to`]: the same principal and paired client, in any role), or `None` for the
+/// local owner's global access.
+fn visible_callers(reader: &CallerContext) -> Option<Vec<CallerContext>> {
+    use heimdall_domain::principal::ClientRole;
+    if reader.has_global_access() {
+        return None;
+    }
+    // Every role, so a new one fails to compile here rather than hide operations.
+    let roles = [ClientRole::Owner, ClientRole::LimitedConsumer].map(|role| match role {
+        ClientRole::Owner | ClientRole::LimitedConsumer => role,
+    });
+    Some(
+        roles
+            .into_iter()
+            .map(|role| CallerContext {
+                principal: reader.principal.clone(),
+                role,
+                remote_client: reader.remote_client.clone(),
+            })
+            .collect(),
+    )
+}
+
+/// ⟨rev7; PC1⟩ One operation as a snapshot holds it.
+fn snapshot_operation(
+    op: &heimdall_domain::operation::OperationRecord,
+) -> heimdall_store::Result<heimdall_contract::event::SnapshotOperation> {
+    let corrupt = |_| heimdall_store::StoreError::Corrupt("an operation kind has no view".into());
+    Ok(heimdall_contract::event::SnapshotOperation {
+        operation_id: op.id.clone(),
+        kind: serde_json::to_value(op.kind)
+            .and_then(serde_json::from_value)
+            .map_err(corrupt)?,
+        state: op.state,
+        code: op.code.clone(),
+        effect_status: op.effect_status,
+        updated_at: op.updated_at,
+    })
+}
+
+/// ⟨rev7; PC1⟩ One pending decision as a snapshot holds it.
+fn snapshot_decision(
+    d: &heimdall_domain::decision::DecisionRecord,
+) -> heimdall_store::Result<heimdall_contract::event::SnapshotDecision> {
+    let corrupt = |_| heimdall_store::StoreError::Corrupt("a decision kind has no view".into());
+    Ok(heimdall_contract::event::SnapshotDecision {
+        decision_id: Some(d.id.clone()),
+        kind: serde_json::from_value(serde_json::Value::from(decision_kind_name(&d.kind)))
+            .map_err(corrupt)?,
+        expires_at: d.expires_at,
+    })
+}
+
+/// ⟨rev7; ADR-0013 §5.5, D4; PC1⟩ The whole snapshot consistent with the boundary read in the
+/// caller's transaction, or the cap it is over (nothing partial).
+///
+/// **Sections follow the filter**, so every item receives its next change through the
+/// stream: with `filter.operation_id`, only `operation` (if the filter admits
+/// `operation_state_changed`); otherwise `operations` if it admits `operation_state_changed`,
+/// and `pending_decisions` if it admits `decision` and the reader has the owner role. The
+/// `operations` are the open and unresolved operations of every environment this runtime
+/// manages that `reader` may see; `operation` is the named one in any state, if `reader` may
+/// see it: the event log's environment set and visibility.
+///
+/// **Caps:** each section is read with `LIMIT cap + 1` and its stored documents' lengths summed
+/// in SQL before any row is materialized (`Txn::snapshot_operations`,
+/// `Txn::snapshot_pending_decisions`), against the remaining budget; the serialized document is
+/// then measured whole.
 pub fn snapshot_data(
     tx: &mut Txn<'_>,
     environment: &EnvironmentId,
     reader: &CallerContext,
     filter: &EventFilter,
     generation: heimdall_domain::policy::AuthorityGeneration,
-    head: u64,
-) -> heimdall_store::Result<serde_json::Value> {
-    let summarize = |op: &heimdall_domain::operation::OperationRecord| {
-        serde_json::json!({
-            "operation_id": op.id,
-            "kind": op.kind,
-            "state": op.state,
-            "code": op.code,
-            "effect_status": op.effect_status,
-            "updated_at": op.updated_at,
-        })
+) -> heimdall_store::Result<Result<heimdall_contract::event::EventSnapshotData, SnapshotTooLarge>> {
+    use heimdall_contract::event::{
+        EventSnapshot, SNAPSHOT_BUDGET_BYTES, SNAPSHOT_DECISIONS_MAX, SNAPSHOT_OPERATIONS_MAX,
+        snapshot_refusal as names,
     };
-    let mut operations = Vec::new();
-    // ⟨M04⟩ ADR-0010 §9 item 1: the operations of every environment this runtime
-    // manages (replacing M01's `== environment`).
-    let managed = crate::environments::members(tx, environment)?;
-    for op in tx
-        .open_operations()?
-        .into_iter()
-        .chain(tx.unresolved_operations()?)
-    {
-        if managed.contains(&op.environment) && visible_to(&op.key.caller, reader) {
-            operations.push(summarize(&op));
+    use heimdall_store::ext_m07::{SectionRead, SnapshotOperations};
+    let budget = u64::try_from(SNAPSHOT_BUDGET_BYTES).unwrap_or(u64::MAX);
+    let mut used = 0u64;
+    let mut data = EventSnapshot {
+        environment_id: environment.clone(),
+        authority_generation: generation.0,
+        operations: None,
+        operation: None,
+        pending_decisions: None,
+    };
+    let callers = visible_callers(reader);
+    let operations_admitted = admits(filter, EventType::OperationStateChanged);
+    if let Some(id) = &filter.operation_id {
+        if operations_admitted {
+            let over = SnapshotTooLarge {
+                section: names::OPERATION,
+                narrow: names::NARROW_TYPES,
+            };
+            match tx.snapshot_operations(
+                SnapshotOperations::One(id),
+                callers.as_deref(),
+                1,
+                budget,
+            )? {
+                SectionRead::Whole { rows, .. } => {
+                    if let Some(op) = rows
+                        .iter()
+                        .find(|op| &op.id == id && visible_to(&op.key.caller, reader))
+                    {
+                        data.operation = Some(snapshot_operation(op)?);
+                    }
+                }
+                SectionRead::OverCount | SectionRead::OverBytes => return Ok(Err(over)),
+            }
+        }
+    } else {
+        if operations_admitted {
+            // ⟨M04⟩ ADR-0010 §9 item 1: the operations of every environment this runtime manages.
+            let managed: Vec<EnvironmentId> = crate::environments::members(tx, environment)?
+                .into_iter()
+                .collect();
+            let over = SnapshotTooLarge {
+                section: names::OPERATIONS,
+                narrow: names::NARROW_OPERATION_ID,
+            };
+            match tx.snapshot_operations(
+                SnapshotOperations::Listed(&managed),
+                callers.as_deref(),
+                SNAPSHOT_OPERATIONS_MAX,
+                budget,
+            )? {
+                SectionRead::Whole { rows, bytes } => {
+                    used = bytes;
+                    let mut items = Vec::with_capacity(rows.len());
+                    for op in rows.iter().filter(|op| visible_to(&op.key.caller, reader)) {
+                        items.push(snapshot_operation(op)?);
+                    }
+                    data.operations = Some(items);
+                }
+                SectionRead::OverCount | SectionRead::OverBytes => return Ok(Err(over)),
+            }
+        }
+        if reader.is_owner() && admits(filter, EventType::Decision) {
+            let over = SnapshotTooLarge {
+                section: names::PENDING_DECISIONS,
+                narrow: names::NARROW_TYPES,
+            };
+            match tx.snapshot_pending_decisions(SNAPSHOT_DECISIONS_MAX, budget - used)? {
+                SectionRead::Whole { rows, .. } => {
+                    let mut items = Vec::with_capacity(rows.len());
+                    for d in &rows {
+                        items.push(snapshot_decision(d)?);
+                    }
+                    data.pending_decisions = Some(items);
+                }
+                SectionRead::OverCount | SectionRead::OverBytes => return Ok(Err(over)),
+            }
         }
     }
-    let operation = match &filter.operation_id {
-        Some(id) => tx
-            .operation(id)?
-            .filter(|op| visible_to(&op.key.caller, reader))
-            .map(|op| summarize(&op)),
-        None => None,
-    };
-    let decisions: Vec<serde_json::Value> = if reader.is_owner() {
-        tx.pending_decisions()?
-            .into_iter()
-            .map(|d| {
-                serde_json::json!({
-                    "decision_id": d.id,
-                    "kind": decision_kind_name(&d.kind),
-                    "expires_at": d.expires_at,
-                })
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
-    Ok(serde_json::json!({
-        "environment_id": environment,
-        "authority_generation": generation.0,
-        "boundary_seq": head,
-        "operations": operations,
-        "operation": operation,
-        "pending_decisions": decisions,
-    }))
+    // The document whole (the stored lengths bound it from above; this is the cap itself).
+    let size = serde_json::to_vec(&data).map_or(usize::MAX, |v| v.len());
+    if size > SNAPSHOT_BUDGET_BYTES {
+        let (section, narrow) = if data.pending_decisions.is_some() {
+            (names::PENDING_DECISIONS, names::NARROW_TYPES)
+        } else if data.operations.is_some() {
+            (names::OPERATIONS, names::NARROW_OPERATION_ID)
+        } else {
+            (names::OPERATION, names::NARROW_TYPES)
+        };
+        return Ok(Err(SnapshotTooLarge { section, narrow }));
+    }
+    Ok(Ok(data))
 }
 
 /// Stable name of a decision kind (no payload).

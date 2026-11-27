@@ -107,6 +107,8 @@ pub fn restored_before_completion() -> ErrorDetail {
         field: None,
         bound: None,
         unit: None,
+        section: None,
+        narrow: None,
     }
 }
 

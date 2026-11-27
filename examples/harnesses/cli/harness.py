@@ -230,7 +230,14 @@ class Journey:
             id_field(event, "event_id", "evt")
             text_field(event, "cursor")
         else:
+            # The typed whole snapshot (ADR-0013 §5.5): with an operation filter, only the
+            # `operation` section, present when this reader may see that operation.
             snapshot = object_field(object_field(head, "snapshot"), "data")
+            text_field(snapshot, "environment_id")
+            require(type(snapshot.get("authority_generation")) is int,
+                    "missing or invalid authority_generation integer")
+            require("operations" not in snapshot and "pending_decisions" not in snapshot,
+                    "an operation's snapshot carried sections its filter cannot maintain")
             pending = object_field(snapshot, "operation")
             require(pending.get("operation_id") == operation and pending.get("state") == "awaiting_approval",
                     "subscription snapshot did not show this operation awaiting approval")

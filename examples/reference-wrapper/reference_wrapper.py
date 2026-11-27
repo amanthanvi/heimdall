@@ -126,6 +126,18 @@ def _uint(value, field):
     return value
 
 
+def _snapshot_data(snapshot):
+    """A whole typed snapshot's data: a section the subscription's filter cannot maintain is
+    omitted, so read `operations`, `operation` and `pending_decisions` only when present."""
+    data = _object(snapshot.get("data"), "snapshot data")
+    _string(data, "environment_id")
+    _uint(data.get("authority_generation"), "authority_generation")
+    for section, kind in (("operations", list), ("operation", dict), ("pending_decisions", list)):
+        if section in data and not isinstance(data[section], kind):
+            raise ProtocolError(f"snapshot {section} has the wrong type")
+    return data
+
+
 def _check_schema(obj):
     if _string(obj, "schema_version") != SCHEMA:
         raise ProtocolError(f"unsupported schema major (expected {SCHEMA})")
@@ -481,8 +493,8 @@ class Subscription:
             if snapshot is not None:
                 if _string(_object(snapshot, "snapshot"), "cursor") != self._head:
                     raise ProtocolError("snapshot cursor differs from subscription head")
-                if "data" not in snapshot:
-                    raise ProtocolError("snapshot has no data")
+                # Whole or refused: an over-cap snapshot is a refused subscribe (Refused).
+                _snapshot_data(snapshot)
                 self._apply_snapshot(snapshot)
                 self._checkpoint(self._head)
                 self._seen.clear()

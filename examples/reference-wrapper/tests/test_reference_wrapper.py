@@ -21,6 +21,7 @@ from reference_wrapper import (  # noqa: E402
 
 
 ENVIRONMENT = "fixture-environment"
+DATA = {"environment_id": ENVIRONMENT, "authority_generation": 0}
 
 
 def receive(conn):
@@ -196,7 +197,7 @@ class WrapperTests(unittest.TestCase):
         for fields, error in [
             ({}, r"data must be an object"),
             ({"data": []}, r"data must be an object"),
-            ({"data": {}}, r"data\.items must be an array"),
+            ({"data": DATA}, r"data\.items must be an array"),
             ({"data": {"items": {}}}, r"data\.items must be an array"),
         ]:
             with self.subTest(fields=fields):
@@ -373,7 +374,7 @@ class WrapperTests(unittest.TestCase):
             message = receive(conn)
             self.assertEqual(message["filter"], operation)
             self.assertNotIn("from_cursor", message)
-            head(conn, message, "base", snapshot={"cursor": "base", "data": {}})
+            head(conn, message, "base", snapshot={"cursor": "base", "data": DATA})
             send_event(conn, event("one", "c1", new_field=True))
             send_event(conn, event("unknown", "c2", "new_event_type"))
             send_event(conn, event("one", "c1"))  # Replay must not rewind the cursor.
@@ -457,7 +458,7 @@ class WrapperTests(unittest.TestCase):
     def test_snapshot_apply_failure_leaves_checkpoint_unchanged(self):
         def script(conn):
             hello(conn)
-            head(conn, receive(conn), "head", snapshot={"cursor": "head", "data": {}})
+            head(conn, receive(conn), "head", snapshot={"cursor": "head", "data": DATA})
             closed(conn)
 
         def fail_snapshot(_):
@@ -470,6 +471,67 @@ class WrapperTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "application failed"):
                 stream.start()
             self.assertEqual((stream.cursor, persisted), ("previous", []))
+
+    def test_snapshot_data_is_typed_and_sections_are_read_only_when_present(self):
+        cases = [
+            ({**DATA, "operation": {"operation_id": "op", "state": "running"}}, None),
+            ({**DATA, "operations": [], "pending_decisions": [], "boundary_seq": 3}, None),
+            ({"operations": []}, "environment_id"),
+            ({**DATA, "authority_generation": -1}, "authority_generation"),
+            ({**DATA, "operations": {}}, "snapshot operations"),
+        ]
+        for data, error in cases:
+            with self.subTest(data=data):
+                def script(conn, data=data):
+                    hello(conn)
+                    head(conn, receive(conn), "head", snapshot={"cursor": "head", "data": data})
+                    closed(conn)
+
+                with server(script) as endpoint:
+                    applied, persisted = [], []
+                    stream = Subscription(partial(Client, endpoint, ENVIRONMENT), applied.append,
+                                          lambda _: None, persisted.append)
+                    if error is None:
+                        stream.start()
+                        stream.stop()
+                        self.assertEqual((len(applied), persisted), (1, ["head"]))
+                    else:
+                        with self.assertRaisesRegex(ProtocolError, error):
+                            stream.start()
+                        self.assertEqual((applied, persisted, stream.ending),
+                                         ([], [], "start_failed"))
+
+    def test_snapshot_over_a_cap_refuses_the_subscribe_with_no_head(self):
+        refusal = {
+            "schema_version": "1", "code": "USAGE_ERROR", "state": "failed",
+            "data": {"error": {
+                "code": "USAGE_ERROR", "effect_status": "none", "retryable": False,
+                "next": {"action": "narrow_request"}, "message": "over its cap",
+                "reason": "response_too_large", "section": "operations",
+                "narrow": "filter.operation_id",
+            }},
+        }
+
+        def script(conn):
+            hello(conn)
+            message = receive(conn)
+            send(conn, {"type": "response", "in_reply_to": message["seq"], "envelope": refusal})
+            closed(conn)
+
+        with server(script) as endpoint:
+            applied, persisted = [], []
+            stream = Subscription(partial(Client, endpoint, ENVIRONMENT), applied.append,
+                                  applied.append, persisted.append, cursor="saved")
+            with self.assertRaisesRegex(Refused, "subscribe refused: USAGE_ERROR") as caught:
+                stream.start()
+            error = caught.exception.envelope["data"]["error"]
+            self.assertEqual((error["section"], error["narrow"]),
+                             ("operations", "filter.operation_id"))
+            # The refusal names its own next action; the code's default is fix_request.
+            self.assertEqual(error["next"]["action"], "narrow_request")
+            self.assertEqual(code_defaults(caught.exception.envelope).exit_code, 2)
+            self.assertEqual((applied, persisted, stream.cursor, stream.ending),
+                             ([], [], "saved", "start_failed"))
 
 
 if __name__ == "__main__":

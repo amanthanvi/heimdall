@@ -342,12 +342,16 @@ envelope shapes.
   read head. A refused cursor may still carry a `next.cursor` hint. It takes
   a snapshot application to checkpoint that boundary. There is no typed
   current response schema for these cases.
-- The snapshot schema leaves `data` open. Current `app::events::snapshot_data`
-  emits `environment_id`, `authority_generation`, `boundary_seq`,
-  `operations`, `operation` (nullable) and `pending_decisions`. Current
-  sections can be present even when a type filter excludes their events.
-  Keep the opaque cursor as the checkpoint. The proposed snapshot shape
-  changes these rules.
+- A snapshot's `data` is the typed `event-snapshot` (ADR-0013 §5.5, revision 7):
+  `environment_id`, `authority_generation`, and only the sections the filter can
+  maintain: `operations` if it admits `operation_state_changed`,
+  `pending_decisions` if it admits `decision` (owner only), and with
+  `filter.operation_id` only `operation`. Read a section only when it is present.
+  There is no `boundary_seq`. A section over its cap (1,000 operations, 256
+  decisions, 768 KiB in all) refuses the subscribe, and the cursorless
+  `observe events`, with `USAGE_ERROR` / `response_too_large`, naming the section
+  (`data.error.section`) and the narrowing to use (`data.error.narrow`); nothing
+  partial is sent. Keep the opaque cursor as the checkpoint.
 - The generic envelope schema leaves inspect payloads open. The code table
   returned by `inspect capabilities` is under `data.codes`. The destination
   listing described in ADR-0007 §12.24 uses `data.items`, including an empty

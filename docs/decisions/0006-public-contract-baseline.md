@@ -2986,6 +2986,12 @@ these readings landed in U3-1a; the contract owner ruled them on 2026-11-25:
   agreed schema (`OperationState` is exhaustive: a new state would have raised the major), so it
   answers the incompatible-peer refusal with its default next action, never an empty count and
   never `INTERNAL_ERROR` (§9: an older client never reads a newer peer's data as empty).
+- **Snapshot items are summaries** (PC1, ADR-0013 §5.5; ruled 2026-11-26): a snapshot's
+  `operations`, `operation` and `pending_decisions` hold the operation and decision
+  **summaries** (today's fields, typed), not the full operation and decision views; a reader
+  fetches a full view by ID. The snapshot stays bounded, and a paired reader's delivery, which
+  withholds what it may not see, never conflicts with a view that requires those fields. A
+  richer item form may come post-1.0, opt-in.
 - **Authorization comes before capability at the session gate** (M07 W10 S2-08; ruled
   2026-11-26). §2.4's base capabilities are enforced: `owner-policy/1` for exactly the four
   actions it names (`pause`, `resume`, `cutoff`, `clear_cutoff`, plain or targeted; every other

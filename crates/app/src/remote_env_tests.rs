@@ -371,6 +371,8 @@ fn approval_required(decision_ref: &str) -> Envelope<serde_json::Value> {
         field: None,
         bound: None,
         unit: None,
+        section: None,
+        narrow: None,
     };
     Envelope {
         state: OperationState::AwaitingApproval,
@@ -1157,6 +1159,8 @@ fn runner_errors_pass_through_and_bundles_round_trip() {
         field: None,
         bound: None,
         unit: None,
+        section: None,
+        narrow: None,
     };
     let envelope = Envelope {
         state: OperationState::Failed,
@@ -2026,6 +2030,8 @@ async fn the_endpoint_announcement_reports_each_runner() {
                         field: None,
                         bound: None,
                         unit: None,
+                        section: None,
+                        narrow: None,
                     },
                     setup: None,
                 })

@@ -775,6 +775,8 @@ fn error_reasons_are_stable_snake_case_and_complete() {
         field: None,
         bound: None,
         unit: None,
+        section: None,
+        narrow: None,
     };
     let v = serde_json::to_value(Envelope::failed(None, detail.clone())).unwrap();
     assert!(v["data"]["error"].get("reason").is_none());

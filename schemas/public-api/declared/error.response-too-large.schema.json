@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ResponseTooLarge",
-  "description": "⟨rev7⟩ The typed detail of a `USAGE_ERROR` / `response_too_large` refusal (ADR-0013 §4,\nD19). **Standalone, not attached:** `ErrorDetail` gains these fields in the change that\nemits them (U3, PC4), with the CLI and the wrapper.",
+  "description": "⟨rev7⟩ The typed detail of a `USAGE_ERROR` / `response_too_large` refusal (ADR-0013 §4,\nD19). **Partly attached:** a snapshot over a cap (PC1, §5.5) sets [`ErrorDetail`]'s\n`section` and `narrow`; `ErrorDetail` gains `limit_bytes` in the change that emits it (U3,\nPC4), with the CLI and the wrapper.",
   "type": "object",
   "properties": {
     "limit_bytes": {

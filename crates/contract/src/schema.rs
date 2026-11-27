@@ -26,7 +26,7 @@ fn named<T: JsonSchema>(name: &'static str) -> NamedSchema {
 #[must_use]
 pub fn public_schemas() -> Vec<NamedSchema> {
     use crate::envelope::{Envelope, ErrorData};
-    use crate::event::{Event, Snapshot};
+    use crate::event::{Event, EventSnapshotData, Snapshot};
     use crate::ipc::{ClientMessage, ServerMessage};
     use crate::request::{EnsureData, Request, RevokeData};
 
@@ -37,7 +37,8 @@ pub fn public_schemas() -> Vec<NamedSchema> {
         named::<Envelope<RevokeData>>("envelope.revoke"),
         named::<Request>("request"),
         named::<Event>("event"),
-        named::<Snapshot<serde_json::Value>>("snapshot"),
+        // ⟨rev7; PC1⟩ A snapshot's `data` is the typed `event-snapshot` (ADR-0013 §5.5).
+        named::<Snapshot<EventSnapshotData>>("snapshot"),
         named::<ClientMessage>("ipc.client-message"),
         named::<ServerMessage>("ipc.server-message"),
         named::<crate::code::Code>("code"),
@@ -84,10 +85,10 @@ pub fn declared_schemas() -> Vec<NamedSchema> {
         named::<crate::page::Select>("select"),
         named::<crate::page::Page<serde_json::Value>>("page"),
         named::<crate::page::Selection<serde_json::Value>>("selection"),
-        // D4, D6: the typed snapshot and the resync reasons.
-        named::<crate::event::EventSnapshot<serde_json::Value, serde_json::Value>>(
-            "event-snapshot",
-        ),
+        // D4, D6: the typed snapshot (⟨rev7; PC1⟩ emitted as `snapshot`'s `data` now; it
+        // is promoted with every typed view in U3-3's one promotion commit, ruled
+        // 2026-11-26) and the resync reasons.
+        named::<crate::event::EventSnapshotData>("event-snapshot"),
         named::<crate::event::ResyncReason>("resync-reason"),
         // D5: the typed payloads, as emitted.
         named::<crate::event_payload::EventPayload>("event-payload"),

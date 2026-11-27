@@ -4,7 +4,12 @@
   "subscription": 1,
   "cursor": "AQEBAAAAAAAB",
   "snapshot": {
-    "data": {"operations": []},
+    "data": {
+      "environment_id": "env_01010101010101010101010101010101",
+      "authority_generation": 1,
+      "operations": [],
+      "pending_decisions": []
+    },
     "cursor": "AQEBAAAAAAAB",
     "taken_at": "2026-10-31T12:00:02Z"
   }

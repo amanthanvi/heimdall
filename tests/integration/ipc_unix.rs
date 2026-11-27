@@ -205,6 +205,8 @@ fn decision_required(attended: bool) -> Envelope<serde_json::Value> {
             field: None,
             bound: None,
             unit: None,
+            section: None,
+            narrow: None,
         },
     );
     env.state = OperationState::AwaitingApproval;
@@ -2531,6 +2533,119 @@ async fn revision_6_event_selectors_need_their_capability() {
             .unwrap();
         assert_eq!(observed.code, Code::Ok);
         drop(c);
+    };
+    let (r, ()) = tokio::join!(server, client);
+    r.unwrap();
+}
+
+/// ⟨rev7; PC1⟩ Stands in for the runtime whose whole snapshot is over a cap: every subscribe is
+/// refused `USAGE_ERROR` / `response_too_large`, naming the section and the filter to use, as
+/// `heimdall_app::events::SnapshotTooLarge::refusal` builds it.
+struct CapRefusingDispatcher {
+    inner: TestDispatcher,
+}
+
+fn snapshot_cap_refusal() -> Envelope<ErrorData> {
+    let mut env = Envelope::failed(
+        None,
+        ErrorDetail {
+            code: Code::UsageError,
+            effect_status: EffectStatus::None,
+            retryable: false,
+            resource: None,
+            next: NextAction {
+                action: "narrow_request".into(),
+                ..NextAction::default()
+            },
+            message: "the snapshot's operations section is over its cap".into(),
+            reason: Some("response_too_large".into()),
+            entries: Vec::new(),
+            field: None,
+            bound: None,
+            unit: None,
+            section: Some("operations".into()),
+            narrow: Some("filter.operation_id".into()),
+        },
+    );
+    env.next = Some(env.data.error.next.clone());
+    env
+}
+
+#[async_trait::async_trait]
+impl Dispatcher for CapRefusingDispatcher {
+    async fn dispatch(
+        &self,
+        session: &SessionInfo,
+        request: Request,
+    ) -> Envelope<serde_json::Value> {
+        self.inner.dispatch(session, request).await
+    }
+
+    async fn subscribe(
+        &self,
+        _session: &SessionInfo,
+        _filter: EventFilter,
+        _from: Option<Cursor>,
+    ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>> {
+        Err(Box::new(snapshot_cap_refusal()))
+    }
+}
+
+/// ⟨rev7; PC1⟩ A snapshot over a cap refuses the subscribe: the client reads one response
+/// carrying `data.error.section` and `narrow`, and nothing else (no `Subscribed`, no snapshot,
+/// no event); no subscription exists afterwards and the connection stays usable.
+#[tokio::test]
+async fn snapshot_over_a_cap_refuses_the_subscribe_and_sends_nothing_else() {
+    let f = fixture();
+    let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+    let d = CapRefusingDispatcher {
+        inner: TestDispatcher::new(),
+    };
+    let events = d.inner.events.clone();
+    let server = serve_one(&l, d, ConnectionLimits::default(), CancellationToken::new());
+    let client = async {
+        let mut s = connect(&f.paths.control).await.unwrap();
+        s.write_all(&hello_frame("1", "pc1-cap")).await.unwrap();
+        let mut buf = Vec::new();
+        assert!(matches!(
+            read_n(&mut s, &mut buf, 1).await[0],
+            ServerMessage::Hello(_)
+        ));
+        s.write_all(&subscribe_frame(5, None)).await.unwrap();
+        let got = read_n(&mut s, &mut buf, 1).await;
+        let ServerMessage::Response {
+            in_reply_to,
+            envelope,
+        } = &got[0]
+        else {
+            panic!("a refusal response, not {:?}", got[0]);
+        };
+        assert_eq!(*in_reply_to, 5);
+        let wire = serde_json::to_value(envelope).unwrap();
+        assert_eq!(wire["code"], "USAGE_ERROR");
+        assert_eq!(wire["data"]["error"]["reason"], "response_too_large");
+        assert_eq!(wire["data"]["error"]["section"], "operations");
+        assert_eq!(wire["data"]["error"]["narrow"], "filter.operation_id");
+        assert_eq!(wire["data"]["error"]["next"]["action"], "narrow_request");
+        assert!(wire["data"].get("snapshot").is_none());
+        // A live event now reaches no one: the next frame is the reply to the unsubscribe.
+        let _ = events.send(event(1, EventType::OperationStateChanged, None));
+        s.write_all(&frame_of(&ClientMessage::Unsubscribe {
+            seq: 6,
+            subscription: 1,
+        }))
+        .await
+        .unwrap();
+        let next = read_n(&mut s, &mut buf, 1).await;
+        let ServerMessage::Response {
+            in_reply_to,
+            envelope,
+        } = &next[0]
+        else {
+            panic!("the unsubscribe's reply, not {:?}", next[0]);
+        };
+        assert_eq!((*in_reply_to, envelope.code.clone()), (6, Code::NotFound));
+        drop(s);
     };
     let (r, ()) = tokio::join!(server, client);
     r.unwrap();

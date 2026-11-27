@@ -372,8 +372,12 @@ pub enum ServerMessage {
         cursor: Cursor,
         /// Present when the client sent no cursor, or sent an expired/foreign one
         /// and the server chose to resync it: a transactionally consistent view
-        /// taken at `cursor`.
+        /// taken at `cursor`, whole or refused (⟨rev7; PC1⟩ its `data` is a typed
+        /// [`crate::event::EventSnapshotData`], ADR-0013 §5.5). Carried as the
+        /// document the runtime built from that type (so a paired session's
+        /// delivery can remove its decision handles); the schema is the type's.
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<crate::event::Snapshot<crate::event::EventSnapshotData>>")]
         snapshot: Option<crate::event::Snapshot<serde_json::Value>>,
     },
     /// An event for a subscription.
