@@ -293,6 +293,15 @@ fn not_delivered() -> OpError {
     .with_effect(EffectStatus::None)
 }
 
+fn local_grant_refusal() -> OpError {
+    OpError::new(
+        Code::CapabilityUnavailable,
+        "the runner's answer names a grant ID held by this installation: a local grant is \
+         never recorded as a runner grant; nothing was recorded",
+    )
+    .with_effect(EffectStatus::None)
+}
+
 /// Record that this controller delivered `grant` to the runner `pin` names, with exactly
 /// these pairs and extensions until `expires_at`: the only content a certificate for it may
 /// ever carry (module docs). Re-recording a grant never widens it, whatever the runner's
@@ -310,7 +319,9 @@ fn not_delivered() -> OpError {
 /// # Errors
 ///
 /// The store's (outer). Inner, nothing written: `role_insufficient` when this controller's
-/// role there may not issue; `USAGE_ERROR` for no pair, or an expiry that has passed.
+/// role there may not issue; `CAPABILITY_UNAVAILABLE` (effect `none`) when `grant` names a
+/// local grant of this installation (ruling 7); `USAGE_ERROR` for no pair, or an expiry
+/// that has passed.
 pub fn deliver_runner_grant(
     tx: &mut Txn<'_>,
     pin: &RemoteEnvironmentPin,
@@ -324,6 +335,11 @@ pub fn deliver_runner_grant(
         return Ok(Err(role_insufficient(
             "this controller's role on the runner does not let it issue for its grants",
         )));
+    }
+    // ⟨M08 W4 SEC-5, ruling 7⟩ A local grant of this installation is never recorded as a
+    // runner grant (same code the issuer child uses for `LocalGrant`).
+    if tx.grant(grant)?.is_some() {
+        return Ok(Err(local_grant_refusal()));
     }
     if pairs.is_empty() || expires_at <= now {
         return Ok(Err(OpError::new(
@@ -988,7 +1004,12 @@ impl ControllerSync {
     /// * the runner's refusal, unchanged: `APPROVAL_REQUIRED` with the runner-local
     ///   `decision_ref` for a request beyond its standing policy (nothing recorded), or any
     ///   other error;
-    /// * `OUTCOME_UNKNOWN` for an answer that names no grant (nothing recorded).
+    /// * `OUTCOME_UNKNOWN` for an answer that names no grant (nothing recorded);
+    /// * ⟨M08 W4 SEC-5, ruling 7⟩ `CAPABILITY_UNAVAILABLE`, effect `none`, for an answer
+    ///   naming a grant of this installation, before anything else (nothing recorded);
+    /// * ⟨M08 W4 SEC-5, item 1⟩ `OUTCOME_UNKNOWN` ("the runner's response could not be
+    ///   read") for an answer whose data fails its grammar
+    ///   ([`crate::remote_ingress::screen_ensure_data`]; nothing recorded).
     pub async fn forward_ensure(
         &self,
         pin: &RemoteEnvironmentPin,
@@ -1025,7 +1046,8 @@ impl ControllerSync {
             timeout_ms: FORWARD_WAIT_MS,
         };
         let answer = session.call(ManagementCall::Ensure(Box::new(sent))).await?;
-        let operation = answer.operation_id.clone();
+        let operation =
+            crate::remote_ingress::screen_peer_operation_id(answer.operation_id.clone());
         let (grant, ready) = match answer.code {
             Code::Ok | Code::AccessReady => {
                 let grant = answer
@@ -1051,6 +1073,30 @@ impl ControllerSync {
             }
         };
         let grant = grant.ok_or_else(unreadable_answer)?;
+        // ⟨M08 W4 SEC-5, ruling 7⟩ Refuse a runner-named grant ID matching a local grant
+        // outright, before anything else, with the same code the issuer child uses for
+        // `LocalGrant` (`CAPABILITY_UNAVAILABLE`, effect `none`).
+        if self.store.transaction(|tx| tx.grant(&grant))?.is_some() {
+            return Err(local_grant_refusal());
+        }
+        // ⟨M08 W4 SEC-5, item 1⟩ Screen `EnsureData` at the remote ingress before recording
+        // anything or returning it to callers/JSON/logs.
+        let ready = match ready {
+            Some(raw) => {
+                let (screened_grant, screened) =
+                    crate::remote_ingress::screen_ensure_data(raw, &pin.environment)?;
+                if screened_grant != grant {
+                    return Err(crate::remote_ingress::unreadable_runner_response());
+                }
+                Some(screened)
+            }
+            None => {
+                if !crate::remote_ingress::is_generated_id(grant.as_str(), GrantId::PREFIX) {
+                    return Err(crate::remote_ingress::unreadable_runner_response());
+                }
+                None
+            }
+        };
         let now = self.clock.wall();
         let record = self.store.transaction(|tx| {
             deliver_runner_grant(
@@ -1092,7 +1138,8 @@ impl ControllerSync {
     ///   (`environment_identity_mismatch`), nothing sent;
     /// * the runner's refusal, unchanged (`APPROVAL_REQUIRED` with the runner-local
     ///   `decision_ref`, `role_insufficient`, …);
-    /// * `OUTCOME_UNKNOWN` for an answer that names no grant.
+    /// * `OUTCOME_UNKNOWN` for an answer that names no grant, or ⟨M08 W4 SEC-5, item 1⟩ one
+    ///   whose data fails its grammar ([`crate::remote_ingress::screen_ensure_data`]).
     pub async fn submit_ensure(
         &self,
         sessions: &dyn ManagementSessions,
@@ -1143,18 +1190,14 @@ impl ControllerSync {
             .with_effect(EffectStatus::None));
         }
         let answer = session.call(ManagementCall::Ensure(Box::new(sent))).await?;
-        let operation = answer.operation_id.clone();
+        let operation =
+            crate::remote_ingress::screen_peer_operation_id(answer.operation_id.clone());
         match answer.code {
             Code::Ok | Code::AccessReady => {
-                let grant = answer
-                    .data
-                    .get("grant_id")
-                    .and_then(|g| serde_json::from_value::<GrantId>(g.clone()).ok())
-                    .ok_or_else(unreadable_answer)?;
-                Ok(Forwarded::Ready {
-                    grant,
-                    data: answer.data,
-                })
+                // ⟨M08 W4 SEC-5, item 1⟩ Screen `EnsureData` at the remote ingress.
+                let (grant, data) =
+                    crate::remote_ingress::screen_ensure_data(answer.data, &pin.environment)?;
+                Ok(Forwarded::Ready { grant, data })
             }
             Code::Accepted => {
                 let grant =
@@ -1164,6 +1207,9 @@ impl ControllerSync {
                         .filter(|r| r.kind == "grant")
                         .and_then(|r| r.id)
                         .and_then(|id| GrantId::parse(&id).ok())
+                        .filter(|g| {
+                            crate::remote_ingress::is_generated_id(g.as_str(), GrantId::PREFIX)
+                        })
                         .ok_or_else(unreadable_answer)?;
                 Ok(Forwarded::Submitted { grant, operation })
             }
@@ -1520,7 +1566,12 @@ fn record_narrowed() -> OpError {
 ///
 /// * the record of the grant this controller delivered to the runner still exists and
 ///   still holds the reserved pair (the owner may have removed the runner, which forgets
-///   it): `PairOutsideSnapshot`;
+///   it, or narrowed the record): `PairOutsideSnapshot` with `not_delivered()`. ⟨M08 W4
+///   SEC-5, ruling 5⟩ `IssuanceRefusal` has no `NotDelivered` variant, and `Tombstoned`
+///   specifically denotes a grant tombstone (`BarrierRefusal::GrantRevoked`) whereas
+///   removing a runner (`RemoveEnvironment`) writes no grant tombstone and leaves runner
+///   grants running to their bounds (ADR-0012 §8 item 3); keeping `PairOutsideSnapshot`
+///   with `not_delivered()` avoids misstating revocation state while adding no new variant;
 /// * it still holds the reserved extensions (`UnpermittedExtension`) and an expiry no
 ///   earlier than the certificate's `valid_before` (`BoundTooLate`);
 /// * a record written from a standing policy is still authorized by it, a local `policy

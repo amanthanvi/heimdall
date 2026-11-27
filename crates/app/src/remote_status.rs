@@ -168,11 +168,19 @@ impl EarlyCutoff {
     /// The finding in words (`environment status` and `doctor`).
     #[must_use]
     pub fn statement(&self) -> String {
-        format!(
-            "the cutoff of {} set for {} took effect early, at {}, because the runner's time \
-             was uncertain; it stays in effect until an attended clear_cutoff at the runner",
-            self.scope, self.at, self.fired_at
-        )
+        if self.fired_at < self.at {
+            format!(
+                "the cutoff of {} set for {} took effect early, at {}, because the runner's time \
+                 was uncertain; it stays in effect until an attended clear_cutoff at the runner",
+                self.scope, self.at, self.fired_at
+            )
+        } else {
+            format!(
+                "the cutoff of {} set for {} fired while time was uncertain, at {}; \
+                 it stays in effect until an attended clear_cutoff at the runner",
+                self.scope, self.at, self.fired_at
+            )
+        }
     }
 }
 
@@ -308,6 +316,7 @@ pub fn status_of(
         .flat_map(|r| r.cutoffs_fired_early.iter())
         .filter_map(EarlyCutoff::of)
         .collect();
+    let delivered = tx.delivered_grants(Some(environment))?;
     let mut by_grant: BTreeMap<String, (GrantId, Timestamp)> = BTreeMap::new();
     let mut observed_at = None;
     if let Some(report) = &contact.last_report {
@@ -317,6 +326,29 @@ pub fn status_of(
                 .entry(c.grant.as_str().to_owned())
                 .and_modify(|(_, t)| *t = (*t).min(c.valid_before))
                 .or_insert((c.grant.clone(), c.valid_before));
+        }
+        // ⟨M08 W4 SEC-5, item 7.1; ADR-0012 §7.4⟩ A cutoff that fired at the runner while its
+        // time was uncertain, and is still in force there, bounds every grant it applies to
+        // at the instant it fired, whatever the certificates' `valid_before` (the runner ends
+        // such a grant by its next scheduler pass): the last-known readiness ends there too.
+        // Which grants it applies to is the barrier's rule
+        // ([`crate::remote_status_barrier::revision_applies`]), over the runner's policy its
+        // prepare answer named (`None` when it named none, or when no answer is recorded).
+        for (grant, offline_until) in by_grant.values_mut() {
+            let policy = delivered
+                .iter()
+                .find(|d| d.grant == *grant)
+                .and_then(|d| d.prepared.as_ref())
+                .and_then(|p| p.policy.as_ref());
+            let fired = report
+                .cutoffs_fired_early
+                .iter()
+                .filter(|r| r.in_force && crate::remote_status_barrier::revision_applies(r, policy))
+                .filter_map(|r| r.fired_uncertain_at)
+                .min();
+            if let Some(fired) = fired {
+                *offline_until = (*offline_until).min(fired);
+            }
         }
     }
     let last_known_readiness = by_grant
@@ -334,8 +366,7 @@ pub fn status_of(
             })
         })
         .collect();
-    let mut issuance_failures: Vec<IssuanceFailed> = tx
-        .delivered_grants(Some(environment))?
+    let mut issuance_failures: Vec<IssuanceFailed> = delivered
         .into_iter()
         .filter_map(|d| {
             d.last_failure.map(|f| IssuanceFailed {

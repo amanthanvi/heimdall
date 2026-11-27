@@ -1709,6 +1709,70 @@ fn put_grant(
     Ok(())
 }
 
+/// ⟨M08 W4 SEC-5, item 7.1⟩ `credential_lifecycle`'s `expired` payload for `g`, which ends
+/// now: with the cause when a cutoff ended it ([`expiry_cause_in`]).
+fn expired_payload(
+    tx: &mut Txn<'_>,
+    g: &GrantSnapshot,
+) -> heimdall_store::Result<serde_json::Value> {
+    let mut payload = serde_json::json!({ "grant_id": g.id, "event": "expired" });
+    if let Some(cause) = expiry_cause_in(tx, g)?
+        && let Some(map) = payload.as_object_mut()
+    {
+        map.insert("cause".to_owned(), serde_json::json!(cause));
+    }
+    Ok(payload)
+}
+
+/// ⟨M08 W4 SEC-5, item 7.1⟩ Why `g` ends now, when a cutoff ended it: its bound
+/// ([`grant_bound`]) is the cutoff of its policies, earlier than its own deadline and every
+/// ancestor's. `None` otherwise: a deadline, or a continuous budget that ran out against one.
+///
+/// * `cutoff_fired_while_time_uncertain`: that cutoff is one this installation applied while
+///   its time was uncertain, a delivered revision still in force that fired
+///   (`fired_uncertain_at`) no later than the cutoff and covers one of the grant's policies
+///   as the runner applied it (`heimdall_remote::sync`: every policy, the named one, those
+///   of the profile or of the workspace). Under uncertain time it cut the grant's anchored
+///   budget to the instant it fired, and the next scheduler pass ends the grant there.
+/// * `policy_cutoff`: any other cutoff.
+fn expiry_cause_in(
+    tx: &mut Txn<'_>,
+    g: &GrantSnapshot,
+) -> heimdall_store::Result<Option<&'static str>> {
+    use heimdall_contract::trust::PolicyTarget;
+
+    let ancestors = ancestry(tx, g)?;
+    let deadline = grant_bound(g, &ancestors, None);
+    let origin = tx.grant_origin(&g.id)?;
+    let context = crate::policy_context::grant_context(origin.as_ref());
+    let policies = match &origin {
+        Some(o) => tx.policies_for(&o.profile, &g.environment)?,
+        None => Vec::new(),
+    };
+    let Some(cutoff) = merged_policy(&policies, &context)
+        .and_then(|p| p.cutoff_at)
+        .filter(|c| *c < deadline)
+    else {
+        return Ok(None);
+    };
+    let fired_uncertain = tx.remote_policy_revisions()?.iter().any(|r| {
+        r.in_force
+            && r.fired_uncertain_at.is_some_and(|f| f <= cutoff)
+            && policies.iter().any(|p| match &r.scope {
+                PolicyTarget::All => true,
+                PolicyTarget::Policy { policy_id } => p.id == *policy_id,
+                PolicyTarget::Profile { profile } => p.profile == *profile,
+                PolicyTarget::Workspace { workspace } => p.workspace.as_ref() == Some(workspace),
+                _ => false,
+            })
+    });
+    Ok(Some(if fired_uncertain {
+        "cutoff_fired_while_time_uncertain"
+    } else {
+        "policy_cutoff"
+    }))
+}
+
 /// `min(deadline, every ancestor deadline, cutoff)` (ADR-0005 §3.6).
 fn grant_bound(
     grant: &GrantSnapshot,
@@ -2543,12 +2607,13 @@ fn end_in(
                 let mut g = g;
                 if grant_try(&mut g, GrantEvent::DeadlineReached) {
                     put_grant(tx, emit, &g, op)?;
+                    let payload = expired_payload(tx, &g)?;
                     emit.event(
                         tx,
                         EventType::CredentialLifecycle,
                         op.cloned(),
                         Some(resource("grant", &g.id)),
-                        serde_json::json!({ "grant_id": g.id, "event": "expired" }),
+                        payload,
                     )?;
                     ended.expired.push(g.id.clone());
                 }
@@ -12879,48 +12944,74 @@ impl Operations {
                 "time confirmation needs the owner role",
             ));
         }
-        let observed = self.inner.config.clock.observe();
+        let gate = self.inner.timegate.in_txn();
         let decision_id = crate::ids::new_decision_id()?;
         let lifetime = self.inner.config.limits.decision_lifetime;
-        let record = DecisionRecord {
-            id: decision_id.clone(),
-            kind: DecisionKind::ConfirmTime {
-                boot_id: observed.boot_id.clone(),
-                observed_wall: observed.wall,
-            },
-            generation: heimdall_domain::policy::AuthorityGeneration(0),
-            created_at: observed.wall,
-            expires_at: plus(observed.wall, lifetime),
-            state: DecisionState::Pending,
-            decided_at: None,
-        };
-        self.write(move |tx, emit| {
-            let mut record = record;
-            record.generation = tx.authority_generation()?;
-            tx.insert_decision(&record)?;
-            emit.decision(tx, &record, None)
-        })
-        .await?;
-        let confirmed = self
-            .inner
-            .timegate
-            .confirm_attended(req.observed_wall, decision_id.clone())
-            .await;
-        let verdict = if confirmed.is_ok() {
-            Verdict::Approve
-        } else {
-            Verdict::Deny
-        };
         let did = decision_id.clone();
-        let now = observed.wall;
-        self.write(move |tx, emit| {
-            if let DecisionCompletion::Completed(r) = tx.complete_decision(&did, verdict, now)? {
-                emit.decision(tx, &r, None)?;
-            }
-            Ok(())
-        })
-        .await?;
-        let confirmation = confirmed?;
+        let confirmed_wall = req.observed_wall;
+        // ⟨M08 W4 SEC-5, S3-07⟩ Single transaction: insert the decision, run the time gate's
+        // attended confirmation inside `tx`, and complete the decision. A `Refused` completion
+        // rolls the whole transaction back so neither a dangling pending record nor an
+        // unrecorded confirmation survives; its refusal travels out unchanged here.
+        let completion_refused: Arc<Mutex<Option<OpError>>> = Arc::new(Mutex::new(None));
+        let completion_refused2 = Arc::clone(&completion_refused);
+        let r = self
+            .write(move |tx, emit| {
+                let observed = gate.clock().observe();
+                let now = observed.wall;
+                let record = DecisionRecord {
+                    id: did.clone(),
+                    kind: DecisionKind::ConfirmTime {
+                        boot_id: observed.boot_id.clone(),
+                        observed_wall: now,
+                    },
+                    generation: tx.authority_generation()?,
+                    created_at: now,
+                    expires_at: plus(now, lifetime),
+                    state: DecisionState::Pending,
+                    decided_at: None,
+                };
+                tx.insert_decision(&record)?;
+                emit.decision(tx, &record, None)?;
+                let confirmed = gate.confirm_attended(tx, confirmed_wall, did.clone())?;
+                let verdict = if confirmed.is_ok() {
+                    Verdict::Approve
+                } else {
+                    Verdict::Deny
+                };
+                match tx.complete_decision(&did, verdict, now)? {
+                    DecisionCompletion::Completed(r) => {
+                        emit.decision(tx, &r, None)?;
+                        Ok(confirmed)
+                    }
+                    DecisionCompletion::Refused { record, .. } => {
+                        let refusal = match heimdall_domain::decision::complete(
+                            &record,
+                            verdict,
+                            tx.authority_generation()?,
+                            now,
+                        ) {
+                            Err(r) => r,
+                            Ok(_) => DecisionRefusal::NotPending(record.state),
+                        };
+                        let err = OpError::from_decision_refusal(&refusal)
+                            .with_resource("decision", Some(did.to_string()));
+                        *completion_refused2
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner) = Some(err);
+                        Err(conflict("confirm_time decision completion was refused"))
+                    }
+                }
+            })
+            .await;
+        if let Some(e) = completion_refused
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
+            return Err(e);
+        }
+        let confirmation = r??;
         Ok(Completed::ok(
             Code::Ok,
             serde_json::json!({
@@ -13097,12 +13188,13 @@ impl Operations {
                 let expired = grant_try(&mut g, GrantEvent::DeadlineReached);
                 if expired {
                     put_grant(tx, emit, &g, None)?;
+                    let payload = expired_payload(tx, &g)?;
                     emit.event(
                         tx,
                         EventType::CredentialLifecycle,
                         None,
                         Some(resource("grant", &gid)),
-                        serde_json::json!({ "grant_id": gid, "event": "expired" }),
+                        payload,
                     )?;
                 }
                 for mut op in tx.open_operations()? {

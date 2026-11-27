@@ -319,6 +319,45 @@ impl TxnGate {
         };
         Ok(dtime::budget_exhausted(&anchor, &self.clock.observe()))
     }
+
+    /// ⟨M08 W4 SEC-5, S3-07⟩ Record an attended confirmation (ADR-0005 §3.6) inside
+    /// `txn`: accepts the current observation as this boot's anchor if `confirmed_wall`
+    /// agrees with the clock within tolerance and is not below the high-water mark beyond
+    /// the rollback tolerance. Never moves deadlines; never rebuilds budgets.
+    pub(crate) fn confirm_attended(
+        &self,
+        txn: &mut Txn<'_>,
+        confirmed_wall: Timestamp,
+        decision: DecisionId,
+    ) -> heimdall_store::Result<Result<AttendedTimeConfirmation, OpError>> {
+        let mark = txn.high_water_mark()?;
+        let now = self.clock.observe();
+        let disagreement = confirmed_wall.duration_since(now.wall).unsigned_abs();
+        if disagreement > self.policy.max_tolerated_skew {
+            return Ok(Err(refused(
+                "the confirmed time disagrees with the system clock by more than the skew tolerance",
+            )));
+        }
+        if mark.is_some_and(|m| {
+            m.duration_since(now.wall) > signed(self.policy.max_tolerated_rollback)
+        }) {
+            return Ok(Err(refused(
+                "the system clock is below the latest accepted time by more than the rollback tolerance",
+            )));
+        }
+        // R3: the accepted observation becomes this boot's runtime anchor; no
+        // grant anchor, bound or deadline is read or written here.
+        let confirmation = AttendedTimeConfirmation {
+            boot_id: now.boot_id.clone(),
+            continuous: now.continuous,
+            wall: now.wall,
+            decision,
+        };
+        txn.set_time_confirmation(&confirmation)?;
+        txn.set_runtime_anchor(&confirmation.as_anchor())?;
+        txn.raise_high_water_mark(now.wall)?;
+        Ok(Ok(confirmation))
+    }
 }
 
 fn signed(d: Duration) -> jiff::SignedDuration {
@@ -437,33 +476,8 @@ impl TimeGate {
         decision: DecisionId,
     ) -> Result<AttendedTimeConfirmation, OpError> {
         self.blocking(move |p| {
-            p.store.transaction(|txn| {
-                let mark = txn.high_water_mark()?;
-                let now = p.gate.clock.observe();
-                let disagreement = confirmed_wall.duration_since(now.wall).unsigned_abs();
-                if disagreement > p.gate.policy.max_tolerated_skew {
-                    return Ok(Err(refused(
-                        "the confirmed time disagrees with the system clock by more than the skew tolerance",
-                    )));
-                }
-                if mark.is_some_and(|m| m.duration_since(now.wall) > signed(p.gate.policy.max_tolerated_rollback)) {
-                    return Ok(Err(refused(
-                        "the system clock is below the latest accepted time by more than the rollback tolerance",
-                    )));
-                }
-                // R3: the accepted observation becomes this boot's runtime anchor; no
-                // grant anchor, bound or deadline is read or written here.
-                let confirmation = AttendedTimeConfirmation {
-                    boot_id: now.boot_id.clone(),
-                    continuous: now.continuous,
-                    wall: now.wall,
-                    decision,
-                };
-                txn.set_time_confirmation(&confirmation)?;
-                txn.set_runtime_anchor(&confirmation.as_anchor())?;
-                txn.raise_high_water_mark(now.wall)?;
-                Ok(Ok(confirmation))
-            })?
+            p.store
+                .transaction(|txn| p.gate.confirm_attended(txn, confirmed_wall, decision))?
         })
         .await
     }

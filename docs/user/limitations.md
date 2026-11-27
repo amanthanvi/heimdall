@@ -62,14 +62,6 @@ Short, and meant to be read once.
 - **A certificate request reserved just before the runtime restarts can be signed again within
   60 s of the restart,** for the same key and with the same limits. The second certificate is
   never published, and it is still counted as issued.
-- **An interrupted `heimdall time confirm` can leave its decision record unfinished.** The
-  command writes its decision record, the confirmation and the decision's outcome in three
-  steps, because the clock check that accepts the confirmation runs as a step of its own. A
-  crash between the steps can leave the record pending, whether or not the confirmation took
-  effect (`heimdall decision list` shows it until it expires, 15 minutes later). A policy change
-  at the same moment can leave the record marked stale, with no event saying so, although the
-  confirmation took effect. Only the record is out of step: a confirmation never moves a
-  deadline or widens access, and the record cannot be approved later.
 - **A `Host` line of yours that names a managed alias is reported only when it names it
   exactly.** `heimdall doctor` and `heimdall setup` report a user `Host` line naming a managed
   alias as a literal (letter case aside). A wildcard pattern (`Host web*`) or a `Match` block

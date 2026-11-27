@@ -4734,3 +4734,292 @@ async fn an_approval_whose_widening_fails_to_apply_leaves_the_decision_as_it_was
         "no decision event was committed"
     );
 }
+
+/// ⟨M08 W4 SEC-5, item 7.2 (S3-07)⟩ `confirm_time` writes its decision record, the time
+/// gate's attended confirmation and the decision's outcome in **one** transaction: an
+/// accepted and a refused (skew) confirmation each commit exactly once, and a failed commit
+/// leaves neither a pending decision nor a confirmation.
+#[tokio::test]
+async fn confirm_time_runs_in_one_transaction() {
+    use heimdall_contract::request::ConfirmTimeRequest;
+
+    struct CountAndFailCommits {
+        active: AtomicBool,
+        commits: AtomicUsize,
+        fail_on: AtomicUsize,
+    }
+    impl FaultHook for CountAndFailCommits {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            if point == FaultPoint::BeforeCommit && self.active.load(Ordering::SeqCst) {
+                let n = self.commits.fetch_add(1, Ordering::SeqCst) + 1;
+                if n == self.fail_on.load(Ordering::SeqCst) {
+                    return FaultAction::Fail;
+                }
+            }
+            FaultAction::Continue
+        }
+    }
+
+    // 1. Accepted confirmation runs in exactly one transaction; a fault on that single commit
+    // leaves nothing behind (neither a pending decision nor a confirmation).
+    let hook = Arc::new(CountAndFailCommits {
+        active: AtomicBool::new(false),
+        commits: AtomicUsize::new(0),
+        fail_on: AtomicUsize::new(0),
+    });
+    let w = World::with_opts(Opts {
+        faults: hook.clone(),
+        ..Opts::default()
+    })
+    .await;
+    // Fail commit #1: must roll back completely with nothing left behind.
+    hook.commits.store(0, Ordering::SeqCst);
+    hook.fail_on.store(1, Ordering::SeqCst);
+    hook.active.store(true, Ordering::SeqCst);
+    let failed = w
+        .ops
+        .confirm_time(
+            &attended(501),
+            ConfirmTimeRequest {
+                observed_wall: w.clock.wall(),
+            },
+        )
+        .await;
+    hook.active.store(false, Ordering::SeqCst);
+    assert!(failed.is_err(), "injected commit fault must fail");
+    assert_eq!(hook.commits.load(Ordering::SeqCst), 1);
+    assert!(
+        w.store
+            .transaction(|tx| tx.pending_decisions())
+            .unwrap()
+            .is_empty(),
+        "commit fault must leave no pending decision"
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.time_confirmation())
+            .unwrap()
+            .is_none(),
+        "commit fault must leave no time confirmation"
+    );
+
+    // Succeed with fail_on = 2: a 3-transaction implementation commits tx 1 and fails tx 2,
+    // leaving a dangling pending decision; a single-transaction implementation commits once.
+    hook.commits.store(0, Ordering::SeqCst);
+    hook.fail_on.store(2, Ordering::SeqCst);
+    hook.active.store(true, Ordering::SeqCst);
+    let ok = w
+        .ops
+        .confirm_time(
+            &attended(501),
+            ConfirmTimeRequest {
+                observed_wall: w.clock.wall(),
+            },
+        )
+        .await;
+    hook.active.store(false, Ordering::SeqCst);
+    assert!(
+        ok.is_ok(),
+        "single-transaction confirm_time must not open a second transaction: {ok:?}"
+    );
+    assert_eq!(
+        hook.commits.load(Ordering::SeqCst),
+        1,
+        "accepted confirm_time must use exactly one transaction"
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.pending_decisions())
+            .unwrap()
+            .is_empty(),
+        "no pending decision left after acceptance"
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.time_confirmation())
+            .unwrap()
+            .is_some()
+    );
+
+    // Skew-refused confirmation also runs in exactly one transaction.
+    hook.commits.store(0, Ordering::SeqCst);
+    hook.fail_on.store(2, Ordering::SeqCst);
+    hook.active.store(true, Ordering::SeqCst);
+    let skewed = w
+        .ops
+        .confirm_time(
+            &attended(501),
+            ConfirmTimeRequest {
+                observed_wall: at(3600),
+            },
+        )
+        .await;
+    hook.active.store(false, Ordering::SeqCst);
+    assert_eq!(code_of(&skewed), Code::TimeUncertain);
+    assert_eq!(
+        hook.commits.load(Ordering::SeqCst),
+        1,
+        "refused confirm_time must also use exactly one transaction"
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.pending_decisions())
+            .unwrap()
+            .is_empty(),
+        "no pending decision left after skew refusal"
+    );
+}
+
+/// ⟨M08 W4 SEC-5, item 7.2 (S3-07)⟩ When the store refuses to complete `confirm_time`'s
+/// decision (`DecisionCompletion::Refused`; here the decision lifetime is zero, so it has
+/// expired when it is completed), the refusal is answered (`DECISION_STALE`) and the whole
+/// transaction rolls back: no decision record, no confirmation, no decision event.
+#[tokio::test]
+async fn confirm_time_answers_a_refused_completion_and_rolls_back() {
+    use heimdall_contract::request::ConfirmTimeRequest;
+
+    // DecisionCompletion::Refused (decision_lifetime == 0 -> already expired when completed):
+    // must return DECISION_STALE and roll back the entire transaction (no decision record, no
+    // confirmation, no runtime anchor, no decision event).
+    let w_refused = World::with_opts(Opts {
+        limits: Limits {
+            decision_lifetime: Duration::ZERO,
+            ..Limits::default()
+        },
+        ..Opts::default()
+    })
+    .await;
+    let res = w_refused
+        .ops
+        .confirm_time(
+            &attended(501),
+            ConfirmTimeRequest {
+                observed_wall: w_refused.clock.wall(),
+            },
+        )
+        .await;
+    assert_eq!(
+        code_of(&res),
+        Code::DecisionStale,
+        "DecisionCompletion::Refused must be returned as DECISION_STALE, not ignored: {res:?}"
+    );
+    assert!(
+        w_refused
+            .store
+            .transaction(|tx| tx.time_confirmation())
+            .unwrap()
+            .is_none(),
+        "refused completion must roll back the time confirmation"
+    );
+    assert!(
+        w_refused
+            .store
+            .transaction(|tx| tx.pending_decisions())
+            .unwrap()
+            .is_empty(),
+        "refused completion must roll back the pending decision record"
+    );
+    assert!(
+        decision_ids_announced(&w_refused).is_empty(),
+        "refused completion must commit no decision event"
+    );
+}
+
+/// ⟨M08 W4 SEC-5, item 7.1⟩ A grant a cutoff ends on safe time records `policy_cutoff` as the
+/// cause of its `credential_lifecycle` `expired` event; a deadline expiry records no cause.
+/// `grant_state_changed` carries a `reason` only for a degraded grant, in both cases.
+#[tokio::test]
+async fn a_cutoff_ending_a_grant_records_policy_cutoff_reason_and_deadline_expiry_does_not() {
+    use heimdall_contract::event::EventType;
+
+    // Case 1: a cutoff ends the grant: the cause is `policy_cutoff`.
+    let w = World::new().await;
+    let base = w.ready("req-cut", "work-cut", &["h1"], None).await;
+    w.clock.advance(MINUTE);
+    w.ops
+        .policy(
+            &owner(501),
+            PolicyAction::Cutoff {
+                policy_id: Some(policy_id()),
+                at: w.clock.wall(),
+                target: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(w.grant(&base.grant_id).state, GrantState::Expired);
+    let events = w
+        .store
+        .transaction(|tx| {
+            tx.events_after(
+                &env_id(),
+                0,
+                &heimdall_contract::event::EventFilter::default(),
+                500,
+            )
+        })
+        .unwrap()
+        .events;
+    let gs = events
+        .iter()
+        .find(|e| {
+            e.event_type == EventType::GrantStateChanged
+                && e.payload["grant_id"] == base.grant_id.as_str()
+                && e.payload["state"] == "expired"
+        })
+        .expect("grant_state_changed(expired)");
+    assert!(gs.payload.get("reason").is_none(), "{}", gs.payload);
+    let cl = events
+        .iter()
+        .find(|e| {
+            e.event_type == EventType::CredentialLifecycle
+                && e.payload["grant_id"] == base.grant_id.as_str()
+                && e.payload["event"] == "expired"
+        })
+        .expect("credential_lifecycle(expired)");
+    assert_eq!(cl.payload["cause"], "policy_cutoff", "{}", cl.payload);
+
+    // Case 2: the deadline passes (no cutoff): no cause.
+    let w2 = World::new().await;
+    let base2 = w2
+        .ready(
+            "req-exp",
+            "work-exp",
+            &["h1"],
+            Some(DeadlineIntent::Duration("10m".into())),
+        )
+        .await;
+    w2.clock.advance(11 * MINUTE);
+    w2.ops.tick().await.unwrap();
+    assert_eq!(w2.grant(&base2.grant_id).state, GrantState::Expired);
+    let events2 = w2
+        .store
+        .transaction(|tx| {
+            tx.events_after(
+                &env_id(),
+                0,
+                &heimdall_contract::event::EventFilter::default(),
+                500,
+            )
+        })
+        .unwrap()
+        .events;
+    let gs2 = events2
+        .iter()
+        .find(|e| {
+            e.event_type == EventType::GrantStateChanged
+                && e.payload["grant_id"] == base2.grant_id.as_str()
+                && e.payload["state"] == "expired"
+        })
+        .expect("grant_state_changed(expired)");
+    assert!(gs2.payload.get("reason").is_none(), "{}", gs2.payload);
+    let cl2 = events2
+        .iter()
+        .find(|e| {
+            e.event_type == EventType::CredentialLifecycle
+                && e.payload["grant_id"] == base2.grant_id.as_str()
+                && e.payload["event"] == "expired"
+        })
+        .expect("credential_lifecycle(expired)");
+    assert!(cl2.payload.get("cause").is_none(), "{}", cl2.payload);
+}
